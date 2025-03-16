@@ -155,7 +155,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				Choices: []ChatCompletionChoice{},
 			}
 
-			result.Usage = &Usage{
+			result.Usage = &ChatCompletionUsage{
 				PromptTokens:     completion.Usage.InputTokens,
 				CompletionTokens: completion.Usage.OutputTokens,
 				TotalTokens:      completion.Usage.InputTokens + completion.Usage.OutputTokens,
@@ -203,7 +203,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if completion.Usage != nil {
-			result.Usage = &Usage{
+			result.Usage = &ChatCompletionUsage{
 				PromptTokens:     completion.Usage.InputTokens,
 				CompletionTokens: completion.Usage.OutputTokens,
 				TotalTokens:      completion.Usage.InputTokens + completion.Usage.OutputTokens,

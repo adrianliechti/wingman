@@ -63,3 +63,13 @@ func (h *Handler) handleAudioTranscription(w http.ResponseWriter, r *http.Reques
 
 	writeJson(w, result)
 }
+
+// https://platform.openai.com/docs/api-reference/audio/verbose-json-object
+type Transcription struct {
+	Task string `json:"task"`
+
+	Language string  `json:"language"`
+	Duration float64 `json:"duration"`
+
+	Text string `json:"text"`
+}

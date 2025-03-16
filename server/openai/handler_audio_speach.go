@@ -39,3 +39,11 @@ func (h *Handler) handleAudioSpeech(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "audio/wav")
 	io.Copy(w, synthesis.Reader)
 }
+
+// https://platform.openai.com/docs/api-reference/audio/createSpeech
+type SpeechRequest struct {
+	Model string `json:"model"`
+
+	Input string `json:"input"`
+	Voice string `json:"voice"`
+}

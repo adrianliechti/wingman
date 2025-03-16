@@ -5,88 +5,11 @@ import (
 	"errors"
 )
 
-// https://platform.openai.com/docs/api-reference/models/object
-type Model struct {
-	Object string `json:"object"` // "model"
-
-	ID      string `json:"id"`
-	Created int64  `json:"created"`
-	OwnedBy string `json:"owned_by"`
-}
-
-// https://platform.openai.com/docs/api-reference/models
-type ModelList struct {
-	Object string `json:"object"` // "list"
-
-	Models []Model `json:"data"`
-}
-
-// https://platform.openai.com/docs/api-reference/embeddings/create
-type EmbeddingsRequest struct {
-	Model string `json:"model"`
-
-	Input any `json:"input"`
-
-	// encoding_format string: float, base64
-	// dimensions int
-	// user string
-}
-
-func (r *EmbeddingsRequest) UnmarshalJSON(data []byte) error {
-	type1 := struct {
-		Model string `json:"model"`
-		Input string `json:"input"`
-	}{}
-
-	if err := json.Unmarshal(data, &type1); err == nil {
-		*r = EmbeddingsRequest{
-			Model: type1.Model,
-			Input: type1.Input,
-		}
-
-		return nil
-	}
-
-	type2 := struct {
-		Model string `json:"model"`
-
-		Input []string `json:"input"`
-	}{}
-
-	if err := json.Unmarshal(data, &type2); err == nil {
-		*r = EmbeddingsRequest{
-			Model: type2.Model,
-			Input: type2.Input,
-		}
-
-		return nil
-	}
-
-	return nil
-}
-
-// https://platform.openai.com/docs/api-reference/embeddings/object
-type Embedding struct {
-	Object string `json:"object"` // "embedding"
-
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
-}
-
-// https://platform.openai.com/docs/api-reference/embeddings/create
-type EmbeddingList struct {
-	Object string `json:"object"` // "list"
-
-	Model string      `json:"model"`
-	Data  []Embedding `json:"data"`
-
-	Usage *Usage `json:"usage,omitempty"`
-}
-
 type MessageRole string
 
 var (
 	MessageRoleSystem    MessageRole = "system"
+	MessageRoleDeveloper MessageRole = "developer"
 	MessageRoleUser      MessageRole = "user"
 	MessageRoleAssistant MessageRole = "assistant"
 	MessageRoleTool      MessageRole = "tool"
@@ -186,7 +109,7 @@ type ChatCompletion struct {
 
 	Choices []ChatCompletionChoice `json:"choices"`
 
-	Usage *Usage `json:"usage,omitempty"`
+	Usage *ChatCompletionUsage `json:"usage,omitempty"`
 }
 
 // https://platform.openai.com/docs/api-reference/chat/object
@@ -346,59 +269,6 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-// https://platform.openai.com/docs/api-reference/audio/createSpeech
-type SpeechRequest struct {
-	Model string `json:"model"`
-
-	Input string `json:"input"`
-	Voice string `json:"voice"`
-}
-
-type Transcription struct {
-	Task string `json:"task"`
-
-	Language string  `json:"language"`
-	Duration float64 `json:"duration"`
-
-	Text string `json:"text"`
-}
-
-type ImageStyle string
-
-const (
-	ImageStyleNatural ImageStyle = "natural"
-	ImageStyleVivid   ImageStyle = "vivid"
-)
-
-// https://platform.openai.com/docs/api-reference/images/create
-type ImageCreateRequest struct {
-	Model string `json:"model"`
-
-	Prompt string     `json:"prompt"`
-	Style  ImageStyle `json:"style,omitempty"`
-
-	ResponseFormat string `json:"response_format,omitempty"`
-}
-
-// https://platform.openai.com/docs/api-reference/images/create
-type ImageList struct {
-	Images []Image `json:"data"`
-}
-
-// https://platform.openai.com/docs/api-reference/images/object
-type Image struct {
-	URL     string `json:"url,omitempty"`
-	B64JSON string `json:"b64_json,omitempty"`
-
-	RevisedPrompt string `json:"revised_prompt,omitempty"`
-}
-
-type Usage struct {
-	PromptTokens     int `json:"prompt_tokens,omitempty"`
-	CompletionTokens int `json:"completion_tokens,omitempty"`
-	TotalTokens      int `json:"total_tokens,omitempty"`
-}
-
 type ErrorResponse struct {
 	Error Error `json:"error,omitempty"`
 }
@@ -406,4 +276,10 @@ type ErrorResponse struct {
 type Error struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+}
+
+type ChatCompletionUsage struct {
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
 }

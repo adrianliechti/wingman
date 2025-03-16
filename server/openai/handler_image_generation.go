@@ -70,6 +70,36 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 	writeJson(w, result)
 }
 
+// https://platform.openai.com/docs/api-reference/images/create
+type ImageCreateRequest struct {
+	Model string `json:"model"`
+
+	Prompt string     `json:"prompt"`
+	Style  ImageStyle `json:"style,omitempty"`
+
+	ResponseFormat string `json:"response_format,omitempty"`
+}
+
+type ImageStyle string
+
+const (
+	ImageStyleNatural ImageStyle = "natural"
+	ImageStyleVivid   ImageStyle = "vivid"
+)
+
+// https://platform.openai.com/docs/api-reference/images/create
+type ImageList struct {
+	Images []Image `json:"data"`
+}
+
+// https://platform.openai.com/docs/api-reference/images/object
+type Image struct {
+	URL     string `json:"url,omitempty"`
+	B64JSON string `json:"b64_json,omitempty"`
+
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
+}
+
 func toImageStyle(style ImageStyle) provider.ImageStyle {
 	switch style {
 	case ImageStyleVivid:
