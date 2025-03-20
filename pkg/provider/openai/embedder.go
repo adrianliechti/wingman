@@ -12,7 +12,7 @@ var _ provider.Embedder = (*Embedder)(nil)
 
 type Embedder struct {
 	*Config
-	embeddings *openai.EmbeddingService
+	embeddings openai.EmbeddingService
 }
 
 func NewEmbedder(url, model string, options ...Option) (*Embedder, error) {
@@ -33,9 +33,11 @@ func NewEmbedder(url, model string, options ...Option) (*Embedder, error) {
 
 func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embedding, error) {
 	embedding, err := e.embeddings.New(ctx, openai.EmbeddingNewParams{
-		Model:          openai.F(e.model),
-		Input:          openai.F[openai.EmbeddingNewParamsInputUnion](openai.EmbeddingNewParamsInputArrayOfStrings(texts)),
-		EncodingFormat: openai.F(openai.EmbeddingNewParamsEncodingFormatFloat),
+		Model: e.model,
+		Input: openai.EmbeddingNewParamsInputUnion{
+			OfArrayOfStrings: texts,
+		},
+		EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,
 	})
 
 	if err != nil {

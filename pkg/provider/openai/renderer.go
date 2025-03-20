@@ -17,7 +17,7 @@ var _ provider.Renderer = (*Renderer)(nil)
 
 type Renderer struct {
 	*Config
-	images *openai.ImageService
+	images openai.ImageService
 }
 
 func NewRenderer(url, model string, options ...Option) (*Renderer, error) {
@@ -75,18 +75,18 @@ func (r *Renderer) convertImageGenerateRequest(input string, options *provider.R
 	}
 
 	req := &openai.ImageGenerateParams{
-		Model:  openai.F(r.model),
-		Prompt: openai.F(input),
+		Model:  r.model,
+		Prompt: input,
 
-		ResponseFormat: openai.F(openai.ImageGenerateParamsResponseFormatB64JSON),
+		ResponseFormat: openai.ImageGenerateParamsResponseFormatB64JSON,
 	}
 
 	if options.Style == provider.ImageStyleNatural {
-		req.Style = openai.F(openai.ImageGenerateParamsStyleNatural)
+		req.Style = openai.ImageGenerateParamsStyleNatural
 	}
 
 	if options.Style == provider.ImageStyleVivid {
-		req.Style = openai.F(openai.ImageGenerateParamsStyleVivid)
+		req.Style = openai.ImageGenerateParamsStyleVivid
 	}
 
 	return req, nil

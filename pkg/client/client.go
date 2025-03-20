@@ -9,10 +9,10 @@ import (
 )
 
 type Client struct {
-	Models *openai.ModelService
+	Models openai.ModelService
 
-	Embeddings  *openai.EmbeddingService
-	Completions *openai.ChatCompletionService
+	Embeddings  openai.EmbeddingService
+	Completions openai.ChatCompletionService
 
 	Segments    *SegmentService
 	Extractions *ExtractionService

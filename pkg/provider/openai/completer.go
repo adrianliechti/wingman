@@ -5,19 +5,20 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
-	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/shared"
 )
 
 var _ provider.Completer = (*Completer)(nil)
 
 type Completer struct {
 	*Config
-	completions *openai.ChatCompletionService
+	completions openai.ChatCompletionService
 }
 
 func NewCompleter(url, model string, options ...Option) (*Completer, error) {
@@ -76,7 +77,7 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 			Role:    provider.MessageRoleAssistant,
 			Content: choice.Message.Content,
 
-			ToolCalls: toToolCalls(choice.Message.ToolCalls),
+			ToolCalls: fromToolCalls(choice.Message.ToolCalls),
 		},
 
 		Usage: &provider.Usage{
@@ -89,7 +90,7 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletionNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
 	stream := c.completions.NewStreaming(ctx, req)
 
-	result := openai.ChatCompletionAccumulator{}
+	result := 
 
 	var usage *openai.CompletionUsage
 
@@ -108,12 +109,12 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 		if len(chunk.Choices) > 0 {
 			choice := chunk.Choices[0]
 
-			delta.Reason = toDeltaCompletionResult(choice.FinishReason)
+			delta.Reason = toCompletionResult(choice.FinishReason)
 
 			delta.Message.Content = choice.Delta.Content
 			delta.Message.Refusal = choice.Delta.Refusal
 
-			delta.Message.ToolCalls = toDeltaToolCalls(choice.Delta.ToolCalls)
+			delta.Message.ToolCalls = fromChunkToolCalls(choice.Delta.ToolCalls)
 		}
 
 		if chunk.Usage.TotalTokens > 0 {
@@ -154,7 +155,7 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 		completion.Message.Content = choice.Message.Content
 		completion.Message.Refusal = choice.Message.Refusal
 
-		completion.Message.ToolCalls = toToolCalls(choice.Message.ToolCalls)
+		completion.Message.ToolCalls = fromToolCalls(choice.Message.ToolCalls)
 	}
 
 	if result.Usage.TotalTokens > 0 {
@@ -189,78 +190,81 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	req := &openai.ChatCompletionNewParams{
-		Model: openai.F(c.model),
+		Model: c.model,
 	}
 
 	if options.Stream != nil {
 		if !strings.Contains(c.url, "api.mistral.ai") {
-			req.StreamOptions = openai.F(openai.ChatCompletionStreamOptionsParam{
-				IncludeUsage: openai.F(true),
-			})
+			req.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+				IncludeUsage: param.NewOpt(true),
+			}
 		}
 	}
 
 	if len(tools) > 0 {
-		req.Tools = openai.F(tools)
+		req.Tools = tools
 	}
 
 	if len(messages) > 0 {
-		req.Messages = openai.F(messages)
+		req.Messages = messages
 	}
 
 	switch options.Effort {
 	case provider.ReasoningEffortLow:
-		req.ReasoningEffort = openai.F(openai.ChatCompletionReasoningEffortLow)
+		req.ReasoningEffort = shared.ReasoningEffortLow
 
 	case provider.ReasoningEffortMedium:
-		req.ReasoningEffort = openai.F(openai.ChatCompletionReasoningEffortMedium)
+		req.ReasoningEffort = shared.ReasoningEffortMedium
 
 	case provider.ReasoningEffortHigh:
-		req.ReasoningEffort = openai.F(openai.ChatCompletionReasoningEffortHigh)
+		req.ReasoningEffort = shared.ReasoningEffortHigh
 	}
 
 	if options.Format == provider.CompletionFormatJSON {
-		req.ResponseFormat = openai.F[openai.ChatCompletionNewParamsResponseFormatUnion](openai.ResponseFormatJSONObjectParam{
-			Type: openai.F(openai.ResponseFormatJSONObjectTypeJSONObject),
-		})
+		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+		}
 	}
 
 	if options.Schema != nil {
 		schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
-			Name:   openai.F(options.Schema.Name),
-			Schema: openai.F(any(options.Schema.Schema)),
+			Name:   options.Schema.Name,
+			Schema: options.Schema.Schema,
 		}
 
 		if options.Schema.Description != "" {
-			schema.Description = openai.F(options.Schema.Description)
+			schema.Description = param.NewOpt(options.Schema.Description)
 		}
 
 		if options.Schema.Strict != nil {
-			schema.Strict = openai.F(*options.Schema.Strict)
+			schema.Strict = param.NewOpt(*options.Schema.Strict)
 		}
 
-		req.ResponseFormat = openai.F[openai.ChatCompletionNewParamsResponseFormatUnion](openai.ResponseFormatJSONSchemaParam{
-			Type: openai.F(openai.ResponseFormatJSONSchemaTypeJSONSchema),
-
-			JSONSchema: openai.F(schema),
-		})
+		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+				JSONSchema: schema,
+			},
+		}
 	}
 
 	if options.Stop != nil {
-		stops := openai.ChatCompletionNewParamsStopArray(options.Stop)
-		req.Stop = openai.F[openai.ChatCompletionNewParamsStopUnion](stops)
-	}
-
-	if options.MaxTokens != nil {
-		if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
-			req.MaxCompletionTokens = openai.F(int64(*options.MaxTokens))
-		} else {
-			req.MaxTokens = openai.F(int64(*options.MaxTokens))
+		req.Stop = openai.ChatCompletionNewParamsStopUnion{
+			OfChatCompletionNewsStopArray: options.Stop,
 		}
 	}
 
+	// TODO
+
+	// if options.MaxTokens != nil {
+	// 	if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
+	// 		req.MaxCompletionTokens = int64(*options.MaxTokens)
+	// 	} else {
+	// 		req.MaxTokens = int64(*options.MaxTokens)
+	// 	}
+	// }
+
 	if options.Temperature != nil {
-		req.Temperature = openai.F(float64(*options.Temperature))
+		req.Temperature = param.NewOpt(float64(*options.Temperature))
 	}
 
 	return req, nil
@@ -274,15 +278,15 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 		case provider.MessageRoleSystem:
 			message := openai.SystemMessage(m.Content)
 
-			if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
-				message = openai.ChatCompletionDeveloperMessageParam{
-					Role: openai.F(openai.ChatCompletionDeveloperMessageParamRoleDeveloper),
+			// if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
+			// 	message = openai.ChatCompletionDeveloperMessageParam{
+			// 		Role: openai.ChatCompletionDeveloperMessageParamRoleDeveloper,
 
-					Content: openai.F([]openai.ChatCompletionContentPartTextParam{
-						openai.TextPart(m.Content),
-					}),
-				}
-			}
+			// 		Content: openai.F([]openai.ChatCompletionContentPartTextParam{
+			// 			openai.TextPart(m.Content),
+			// 		}),
+			// 	}
+			// }
 
 			result = append(result, message)
 
@@ -290,7 +294,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			parts := []openai.ChatCompletionContentPartUnionParam{}
 
 			if m.Content != "" {
-				parts = append(parts, openai.TextPart(m.Content))
+				parts = append(parts, openai.TextContentPart(m.Content))
 			}
 
 			for _, f := range m.Files {
@@ -306,40 +310,41 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				switch f.ContentType {
 				case "image/png", "image/jpeg", "image/webp", "image/gif":
 					url := "data:" + mime + ";base64," + content
-					parts = append(parts, openai.ImagePart(url))
+					parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+						URL: url,
+					}))
 
 				default:
 					return nil, errors.New("unsupported content type")
 				}
 			}
 
-			message := openai.UserMessageParts(parts...)
+			message := openai.UserMessage(parts)
 			result = append(result, message)
 
 		case provider.MessageRoleAssistant:
-			message := openai.AssistantMessage(m.Content)
+			message := openai.ChatCompletionAssistantMessageParam{}
 
 			var toolcalls []openai.ChatCompletionMessageToolCallParam
 
 			for _, t := range m.ToolCalls {
 				toolcall := openai.ChatCompletionMessageToolCallParam{
-					ID:   openai.F(t.ID),
-					Type: openai.F(openai.ChatCompletionMessageToolCallTypeFunction),
+					ID: t.ID,
 
-					Function: openai.F(openai.ChatCompletionMessageToolCallFunctionParam{
-						Name:      openai.F(t.Name),
-						Arguments: openai.F(t.Arguments),
-					}),
+					Function: openai.ChatCompletionMessageToolCallFunctionParam{
+						Name:      t.Name,
+						Arguments: t.Arguments,
+					},
 				}
 
 				toolcalls = append(toolcalls, toolcall)
 			}
 
 			if len(toolcalls) > 0 {
-				message.ToolCalls = openai.F(toolcalls)
+				message.ToolCalls = toolcalls
 			}
 
-			result = append(result, message)
+			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &message})
 
 		case provider.MessageRoleTool:
 			message := openai.ToolMessage(m.Tool, m.Content)
@@ -359,23 +364,21 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolParam, erro
 		}
 
 		function := openai.FunctionDefinitionParam{
-			Name: openai.F(t.Name),
+			Name: t.Name,
 
-			Parameters: openai.F(openai.FunctionParameters(t.Parameters)),
+			Parameters: openai.FunctionParameters(t.Parameters),
 		}
 
 		if t.Description != "" {
-			function.Description = openai.F(t.Description)
+			function.Description = param.NewOpt(t.Description)
 		}
 
 		if t.Strict != nil {
-			function.Strict = openai.F(*t.Strict)
+			function.Strict = param.NewOpt(*t.Strict)
 		}
 
 		tool := openai.ChatCompletionToolParam{
-			Type: openai.F(openai.ChatCompletionToolTypeFunction),
-
-			Function: openai.F(function),
+			Function: function,
 		}
 
 		result = append(result, tool)
@@ -384,7 +387,7 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolParam, erro
 	return result, nil
 }
 
-func toDeltaToolCalls(calls []openai.ChatCompletionChunkChoicesDeltaToolCall) []provider.ToolCall {
+func fromToolCalls(calls []openai.ChatCompletionMessageToolCall) []provider.ToolCall {
 	var result []provider.ToolCall
 
 	for _, c := range calls {
@@ -401,7 +404,7 @@ func toDeltaToolCalls(calls []openai.ChatCompletionChunkChoicesDeltaToolCall) []
 	return result
 }
 
-func toToolCalls(calls []openai.ChatCompletionMessageToolCall) []provider.ToolCall {
+func fromChunkToolCalls(calls []openai.ChatCompletionChunkChoiceDeltaToolCall) []provider.ToolCall {
 	var result []provider.ToolCall
 
 	for _, c := range calls {
@@ -418,37 +421,18 @@ func toToolCalls(calls []openai.ChatCompletionMessageToolCall) []provider.ToolCa
 	return result
 }
 
-func toDeltaCompletionResult(val openai.ChatCompletionChunkChoicesFinishReason) provider.CompletionReason {
+func toCompletionResult(val string) provider.CompletionReason {
 	switch val {
-	case openai.ChatCompletionChunkChoicesFinishReasonStop:
+	case "stop":
 		return provider.CompletionReasonStop
 
-	case openai.ChatCompletionChunkChoicesFinishReasonLength:
+	case "length":
 		return provider.CompletionReasonLength
 
-	case openai.ChatCompletionChunkChoicesFinishReasonToolCalls:
+	case "tool_calls":
 		return provider.CompletionReasonTool
 
-	case openai.ChatCompletionChunkChoicesFinishReasonContentFilter:
-		return provider.CompletionReasonFilter
-
-	default:
-		return ""
-	}
-}
-
-func toCompletionResult(val openai.ChatCompletionChoicesFinishReason) provider.CompletionReason {
-	switch val {
-	case openai.ChatCompletionChoicesFinishReasonStop:
-		return provider.CompletionReasonStop
-
-	case openai.ChatCompletionChoicesFinishReasonLength:
-		return provider.CompletionReasonLength
-
-	case openai.ChatCompletionChoicesFinishReasonToolCalls:
-		return provider.CompletionReasonTool
-
-	case openai.ChatCompletionChoicesFinishReasonContentFilter:
+	case "content_filter":
 		return provider.CompletionReasonFilter
 
 	default:

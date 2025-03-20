@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -14,7 +13,7 @@ var _ provider.Transcriber = (*Transcriber)(nil)
 
 type Transcriber struct {
 	*Config
-	transcriptions *openai.AudioTranscriptionService
+	transcriptions openai.AudioTranscriptionService
 }
 
 func NewTranscriber(url, model string, options ...Option) (*Transcriber, error) {
@@ -41,11 +40,11 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 	id := uuid.NewString()
 
 	transcription, err := t.transcriptions.New(ctx, openai.AudioTranscriptionNewParams{
-		Model: openai.F(t.model),
+		Model: t.model,
 
-		File: openai.FileParam(input.Content, input.Name, input.ContentType),
+		File: openai.File(input.Content, input.Name, input.ContentType),
 
-		ResponseFormat: openai.F(openai.AudioResponseFormatVerboseJSON),
+		ResponseFormat: openai.AudioResponseFormatVerboseJSON,
 	})
 
 	if err != nil {
@@ -58,15 +57,17 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 		Text: transcription.Text,
 	}
 
-	var metadata struct {
-		Language string  `json:"language"`
-		Duration float64 `json:"duration"`
-	}
+	// TODO
 
-	if err := json.Unmarshal([]byte(transcription.JSON.RawJSON()), &metadata); err == nil {
-		result.Language = metadata.Language
-		result.Duration = metadata.Duration
-	}
+	// var metadata struct {
+	// 	Language string  `json:"language"`
+	// 	Duration float64 `json:"duration"`
+	// }
+
+	// if err := json.Unmarshal([]byte(transcription.JSON.RawJSON()), &metadata); err == nil {
+	// 	result.Language = metadata.Language
+	// 	result.Duration = metadata.Duration
+	// }
 
 	return &result, nil
 }
