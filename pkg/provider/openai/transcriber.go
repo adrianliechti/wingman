@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -57,17 +58,15 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 		Text: transcription.Text,
 	}
 
-	// TODO
+	var metadata struct {
+		Language string  `json:"language"`
+		Duration float64 `json:"duration"`
+	}
 
-	// var metadata struct {
-	// 	Language string  `json:"language"`
-	// 	Duration float64 `json:"duration"`
-	// }
-
-	// if err := json.Unmarshal([]byte(transcription.JSON.RawJSON()), &metadata); err == nil {
-	// 	result.Language = metadata.Language
-	// 	result.Duration = metadata.Duration
-	// }
+	if err := json.Unmarshal([]byte(transcription.RawJSON()), &metadata); err == nil {
+		result.Language = metadata.Language
+		result.Duration = metadata.Duration
+	}
 
 	return &result, nil
 }

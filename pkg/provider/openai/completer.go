@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -90,7 +91,7 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletionNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
 	stream := c.completions.NewStreaming(ctx, req)
 
-	result := 
+	result := openai.ChatCompletionAccumulator{}
 
 	var usage *openai.CompletionUsage
 
@@ -253,15 +254,13 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		}
 	}
 
-	// TODO
-
-	// if options.MaxTokens != nil {
-	// 	if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
-	// 		req.MaxCompletionTokens = int64(*options.MaxTokens)
-	// 	} else {
-	// 		req.MaxTokens = int64(*options.MaxTokens)
-	// 	}
-	// }
+	if options.MaxTokens != nil {
+		if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
+			req.MaxCompletionTokens = param.NewOpt(int64(*options.MaxTokens))
+		} else {
+			req.MaxTokens = param.NewOpt(int64(*options.MaxTokens))
+		}
+	}
 
 	if options.Temperature != nil {
 		req.Temperature = param.NewOpt(float64(*options.Temperature))
