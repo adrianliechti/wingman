@@ -20,6 +20,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
 )
 
 func main() {
@@ -48,7 +49,7 @@ func main() {
 	model := *modelFlag
 
 	if model == "" {
-		val, err := selectModel(ctx, client)
+		val, err := selectModel(ctx, &client)
 
 		if err != nil {
 			panic(err)
@@ -58,21 +59,21 @@ func main() {
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeEmbedder {
-		embed(ctx, client, model)
+		embed(ctx, &client, model)
 		return
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeRenderer {
-		render(ctx, client, model)
+		render(ctx, &client, model)
 		return
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeSynthesizer {
-		synthesize(ctx, client, model)
+		synthesize(ctx, &client, model)
 		return
 	}
 
-	chat(ctx, client, model)
+	chat(ctx, &client, model)
 }
 
 func selectModel(ctx context.Context, client *openai.Client) (string, error) {
@@ -153,12 +154,12 @@ LOOP:
 		messages = append(messages, openai.UserMessage(input))
 
 		stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-			Model:    openai.F(model),
-			Messages: openai.F(messages),
+			Model:    openai.ChatModel(model),
+			Messages: messages,
 
-			StreamOptions: openai.F(openai.ChatCompletionStreamOptionsParam{
-				IncludeUsage: openai.F(true),
-			}),
+			StreamOptions: openai.ChatCompletionStreamOptionsParam{
+				IncludeUsage: param.NewOpt(true),
+			},
 		})
 
 		completion := openai.ChatCompletionAccumulator{}
@@ -177,7 +178,7 @@ LOOP:
 			continue LOOP
 		}
 
-		messages = append(messages, completion.Choices[0].Message)
+		messages = append(messages, completion.Choices[0].Message.ToParam())
 
 		output.WriteString("\n")
 		output.WriteString("\n")
@@ -200,9 +201,13 @@ LOOP:
 		input = strings.TrimSpace(input)
 
 		result, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
-			Model:          openai.F(model),
-			Input:          openai.F[openai.EmbeddingNewParamsInputUnion](openai.EmbeddingNewParamsInputArrayOfStrings([]string{input})),
-			EncodingFormat: openai.F(openai.EmbeddingNewParamsEncodingFormatFloat),
+			Model: openai.EmbeddingModel(model),
+
+			Input: openai.EmbeddingNewParamsInputUnion{
+				OfArrayOfStrings: []string{input},
+			},
+
+			EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,
 		})
 
 		if err != nil {
@@ -241,11 +246,13 @@ LOOP:
 		input = strings.TrimSpace(input)
 
 		image, err := client.Images.Generate(ctx, openai.ImageGenerateParams{
-			Model:  openai.F(model),
-			Prompt: openai.F(input),
+			Model: openai.ImageModel(model),
 
-			N:              openai.F(int64(1)),
-			ResponseFormat: openai.F(openai.ImageGenerateParamsResponseFormatB64JSON),
+			Prompt: input,
+
+			N: param.NewOpt(int64(1)),
+
+			ResponseFormat: openai.ImageGenerateParamsResponseFormatB64JSON,
 		})
 
 		if err != nil {
@@ -290,11 +297,12 @@ LOOP:
 		input = strings.TrimSpace(input)
 
 		result, err := client.Audio.Speech.New(ctx, openai.AudioSpeechNewParams{
-			Model: openai.F(model),
-			Input: openai.F(input),
+			Model: openai.SpeechModel(model),
 
-			Voice:          openai.F(openai.AudioSpeechNewParamsVoiceAlloy),
-			ResponseFormat: openai.F(openai.AudioSpeechNewParamsResponseFormatWAV),
+			Input: input,
+
+			Voice:          openai.AudioSpeechNewParamsVoiceAlloy,
+			ResponseFormat: openai.AudioSpeechNewParamsResponseFormatWAV,
 		})
 
 		if err != nil {

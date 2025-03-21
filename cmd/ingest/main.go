@@ -177,8 +177,10 @@ func IndexDir(ctx context.Context, c *client.Client, index, root string) error {
 			}
 
 			titleEmbedding, err := c.Embeddings.New(ctx, openai.EmbeddingNewParams{
-				Model: openai.F(*embeddingFlag),
-				Input: openai.F[openai.EmbeddingNewParamsInputUnion](openai.EmbeddingNewParamsInputArrayOfStrings([]string{title})),
+				Model: openai.EmbeddingModel(*embeddingFlag),
+				Input: openai.EmbeddingNewParamsInputUnion{
+					OfArrayOfStrings: []string{title},
+				},
 			})
 
 			if err != nil {
@@ -193,8 +195,10 @@ func IndexDir(ctx context.Context, c *client.Client, index, root string) error {
 
 			for _, segment := range segments {
 				segmentEmbedding, err := c.Embeddings.New(ctx, openai.EmbeddingNewParams{
-					Model: openai.F(*embeddingFlag),
-					Input: openai.F[openai.EmbeddingNewParamsInputUnion](openai.EmbeddingNewParamsInputArrayOfStrings([]string{segment.Text})),
+					Model: openai.EmbeddingModel(*embeddingFlag),
+					Input: openai.EmbeddingNewParamsInputUnion{
+						OfArrayOfStrings: []string{segment.Text},
+					},
 				})
 
 				if err != nil {
