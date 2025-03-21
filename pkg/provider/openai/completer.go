@@ -277,15 +277,9 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 		case provider.MessageRoleSystem:
 			message := openai.SystemMessage(m.Content)
 
-			// if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
-			// 	message = openai.ChatCompletionDeveloperMessageParam{
-			// 		Role: openai.ChatCompletionDeveloperMessageParamRoleDeveloper,
-
-			// 		Content: openai.F([]openai.ChatCompletionContentPartTextParam{
-			// 			openai.TextPart(m.Content),
-			// 		}),
-			// 	}
-			// }
+			if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
+				message = openai.DeveloperMessage(m.Content)
+			}
 
 			result = append(result, message)
 
@@ -318,13 +312,10 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				}
 			}
 
-			message := openai.UserMessage(parts)
-			result = append(result, message)
+			result = append(result, openai.UserMessage(parts))
 
 		case provider.MessageRoleAssistant:
 			message := openai.ChatCompletionAssistantMessageParam{}
-
-			var toolcalls []openai.ChatCompletionMessageToolCallParam
 
 			for _, t := range m.ToolCalls {
 				toolcall := openai.ChatCompletionMessageToolCallParam{
@@ -336,11 +327,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 					},
 				}
 
-				toolcalls = append(toolcalls, toolcall)
-			}
-
-			if len(toolcalls) > 0 {
-				message.ToolCalls = toolcalls
+				message.ToolCalls = append(message.ToolCalls, toolcall)
 			}
 
 			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &message})
