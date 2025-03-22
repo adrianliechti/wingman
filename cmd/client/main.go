@@ -20,7 +20,6 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/packages/param"
 )
 
 func main() {
@@ -158,7 +157,7 @@ LOOP:
 			Messages: messages,
 
 			StreamOptions: openai.ChatCompletionStreamOptionsParam{
-				IncludeUsage: param.NewOpt(true),
+				IncludeUsage: openai.Bool(true),
 			},
 		})
 
@@ -249,8 +248,6 @@ LOOP:
 			Model: openai.ImageModel(model),
 
 			Prompt: input,
-
-			N: param.NewOpt(int64(1)),
 
 			ResponseFormat: openai.ImageGenerateParamsResponseFormatB64JSON,
 		})

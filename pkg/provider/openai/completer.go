@@ -11,7 +11,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 )
 
@@ -197,7 +196,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	if options.Stream != nil {
 		if !strings.Contains(c.url, "api.mistral.ai") {
 			req.StreamOptions = openai.ChatCompletionStreamOptionsParam{
-				IncludeUsage: param.NewOpt(true),
+				IncludeUsage: openai.Bool(true),
 			}
 		}
 	}
@@ -234,11 +233,11 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		}
 
 		if options.Schema.Description != "" {
-			schema.Description = param.NewOpt(options.Schema.Description)
+			schema.Description = openai.String(options.Schema.Description)
 		}
 
 		if options.Schema.Strict != nil {
-			schema.Strict = param.NewOpt(*options.Schema.Strict)
+			schema.Strict = openai.Bool(*options.Schema.Strict)
 		}
 
 		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
@@ -256,14 +255,14 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 
 	if options.MaxTokens != nil {
 		if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
-			req.MaxCompletionTokens = param.NewOpt(int64(*options.MaxTokens))
+			req.MaxCompletionTokens = openai.Int(int64(*options.MaxTokens))
 		} else {
-			req.MaxTokens = param.NewOpt(int64(*options.MaxTokens))
+			req.MaxTokens = openai.Int(int64(*options.MaxTokens))
 		}
 	}
 
 	if options.Temperature != nil {
-		req.Temperature = param.NewOpt(float64(*options.Temperature))
+		req.Temperature = openai.Float(float64(*options.Temperature))
 	}
 
 	return req, nil
@@ -356,11 +355,11 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolParam, erro
 		}
 
 		if t.Description != "" {
-			function.Description = param.NewOpt(t.Description)
+			function.Description = openai.String(t.Description)
 		}
 
 		if t.Strict != nil {
-			function.Strict = param.NewOpt(*t.Strict)
+			function.Strict = openai.Bool(*t.Strict)
 		}
 
 		tool := openai.ChatCompletionToolParam{
