@@ -301,10 +301,11 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 
 				switch f.ContentType {
 				case "image/png", "image/jpeg", "image/webp", "image/gif":
-					url := "data:" + mime + ";base64," + content
-					parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
-						URL: url,
-					}))
+					imageURL := openai.ChatCompletionContentPartImageImageURLParam{
+						URL: "data:" + mime + ";base64," + content,
+					}
+
+					parts = append(parts, openai.ImageContentPart(imageURL))
 
 				default:
 					return nil, errors.New("unsupported content type")

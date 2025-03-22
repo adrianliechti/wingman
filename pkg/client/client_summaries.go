@@ -13,8 +13,8 @@ type SummaryService struct {
 	Options []RequestOption
 }
 
-func NewSummaryService(opts ...RequestOption) *SummaryService {
-	return &SummaryService{
+func NewSummaryService(opts ...RequestOption) SummaryService {
+	return SummaryService{
 		Options: opts,
 	}
 }

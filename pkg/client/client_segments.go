@@ -14,8 +14,8 @@ type SegmentService struct {
 	Options []RequestOption
 }
 
-func NewSegmentService(opts ...RequestOption) *SegmentService {
-	return &SegmentService{
+func NewSegmentService(opts ...RequestOption) SegmentService {
+	return SegmentService{
 		Options: opts,
 	}
 }

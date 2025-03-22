@@ -14,11 +14,11 @@ type Client struct {
 	Embeddings  openai.EmbeddingService
 	Completions openai.ChatCompletionService
 
-	Segments    *SegmentService
-	Extractions *ExtractionService
+	Segments    SegmentService
+	Extractions ExtractionService
 
-	Documents *DocumentService
-	Summaries *SummaryService
+	Documents DocumentService
+	Summaries SummaryService
 }
 
 func New(url string, opts ...RequestOption) *Client {

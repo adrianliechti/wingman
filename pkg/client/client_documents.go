@@ -17,8 +17,8 @@ type DocumentService struct {
 	Options []RequestOption
 }
 
-func NewDocumentService(opts ...RequestOption) *DocumentService {
-	return &DocumentService{
+func NewDocumentService(opts ...RequestOption) DocumentService {
+	return DocumentService{
 		Options: opts,
 	}
 }

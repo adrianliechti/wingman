@@ -203,7 +203,7 @@ LOOP:
 			Model: openai.EmbeddingModel(model),
 
 			Input: openai.EmbeddingNewParamsInputUnion{
-				OfArrayOfStrings: []string{input},
+				OfString: openai.String(input),
 			},
 
 			EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,

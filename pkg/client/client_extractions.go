@@ -13,8 +13,8 @@ type ExtractionService struct {
 	Options []RequestOption
 }
 
-func NewExtractionService(opts ...RequestOption) *ExtractionService {
-	return &ExtractionService{
+func NewExtractionService(opts ...RequestOption) ExtractionService {
+	return ExtractionService{
 		Options: opts,
 	}
 }

@@ -197,7 +197,7 @@ func IndexDir(ctx context.Context, c *client.Client, index, root string) error {
 				segmentEmbedding, err := c.Embeddings.New(ctx, openai.EmbeddingNewParams{
 					Model: openai.EmbeddingModel(*embeddingFlag),
 					Input: openai.EmbeddingNewParamsInputUnion{
-						OfArrayOfStrings: []string{segment.Text},
+						OfString: openai.String(segment.Text),
 					},
 				})
 
