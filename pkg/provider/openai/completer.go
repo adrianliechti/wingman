@@ -316,6 +316,10 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 		case provider.MessageRoleAssistant:
 			message := openai.ChatCompletionAssistantMessageParam{}
 
+			if m.Content != "" {
+				message.Content.OfString = openai.String(m.Content)
+			}
+
 			for _, t := range m.ToolCalls {
 				toolcall := openai.ChatCompletionMessageToolCallParam{
 					ID: t.ID,
@@ -332,7 +336,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &message})
 
 		case provider.MessageRoleTool:
-			message := openai.ToolMessage(m.Tool, m.Content)
+			message := openai.ToolMessage(m.Content, m.Tool)
 			result = append(result, message)
 		}
 	}
