@@ -12,7 +12,6 @@ import (
 	"google.golang.org/api/iterator"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/to"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -122,23 +121,15 @@ func (c *Completer) complete(ctx context.Context, session *genai.ChatSession, pa
 
 			ToolCalls: toToolCalls(candidate.Content),
 		},
+
+		Usage: toUsage(resp.UsageMetadata),
 	}, nil
 }
 
 func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSession, parts []genai.Part, options *provider.CompleteOptions) (*provider.Completion, error) {
 	iter := session.SendMessageStream(ctx, parts...)
 
-	result := &provider.Completion{
-		ID: uuid.New().String(),
-
-		Message: &provider.Message{
-			Role: provider.MessageRoleAssistant,
-		},
-
-		Usage: &provider.Usage{},
-	}
-
-	resultToolCalls := map[string]provider.ToolCall{}
+	result1 := provider.CompletionAccumulator{}
 
 	for i := 0; ; i++ {
 		resp, err := iter.Next()
@@ -151,62 +142,33 @@ func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSessi
 			return nil, convertError(err)
 		}
 
-		if resp.UsageMetadata != nil {
-			result.Usage = &provider.Usage{
-				InputTokens:  int(resp.UsageMetadata.PromptTokenCount),
-				OutputTokens: int(resp.UsageMetadata.CandidatesTokenCount),
-			}
+		delta1 := provider.Completion{
+			ID: uuid.New().String(),
+
+			Message: &provider.Message{
+				Role: provider.MessageRoleAssistant,
+			},
+
+			Usage: toUsage(resp.UsageMetadata),
 		}
 
-		candidate := resp.Candidates[0]
+		if len(resp.Candidates) > 0 {
+			candidate := resp.Candidates[0]
 
-		if reason := toCompletionResult(candidate); reason != "" {
-			result.Reason = reason
+			delta1.Reason = toCompletionResult(candidate)
+
+			delta1.Message.Content = toContent(candidate.Content)
+			delta1.Message.ToolCalls = toToolCalls(candidate.Content)
 		}
 
-		content := toContent(candidate.Content)
+		result1.Add(delta1)
 
-		result.Message.Content += content
-
-		for _, c := range toToolCalls(candidate.Content) {
-			resultToolCalls[c.Name] = c
-		}
-
-		if len(content) > 0 {
-			delta := provider.Completion{
-				ID: result.ID,
-
-				Reason: result.Reason,
-
-				Message: &provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: content,
-				},
-			}
-
-			if resp.UsageMetadata != nil {
-				delta.Usage = &provider.Usage{
-					InputTokens:  int(resp.UsageMetadata.PromptTokenCount),
-					OutputTokens: int(resp.UsageMetadata.CandidatesTokenCount),
-				}
-			}
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
+		if err := options.Stream(ctx, delta1); err != nil {
+			return nil, err
 		}
 	}
 
-	if result.Reason == "" {
-		result.Reason = provider.CompletionReasonStop
-	}
-
-	if len(resultToolCalls) > 0 {
-		result.Reason = provider.CompletionReasonTool
-		result.Message.ToolCalls = to.Values(resultToolCalls)
-	}
-
-	return result, nil
+	return result1.Result(), nil
 }
 
 func convertSystem(messages []provider.Message) (*genai.Content, error) {
@@ -218,8 +180,8 @@ func convertSystem(messages []provider.Message) (*genai.Content, error) {
 		}
 
 		for _, c := range m.Content {
-			if c.Text != nil {
-				parts = append(parts, genai.Text(c.Text.Text))
+			if c.Text1 != "" {
+				parts = append(parts, genai.Text(c.Text1))
 			}
 		}
 	}
@@ -241,8 +203,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "user"
 
 		for _, c := range message.Content {
-			if c.Text != nil {
-				content.Parts = append(content.Parts, genai.Text(c.Text.Text))
+			if c.Text1 != "" {
+				content.Parts = append(content.Parts, genai.Text(c.Text1))
 			}
 		}
 
@@ -269,8 +231,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "model"
 
 		for _, c := range message.Content {
-			if c.Text != nil {
-				part := genai.Text(c.Text.Text)
+			if c.Text1 != "" {
+				part := genai.Text(c.Text1)
 				content.Parts = append(content.Parts, part)
 			}
 		}
@@ -291,9 +253,9 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "user"
 
 		for _, c := range message.Content {
-			if c.Text != nil {
+			if c.Text1 != "" {
 				var data any
-				json.Unmarshal([]byte(c.Text.Text), &data)
+				json.Unmarshal([]byte(c.Text1), &data)
 
 				var parameters map[string]any
 
@@ -443,9 +405,7 @@ func toContent(content *genai.Content) []provider.Content {
 		switch v := p.(type) {
 		case genai.Text:
 			parts = append(parts, provider.Content{
-				Text: &provider.TextContent{
-					Text: string(v),
-				},
+				Text1: string(v),
 			})
 		}
 	}
@@ -501,5 +461,16 @@ func toCompletionResult(candidate *genai.Candidate) provider.CompletionReason {
 
 	default:
 		return ""
+	}
+}
+
+func toUsage(metadata *genai.UsageMetadata) *provider.Usage {
+	if metadata == nil {
+		return nil
+	}
+
+	return &provider.Usage{
+		InputTokens:  int(metadata.PromptTokenCount),
+		OutputTokens: int(metadata.CandidatesTokenCount),
 	}
 }

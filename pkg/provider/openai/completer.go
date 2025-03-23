@@ -86,10 +86,7 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 			ToolCalls: fromToolCalls(choice.Message.ToolCalls),
 		},
 
-		Usage: &provider.Usage{
-			InputTokens:  int(completion.Usage.PromptTokens),
-			OutputTokens: int(completion.Usage.CompletionTokens),
-		},
+		Usage: toUsage(completion.Usage),
 	}, nil
 }
 
@@ -107,6 +104,8 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 			Message: &provider.Message{
 				Role: provider.MessageRoleAssistant,
 			},
+
+			Usage: toUsage(chunk.Usage),
 		}
 
 		if len(chunk.Choices) > 0 {
@@ -123,13 +122,6 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 			}
 
 			delta.Message.ToolCalls = fromChunkToolCalls(choice.Delta.ToolCalls)
-		}
-
-		if chunk.Usage.TotalTokens > 0 {
-			delta.Usage = &provider.Usage{
-				InputTokens:  int(chunk.Usage.PromptTokens),
-				OutputTokens: int(chunk.Usage.CompletionTokens),
-			}
 		}
 
 		result.Add(delta)
@@ -423,5 +415,16 @@ func toCompletionResult(val string) provider.CompletionReason {
 
 	default:
 		return ""
+	}
+}
+
+func toUsage(metadata openai.CompletionUsage) *provider.Usage {
+	if metadata.TotalTokens == 0 {
+		return nil
+	}
+
+	return &provider.Usage{
+		InputTokens:  int(metadata.PromptTokens),
+		OutputTokens: int(metadata.CompletionTokens),
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/azure"
+	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/groq"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
@@ -63,8 +64,8 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	case "github":
 		return azureCompleter(cfg, model)
 
-	// case "google":
-	// 	return googleCompleter(cfg, model)
+	case "google":
+		return googleCompleter(cfg, model)
 
 	case "groq":
 		return groqCompleter(cfg, model)
@@ -131,15 +132,15 @@ func azureCompleter(cfg providerConfig, model modelContext) (provider.Completer,
 // 	return cohere.NewCompleter(model.ID, options...)
 // }
 
-// func googleCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-// 	var options []google.Option
+func googleCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+	var options []google.Option
 
-// 	if cfg.Token != "" {
-// 		options = append(options, google.WithToken(cfg.Token))
-// 	}
+	if cfg.Token != "" {
+		options = append(options, google.WithToken(cfg.Token))
+	}
 
-// 	return google.NewCompleter(model.ID, options...)
-// }
+	return google.NewCompleter(model.ID, options...)
+}
 
 func groqCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []groq.Option
