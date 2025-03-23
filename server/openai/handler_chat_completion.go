@@ -266,8 +266,6 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 			content = append(content, provider.TextContent(m.Content))
 		}
 
-		files := make([]provider.File, 0)
-
 		for _, c := range m.Contents {
 			if c.Type == "text" {
 				content = append(content, provider.TextContent(c.Text))
@@ -280,7 +278,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 					return nil, err
 				}
 
-				files = append(files, *file)
+				content = append(content, provider.FileContent(file))
 			}
 
 			if c.Type == MessageContentTypeImageURL && c.ImageURL != nil {
@@ -290,15 +288,14 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 					return nil, err
 				}
 
-				files = append(files, *file)
+				content = append(content, provider.FileContent(file))
 			}
 		}
 
 		result = append(result, provider.Message{
-			Role:    toMessageRole(m.Role),
-			Content: content,
+			Role: toMessageRole(m.Role),
 
-			Files: files,
+			Content: content,
 
 			Tool:      m.ToolCallID,
 			ToolCalls: toToolCalls(m.ToolCalls),

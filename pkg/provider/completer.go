@@ -14,8 +14,6 @@ type Message struct {
 
 	Content MessageContent
 
-	Files []File
-
 	Tool      string
 	ToolCalls []ToolCall
 }
@@ -188,21 +186,17 @@ func RefusalContent(val string) Content {
 	}
 }
 
+func FileContent(val *File) Content {
+	return Content{
+		File: val,
+	}
+}
+
 type Content struct {
 	Text    string
 	Refusal string
 
-	File  *FileContent
-	Image *ImageContent
-}
-
-type FileContent struct {
-	FileName string
-	FileData string
-}
-
-type ImageContent struct {
-	ImageURL string
+	File *File
 }
 
 type MessageRole string

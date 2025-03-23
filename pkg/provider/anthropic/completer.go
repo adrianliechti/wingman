@@ -232,37 +232,37 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				if c.Text != "" {
 					blocks = append(blocks, anthropic.NewTextBlock(c.Text))
 				}
-			}
 
-			for _, f := range m.Files {
-				data, err := io.ReadAll(f.Content)
+				if c.File != nil {
+					data, err := io.ReadAll(c.File.Content)
 
-				if err != nil {
-					return nil, err
-				}
-
-				mime := f.ContentType
-				content := base64.StdEncoding.EncodeToString(data)
-
-				switch mime {
-				case "image/jpeg", "image/png", "image/gif", "image/webp":
-					blocks = append(blocks, anthropic.NewImageBlockBase64(mime, content))
-
-				case "application/pdf":
-					block := anthropic.DocumentBlockParam{
-						Type: anthropic.F(anthropic.DocumentBlockParamTypeDocument),
-
-						Source: anthropic.F(anthropic.DocumentBlockParamSourceUnion(anthropic.Base64PDFSourceParam{
-							Type:      anthropic.F(anthropic.Base64PDFSourceTypeBase64),
-							Data:      anthropic.F(content),
-							MediaType: anthropic.F(anthropic.Base64PDFSourceMediaTypeApplicationPDF),
-						})),
+					if err != nil {
+						return nil, err
 					}
 
-					blocks = append(blocks, block)
+					mime := c.File.ContentType
+					content := base64.StdEncoding.EncodeToString(data)
 
-				default:
-					return nil, errors.New("unsupported content type")
+					switch mime {
+					case "image/jpeg", "image/png", "image/gif", "image/webp":
+						blocks = append(blocks, anthropic.NewImageBlockBase64(mime, content))
+
+					case "application/pdf":
+						block := anthropic.DocumentBlockParam{
+							Type: anthropic.F(anthropic.DocumentBlockParamTypeDocument),
+
+							Source: anthropic.F(anthropic.DocumentBlockParamSourceUnion(anthropic.Base64PDFSourceParam{
+								Type:      anthropic.F(anthropic.Base64PDFSourceTypeBase64),
+								Data:      anthropic.F(content),
+								MediaType: anthropic.F(anthropic.Base64PDFSourceMediaTypeApplicationPDF),
+							})),
+						}
+
+						blocks = append(blocks, block)
+
+					default:
+						return nil, errors.New("unsupported content type")
+					}
 				}
 			}
 

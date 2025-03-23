@@ -310,22 +310,22 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 
 			for _, c := range m.Content {
 				if c.Text != "" {
-					content := &types.ContentBlockMemberText{
+					block := &types.ContentBlockMemberText{
 						Value: c.Text,
 					}
 
-					message.Content = append(message.Content, content)
-				}
-			}
-
-			for _, f := range m.Files {
-				content, err := convertFile(f)
-
-				if err != nil {
-					return nil, err
+					message.Content = append(message.Content, block)
 				}
 
-				message.Content = append(message.Content, content)
+				if c.File != nil {
+					block, err := convertFile(c.File)
+
+					if err != nil {
+						return nil, err
+					}
+
+					message.Content = append(message.Content, block)
+				}
 			}
 
 			result = append(result, message)
@@ -427,7 +427,11 @@ func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
 	return result
 }
 
-func convertFile(val provider.File) (types.ContentBlock, error) {
+func convertFile(val *provider.File) (types.ContentBlock, error) {
+	if val == nil {
+		return nil, nil
+	}
+
 	data, err := io.ReadAll(val.Content)
 
 	if err != nil {

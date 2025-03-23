@@ -206,24 +206,24 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 			if c.Text != "" {
 				content.Parts = append(content.Parts, genai.Text(c.Text))
 			}
-		}
 
-		for _, f := range message.Files {
-			switch f.ContentType {
-			case "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
-				format := strings.Split(f.ContentType, "/")[1]
+			if c.File != nil {
+				switch c.File.ContentType {
+				case "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
+					format := strings.Split(c.File.ContentType, "/")[1]
 
-				data, err := io.ReadAll(f.Content)
+					data, err := io.ReadAll(c.File.Content)
 
-				if err != nil {
-					return nil, err
+					if err != nil {
+						return nil, err
+					}
+
+					part := genai.ImageData(format, data)
+					content.Parts = append(content.Parts, part)
+
+				default:
+					return nil, errors.New("unsupported content type")
 				}
-
-				part := genai.ImageData(format, data)
-				content.Parts = append(content.Parts, part)
-
-			default:
-				return nil, errors.New("unsupported content type")
 			}
 		}
 

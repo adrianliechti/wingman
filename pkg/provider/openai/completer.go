@@ -255,28 +255,29 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				if c.Text != "" {
 					parts = append(parts, openai.TextContentPart(c.Text))
 				}
-			}
 
-			for _, f := range m.Files {
-				data, err := io.ReadAll(f.Content)
+				if c.File != nil {
+					data, err := io.ReadAll(c.File.Content)
 
-				if err != nil {
-					return nil, err
-				}
-
-				mime := f.ContentType
-				content := base64.StdEncoding.EncodeToString(data)
-
-				switch f.ContentType {
-				case "image/png", "image/jpeg", "image/webp", "image/gif":
-					imageURL := openai.ChatCompletionContentPartImageImageURLParam{
-						URL: "data:" + mime + ";base64," + content,
+					if err != nil {
+						return nil, err
 					}
 
-					parts = append(parts, openai.ImageContentPart(imageURL))
+					mime := c.File.ContentType
+					content := base64.StdEncoding.EncodeToString(data)
 
-				default:
-					return nil, errors.New("unsupported content type")
+					switch c.File.ContentType {
+					case "image/png", "image/jpeg", "image/webp", "image/gif":
+						imageURL := openai.ChatCompletionContentPartImageImageURLParam{
+							URL: "data:" + mime + ";base64," + content,
+						}
+
+						part := openai.ImageContentPart(imageURL)
+						parts = append(parts, part)
+
+					default:
+						return nil, errors.New("unsupported content type")
+					}
 				}
 			}
 
