@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"unicode"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/google/uuid"
@@ -113,16 +112,13 @@ func (c *Completer) complete(ctx context.Context, session *genai.ChatSession, pa
 
 	candidate := resp.Candidates[0]
 
-	content := toContent(candidate.Content)
-	content = strings.TrimRightFunc(content, unicode.IsSpace)
-
 	return &provider.Completion{
 		ID:     uuid.New().String(),
 		Reason: toCompletionResult(candidate),
 
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
-			Content: content,
+			Content: toContent(candidate.Content),
 
 			ToolCalls: toToolCalls(candidate.Content),
 		},
@@ -170,10 +166,6 @@ func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSessi
 
 		content := toContent(candidate.Content)
 
-		if i == 0 {
-			content = strings.TrimLeftFunc(content, unicode.IsSpace)
-		}
-
 		result.Message.Content += content
 
 		for _, c := range toToolCalls(candidate.Content) {
@@ -205,8 +197,6 @@ func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSessi
 		}
 	}
 
-	result.Message.Content = strings.TrimRightFunc(result.Message.Content, unicode.IsSpace)
-
 	if result.Reason == "" {
 		result.Reason = provider.CompletionReasonStop
 	}
@@ -227,8 +217,10 @@ func convertSystem(messages []provider.Message) (*genai.Content, error) {
 			continue
 		}
 
-		if m.Content != "" {
-			parts = append(parts, genai.Text(m.Content))
+		for _, c := range m.Content {
+			if c.Text != nil {
+				parts = append(parts, genai.Text(c.Text.Text))
+			}
 		}
 	}
 
@@ -242,15 +234,16 @@ func convertSystem(messages []provider.Message) (*genai.Content, error) {
 }
 
 func convertContent(message provider.Message) (*genai.Content, error) {
-	var role string
-	var parts []genai.Part
+	content := &genai.Content{}
 
 	switch message.Role {
 	case provider.MessageRoleUser:
-		role = "user"
+		content.Role = "user"
 
-		if message.Content != "" {
-			parts = append(parts, genai.Text(message.Content))
+		for _, c := range message.Content {
+			if c.Text != nil {
+				content.Parts = append(content.Parts, genai.Text(c.Text.Text))
+			}
 		}
 
 		for _, f := range message.Files {
@@ -264,7 +257,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 					return nil, err
 				}
 
-				parts = append(parts, genai.ImageData(format, data))
+				part := genai.ImageData(format, data)
+				content.Parts = append(content.Parts, part)
 
 			default:
 				return nil, errors.New("unsupported content type")
@@ -272,10 +266,13 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		}
 
 	case provider.MessageRoleAssistant:
-		role = "model"
+		content.Role = "model"
 
-		if message.Content != "" {
-			parts = append(parts, genai.Text(message.Content))
+		for _, c := range message.Content {
+			if c.Text != nil {
+				part := genai.Text(c.Text.Text)
+				content.Parts = append(content.Parts, part)
+			}
 		}
 
 		for _, c := range message.ToolCalls {
@@ -287,36 +284,35 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 				Args: data,
 			}
 
-			parts = append(parts, part)
+			content.Parts = append(content.Parts, part)
 		}
 
 	case provider.MessageRoleTool:
-		role = "user"
+		content.Role = "user"
 
-		var data any
-		json.Unmarshal([]byte(message.Content), &data)
+		for _, c := range message.Content {
+			if c.Text != nil {
+				var data any
+				json.Unmarshal([]byte(c.Text.Text), &data)
 
-		var parameters map[string]any
+				var parameters map[string]any
 
-		if val, ok := data.(map[string]any); ok {
-			parameters = val
+				if val, ok := data.(map[string]any); ok {
+					parameters = val
+				}
+
+				if val, ok := data.([]any); ok {
+					parameters = map[string]any{"data": val}
+				}
+
+				part := genai.FunctionResponse{
+					Name:     message.Tool,
+					Response: parameters,
+				}
+
+				content.Parts = append(content.Parts, part)
+			}
 		}
-
-		if val, ok := data.([]any); ok {
-			parameters = map[string]any{"data": val}
-		}
-
-		part := genai.FunctionResponse{
-			Name:     message.Tool,
-			Response: parameters,
-		}
-
-		parts = append(parts, part)
-	}
-
-	content := &genai.Content{
-		Role:  role,
-		Parts: parts,
 	}
 
 	return content, nil
@@ -440,19 +436,21 @@ func convertSchema(parameters map[string]any) *genai.Schema {
 	return schema
 }
 
-func toContent(content *genai.Content) string {
-	if content == nil {
-		return ""
-	}
+func toContent(content *genai.Content) []provider.Content {
+	var parts []provider.Content
 
 	for _, p := range content.Parts {
 		switch v := p.(type) {
 		case genai.Text:
-			return string(v)
+			parts = append(parts, provider.Content{
+				Text: &provider.TextContent{
+					Text: string(v),
+				},
+			})
 		}
 	}
 
-	return ""
+	return parts
 }
 
 func toToolCalls(content *genai.Content) []provider.ToolCall {

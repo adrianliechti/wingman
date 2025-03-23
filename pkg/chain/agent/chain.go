@@ -160,7 +160,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			}
 		}
 
-		if completion.Message.Content != "" || completion.Reason != "" {
+		if completion.Message.Content != nil || completion.Reason != "" {
 			completion.Message.ToolCalls = to.Values(streamToolCalls)
 
 			return options.Stream(ctx, completion)
@@ -214,12 +214,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 				return nil, err
 			}
 
-			input = append(input, provider.Message{
-				Role: provider.MessageRoleTool,
-
-				Tool:    t.ID,
-				Content: string(data),
-			})
+			input = append(input, provider.ToolMessage(t.ID, string(data)))
 
 			loop = true
 		}

@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/to"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -96,12 +97,8 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 
 		case anthropic.ContentBlockStartEvent:
 			delta := provider.Completion{
-				ID: message.ID,
-
-				Message: &provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: event.ContentBlock.Text,
-				},
+				ID:      message.ID,
+				Message: to.Ptr(provider.AssistantMessage(event.ContentBlock.Text)),
 			}
 
 			if event.ContentBlock.Name != "" {
@@ -125,10 +122,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 			delta := provider.Completion{
 				ID: message.ID,
 
-				Message: &provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: event.Delta.Text,
-				},
+				Message: to.Ptr(provider.AssistantMessage(event.Delta.Text)),
 			}
 
 			if event.Delta.PartialJSON != "" {
@@ -140,7 +134,14 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 
 				if options.Schema != nil {
 					delta.Message.ToolCalls = nil
-					delta.Message.Content = event.Delta.PartialJSON
+
+					delta.Message.Content = provider.MessageContent{
+						{
+							Text: &provider.TextContent{
+								Text: event.Delta.PartialJSON,
+							},
+						},
+					}
 				}
 			}
 
@@ -153,8 +154,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 
 		case anthropic.MessageStopEvent:
 			delta := provider.Completion{
-				ID: message.ID,
-
+				ID:     message.ID,
 				Reason: toCompletionResult(message.StopReason),
 
 				Message: &provider.Message{
@@ -229,13 +229,17 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	for _, m := range input {
 		switch m.Role {
 		case provider.MessageRoleSystem:
-			system = append(system, anthropic.NewTextBlock(m.Content))
+			system = append(system, anthropic.NewTextBlock(m.Content.String()))
 
 		case provider.MessageRoleUser:
 			blocks := []anthropic.ContentBlockParamUnion{}
 
-			if m.Content != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+			for _, c := range m.Content {
+				if c.Text == nil {
+					continue
+				}
+
+				blocks = append(blocks, anthropic.NewTextBlock(c.Text.Text))
 			}
 
 			for _, f := range m.Files {
@@ -276,8 +280,12 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		case provider.MessageRoleAssistant:
 			blocks := []anthropic.ContentBlockParamUnion{}
 
-			if m.Content != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+			for _, c := range m.Content {
+				if c.Text == nil {
+					continue
+				}
+
+				blocks = append(blocks, anthropic.NewTextBlock(c.Text.Text))
 			}
 
 			for _, t := range m.ToolCalls {
@@ -294,7 +302,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			messages = append(messages, message)
 
 		case provider.MessageRoleTool:
-			message := anthropic.NewUserMessage(anthropic.NewToolResultBlock(m.Tool, m.Content, false))
+			message := anthropic.NewUserMessage(anthropic.NewToolResultBlock(m.Tool, m.Content.String(), false))
 			messages = append(messages, message)
 		}
 	}
@@ -349,16 +357,20 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	return req, nil
 }
 
-func toContent(blocks []anthropic.ContentBlock) string {
-	for _, b := range blocks {
-		if b.Type != anthropic.ContentBlockTypeText {
-			continue
-		}
+func toContent(blocks []anthropic.ContentBlock) []provider.Content {
+	var parts []provider.Content
 
-		return b.Text
+	for _, b := range blocks {
+		if b.Type == anthropic.ContentBlockTypeText {
+			parts = append(parts, provider.Content{
+				Text: &provider.TextContent{
+					Text: b.Text,
+				},
+			})
+		}
 	}
 
-	return ""
+	return parts
 }
 
 func toToolCalls(blocks []anthropic.ContentBlock) []provider.ToolCall {

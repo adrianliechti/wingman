@@ -111,17 +111,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	messages := []provider.Message{}
 
 	if system.Len() > 0 {
-		messages = append(messages, provider.Message{
-			Role:    provider.MessageRoleSystem,
-			Content: system.String(),
-		})
+		messages = append(messages, provider.SystemMessage(system.String()))
 	}
 
 	if input != "" {
-		messages = append(messages, provider.Message{
-			Role:    provider.MessageRoleUser,
-			Content: input,
-		})
+		messages = append(messages, provider.UserMessage(input))
 	}
 
 	options := &provider.CompleteOptions{
@@ -136,9 +130,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := completion.Message.Content
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(data))
+	w.Write([]byte(completion.Message.Content.String()))
 }

@@ -30,24 +30,18 @@ func (a *Adapter) Summarize(ctx context.Context, content string, options *summar
 
 	for _, part := range splitter.Split(content) {
 		completion, err := a.completer.Complete(ctx, []provider.Message{
-			{
-				Role:    provider.MessageRoleUser,
-				Content: "Write a concise summary of the following: \n" + part,
-			},
+			provider.UserMessage("Write a concise summary of the following: \n" + part),
 		}, nil)
 
 		if err != nil {
 			return nil, err
 		}
 
-		segments = append(segments, completion.Message.Content)
+		segments = append(segments, completion.Message.Content.String())
 	}
 
 	completion, err := a.completer.Complete(ctx, []provider.Message{
-		{
-			Role:    provider.MessageRoleUser,
-			Content: "Distill the following parts into a consolidated summary: \n" + strings.Join(segments, "\n\n"),
-		},
+		provider.UserMessage("Distill the following parts into a consolidated summary: \n" + strings.Join(segments, "\n\n")),
 	}, nil)
 
 	if err != nil {
@@ -55,7 +49,7 @@ func (a *Adapter) Summarize(ctx context.Context, content string, options *summar
 	}
 
 	result := &summarizer.Summary{
-		Text: completion.Message.Content,
+		Text: completion.Message.Content.String(),
 	}
 
 	return result, nil

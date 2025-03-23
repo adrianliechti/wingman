@@ -340,7 +340,7 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 
 				System: &v2.SystemMessage{
 					Content: &v2.SystemMessageContent{
-						String: m.Content,
+						String: m.Content.String(),
 					},
 				},
 			}
@@ -448,18 +448,22 @@ func toCompletionReason(reason v2.ChatFinishReason) provider.CompletionReason {
 	return ""
 }
 
-func fromAssistantMessageContent(val *v2.AssistantMessageResponse) string {
+func fromAssistantMessageContent(val *v2.AssistantMessageResponse) []provider.Content {
+	var parts []provider.Content
+
 	if val == nil {
-		return ""
+		return nil
 	}
 
 	for _, c := range val.Content {
-		if c.Text == nil || c.Text.Text == "" {
-			continue
+		if c.Text != nil && c.Text.Text != "" {
+			parts = append(parts, provider.Content{
+				Text: &provider.TextContent{
+					Text: c.Text.Text,
+				},
+			})
 		}
-
-		return c.Text.Text
 	}
 
-	return ""
+	return parts
 }

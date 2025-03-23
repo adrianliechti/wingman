@@ -24,10 +24,7 @@ func TestCompleter(t *testing.T) {
 	require.NoError(t, err)
 
 	result, err := c.Complete(ctx, []provider.Message{
-		{
-			Role:    provider.MessageRoleUser,
-			Content: "Hello!",
-		},
+		provider.UserMessage("Hello!"),
 	}, nil)
 
 	require.NoError(t, err)

@@ -64,10 +64,7 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 		}
 
 		messages := []provider.Message{
-			{
-				Role:    provider.MessageRoleUser,
-				Content: document.Content,
-			},
+			provider.UserMessage(document.Content),
 		}
 
 		options := &provider.CompleteOptions{
@@ -84,7 +81,7 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, completion.Message.Content)
+		io.WriteString(w, completion.Message.Content.String())
 
 		return
 	}

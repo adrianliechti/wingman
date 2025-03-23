@@ -7,7 +7,7 @@ import (
 )
 
 func Message(message provider.Message, data any) (provider.Message, error) {
-	t, err := NewTemplate(message.Content)
+	t, err := NewTemplate(message.Content.String())
 
 	if err != nil {
 		return message, err
@@ -19,7 +19,13 @@ func Message(message provider.Message, data any) (provider.Message, error) {
 		return message, err
 	}
 
-	message.Content = content
+	message.Content = provider.MessageContent{
+		{
+			Text: &provider.TextContent{
+				Text: content,
+			},
+		},
+	}
 
 	return message, nil
 }

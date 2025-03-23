@@ -258,11 +258,17 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 			continue
 		}
 
-		system := &types.SystemContentBlockMemberText{
-			Value: m.Content,
-		}
+		for _, c := range m.Content {
+			if c.Text.Text == "" {
+				continue
+			}
 
-		result = append(result, system)
+			system := &types.SystemContentBlockMemberText{
+				Value: c.Text.Text,
+			}
+
+			result = append(result, system)
+		}
 	}
 
 	if len(result) == 0 {
@@ -543,11 +549,13 @@ func toRole(val types.ConversationRole) provider.MessageRole {
 	}
 }
 
-func toContent(val types.ConverseOutput) string {
+func toContent(val types.ConverseOutput) []provider.Content {
+	var parts []provider.Content
+
 	message, ok := val.(*types.ConverseOutputMemberMessage)
 
 	if !ok {
-		return ""
+		return nil
 	}
 
 	for _, b := range message.Value.Content {
@@ -555,13 +563,15 @@ func toContent(val types.ConverseOutput) string {
 		case *types.ContentBlockMemberText:
 			text := block.Value
 
-			if text != "" {
-				return text
-			}
+			parts = append(parts, provider.Content{
+				Text: &provider.TextContent{
+					Text: text,
+				},
+			})
 		}
 	}
 
-	return ""
+	return parts
 }
 
 func toToolCalls(val types.ConverseOutput) []provider.ToolCall {
