@@ -72,17 +72,15 @@ func (c *Completer) complete(ctx context.Context, req anthropic.MessageNewParams
 			ToolCalls: toToolCalls(message.Content),
 		},
 
-		Usage: &provider.Usage{
-			InputTokens:  int(message.Usage.InputTokens),
-			OutputTokens: int(message.Usage.OutputTokens),
-		},
+		Usage: toUsage(message.Usage),
 	}, nil
 }
 
 func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
-	stream := c.messages.NewStreaming(ctx, req)
+	result1 := provider.CompletionAccumulator{}
 
 	message := anthropic.Message{}
+	stream := c.messages.NewStreaming(ctx, req)
 
 	for stream.Next() {
 		event := stream.Current()
@@ -97,8 +95,18 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 
 		case anthropic.ContentBlockStartEvent:
 			delta := provider.Completion{
-				ID:      message.ID,
-				Message: to.Ptr(provider.AssistantMessage(event.ContentBlock.Text)),
+				ID:     message.ID,
+				Reason: toCompletionResult(message.StopReason),
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
+
+				Usage: toUsage(message.Usage),
+			}
+
+			if event.ContentBlock.Text != "" {
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(event.ContentBlock.Text))
 			}
 
 			if event.ContentBlock.Name != "" {
@@ -113,6 +121,8 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 					delta.Message.ToolCalls = nil
 				}
 			}
+
+			result1.Add(delta)
 
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
@@ -143,6 +153,8 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 				}
 			}
 
+			result1.Add(delta)
+
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
@@ -159,15 +171,14 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 					Role: provider.MessageRoleAssistant,
 				},
 
-				Usage: &provider.Usage{
-					InputTokens:  int(message.Usage.InputTokens),
-					OutputTokens: int(message.Usage.OutputTokens),
-				},
+				Usage: toUsage(message.Usage),
 			}
 
 			if options.Schema != nil && delta.Reason == provider.CompletionReasonTool {
 				delta.Reason = provider.CompletionReasonStop
 			}
+
+			result1.Add(delta)
 
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
@@ -179,22 +190,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 		return nil, convertError(err)
 	}
 
-	return &provider.Completion{
-		ID:     message.ID,
-		Reason: toCompletionResult(message.StopReason),
-
-		Message: &provider.Message{
-			Role:    provider.MessageRoleAssistant,
-			Content: toContent(message.Content),
-
-			ToolCalls: toToolCalls(message.Content),
-		},
-
-		Usage: &provider.Usage{
-			InputTokens:  int(message.Usage.InputTokens),
-			OutputTokens: int(message.Usage.OutputTokens),
-		},
-	}, nil
+	return result1.Result(), nil
 }
 
 func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.MessageNewParams, error) {
@@ -404,5 +400,16 @@ func toCompletionResult(val anthropic.MessageStopReason) provider.CompletionReas
 
 	default:
 		return ""
+	}
+}
+
+func toUsage(usage anthropic.Usage) *provider.Usage {
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 {
+		return nil
+	}
+
+	return &provider.Usage{
+		InputTokens:  int(usage.InputTokens),
+		OutputTokens: int(usage.OutputTokens),
 	}
 }

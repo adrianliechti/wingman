@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/pkg/provider/azure"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/groq"
@@ -49,8 +50,8 @@ func (cfg *Config) Completer(id string) (provider.Completer, error) {
 
 func createCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	switch strings.ToLower(cfg.Type) {
-	// case "anthropic":
-	// 	return anthropicCompleter(cfg, model)
+	case "anthropic":
+		return anthropicCompleter(cfg, model)
 
 	case "azure":
 		return azureCompleter(cfg, model)
@@ -96,15 +97,15 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	}
 }
 
-// func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-// 	var options []anthropic.Option
+func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+	var options []anthropic.Option
 
-// 	if cfg.Token != "" {
-// 		options = append(options, anthropic.WithToken(cfg.Token))
-// 	}
+	if cfg.Token != "" {
+		options = append(options, anthropic.WithToken(cfg.Token))
+	}
 
-// 	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
-// }
+	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
+}
 
 func azureCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []azure.Option
