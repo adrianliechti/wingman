@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/azure"
+	"github.com/adrianliechti/wingman/pkg/provider/cohere"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/jina"
@@ -43,8 +44,8 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 	case "azure":
 		return azureEmbedder(cfg, model)
 
-	// case "cohere":
-	// 	return cohereEmbedder(cfg, model)
+	case "cohere":
+		return cohereEmbedder(cfg, model)
 
 	case "github":
 		return azureEmbedder(cfg, model)
@@ -82,15 +83,15 @@ func azureEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, e
 	return azure.NewEmbedder(cfg.URL, model.ID, options...)
 }
 
-// func cohereEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
-// 	var options []cohere.Option
+func cohereEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
+	var options []cohere.Option
 
-// 	if cfg.Token != "" {
-// 		options = append(options, cohere.WithToken(cfg.Token))
-// 	}
+	if cfg.Token != "" {
+		options = append(options, cohere.WithToken(cfg.Token))
+	}
 
-// 	return cohere.NewEmbedder(model.ID, options...)
-// }
+	return cohere.NewEmbedder(model.ID, options...)
+}
 
 func googleEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
 	var options []google.Option
