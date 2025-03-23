@@ -85,9 +85,9 @@ func (c MessageContent) String() string {
 }
 
 type CompletionAccumulator struct {
-	id string
+	ID string
 
-	role   MessageRole
+	Role   MessageRole
 	reason CompletionReason
 
 	content strings.Builder
@@ -100,7 +100,7 @@ type CompletionAccumulator struct {
 
 func (a *CompletionAccumulator) Add(c Completion) {
 	if c.ID != "" {
-		a.id = c.ID
+		a.ID = c.ID
 	}
 
 	if c.Reason != "" {
@@ -109,7 +109,7 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Message != nil {
 		if c.Message.Role != "" {
-			a.role = c.Message.Role
+			a.Role = c.Message.Role
 		}
 
 		for _, c := range c.Message.Content {
@@ -161,12 +161,12 @@ func (a *CompletionAccumulator) Result() *Completion {
 	}
 
 	return &Completion{
-		ID: a.id,
+		ID: a.ID,
 
 		Reason: a.reason,
 
 		Message: &Message{
-			Role:    a.role,
+			Role:    a.Role,
 			Content: content,
 
 			ToolCalls: a.toolCalls,
