@@ -13,9 +13,6 @@ type Message struct {
 	Role MessageRole
 
 	Content MessageContent
-
-	Tool      string
-	ToolCalls []ToolCall
 }
 
 func SystemMessage(text string) Message {
@@ -58,11 +55,12 @@ func ToolMessage(id string, content string) Message {
 	return Message{
 		Role: MessageRoleTool,
 
-		Tool: id,
-
 		Content: MessageContent{
 			{
-				Text: content,
+				ToolResponse: &ToolResponse{
+					ID:     id,
+					Output: content,
+				},
 			},
 		},
 	}
@@ -118,22 +116,22 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			if c.Refusal != "" {
 				a.refusal.WriteString(c.Refusal)
 			}
-		}
 
-		for _, c := range c.Message.ToolCalls {
-			if c.ID != "" {
-				a.toolCalls = append(a.toolCalls, ToolCall{
-					ID: c.ID,
-				})
+			if c.ToolCall != nil {
+				if c.ToolCall.ID != "" {
+					a.toolCalls = append(a.toolCalls, ToolCall{
+						ID: c.ToolCall.ID,
+					})
+				}
+
+				if len(a.toolCalls) == 0 {
+					// TODO: Error Handling
+					continue
+				}
+
+				a.toolCalls[len(a.toolCalls)-1].Name += c.ToolCall.Name
+				a.toolCalls[len(a.toolCalls)-1].Arguments += c.ToolCall.Arguments
 			}
-
-			if len(a.toolCalls) == 0 {
-				// TODO: Error Handling
-				continue
-			}
-
-			a.toolCalls[len(a.toolCalls)-1].Name += c.Name
-			a.toolCalls[len(a.toolCalls)-1].Arguments += c.Arguments
 		}
 	}
 
@@ -158,6 +156,12 @@ func (a *CompletionAccumulator) Result() *Completion {
 		content = append(content, RefusalContent(a.refusal.String()))
 	}
 
+	for _, c := range a.toolCalls {
+		content = append(content, Content{
+			ToolCall: &c,
+		})
+	}
+
 	return &Completion{
 		ID: a.ID,
 
@@ -166,8 +170,6 @@ func (a *CompletionAccumulator) Result() *Completion {
 		Message: &Message{
 			Role:    a.Role,
 			Content: content,
-
-			ToolCalls: a.toolCalls,
 		},
 
 		Usage: a.usage,
@@ -197,6 +199,9 @@ type Content struct {
 	Refusal string
 
 	File *File
+
+	ToolCall     *ToolCall
+	ToolResponse *ToolResponse
 }
 
 type MessageRole string
@@ -213,6 +218,12 @@ type ToolCall struct {
 
 	Name      string
 	Arguments string
+}
+
+type ToolResponse struct {
+	ID string
+
+	Output string
 }
 
 type StreamHandler = func(ctx context.Context, completion Completion) error

@@ -115,6 +115,9 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				var content string
 				var refusal string
 
+				var toolID string
+				var toolcalls []ToolCall
+
 				for _, c := range completion.Message.Content {
 					if c.Text != "" {
 						if content != "" {
@@ -131,6 +134,24 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 						refusal += c.Refusal
 					}
+
+					if c.ToolResponse != nil {
+						toolID = c.ToolResponse.ID
+					}
+
+					if c.ToolCall != nil {
+						toolcalls = append(toolcalls, ToolCall{
+							ID:   c.ToolCall.ID,
+							Type: ToolTypeFunction,
+
+							Index: len(toolcalls),
+
+							Function: &FunctionCall{
+								Name:      c.ToolCall.Name,
+								Arguments: c.ToolCall.Arguments,
+							},
+						})
+					}
 				}
 
 				result.Choices = []ChatCompletionChoice{
@@ -141,8 +162,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 							Content: content,
 							Refusal: refusal,
 
-							ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
-							ToolCallID: completion.Message.Tool,
+							ToolCalls:  toolcalls,
+							ToolCallID: toolID,
 						},
 
 						FinishReason: oaiFinishReason(completion.Reason),
@@ -209,6 +230,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			var content string
 			var refusal string
 
+			var toolcalls []ToolCall
+
 			for _, c := range completion.Message.Content {
 				if c.Text != "" {
 					if content != "" {
@@ -225,6 +248,20 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 					refusal += c.Refusal
 				}
+
+				if c.ToolCall != nil {
+					toolcalls = append(toolcalls, ToolCall{
+						ID:   c.ToolCall.ID,
+						Type: ToolTypeFunction,
+
+						Index: len(toolcalls),
+
+						Function: &FunctionCall{
+							Name:      c.ToolCall.Name,
+							Arguments: c.ToolCall.Arguments,
+						},
+					})
+				}
 			}
 
 			result.Choices = []ChatCompletionChoice{
@@ -235,7 +272,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 						Content: content,
 						Refusal: refusal,
 
-						ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
+						ToolCalls:  toolcalls,
 						ToolCallID: completion.Message.Tool,
 					},
 

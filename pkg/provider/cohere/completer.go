@@ -199,25 +199,27 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 			}
 
 			if resp.ToolCallStart.Delta != nil && resp.ToolCallStart.Delta.Message != nil && resp.ToolCallStart.Delta.Message.ToolCalls != nil {
-				tool := provider.ToolCall{}
+				content := provider.Content{
+					ToolCall: &provider.ToolCall{},
+				}
 
 				call := resp.ToolCallStart.Delta.Message.ToolCalls
 
 				if call.Id != nil {
-					tool.ID = *call.Id
+					content.ToolCall.ID = *call.Id
 				}
 
 				if call.Function != nil {
 					if call.Function.Name != nil {
-						tool.Name = *call.Function.Name
+						content.ToolCall.Name = *call.Function.Name
 					}
 
 					if call.Function.Arguments != nil {
-						tool.Arguments = *call.Function.Arguments
+						content.ToolCall.Arguments = *call.Function.Arguments
 					}
 				}
 
-				delta.Message.ToolCalls = append(delta.Message.ToolCalls, tool)
+				delta.Message.Content = append(delta.Message.Content, content)
 			}
 
 			result.Add(delta)
@@ -237,17 +239,19 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 			}
 
 			if resp.ToolCallDelta.Delta != nil && resp.ToolCallDelta.Delta.Message != nil && resp.ToolCallDelta.Delta.Message.ToolCalls != nil {
-				tool := provider.ToolCall{}
+				content := provider.Content{
+					ToolCall: &provider.ToolCall{},
+				}
 
 				call := resp.ToolCallDelta.Delta.Message.ToolCalls
 
 				if call.Function != nil {
 					if call.Function.Arguments != nil {
-						tool.Arguments = *call.Function.Arguments
+						content.ToolCall.Arguments = *call.Function.Arguments
 					}
 				}
 
-				delta.Message.ToolCalls = append(delta.Message.ToolCalls, tool)
+				delta.Message.Content = append(delta.Message.Content, content)
 			}
 
 			result.Add(delta)

@@ -118,8 +118,6 @@ func (c *Completer) complete(ctx context.Context, session *genai.ChatSession, pa
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
 			Content: toContent(candidate.Content),
-
-			ToolCalls: toToolCalls(candidate.Content),
 		},
 
 		Usage: toUsage(resp.UsageMetadata),
@@ -156,9 +154,7 @@ func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSessi
 			candidate := resp.Candidates[0]
 
 			delta.Reason = toCompletionResult(candidate)
-
 			delta.Message.Content = toContent(candidate.Content)
-			delta.Message.ToolCalls = toToolCalls(candidate.Content)
 		}
 
 		result.Add(delta)
@@ -235,18 +231,18 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 				part := genai.Text(c.Text)
 				content.Parts = append(content.Parts, part)
 			}
-		}
 
-		for _, c := range message.ToolCalls {
-			var data map[string]any
-			json.Unmarshal([]byte(c.Arguments), &data)
+			if c.ToolCall != nil {
+				var data map[string]any
+				json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
 
-			part := genai.FunctionCall{
-				Name: c.Name,
-				Args: data,
+				part := genai.FunctionCall{
+					Name: c.ToolCall.Name,
+					Args: data,
+				}
+
+				content.Parts = append(content.Parts, part)
 			}
-
-			content.Parts = append(content.Parts, part)
 		}
 
 	case provider.MessageRoleTool:
@@ -399,40 +395,26 @@ func convertSchema(parameters map[string]any) *genai.Schema {
 }
 
 func toContent(content *genai.Content) []provider.Content {
-	var parts []provider.Content
+	var result []provider.Content
 
 	for _, p := range content.Parts {
 		switch v := p.(type) {
 		case genai.Text:
-			parts = append(parts, provider.Content{
+			result = append(result, provider.Content{
 				Text: string(v),
 			})
-		}
-	}
 
-	return parts
-}
-
-func toToolCalls(content *genai.Content) []provider.ToolCall {
-	if content == nil {
-		return nil
-	}
-
-	var result []provider.ToolCall
-
-	for _, p := range content.Parts {
-		switch v := p.(type) {
 		case genai.FunctionCall:
 			data, _ := json.Marshal(v.Args)
 
-			call := provider.ToolCall{
-				ID: uuid.NewString(),
+			result = append(result, provider.Content{
+				ToolCall: &provider.ToolCall{
+					ID: uuid.NewString(),
 
-				Name:      v.Name,
-				Arguments: string(data),
-			}
-
-			result = append(result, call)
+					Name:      v.Name,
+					Arguments: string(data),
+				},
+			})
 		}
 	}
 
@@ -451,8 +433,11 @@ func toCompletionResult(candidate *genai.Candidate) provider.CompletionReason {
 		return provider.CompletionReasonFilter
 	}
 
-	if len(toToolCalls(candidate.Content)) > 0 {
-		return provider.CompletionReasonTool
+	for _, p := range candidate.Content.Parts {
+		switch p.(type) {
+		case genai.FunctionCall:
+			return provider.CompletionReasonTool
+		}
 	}
 
 	switch candidate.FinishReason {

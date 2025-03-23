@@ -69,21 +69,13 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 		reason = provider.CompletionReasonStop
 	}
 
-	content := provider.MessageContent{}
-
-	if choice.Message.JSON.Content.IsPresent() {
-		content = append(content, provider.TextContent(choice.Message.Content))
-	}
-
 	return &provider.Completion{
 		ID:     completion.ID,
 		Reason: reason,
 
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
-			Content: content,
-
-			ToolCalls: fromToolCalls(choice.Message.ToolCalls),
+			Content: toContent(choice.Message),
 		},
 
 		Usage: toUsage(completion.Usage),
@@ -118,10 +110,21 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 			}
 
 			if choice.Delta.JSON.Refusal.IsPresent() {
-				delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Refusal))
+				delta.Message.Content = append(delta.Message.Content, provider.RefusalContent(choice.Delta.Refusal))
 			}
 
-			delta.Message.ToolCalls = fromChunkToolCalls(choice.Delta.ToolCalls)
+			for _, c := range choice.Delta.ToolCalls {
+				content := provider.Content{
+					ToolCall: &provider.ToolCall{
+						ID: c.ID,
+
+						Name:      c.Function.Name,
+						Arguments: c.Function.Arguments,
+					},
+				}
+
+				delta.Message.Content = append(delta.Message.Content, content)
+			}
 		}
 
 		result.Add(delta)
@@ -417,6 +420,33 @@ func toCompletionResult(val string) provider.CompletionReason {
 	default:
 		return ""
 	}
+}
+
+func toContent(message openai.ChatCompletionMessage) provider.MessageContent {
+	result := provider.MessageContent{}
+
+	if message.JSON.Content.IsPresent() {
+		result = append(result, provider.TextContent(message.Content))
+	}
+
+	if message.JSON.Refusal.IsPresent() {
+		result = append(result, provider.RefusalContent(message.Refusal))
+	}
+
+	for _, c := range message.ToolCalls {
+		content := provider.Content{
+			ToolCall: &provider.ToolCall{
+				ID: c.ID,
+
+				Name:      c.Function.Name,
+				Arguments: c.Function.Arguments,
+			},
+		}
+
+		result = append(result, content)
+	}
+
+	return result
 }
 
 func toUsage(metadata openai.CompletionUsage) *provider.Usage {
