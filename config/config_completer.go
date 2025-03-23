@@ -5,11 +5,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/pkg/provider/azure"
-	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
-	"github.com/adrianliechti/wingman/pkg/provider/cohere"
-	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/groq"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
@@ -52,23 +48,23 @@ func (cfg *Config) Completer(id string) (provider.Completer, error) {
 
 func createCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	switch strings.ToLower(cfg.Type) {
-	case "anthropic":
-		return anthropicCompleter(cfg, model)
+	// case "anthropic":
+	// 	return anthropicCompleter(cfg, model)
 
 	case "azure":
 		return azureCompleter(cfg, model)
 
-	case "bedrock":
-		return bedrockCompleter(cfg, model)
+	// case "bedrock":
+	// 	return bedrockCompleter(cfg, model)
 
-	case "cohere":
-		return cohereCompleter(cfg, model)
+	// case "cohere":
+	// 	return cohereCompleter(cfg, model)
 
 	case "github":
 		return azureCompleter(cfg, model)
 
-	case "google":
-		return googleCompleter(cfg, model)
+	// case "google":
+	// 	return googleCompleter(cfg, model)
 
 	case "groq":
 		return groqCompleter(cfg, model)
@@ -99,15 +95,15 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	}
 }
 
-func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []anthropic.Option
+// func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+// 	var options []anthropic.Option
 
-	if cfg.Token != "" {
-		options = append(options, anthropic.WithToken(cfg.Token))
-	}
+// 	if cfg.Token != "" {
+// 		options = append(options, anthropic.WithToken(cfg.Token))
+// 	}
 
-	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
-}
+// 	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
+// }
 
 func azureCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []azure.Option
@@ -119,31 +115,31 @@ func azureCompleter(cfg providerConfig, model modelContext) (provider.Completer,
 	return azure.NewCompleter(cfg.URL, model.ID, options...)
 }
 
-func bedrockCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []bedrock.Option
+// func bedrockCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+// 	var options []bedrock.Option
 
-	return bedrock.NewCompleter(model.ID, options...)
-}
+// 	return bedrock.NewCompleter(model.ID, options...)
+// }
 
-func cohereCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []cohere.Option
+// func cohereCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+// 	var options []cohere.Option
 
-	if cfg.Token != "" {
-		options = append(options, cohere.WithToken(cfg.Token))
-	}
+// 	if cfg.Token != "" {
+// 		options = append(options, cohere.WithToken(cfg.Token))
+// 	}
 
-	return cohere.NewCompleter(model.ID, options...)
-}
+// 	return cohere.NewCompleter(model.ID, options...)
+// }
 
-func googleCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []google.Option
+// func googleCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+// 	var options []google.Option
 
-	if cfg.Token != "" {
-		options = append(options, google.WithToken(cfg.Token))
-	}
+// 	if cfg.Token != "" {
+// 		options = append(options, google.WithToken(cfg.Token))
+// 	}
 
-	return google.NewCompleter(model.ID, options...)
-}
+// 	return google.NewCompleter(model.ID, options...)
+// }
 
 func groqCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []groq.Option

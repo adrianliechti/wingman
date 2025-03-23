@@ -137,9 +137,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 
 					delta.Message.Content = provider.MessageContent{
 						{
-							Text: &provider.TextContent{
-								Text: event.Delta.PartialJSON,
-							},
+							Text1: event.Delta.PartialJSON,
 						},
 					}
 				}
@@ -235,11 +233,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			blocks := []anthropic.ContentBlockParamUnion{}
 
 			for _, c := range m.Content {
-				if c.Text == nil {
-					continue
+				if c.Text1 != "" {
+					blocks = append(blocks, anthropic.NewTextBlock(c.Text1))
 				}
-
-				blocks = append(blocks, anthropic.NewTextBlock(c.Text.Text))
 			}
 
 			for _, f := range m.Files {
@@ -281,11 +277,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			blocks := []anthropic.ContentBlockParamUnion{}
 
 			for _, c := range m.Content {
-				if c.Text == nil {
-					continue
+				if c.Text1 != "" {
+					blocks = append(blocks, anthropic.NewTextBlock(c.Text1))
 				}
-
-				blocks = append(blocks, anthropic.NewTextBlock(c.Text.Text))
 			}
 
 			for _, t := range m.ToolCalls {
@@ -363,9 +357,7 @@ func toContent(blocks []anthropic.ContentBlock) []provider.Content {
 	for _, b := range blocks {
 		if b.Type == anthropic.ContentBlockTypeText {
 			parts = append(parts, provider.Content{
-				Text: &provider.TextContent{
-					Text: b.Text,
-				},
+				Text1: b.Text,
 			})
 		}
 	}

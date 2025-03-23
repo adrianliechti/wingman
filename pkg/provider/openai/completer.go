@@ -69,13 +69,19 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 		reason = provider.CompletionReasonStop
 	}
 
+	content := provider.MessageContent{}
+
+	if choice.Message.JSON.Content.IsPresent() {
+		content = append(content, provider.TextContent(choice.Message.Content))
+	}
+
 	return &provider.Completion{
 		ID:     completion.ID,
 		Reason: reason,
 
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
-			Content: choice.Message.Content,
+			Content: content,
 
 			ToolCalls: fromToolCalls(choice.Message.ToolCalls),
 		},
@@ -90,16 +96,13 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletionNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
 	stream := c.completions.NewStreaming(ctx, req)
 
-	result := openai.ChatCompletionAccumulator{}
-
-	var usage *openai.CompletionUsage
+	result := provider.CompletionAccumulator{}
 
 	for stream.Next() {
 		chunk := stream.Current()
-		result.AddChunk(chunk)
 
 		delta := provider.Completion{
-			ID: result.ID,
+			ID: chunk.ID,
 
 			Message: &provider.Message{
 				Role: provider.MessageRoleAssistant,
@@ -111,20 +114,25 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 
 			delta.Reason = toCompletionResult(choice.FinishReason)
 
-			delta.Message.Content = choice.Delta.Content
-			delta.Message.Refusal = choice.Delta.Refusal
+			if choice.Delta.JSON.Content.IsPresent() {
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Content))
+			}
+
+			if choice.Delta.JSON.Refusal.IsPresent() {
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Refusal))
+			}
 
 			delta.Message.ToolCalls = fromChunkToolCalls(choice.Delta.ToolCalls)
 		}
 
 		if chunk.Usage.TotalTokens > 0 {
-			usage = &chunk.Usage
-
 			delta.Usage = &provider.Usage{
 				InputTokens:  int(chunk.Usage.PromptTokens),
 				OutputTokens: int(chunk.Usage.CompletionTokens),
 			}
 		}
+
+		result.Add(delta)
 
 		if err := options.Stream(ctx, delta); err != nil {
 			return nil, err
@@ -135,41 +143,7 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 		return nil, convertError(err)
 	}
 
-	choice := result.Choices[0]
-	reason := toCompletionResult(choice.FinishReason)
-
-	if reason == "" {
-		reason = provider.CompletionReasonStop
-	}
-
-	completion := &provider.Completion{
-		ID:     result.ID,
-		Reason: reason,
-
-		Message: &provider.Message{
-			Role: provider.MessageRoleAssistant,
-		},
-	}
-
-	if len(result.Choices) > 0 {
-		completion.Message.Content = choice.Message.Content
-		completion.Message.Refusal = choice.Message.Refusal
-
-		completion.Message.ToolCalls = fromToolCalls(choice.Message.ToolCalls)
-	}
-
-	if result.Usage.TotalTokens > 0 {
-		usage = &result.Usage
-	}
-
-	if usage != nil && usage.TotalTokens > 0 {
-		completion.Usage = &provider.Usage{
-			InputTokens:  int(usage.PromptTokens),
-			OutputTokens: int(usage.CompletionTokens),
-		}
-	}
-
-	return completion, nil
+	return result.Result(), nil
 }
 
 func (c *Completer) convertCompletionRequest(input []provider.Message, options *provider.CompleteOptions) (*openai.ChatCompletionNewParams, error) {
@@ -274,10 +248,10 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 	for _, m := range input {
 		switch m.Role {
 		case provider.MessageRoleSystem:
-			message := openai.SystemMessage(m.Content)
+			message := openai.SystemMessage(m.Content.String())
 
 			if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
-				message = openai.DeveloperMessage(m.Content)
+				message = openai.DeveloperMessage(m.Content.String())
 			}
 
 			result = append(result, message)
@@ -285,8 +259,10 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 		case provider.MessageRoleUser:
 			parts := []openai.ChatCompletionContentPartUnionParam{}
 
-			if m.Content != "" {
-				parts = append(parts, openai.TextContentPart(m.Content))
+			for _, c := range m.Content {
+				if c.Text1 != "" {
+					parts = append(parts, openai.TextContentPart(c.Text1))
+				}
 			}
 
 			for _, f := range m.Files {
@@ -317,8 +293,28 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 		case provider.MessageRoleAssistant:
 			message := openai.ChatCompletionAssistantMessageParam{}
 
-			if m.Content != "" {
-				message.Content.OfString = openai.String(m.Content)
+			var content []openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion
+
+			for _, c := range m.Content {
+				if c.Text1 != "" {
+					content = append(content, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
+						OfText: &openai.ChatCompletionContentPartTextParam{
+							Text: c.Text1,
+						},
+					})
+				}
+
+				if c.Refusal1 != "" {
+					content = append(content, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
+						OfRefusal: &openai.ChatCompletionContentPartRefusalParam{
+							Refusal: c.Refusal1,
+						},
+					})
+				}
+			}
+
+			if len(content) > 0 {
+				message.Content.OfArrayOfContentParts = content
 			}
 
 			for _, t := range m.ToolCalls {
@@ -337,7 +333,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &message})
 
 		case provider.MessageRoleTool:
-			message := openai.ToolMessage(m.Content, m.Tool)
+			message := openai.ToolMessage(m.Content.String(), m.Tool)
 			result = append(result, message)
 		}
 	}

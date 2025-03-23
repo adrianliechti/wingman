@@ -105,15 +105,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 		return nil, err
 	}
 
-	result := &provider.Completion{
-		ID: uuid.New().String(),
-
-		Message: &provider.Message{
-			Role: provider.MessageRoleAssistant,
-		},
-
-		//Usage: &provider.Usage{},
-	}
+	result1 := provider.CompletionAccumulator{}
 
 	for event := range resp.GetStream().Events() {
 		switch v := event.(type) {
@@ -550,23 +542,19 @@ func toRole(val types.ConversationRole) provider.MessageRole {
 }
 
 func toContent(val types.ConverseOutput) []provider.Content {
-	var parts []provider.Content
-
 	message, ok := val.(*types.ConverseOutputMemberMessage)
 
 	if !ok {
 		return nil
 	}
 
+	var parts []provider.Content
+
 	for _, b := range message.Value.Content {
 		switch block := b.(type) {
 		case *types.ContentBlockMemberText:
-			text := block.Value
-
 			parts = append(parts, provider.Content{
-				Text: &provider.TextContent{
-					Text: text,
-				},
+				Text1: block.Value,
 			})
 		}
 	}

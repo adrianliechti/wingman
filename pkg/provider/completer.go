@@ -26,9 +26,7 @@ func SystemMessage(text string) Message {
 
 		Content: MessageContent{
 			{
-				Text: &TextContent{
-					Text: text,
-				},
+				Text1: text,
 			},
 		},
 	}
@@ -40,9 +38,19 @@ func UserMessage(text string) Message {
 
 		Content: MessageContent{
 			{
-				Text: &TextContent{
-					Text: text,
-				},
+				Text1: text,
+			},
+		},
+	}
+}
+
+func AssistantMessage(content string) Message {
+	return Message{
+		Role: MessageRoleAssistant,
+
+		Content: MessageContent{
+			{
+				Text1: content,
 			},
 		},
 	}
@@ -56,23 +64,7 @@ func ToolMessage(id string, content string) Message {
 
 		Content: MessageContent{
 			{
-				Text: &TextContent{
-					Text: content,
-				},
-			},
-		},
-	}
-}
-
-func AssistantMessage(content string) Message {
-	return Message{
-		Role: MessageRoleAssistant,
-
-		Content: MessageContent{
-			{
-				Text: &TextContent{
-					Text: content,
-				},
+				Text1: content,
 			},
 		},
 	}
@@ -84,38 +76,124 @@ func (c MessageContent) String() string {
 	var parts []string
 
 	for _, content := range c {
-		if content.Text != nil {
-			parts = append(parts, content.Text.Text)
+		if content.Text1 != "" {
+			parts = append(parts, content.Text1)
 		}
 	}
 
 	return strings.Join(parts, "\n\n")
 }
 
-// func MessageText(text string) MessageContent {
-// 	return MessageContent{
-// 		{
-// 			Text: &TextContent{
-// 				Text: text,
-// 			},
-// 		},
-// 	}
-// }
+type CompletionAccumulator struct {
+	id string
+
+	role   MessageRole
+	reason CompletionReason
+
+	content strings.Builder
+	refusal strings.Builder
+
+	toolCalls []ToolCall
+
+	usage *Usage
+}
+
+func (a *CompletionAccumulator) Add(c Completion) {
+	if c.ID != "" {
+		a.id = c.ID
+	}
+
+	if c.Reason != "" {
+		a.reason = c.Reason
+	}
+
+	if c.Message != nil {
+		if c.Message.Role != "" {
+			a.role = c.Message.Role
+		}
+
+		for _, c := range c.Message.Content {
+			if c.Text1 != "" {
+				a.content.WriteString(c.Text1)
+			}
+
+			if c.Refusal1 != "" {
+				a.refusal.WriteString(c.Refusal1)
+			}
+		}
+
+		for _, c := range c.Message.ToolCalls {
+			if c.ID != "" {
+				a.toolCalls = append(a.toolCalls, ToolCall{
+					ID: c.ID,
+				})
+			}
+
+			if len(a.toolCalls) == 0 {
+				// TODO: Error Handling
+				continue
+			}
+
+			a.toolCalls[len(a.toolCalls)-1].Name += c.Name
+			a.toolCalls[len(a.toolCalls)-1].Arguments += c.Arguments
+		}
+	}
+
+	if c.Usage != nil {
+		if a.usage == nil {
+			a.usage = &Usage{}
+		}
+
+		a.usage.InputTokens += c.Usage.InputTokens
+		a.usage.OutputTokens += c.Usage.OutputTokens
+	}
+}
+
+func (a *CompletionAccumulator) Result() *Completion {
+	var content MessageContent
+
+	if a.content.Len() > 0 {
+		content = append(content, TextContent(a.content.String()))
+	}
+
+	if a.refusal.Len() > 0 {
+		content = append(content, RefusalContent(a.refusal.String()))
+	}
+
+	return &Completion{
+		ID: a.id,
+
+		Reason: a.reason,
+
+		Message: &Message{
+			Role:    a.role,
+			Content: content,
+
+			ToolCalls: a.toolCalls,
+		},
+
+		Usage: a.usage,
+	}
+}
+
+func TextContent(val string) Content {
+	return Content{
+		Text1: val,
+	}
+}
+
+func RefusalContent(val string) Content {
+	return Content{
+		Refusal1: val,
+	}
+}
 
 type Content struct {
-	Text    *TextContent
-	Refusal *RefusalContent
+	Text1    string
+	Refusal1 string
 
 	File  *FileContent
 	Image *ImageContent
-}
-
-type TextContent struct {
-	Text string
-}
-
-type RefusalContent struct {
-	Refusal string
 }
 
 type FileContent struct {

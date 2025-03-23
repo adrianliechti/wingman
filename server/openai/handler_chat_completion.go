@@ -112,13 +112,34 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if completion.Message != nil {
+				var content string
+				var refusal string
+
+				for _, c := range completion.Message.Content {
+					if c.Text1 != "" {
+						if content != "" {
+							content += "\n\n"
+						}
+
+						content += c.Text1
+					}
+
+					if c.Refusal1 != "" {
+						if refusal != "" {
+							refusal += "\n\n"
+						}
+
+						refusal += c.Refusal1
+					}
+				}
+
 				result.Choices = []ChatCompletionChoice{
 					{
 						Delta: &ChatCompletionMessage{
 							Role: oaiMessageRole(completion.Message.Role),
 
-							Content: completion.Message.Content,
-							Refusal: completion.Message.Refusal,
+							Content: content,
+							Refusal: refusal,
 
 							ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
 							ToolCallID: completion.Message.Tool,
@@ -185,13 +206,34 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if completion.Message != nil {
+			var content string
+			var refusal string
+
+			for _, c := range completion.Message.Content {
+				if c.Text1 != "" {
+					if content != "" {
+						content += "\n\n"
+					}
+
+					content += c.Text1
+				}
+
+				if c.Refusal1 != "" {
+					if refusal != "" {
+						refusal += "\n\n"
+					}
+
+					refusal += c.Refusal1
+				}
+			}
+
 			result.Choices = []ChatCompletionChoice{
 				{
 					Message: &ChatCompletionMessage{
 						Role: oaiMessageRole(completion.Message.Role),
 
-						Content: completion.Message.Content,
-						Refusal: completion.Message.Refusal,
+						Content: content,
+						Refusal: refusal,
 
 						ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
 						ToolCallID: completion.Message.Tool,
@@ -218,17 +260,17 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
 	for _, m := range s {
-		content := m.Content
+		var content provider.MessageContent
+
+		if m.Content != "" {
+			content = append(content, provider.TextContent(m.Content))
+		}
 
 		files := make([]provider.File, 0)
 
 		for _, c := range m.Contents {
 			if c.Type == "text" {
-				if len(content) > 0 {
-					content += "\n\n"
-				}
-
-				content += c.Text
+				content = append(content, provider.TextContent(c.Text))
 			}
 
 			if c.Type == MessageContentTypeFileURL && c.FileURL != nil {

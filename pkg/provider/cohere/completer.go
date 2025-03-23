@@ -449,18 +449,16 @@ func toCompletionReason(reason v2.ChatFinishReason) provider.CompletionReason {
 }
 
 func fromAssistantMessageContent(val *v2.AssistantMessageResponse) []provider.Content {
-	var parts []provider.Content
-
 	if val == nil {
 		return nil
 	}
 
+	var parts []provider.Content
+
 	for _, c := range val.Content {
-		if c.Text != nil && c.Text.Text != "" {
+		if c.Text != nil {
 			parts = append(parts, provider.Content{
-				Text: &provider.TextContent{
-					Text: c.Text.Text,
-				},
+				Text1: c.Text.Text,
 			})
 		}
 	}
