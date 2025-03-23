@@ -252,8 +252,8 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			parts := []openai.ChatCompletionContentPartUnionParam{}
 
 			for _, c := range m.Content {
-				if c.Text1 != "" {
-					parts = append(parts, openai.TextContentPart(c.Text1))
+				if c.Text != "" {
+					parts = append(parts, openai.TextContentPart(c.Text))
 				}
 			}
 
@@ -288,18 +288,18 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			var content []openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion
 
 			for _, c := range m.Content {
-				if c.Text1 != "" {
+				if c.Text != "" {
 					content = append(content, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
 						OfText: &openai.ChatCompletionContentPartTextParam{
-							Text: c.Text1,
+							Text: c.Text,
 						},
 					})
 				}
 
-				if c.Refusal1 != "" {
+				if c.Refusal != "" {
 					content = append(content, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
 						OfRefusal: &openai.ChatCompletionContentPartRefusalParam{
-							Refusal: c.Refusal1,
+							Refusal: c.Refusal,
 						},
 					})
 				}

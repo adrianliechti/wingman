@@ -109,12 +109,12 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 
 	id := uuid.NewString()
 
-	result1 := provider.CompletionAccumulator{}
+	result := provider.CompletionAccumulator{}
 
 	for event := range resp.GetStream().Events() {
 		switch v := event.(type) {
 		case *types.ConverseStreamOutputMemberMessageStart:
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Message: &provider.Message{
@@ -122,12 +122,12 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 				},
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
 		case *types.ConverseStreamOutputMemberContentBlockStart:
 			switch b := v.Value.Start.(type) {
 			case *types.ContentBlockStartMemberToolUse:
-				delta1 := provider.Completion{
+				delta := provider.Completion{
 					ID: id,
 
 					Message: &provider.Message{
@@ -142,7 +142,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 					},
 				}
 
-				result1.Add(delta1)
+				result.Add(delta)
 
 			default:
 				fmt.Printf("unknown block type, %T\n", b)
@@ -151,7 +151,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 		case *types.ConverseStreamOutputMemberContentBlockDelta:
 			switch b := v.Value.Delta.(type) {
 			case *types.ContentBlockDeltaMemberText:
-				delta1 := provider.Completion{
+				delta := provider.Completion{
 					ID: id,
 
 					Message: &provider.Message{
@@ -163,14 +163,14 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 					},
 				}
 
-				result1.Add(delta1)
+				result.Add(delta)
 
-				if err := options.Stream(ctx, delta1); err != nil {
+				if err := options.Stream(ctx, delta); err != nil {
 					return nil, err
 				}
 
 			case *types.ContentBlockDeltaMemberToolUse:
-				delta1 := provider.Completion{
+				delta := provider.Completion{
 					ID: id,
 
 					Message: &provider.Message{
@@ -184,9 +184,9 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 					},
 				}
 
-				result1.Add(delta1)
+				result.Add(delta)
 
-				if err := options.Stream(ctx, delta1); err != nil {
+				if err := options.Stream(ctx, delta); err != nil {
 					return nil, err
 				}
 
@@ -197,7 +197,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 		case *types.ConverseStreamOutputMemberContentBlockStop:
 
 		case *types.ConverseStreamOutputMemberMessageStop:
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Reason: toCompletionResult(v.Value.StopReason),
@@ -211,14 +211,14 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 				},
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
-			if err := options.Stream(ctx, delta1); err != nil {
+			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
 
 		case *types.ConverseStreamOutputMemberMetadata:
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Message: &provider.Message{
@@ -232,9 +232,9 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 				Usage: toUsage(v.Value.Usage),
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
-			if err := options.Stream(ctx, delta1); err != nil {
+			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
 
@@ -246,7 +246,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 		}
 	}
 
-	return result1.Result(), nil
+	return result.Result(), nil
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
@@ -275,12 +275,12 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 		}
 
 		for _, c := range m.Content {
-			if c.Text1 == "" {
+			if c.Text == "" {
 				continue
 			}
 
 			system := &types.SystemContentBlockMemberText{
-				Value: c.Text1,
+				Value: c.Text,
 			}
 
 			result = append(result, system)
@@ -309,9 +309,9 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 			}
 
 			for _, c := range m.Content {
-				if c.Text1 != "" {
+				if c.Text != "" {
 					content := &types.ContentBlockMemberText{
-						Value: c.Text1,
+						Value: c.Text,
 					}
 
 					message.Content = append(message.Content, content)
@@ -336,9 +336,9 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 			}
 
 			for _, c := range m.Content {
-				if c.Text1 != "" {
+				if c.Text != "" {
 					content := &types.ContentBlockMemberText{
-						Value: c.Text1,
+						Value: c.Text,
 					}
 
 					message.Content = append(message.Content, content)
@@ -582,7 +582,7 @@ func toContent(val types.ConverseOutput) []provider.Content {
 		switch block := b.(type) {
 		case *types.ContentBlockMemberText:
 			parts = append(parts, provider.Content{
-				Text1: block.Value,
+				Text: block.Value,
 			})
 		}
 	}

@@ -21,7 +21,7 @@ func Message(message provider.Message, data any) (provider.Message, error) {
 
 	message.Content = provider.MessageContent{
 		{
-			Text1: content,
+			Text: content,
 		},
 	}
 

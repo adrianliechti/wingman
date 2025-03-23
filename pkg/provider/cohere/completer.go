@@ -87,7 +87,7 @@ func (c *Completer) complete(ctx context.Context, req *v2.V2ChatRequest, options
 }
 
 func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequest, options *provider.CompleteOptions) (*provider.Completion, error) {
-	result1 := provider.CompletionAccumulator{}
+	result := provider.CompletionAccumulator{}
 
 	var id string
 
@@ -115,7 +115,7 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 		}
 
 		if resp.ContentStart != nil {
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Message: &provider.Message{
@@ -125,18 +125,18 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 
 			if resp.ContentStart.Delta != nil && resp.ContentStart.Delta.Message != nil && resp.ContentStart.Delta.Message.Content != nil && resp.ContentStart.Delta.Message.Content.Text != nil {
 				content := *resp.ContentStart.Delta.Message.Content.Text
-				delta1.Message.Content = append(delta1.Message.Content, provider.TextContent(content))
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(content))
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
-			if err := options.Stream(ctx, delta1); err != nil {
+			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
 		}
 
 		if resp.ContentDelta != nil {
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Message: &provider.Message{
@@ -146,12 +146,12 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 
 			if resp.ContentDelta.Delta != nil && resp.ContentDelta.Delta.Message != nil && resp.ContentDelta.Delta.Message.Content != nil && resp.ContentDelta.Delta.Message.Content.Text != nil {
 				content := *resp.ContentDelta.Delta.Message.Content.Text
-				delta1.Message.Content = append(delta1.Message.Content, provider.TextContent(content))
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(content))
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
-			if err := options.Stream(ctx, delta1); err != nil {
+			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
 		}
@@ -160,7 +160,7 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 		}
 
 		if resp.MessageEnd != nil {
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Message: &provider.Message{
@@ -175,22 +175,22 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 					reason = provider.CompletionReasonStop
 				}
 
-				delta1.Reason = reason
+				delta.Reason = reason
 			}
 
 			if resp.MessageEnd.Delta != nil && resp.MessageEnd.Delta.Usage != nil {
-				delta1.Usage = toUsage(resp.MessageEnd.Delta.Usage)
+				delta.Usage = toUsage(resp.MessageEnd.Delta.Usage)
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
-			if err := options.Stream(ctx, delta1); err != nil {
+			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
 		}
 
 		if resp.ToolCallStart != nil {
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Message: &provider.Message{
@@ -217,18 +217,18 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 					}
 				}
 
-				delta1.Message.ToolCalls = append(delta1.Message.ToolCalls, tool)
+				delta.Message.ToolCalls = append(delta.Message.ToolCalls, tool)
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
-			if err := options.Stream(ctx, delta1); err != nil {
+			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
 		}
 
 		if resp.ToolCallDelta != nil {
-			delta1 := provider.Completion{
+			delta := provider.Completion{
 				ID: id,
 
 				Message: &provider.Message{
@@ -247,18 +247,18 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 					}
 				}
 
-				delta1.Message.ToolCalls = append(delta1.Message.ToolCalls, tool)
+				delta.Message.ToolCalls = append(delta.Message.ToolCalls, tool)
 			}
 
-			result1.Add(delta1)
+			result.Add(delta)
 
-			if err := options.Stream(ctx, delta1); err != nil {
+			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	return result1.Result(), nil
+	return result.Result(), nil
 }
 
 func convertChatRequest(model string, messages []provider.Message, options *provider.CompleteOptions) (*v2.V2ChatRequest, error) {
@@ -439,7 +439,7 @@ func fromAssistantMessageContent(val *v2.AssistantMessageResponse) []provider.Co
 	for _, c := range val.Content {
 		if c.Text != nil {
 			parts = append(parts, provider.Content{
-				Text1: c.Text.Text,
+				Text: c.Text.Text,
 			})
 		}
 	}

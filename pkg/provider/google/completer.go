@@ -129,7 +129,7 @@ func (c *Completer) complete(ctx context.Context, session *genai.ChatSession, pa
 func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSession, parts []genai.Part, options *provider.CompleteOptions) (*provider.Completion, error) {
 	iter := session.SendMessageStream(ctx, parts...)
 
-	result1 := provider.CompletionAccumulator{}
+	result := provider.CompletionAccumulator{}
 
 	for i := 0; ; i++ {
 		resp, err := iter.Next()
@@ -142,7 +142,7 @@ func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSessi
 			return nil, convertError(err)
 		}
 
-		delta1 := provider.Completion{
+		delta := provider.Completion{
 			ID: uuid.New().String(),
 
 			Message: &provider.Message{
@@ -155,20 +155,20 @@ func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSessi
 		if len(resp.Candidates) > 0 {
 			candidate := resp.Candidates[0]
 
-			delta1.Reason = toCompletionResult(candidate)
+			delta.Reason = toCompletionResult(candidate)
 
-			delta1.Message.Content = toContent(candidate.Content)
-			delta1.Message.ToolCalls = toToolCalls(candidate.Content)
+			delta.Message.Content = toContent(candidate.Content)
+			delta.Message.ToolCalls = toToolCalls(candidate.Content)
 		}
 
-		result1.Add(delta1)
+		result.Add(delta)
 
-		if err := options.Stream(ctx, delta1); err != nil {
+		if err := options.Stream(ctx, delta); err != nil {
 			return nil, err
 		}
 	}
 
-	return result1.Result(), nil
+	return result.Result(), nil
 }
 
 func convertSystem(messages []provider.Message) (*genai.Content, error) {
@@ -180,8 +180,8 @@ func convertSystem(messages []provider.Message) (*genai.Content, error) {
 		}
 
 		for _, c := range m.Content {
-			if c.Text1 != "" {
-				parts = append(parts, genai.Text(c.Text1))
+			if c.Text != "" {
+				parts = append(parts, genai.Text(c.Text))
 			}
 		}
 	}
@@ -203,8 +203,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "user"
 
 		for _, c := range message.Content {
-			if c.Text1 != "" {
-				content.Parts = append(content.Parts, genai.Text(c.Text1))
+			if c.Text != "" {
+				content.Parts = append(content.Parts, genai.Text(c.Text))
 			}
 		}
 
@@ -231,8 +231,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "model"
 
 		for _, c := range message.Content {
-			if c.Text1 != "" {
-				part := genai.Text(c.Text1)
+			if c.Text != "" {
+				part := genai.Text(c.Text)
 				content.Parts = append(content.Parts, part)
 			}
 		}
@@ -253,9 +253,9 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "user"
 
 		for _, c := range message.Content {
-			if c.Text1 != "" {
+			if c.Text != "" {
 				var data any
-				json.Unmarshal([]byte(c.Text1), &data)
+				json.Unmarshal([]byte(c.Text), &data)
 
 				var parameters map[string]any
 
@@ -405,7 +405,7 @@ func toContent(content *genai.Content) []provider.Content {
 		switch v := p.(type) {
 		case genai.Text:
 			parts = append(parts, provider.Content{
-				Text1: string(v),
+				Text: string(v),
 			})
 		}
 	}

@@ -77,7 +77,7 @@ func (c *Completer) complete(ctx context.Context, req anthropic.MessageNewParams
 }
 
 func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
-	result1 := provider.CompletionAccumulator{}
+	result := provider.CompletionAccumulator{}
 
 	message := anthropic.Message{}
 	stream := c.messages.NewStreaming(ctx, req)
@@ -122,7 +122,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 				}
 			}
 
-			result1.Add(delta)
+			result.Add(delta)
 
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
@@ -147,13 +147,13 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 
 					delta.Message.Content = provider.MessageContent{
 						{
-							Text1: event.Delta.PartialJSON,
+							Text: event.Delta.PartialJSON,
 						},
 					}
 				}
 			}
 
-			result1.Add(delta)
+			result.Add(delta)
 
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
@@ -178,7 +178,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 				delta.Reason = provider.CompletionReasonStop
 			}
 
-			result1.Add(delta)
+			result.Add(delta)
 
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
@@ -190,7 +190,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 		return nil, convertError(err)
 	}
 
-	return result1.Result(), nil
+	return result.Result(), nil
 }
 
 func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.MessageNewParams, error) {
@@ -229,8 +229,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			blocks := []anthropic.ContentBlockParamUnion{}
 
 			for _, c := range m.Content {
-				if c.Text1 != "" {
-					blocks = append(blocks, anthropic.NewTextBlock(c.Text1))
+				if c.Text != "" {
+					blocks = append(blocks, anthropic.NewTextBlock(c.Text))
 				}
 			}
 
@@ -273,8 +273,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			blocks := []anthropic.ContentBlockParamUnion{}
 
 			for _, c := range m.Content {
-				if c.Text1 != "" {
-					blocks = append(blocks, anthropic.NewTextBlock(c.Text1))
+				if c.Text != "" {
+					blocks = append(blocks, anthropic.NewTextBlock(c.Text))
 				}
 			}
 
@@ -353,7 +353,7 @@ func toContent(blocks []anthropic.ContentBlock) []provider.Content {
 	for _, b := range blocks {
 		if b.Type == anthropic.ContentBlockTypeText {
 			parts = append(parts, provider.Content{
-				Text1: b.Text,
+				Text: b.Text,
 			})
 		}
 	}

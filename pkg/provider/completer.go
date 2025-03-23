@@ -26,7 +26,7 @@ func SystemMessage(text string) Message {
 
 		Content: MessageContent{
 			{
-				Text1: text,
+				Text: text,
 			},
 		},
 	}
@@ -38,7 +38,7 @@ func UserMessage(text string) Message {
 
 		Content: MessageContent{
 			{
-				Text1: text,
+				Text: text,
 			},
 		},
 	}
@@ -50,7 +50,7 @@ func AssistantMessage(content string) Message {
 
 		Content: MessageContent{
 			{
-				Text1: content,
+				Text: content,
 			},
 		},
 	}
@@ -64,7 +64,7 @@ func ToolMessage(id string, content string) Message {
 
 		Content: MessageContent{
 			{
-				Text1: content,
+				Text: content,
 			},
 		},
 	}
@@ -76,8 +76,8 @@ func (c MessageContent) String() string {
 	var parts []string
 
 	for _, content := range c {
-		if content.Text1 != "" {
-			parts = append(parts, content.Text1)
+		if content.Text != "" {
+			parts = append(parts, content.Text)
 		}
 	}
 
@@ -113,12 +113,12 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		}
 
 		for _, c := range c.Message.Content {
-			if c.Text1 != "" {
-				a.content.WriteString(c.Text1)
+			if c.Text != "" {
+				a.content.WriteString(c.Text)
 			}
 
-			if c.Refusal1 != "" {
-				a.refusal.WriteString(c.Refusal1)
+			if c.Refusal != "" {
+				a.refusal.WriteString(c.Refusal)
 			}
 		}
 
@@ -178,19 +178,19 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 func TextContent(val string) Content {
 	return Content{
-		Text1: val,
+		Text: val,
 	}
 }
 
 func RefusalContent(val string) Content {
 	return Content{
-		Refusal1: val,
+		Refusal: val,
 	}
 }
 
 type Content struct {
-	Text1    string
-	Refusal1 string
+	Text    string
+	Refusal string
 
 	File  *FileContent
 	Image *ImageContent

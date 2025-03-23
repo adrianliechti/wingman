@@ -116,20 +116,20 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				var refusal string
 
 				for _, c := range completion.Message.Content {
-					if c.Text1 != "" {
+					if c.Text != "" {
 						if content != "" {
 							content += "\n\n"
 						}
 
-						content += c.Text1
+						content += c.Text
 					}
 
-					if c.Refusal1 != "" {
+					if c.Refusal != "" {
 						if refusal != "" {
 							refusal += "\n\n"
 						}
 
-						refusal += c.Refusal1
+						refusal += c.Refusal
 					}
 				}
 
@@ -210,20 +210,20 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			var refusal string
 
 			for _, c := range completion.Message.Content {
-				if c.Text1 != "" {
+				if c.Text != "" {
 					if content != "" {
 						content += "\n\n"
 					}
 
-					content += c.Text1
+					content += c.Text
 				}
 
-				if c.Refusal1 != "" {
+				if c.Refusal != "" {
 					if refusal != "" {
 						refusal += "\n\n"
 					}
 
-					refusal += c.Refusal1
+					refusal += c.Refusal
 				}
 			}
 
