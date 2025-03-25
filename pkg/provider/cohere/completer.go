@@ -302,8 +302,6 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 
 		case provider.MessageRoleSystem:
 			message := &v2.ChatMessageV2{
-				Role: "system",
-
 				System: &v2.SystemMessage{
 					Content: &v2.SystemMessageContent{
 						String: m.Content.String(),
@@ -316,8 +314,6 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 
 		if m.Role == provider.MessageRoleUser {
 			message := &v2.ChatMessageV2{
-				Role: "user",
-
 				User: &v2.UserMessage{
 					Content: &v2.UserMessageContent{
 						String: m.Content.String(),
@@ -330,8 +326,6 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 
 		if m.Role == provider.MessageRoleAssistant {
 			message := &v2.ChatMessageV2{
-				Role: "assistant",
-
 				Assistant: &v2.AssistantMessage{},
 			}
 
@@ -355,6 +349,10 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 				message.Assistant.ToolCalls = append(message.Assistant.ToolCalls, call)
 			}
 
+			if message.Assistant.Content == nil && len(message.Assistant.ToolCalls) == 0 {
+				message.Assistant.Content = &v2.AssistantMessageContent{}
+			}
+
 			req.Messages = append(req.Messages, message)
 		}
 
@@ -375,8 +373,6 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 			content, _ := json.Marshal(parameters)
 
 			message := &v2.ChatMessageV2{
-				Role: "tool",
-
 				Tool: &v2.ToolMessageV2{
 					ToolCallId: m.Tool,
 

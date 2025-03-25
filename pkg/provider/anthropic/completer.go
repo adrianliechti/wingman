@@ -167,6 +167,12 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 						},
 					}
 				}
+
+				result.Add(delta)
+
+				if err := options.Stream(ctx, delta); err != nil {
+					return nil, err
+				}
 			}
 
 		case anthropic.ContentBlockStopEvent:
@@ -236,7 +242,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			system = append(system, anthropic.TextBlockParam{Text: m.Content.String()})
 
 		case provider.MessageRoleUser:
-			blocks := []anthropic.ContentBlockParamUnion{}
+			var blocks []anthropic.ContentBlockParamUnion
 
 			for _, c := range m.Content {
 				if c.Text != "" {
@@ -278,7 +284,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			messages = append(messages, message)
 
 		case provider.MessageRoleAssistant:
-			blocks := []anthropic.ContentBlockParamUnion{}
+			var blocks []anthropic.ContentBlockParamUnion
 
 			for _, c := range m.Content {
 				if c.Text != "" {
@@ -320,7 +326,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			Name: t.Name,
 
 			InputSchema: anthropic.ToolInputSchemaParam{
-				Properties: t.Parameters,
+				Properties: t.Parameters["properties"],
 			},
 		}
 
@@ -372,7 +378,8 @@ func toContent(blocks []anthropic.ContentBlockUnion) []provider.Content {
 	var parts []provider.Content
 
 	for _, b := range blocks {
-		if b.Type == "text" {
+		switch b := b.AsAny().(type) {
+		case anthropic.TextBlock:
 			parts = append(parts, provider.Content{
 				Text: b.Text,
 			})
