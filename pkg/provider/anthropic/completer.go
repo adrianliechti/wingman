@@ -17,7 +17,7 @@ var _ provider.Completer = (*Completer)(nil)
 
 type Completer struct {
 	*Config
-	messages *anthropic.MessageService
+	messages anthropic.MessageService
 }
 
 func NewCompleter(url, model string, options ...Option) (*Completer, error) {
@@ -89,7 +89,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 			return nil, err
 		}
 
-		switch event := event.AsUnion().(type) {
+		switch event := event.AsAny().(type) {
 		case anthropic.MessageStartEvent:
 			break
 
@@ -129,16 +129,32 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 			}
 
 		case anthropic.ContentBlockDeltaEvent:
-			delta := provider.Completion{
-				ID: message.ID,
+			switch event := event.Delta.AsAny().(type) {
+			case anthropic.TextDelta:
+				delta := provider.Completion{
+					ID: message.ID,
 
-				Message: to.Ptr(provider.AssistantMessage(event.Delta.Text)),
-			}
+					Message: to.Ptr(provider.AssistantMessage(event.Text)),
+				}
 
-			if event.Delta.PartialJSON != "" {
-				delta.Message.ToolCalls = []provider.ToolCall{
-					{
-						Arguments: event.Delta.PartialJSON,
+				result.Add(delta)
+
+				if err := options.Stream(ctx, delta); err != nil {
+					return nil, err
+				}
+
+			case anthropic.InputJSONDelta:
+				delta := provider.Completion{
+					ID: message.ID,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						ToolCalls: []provider.ToolCall{
+							{
+								Arguments: event.PartialJSON,
+							},
+						},
 					},
 				}
 
@@ -147,16 +163,10 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 
 					delta.Message.Content = provider.MessageContent{
 						{
-							Text: event.Delta.PartialJSON,
+							Text: event.PartialJSON,
 						},
 					}
 				}
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
 			}
 
 		case anthropic.ContentBlockStopEvent:
@@ -199,31 +209,31 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	req := &anthropic.MessageNewParams{
-		Model:     anthropic.F(c.model),
-		MaxTokens: anthropic.F(int64(4096)),
+		Model:     c.model,
+		MaxTokens: int64(4096),
 	}
 
 	var system []anthropic.TextBlockParam
 
-	var tools []anthropic.ToolUnionUnionParam
+	var tools []anthropic.ToolUnionParam
 	var messages []anthropic.MessageParam
 
 	if options.Stop != nil {
-		req.StopSequences = anthropic.F(options.Stop)
+		req.StopSequences = options.Stop
 	}
 
 	if options.MaxTokens != nil {
-		req.MaxTokens = anthropic.F(int64(*options.MaxTokens))
+		req.MaxTokens = int64(*options.MaxTokens)
 	}
 
 	if options.Temperature != nil {
-		req.Temperature = anthropic.F(float64(*options.Temperature))
+		req.Temperature = anthropic.Float(float64(*options.Temperature))
 	}
 
 	for _, m := range input {
 		switch m.Role {
 		case provider.MessageRoleSystem:
-			system = append(system, anthropic.NewTextBlock(m.Content.String()))
+			system = append(system, anthropic.TextBlockParam{Text: m.Content.String()})
 
 		case provider.MessageRoleUser:
 			blocks := []anthropic.ContentBlockParamUnion{}
@@ -249,16 +259,14 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 					case "application/pdf":
 						block := anthropic.DocumentBlockParam{
-							Type: anthropic.F(anthropic.DocumentBlockParamTypeDocument),
-
-							Source: anthropic.F(anthropic.DocumentBlockParamSourceUnion(anthropic.Base64PDFSourceParam{
-								Type:      anthropic.F(anthropic.Base64PDFSourceTypeBase64),
-								Data:      anthropic.F(content),
-								MediaType: anthropic.F(anthropic.Base64PDFSourceMediaTypeApplicationPDF),
-							})),
+							Source: anthropic.DocumentBlockParamSourceUnion{
+								OfBase64PDFSource: &anthropic.Base64PDFSourceParam{
+									Data: content,
+								},
+							},
 						}
 
-						blocks = append(blocks, block)
+						blocks = append(blocks, anthropic.ContentBlockParamUnion{OfRequestDocumentBlock: &block})
 
 					default:
 						return nil, errors.New("unsupported content type")
@@ -285,7 +293,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					input = t.Arguments
 				}
 
-				blocks = append(blocks, anthropic.NewToolUseBlockParam(t.ID, t.Name, input))
+				blocks = append(blocks, anthropic.ContentBlockParamUnion{
+					OfRequestToolUseBlock: &anthropic.ToolUseBlockParam{
+						ID:    t.ID,
+						Input: input,
+						Name:  t.Name,
+					},
+				})
 			}
 
 			message := anthropic.NewAssistantMessage(blocks...)
@@ -303,55 +317,62 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		}
 
 		tool := anthropic.ToolParam{
-			Name:        anthropic.F(t.Name),
-			InputSchema: anthropic.F[interface{}](t.Parameters),
+			Name: t.Name,
+
+			InputSchema: anthropic.ToolInputSchemaParam{
+				Properties: t.Parameters,
+			},
 		}
 
 		if t.Description != "" {
-			tool.Description = anthropic.F(t.Description)
+			tool.Description = anthropic.String(t.Description)
 		}
 
-		tools = append(tools, tool)
+		tools = append(tools, anthropic.ToolUnionParam{OfTool: &tool})
 	}
 
 	if options.Schema != nil {
 		tool := anthropic.ToolParam{
-			Name:        anthropic.F(options.Schema.Name),
-			InputSchema: anthropic.F(any(options.Schema.Schema)),
+			Name: options.Schema.Name,
+
+			InputSchema: anthropic.ToolInputSchemaParam{
+				Properties: options.Schema.Schema,
+			},
 		}
 
 		if options.Schema.Description != "" {
-			tool.Description = anthropic.F(options.Schema.Description)
+			tool.Description = anthropic.String(options.Schema.Description)
 		}
 
-		req.ToolChoice = anthropic.F[anthropic.ToolChoiceUnionParam](anthropic.ToolChoiceToolParam{
-			Type: anthropic.F(anthropic.ToolChoiceToolTypeTool),
-			Name: anthropic.F(options.Schema.Name),
-		})
+		req.ToolChoice = anthropic.ToolChoiceUnionParam{
+			OfToolChoiceTool: &anthropic.ToolChoiceToolParam{
+				Name: options.Schema.Name,
+			},
+		}
 
-		tools = append(tools, tool)
+		tools = append(tools, anthropic.ToolUnionParam{OfTool: &tool})
 	}
 
 	if len(system) > 0 {
-		req.System = anthropic.F(system)
+		req.System = system
 	}
 
 	if len(tools) > 0 {
-		req.Tools = anthropic.F(tools)
+		req.Tools = tools
 	}
 
 	if len(messages) > 0 {
-		req.Messages = anthropic.F(messages)
+		req.Messages = messages
 	}
 
 	return req, nil
 }
 
-func toContent(blocks []anthropic.ContentBlock) []provider.Content {
+func toContent(blocks []anthropic.ContentBlockUnion) []provider.Content {
 	var parts []provider.Content
 
 	for _, b := range blocks {
-		if b.Type == anthropic.ContentBlockTypeText {
+		if b.Type == "text" {
 			parts = append(parts, provider.Content{
 				Text: b.Text,
 			})
@@ -361,24 +382,23 @@ func toContent(blocks []anthropic.ContentBlock) []provider.Content {
 	return parts
 }
 
-func toToolCalls(blocks []anthropic.ContentBlock) []provider.ToolCall {
+func toToolCalls(blocks []anthropic.ContentBlockUnion) []provider.ToolCall {
 	var result []provider.ToolCall
 
 	for _, b := range blocks {
-		if b.Type != anthropic.ContentBlockTypeToolUse {
-			continue
+		switch b := b.AsAny().(type) {
+		case anthropic.ToolUseBlock:
+			input, _ := json.Marshal(b.Input)
+
+			call := provider.ToolCall{
+				ID: b.ID,
+
+				Name:      b.Name,
+				Arguments: string(input),
+			}
+
+			result = append(result, call)
 		}
-
-		input, _ := b.Input.MarshalJSON()
-
-		call := provider.ToolCall{
-			ID: b.ID,
-
-			Name:      b.Name,
-			Arguments: string(input),
-		}
-
-		result = append(result, call)
 	}
 
 	return result
