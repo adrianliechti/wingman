@@ -32,7 +32,7 @@ type Schema struct {
 
 	Strict *bool
 
-	Schema map[string]any
+	Schema map[string]any // TODO: Rename to Properties
 }
 
 type Usage struct {
