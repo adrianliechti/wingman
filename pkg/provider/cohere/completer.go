@@ -349,10 +349,6 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 				message.Assistant.ToolCalls = append(message.Assistant.ToolCalls, call)
 			}
 
-			if message.Assistant.Content == nil && len(message.Assistant.ToolCalls) == 0 {
-				message.Assistant.Content = &v2.AssistantMessageContent{}
-			}
-
 			req.Messages = append(req.Messages, message)
 		}
 
