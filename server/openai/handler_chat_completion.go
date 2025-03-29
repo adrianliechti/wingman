@@ -220,7 +220,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 
 		if len(m.Contents) == 0 {
 			if m.ToolCallID != "" {
-				result := &provider.ToolResult{
+				result := provider.ToolResult{
 					ID:   m.ToolCallID,
 					Data: m.Content,
 				}
