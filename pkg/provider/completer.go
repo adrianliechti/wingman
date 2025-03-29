@@ -70,12 +70,24 @@ func ToolMessage(id string, content string) Message {
 
 type MessageContent []Content
 
-func (c MessageContent) String() string {
+func (c MessageContent) Text() string {
 	var parts []string
 
 	for _, content := range c {
 		if content.Text != "" {
 			parts = append(parts, content.Text)
+		}
+	}
+
+	return strings.Join(parts, "\n\n")
+}
+
+func (c MessageContent) Refusal() string {
+	var parts []string
+
+	for _, content := range c {
+		if content.Refusal != "" {
+			parts = append(parts, content.Refusal)
 		}
 	}
 

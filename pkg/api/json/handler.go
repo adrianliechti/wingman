@@ -130,7 +130,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	content := completion.Message.Content.Text()
+	contentType := "application/json"
+
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(completion.Message.Content.String()))
+	w.Write([]byte(content))
 }

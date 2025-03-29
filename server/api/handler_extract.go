@@ -78,10 +78,12 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		content := completion.Message.Content.Text()
+
 		w.Header().Set("Content-Type", "application/json")
 
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, completion.Message.Content.String())
+		io.WriteString(w, content)
 
 		return
 	}

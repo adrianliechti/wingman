@@ -55,13 +55,13 @@ func (p *observableChain) Complete(ctx context.Context, messages []provider.Mess
 		input := messages[len(messages)-1].Content
 
 		if input != nil {
-			span.SetAttributes(attribute.String("input", input.String()))
+			span.SetAttributes(attribute.String("input", input.Text()))
 		}
 	}
 
 	if result != nil {
 		if result.Message.Content != nil {
-			span.SetAttributes(attribute.String("output", result.Message.Content.String()))
+			span.SetAttributes(attribute.String("output", result.Message.Content.Text()))
 		}
 	}
 

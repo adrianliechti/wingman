@@ -240,10 +240,18 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 	for _, m := range input {
 		switch m.Role {
 		case provider.MessageRoleSystem:
-			message := openai.SystemMessage(m.Content.String())
+			parts := []openai.ChatCompletionContentPartTextParam{}
+
+			for _, c := range m.Content {
+				if c.Text != "" {
+					parts = append(parts, openai.ChatCompletionContentPartTextParam{Text: c.Text})
+				}
+			}
+
+			message := openai.SystemMessage(parts)
 
 			if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
-				message = openai.DeveloperMessage(m.Content.String())
+				message = openai.DeveloperMessage(parts)
 			}
 
 			result = append(result, message)
@@ -326,7 +334,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &message})
 
 		case provider.MessageRoleTool:
-			message := openai.ToolMessage(m.Content.String(), m.Tool)
+			message := openai.ToolMessage(m.Content.Text(), m.Tool)
 			result = append(result, message)
 		}
 	}

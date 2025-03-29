@@ -365,7 +365,7 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 
 		case provider.MessageRoleTool:
 			var data any
-			json.Unmarshal([]byte(m.Content.String()), &data)
+			json.Unmarshal([]byte(m.Content.Text()), &data)
 
 			if reflect.TypeOf(data).Kind() != reflect.Map {
 				data = map[string]any{

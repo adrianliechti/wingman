@@ -110,7 +110,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		return nil, errors.New("last message must be from user")
 	}
 
-	query := strings.TrimSpace(message.Content.String())
+	query := strings.TrimSpace(message.Content.Text())
 
 	results, err := c.index.Query(ctx, query, &index.QueryOptions{
 		Limit: c.limit,
