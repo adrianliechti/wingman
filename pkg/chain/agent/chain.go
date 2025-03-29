@@ -118,8 +118,6 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		inputTools[t.Name] = t
 	}
 
-	var result *provider.Completion
-
 	inputOptions := &provider.CompleteOptions{
 		Effort: options.Effort,
 
@@ -133,42 +131,34 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		Schema: options.Schema,
 	}
 
-	var lastToolCallID string
-	var lastToolCallName string
-
-	streamID := uuid.New().String()
-	streamToolCalls := map[string]provider.ToolCall{}
+	acc := provider.CompletionAccumulator{}
+	accID := uuid.New().String()
 
 	stream := func(ctx context.Context, completion provider.Completion) error {
-		completion.ID = streamID
+		acc.Add(completion)
 
-		for _, t := range completion.Message.ToolCalls {
-			if t.ID != "" {
-				lastToolCallID = t.ID
+		delta := provider.Completion{
+			ID: accID,
+
+			Reason: completion.Reason,
+
+			Message: &provider.Message{
+				Role: provider.MessageRoleAssistant,
+			},
+		}
+
+		for _, c := range completion.Message.Content {
+			if c.Text != "" {
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(c.Text))
 			}
 
-			if t.Name != "" {
-				lastToolCallName = t.Name
-			}
-
-			if lastToolCallName == "" {
-				continue
-			}
-
-			if _, found := agentTools[lastToolCallName]; !found {
-				call := streamToolCalls[lastToolCallID]
-				call.ID = lastToolCallID
-				call.Name = lastToolCallName
-				call.Arguments += t.Arguments
-
-				streamToolCalls[lastToolCallID] = call
+			if c.Refusal != "" {
+				delta.Message.Content = append(delta.Message.Content, provider.RefusalContent(c.Text))
 			}
 		}
 
-		if completion.Message.Content != nil || completion.Reason != "" {
-			completion.Message.ToolCalls = to.Values(streamToolCalls)
-
-			return options.Stream(ctx, completion)
+		if len(delta.Message.Content) > 0 {
+			return options.Stream(ctx, delta)
 		}
 
 		return nil
@@ -178,6 +168,8 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		inputOptions.Stream = stream
 	}
 
+	var result1 *provider.Completion
+
 	for {
 		completion, err := c.completer.Complete(ctx, input, inputOptions)
 
@@ -185,19 +177,24 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			return nil, err
 		}
 
-		completion.ID = streamID
+		completion.ID = accID
+
+		result1 = completion
 
 		if completion.Message == nil {
-			result = completion
 			break
 		}
 
-		input = append(input, *completion.Message)
-
 		var loop bool
 
-		for _, t := range completion.Message.ToolCalls {
-			p, found := agentTools[t.Name]
+		input = append(input, *completion.Message)
+
+		for _, c := range completion.Message.Content {
+			if c.ToolCall == nil {
+				continue
+			}
+
+			t, found := agentTools[c.ToolCall.Name]
 
 			if !found {
 				continue
@@ -205,11 +202,11 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 			var params map[string]any
 
-			if err := json.Unmarshal([]byte(t.Arguments), &params); err != nil {
+			if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &params); err != nil {
 				return nil, err
 			}
 
-			result, err := p.Execute(ctx, t.Name, params)
+			result, err := t.Execute(ctx, c.ToolCall.Name, params)
 
 			if err != nil {
 				return nil, err
@@ -225,12 +222,10 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 				Role: provider.MessageRoleUser,
 
 				Content: []provider.Content{
-					{
-						ToolResult: &provider.ToolResult{
-							ID:   t.ID,
-							Data: string(data),
-						},
-					},
+					provider.ToolResultContent(provider.ToolResult{
+						ID:   c.ToolCall.ID,
+						Data: string(data),
+					}),
 				},
 			})
 
@@ -238,14 +233,9 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		}
 
 		if !loop {
-			result = completion
 			break
 		}
 	}
 
-	if result == nil {
-		return nil, errors.New("unable to handle request")
-	}
-
-	return result, nil
+	return result1, nil
 }
