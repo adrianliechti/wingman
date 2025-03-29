@@ -26,6 +26,12 @@ type Tool struct {
 	Parameters map[string]any
 }
 
+type ToolResult struct {
+	ID string
+
+	Data string
+}
+
 type Schema struct {
 	Name        string
 	Description string

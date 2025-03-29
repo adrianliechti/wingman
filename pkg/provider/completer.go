@@ -14,7 +14,6 @@ type Message struct {
 
 	Content MessageContent
 
-	Tool      string
 	ToolCalls []ToolCall
 }
 
@@ -45,20 +44,6 @@ func UserMessage(text string) Message {
 func AssistantMessage(content string) Message {
 	return Message{
 		Role: MessageRoleAssistant,
-
-		Content: MessageContent{
-			{
-				Text: content,
-			},
-		},
-	}
-}
-
-func ToolMessage(id string, content string) Message {
-	return Message{
-		Role: MessageRoleTool,
-
-		Tool: id,
 
 		Content: MessageContent{
 			{
@@ -204,11 +189,19 @@ func FileContent(val *File) Content {
 	}
 }
 
+func ToolResultContent(val *ToolResult) Content {
+	return Content{
+		ToolResult: val,
+	}
+}
+
 type Content struct {
 	Text    string
 	Refusal string
 
 	File *File
+
+	ToolResult *ToolResult
 }
 
 type MessageRole string
@@ -217,7 +210,6 @@ const (
 	MessageRoleSystem    MessageRole = "system"
 	MessageRoleUser      MessageRole = "user"
 	MessageRoleAssistant MessageRole = "assistant"
-	MessageRoleTool      MessageRole = "tool"
 )
 
 type ToolCall struct {

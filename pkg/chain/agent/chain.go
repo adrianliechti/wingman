@@ -221,7 +221,18 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 				return nil, err
 			}
 
-			input = append(input, provider.ToolMessage(t.ID, string(data)))
+			input = append(input, provider.Message{
+				Role: provider.MessageRoleUser,
+
+				Content: []provider.Content{
+					{
+						ToolResult: &provider.ToolResult{
+							ID:   t.ID,
+							Data: string(data),
+						},
+					},
+				},
+			})
 
 			loop = true
 		}

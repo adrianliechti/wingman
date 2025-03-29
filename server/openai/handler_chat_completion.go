@@ -112,37 +112,15 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if completion.Message != nil {
-				var content string
-				var refusal string
-
-				for _, c := range completion.Message.Content {
-					if c.Text != "" {
-						if content != "" {
-							content += "\n\n"
-						}
-
-						content += c.Text
-					}
-
-					if c.Refusal != "" {
-						if refusal != "" {
-							refusal += "\n\n"
-						}
-
-						refusal += c.Refusal
-					}
-				}
-
 				result.Choices = []ChatCompletionChoice{
 					{
 						Delta: &ChatCompletionMessage{
 							Role: oaiMessageRole(completion.Message.Role),
 
-							Content: content,
-							Refusal: refusal,
+							Content: completion.Message.Content.Text(),
+							Refusal: completion.Message.Content.Refusal(),
 
-							ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
-							ToolCallID: completion.Message.Tool,
+							ToolCalls: oaiToolCalls(completion.Message.ToolCalls),
 						},
 
 						FinishReason: oaiFinishReason(completion.Reason),
@@ -206,37 +184,15 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if completion.Message != nil {
-			var content string
-			var refusal string
-
-			for _, c := range completion.Message.Content {
-				if c.Text != "" {
-					if content != "" {
-						content += "\n\n"
-					}
-
-					content += c.Text
-				}
-
-				if c.Refusal != "" {
-					if refusal != "" {
-						refusal += "\n\n"
-					}
-
-					refusal += c.Refusal
-				}
-			}
-
 			result.Choices = []ChatCompletionChoice{
 				{
 					Message: &ChatCompletionMessage{
 						Role: oaiMessageRole(completion.Message.Role),
 
-						Content: content,
-						Refusal: refusal,
+						Content: completion.Message.Content.Text(),
+						Refusal: completion.Message.Content.Refusal(),
 
-						ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
-						ToolCallID: completion.Message.Tool,
+						ToolCalls: oaiToolCalls(completion.Message.ToolCalls),
 					},
 
 					FinishReason: oaiFinishReason(completion.Reason),
@@ -262,12 +218,21 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 	for _, m := range s {
 		var content provider.MessageContent
 
-		if m.Content != "" {
-			content = append(content, provider.TextContent(m.Content))
+		if len(m.Contents) == 0 {
+			if m.ToolCallID != "" {
+				result := &provider.ToolResult{
+					ID:   m.ToolCallID,
+					Data: m.Content,
+				}
+
+				content = append(content, provider.ToolResultContent(result))
+			} else {
+				content = append(content, provider.TextContent(m.Content))
+			}
 		}
 
 		for _, c := range m.Contents {
-			if c.Type == "text" {
+			if c.Type == MessageContentTypeText {
 				content = append(content, provider.TextContent(c.Text))
 			}
 
@@ -297,10 +262,8 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 
 			Content: content,
 
-			Tool:      m.ToolCallID,
 			ToolCalls: toToolCalls(m.ToolCalls),
 		})
-
 	}
 
 	return result, nil
@@ -311,14 +274,11 @@ func toMessageRole(r MessageRole) provider.MessageRole {
 	case MessageRoleSystem:
 		return provider.MessageRoleSystem
 
-	case MessageRoleUser:
+	case MessageRoleUser, MessageRoleTool:
 		return provider.MessageRoleUser
 
 	case MessageRoleAssistant:
 		return provider.MessageRoleAssistant
-
-	case MessageRoleTool:
-		return provider.MessageRoleTool
 
 	default:
 		return ""
@@ -423,17 +383,8 @@ func toToolCalls(calls []ToolCall) []provider.ToolCall {
 
 func oaiMessageRole(r provider.MessageRole) MessageRole {
 	switch r {
-	case provider.MessageRoleSystem:
-		return MessageRoleSystem
-
-	case provider.MessageRoleUser:
-		return MessageRoleUser
-
 	case provider.MessageRoleAssistant:
 		return MessageRoleAssistant
-
-	case provider.MessageRoleTool:
-		return MessageRoleTool
 
 	default:
 		return ""
