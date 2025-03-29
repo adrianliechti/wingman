@@ -123,7 +123,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 						Role: provider.MessageRoleAssistant,
 
 						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall1{
+							provider.ToolCallContent(provider.ToolCall{
 								ID:   event.ID,
 								Name: event.Name,
 							}),
@@ -175,7 +175,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 						Role: provider.MessageRoleAssistant,
 
 						Content: provider.MessageContent{
-							provider.ToolCallContent(provider.ToolCall1{
+							provider.ToolCallContent(provider.ToolCall{
 								Arguments: event.PartialJSON,
 							}),
 						},
@@ -411,7 +411,7 @@ func toContent(blocks []anthropic.ContentBlockUnion) []provider.Content {
 		case anthropic.ToolUseBlock:
 			input, _ := json.Marshal(b.Input)
 
-			call := provider.ToolCall1{
+			call := provider.ToolCall{
 				ID: b.ID,
 
 				Name:      b.Name,

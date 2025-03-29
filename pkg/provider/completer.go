@@ -96,7 +96,7 @@ type CompletionAccumulator struct {
 	content strings.Builder
 	refusal strings.Builder
 
-	toolCalls []ToolCall1
+	toolCalls []ToolCall
 
 	usage *Usage
 }
@@ -126,7 +126,7 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 			if c.ToolCall != nil {
 				if c.ToolCall.ID != "" {
-					a.toolCalls = append(a.toolCalls, ToolCall1{
+					a.toolCalls = append(a.toolCalls, ToolCall{
 						ID: c.ToolCall.ID,
 					})
 				}
@@ -199,7 +199,7 @@ func FileContent(val *File) Content {
 	}
 }
 
-func ToolCallContent(val ToolCall1) Content {
+func ToolCallContent(val ToolCall) Content {
 	return Content{
 		ToolCall: &val,
 	}
@@ -217,7 +217,7 @@ type Content struct {
 
 	File *File
 
-	ToolCall   *ToolCall1
+	ToolCall   *ToolCall
 	ToolResult *ToolResult
 }
 
@@ -229,7 +229,7 @@ const (
 	MessageRoleAssistant MessageRole = "assistant"
 )
 
-type ToolCall1 struct {
+type ToolCall struct {
 	ID string
 
 	Name      string

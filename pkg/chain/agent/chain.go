@@ -173,7 +173,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 						continue
 					}
 
-					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(provider.ToolCall1{
+					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(provider.ToolCall{
 						ID:   lastToolID,
 						Name: lastToolName,
 
@@ -194,8 +194,6 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		inputOptions.Stream = stream
 	}
 
-	var result1 *provider.Completion
-
 	for {
 		completion, err := c.completer.Complete(ctx, input, inputOptions)
 
@@ -205,10 +203,8 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 		completion.ID = accID
 
-		result1 = completion
-
 		if completion.Message == nil {
-			break
+			return completion, nil
 		}
 
 		var loop bool
@@ -259,9 +255,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		}
 
 		if !loop {
-			break
+			return completion, nil
 		}
 	}
-
-	return result1, nil
 }

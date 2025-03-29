@@ -202,7 +202,7 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 				c := resp.ToolCallStart.Delta.Message.ToolCalls
 
 				if c.Function != nil {
-					call := provider.ToolCall1{}
+					call := provider.ToolCall{}
 
 					if c.Id != nil {
 						call.ID = *c.Id
@@ -242,7 +242,7 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 				c := resp.ToolCallDelta.Delta.Message.ToolCalls
 
 				if c.Function != nil {
-					call := provider.ToolCall1{}
+					call := provider.ToolCall{}
 
 					if c.Function.Arguments != nil {
 						call.Arguments = *c.Function.Arguments

@@ -90,7 +90,7 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 	}
 
 	for _, c := range choice.Message.ToolCalls {
-		call := provider.ToolCall1{
+		call := provider.ToolCall{
 			ID: c.ID,
 
 			Name:      c.Function.Name,
@@ -135,7 +135,7 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 			}
 
 			for _, c := range choice.Delta.ToolCalls {
-				call := provider.ToolCall1{
+				call := provider.ToolCall{
 					ID: c.ID,
 
 					Name:      c.Function.Name,

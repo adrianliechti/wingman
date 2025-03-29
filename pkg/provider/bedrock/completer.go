@@ -133,7 +133,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 						Role: provider.MessageRoleAssistant,
 
 						Content: provider.MessageContent{
-							provider.ToolCallContent(provider.ToolCall1{
+							provider.ToolCallContent(provider.ToolCall{
 								ID:   aws.ToString(b.Value.ToolUseId),
 								Name: aws.ToString(b.Value.Name),
 							}),
@@ -176,7 +176,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 						Role: provider.MessageRoleAssistant,
 
 						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall1{
+							provider.ToolCallContent(provider.ToolCall{
 								Arguments: *b.Value.Input,
 							}),
 						},
@@ -586,7 +586,7 @@ func toContent(val types.ConverseOutput) []provider.Content {
 		case *types.ContentBlockMemberToolUse:
 			data, _ := block.Value.Input.MarshalSmithyDocument()
 
-			tool := provider.ToolCall1{
+			tool := provider.ToolCall{
 				ID:   aws.ToString(block.Value.ToolUseId),
 				Name: aws.ToString(block.Value.Name),
 

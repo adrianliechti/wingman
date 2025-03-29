@@ -400,7 +400,7 @@ func toContent(content *genai.Content) []provider.Content {
 		case genai.FunctionCall:
 			data, _ := json.Marshal(v.Args)
 
-			call := provider.ToolCall1{
+			call := provider.ToolCall{
 				ID: uuid.NewString(),
 
 				Name:      v.Name,
