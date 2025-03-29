@@ -329,7 +329,7 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 
 				if c.ToolResult != nil {
 					var data any
-					json.Unmarshal([]byte(m.Content.Text()), &data)
+					json.Unmarshal([]byte(c.ToolResult.Data), &data)
 
 					if reflect.TypeOf(data).Kind() != reflect.Map {
 						data = map[string]any{
