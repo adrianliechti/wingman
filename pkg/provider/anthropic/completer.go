@@ -282,6 +282,10 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						return nil, errors.New("unsupported content type")
 					}
 				}
+
+				if c.ToolResult != nil {
+					blocks = append(blocks, anthropic.NewToolResultBlock(c.ToolResult.ID, c.ToolResult.Data, false))
+				}
 			}
 
 			message := anthropic.NewUserMessage(blocks...)
@@ -313,12 +317,6 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			}
 
 			message := anthropic.NewAssistantMessage(blocks...)
-			messages = append(messages, message)
-
-		case provider.MessageRoleTool:
-			content := m.Content.Text()
-
-			message := anthropic.NewUserMessage(anthropic.NewToolResultBlock(m.Tool, content, false))
 			messages = append(messages, message)
 		}
 	}

@@ -259,6 +259,9 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 		case provider.MessageRoleUser:
 			parts := []openai.ChatCompletionContentPartUnionParam{}
 
+			var tool string
+			var toolData string
+
 			for _, c := range m.Content {
 				if c.Text != "" {
 					parts = append(parts, openai.TextContentPart(c.Text))
@@ -287,9 +290,18 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 						return nil, errors.New("unsupported content type")
 					}
 				}
+
+				if c.ToolResult != nil {
+					tool = c.ToolResult.ID
+					toolData = c.ToolResult.Data
+				}
 			}
 
-			result = append(result, openai.UserMessage(parts))
+			if tool != "" {
+				result = append(result, openai.ToolMessage(toolData, tool))
+			} else {
+				result = append(result, openai.UserMessage(parts))
+			}
 
 		case provider.MessageRoleAssistant:
 			message := openai.ChatCompletionAssistantMessageParam{}
@@ -332,10 +344,6 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			}
 
 			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: &message})
-
-		case provider.MessageRoleTool:
-			message := openai.ToolMessage(m.Content.Text(), m.Tool)
-			result = append(result, message)
 		}
 	}
 

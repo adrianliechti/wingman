@@ -79,6 +79,16 @@ func (c MessageContent) Refusal() string {
 	return strings.Join(parts, "\n\n")
 }
 
+func (c MessageContent) ToolResult() (id string, data string, ok bool) {
+	for _, content := range c {
+		if content.ToolResult != nil {
+			return content.ToolResult.ID, content.ToolResult.Data, true
+		}
+	}
+
+	return "", "", false
+}
+
 type CompletionAccumulator struct {
 	ID string
 

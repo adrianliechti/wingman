@@ -225,6 +225,28 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 					return nil, errors.New("unsupported content type")
 				}
 			}
+
+			if c.ToolResult != nil {
+				var data any
+				json.Unmarshal([]byte(c.ToolResult.Data), &data)
+
+				var parameters map[string]any
+
+				if val, ok := data.(map[string]any); ok {
+					parameters = val
+				}
+
+				if val, ok := data.([]any); ok {
+					parameters = map[string]any{"data": val}
+				}
+
+				part := genai.FunctionResponse{
+					Name:     c.ToolResult.ID,
+					Response: parameters,
+				}
+
+				content.Parts = append(content.Parts, part)
+			}
 		}
 
 	case provider.MessageRoleAssistant:
@@ -247,33 +269,6 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 			}
 
 			content.Parts = append(content.Parts, part)
-		}
-
-	case provider.MessageRoleTool:
-		content.Role = "user"
-
-		for _, c := range message.Content {
-			if c.Text != "" {
-				var data any
-				json.Unmarshal([]byte(c.Text), &data)
-
-				var parameters map[string]any
-
-				if val, ok := data.(map[string]any); ok {
-					parameters = val
-				}
-
-				if val, ok := data.([]any); ok {
-					parameters = map[string]any{"data": val}
-				}
-
-				part := genai.FunctionResponse{
-					Name:     message.Tool,
-					Response: parameters,
-				}
-
-				content.Parts = append(content.Parts, part)
-			}
 		}
 	}
 

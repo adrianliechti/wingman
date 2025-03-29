@@ -326,6 +326,31 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 
 					message.Content = append(message.Content, block)
 				}
+
+				if c.ToolResult != nil {
+					var data any
+					json.Unmarshal([]byte(m.Content.Text()), &data)
+
+					if reflect.TypeOf(data).Kind() != reflect.Map {
+						data = map[string]any{
+							"result": data,
+						}
+					}
+
+					block := &types.ContentBlockMemberToolResult{
+						Value: types.ToolResultBlock{
+							ToolUseId: aws.String(c.ToolResult.ID),
+
+							Content: []types.ToolResultContentBlock{
+								&types.ToolResultContentBlockMemberJson{
+									Value: document.NewLazyDocument(data),
+								},
+							},
+						},
+					}
+
+					message.Content = append(message.Content, block)
+				}
 			}
 
 			result = append(result, message)
@@ -362,34 +387,6 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 			}
 
 			result = append(result, message)
-
-		case provider.MessageRoleTool:
-			var data any
-			json.Unmarshal([]byte(m.Content.Text()), &data)
-
-			if reflect.TypeOf(data).Kind() != reflect.Map {
-				data = map[string]any{
-					"result": data,
-				}
-			}
-
-			result = append(result, types.Message{
-				Role: types.ConversationRoleUser,
-
-				Content: []types.ContentBlock{
-					&types.ContentBlockMemberToolResult{
-						Value: types.ToolResultBlock{
-							ToolUseId: aws.String(m.Tool),
-
-							Content: []types.ToolResultContentBlock{
-								&types.ToolResultContentBlockMemberJson{
-									Value: document.NewLazyDocument(data),
-								},
-							},
-						},
-					},
-				},
-			})
 
 		default:
 			return nil, errors.New("unsupported message role")

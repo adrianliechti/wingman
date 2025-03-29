@@ -315,17 +315,46 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 		}
 
 		if m.Role == provider.MessageRoleUser {
-			content := m.Content.Text()
+			if toolID, toolData, ok := m.Content.ToolResult(); ok {
+				var data any
+				json.Unmarshal([]byte(toolData), &data)
 
-			message := &v2.ChatMessageV2{
-				User: &v2.UserMessage{
-					Content: &v2.UserMessageContent{
-						String: content,
+				var parameters map[string]any
+
+				if val, ok := data.(map[string]any); ok {
+					parameters = val
+				}
+
+				if val, ok := data.([]any); ok {
+					parameters = map[string]any{"data": val}
+				}
+
+				content, _ := json.Marshal(parameters)
+
+				message := &v2.ChatMessageV2{
+					Tool: &v2.ToolMessageV2{
+						ToolCallId: toolID,
+
+						Content: &v2.ToolMessageV2Content{
+							String: string(content),
+						},
 					},
-				},
-			}
+				}
 
-			req.Messages = append(req.Messages, message)
+				req.Messages = append(req.Messages, message)
+			} else {
+				content := m.Content.Text()
+
+				message := &v2.ChatMessageV2{
+					User: &v2.UserMessage{
+						Content: &v2.UserMessageContent{
+							String: content,
+						},
+					},
+				}
+
+				req.Messages = append(req.Messages, message)
+			}
 		}
 
 		if m.Role == provider.MessageRoleAssistant {
@@ -353,35 +382,6 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 				}
 
 				message.Assistant.ToolCalls = append(message.Assistant.ToolCalls, call)
-			}
-
-			req.Messages = append(req.Messages, message)
-		}
-
-		if m.Role == provider.MessageRoleTool {
-			var data any
-			json.Unmarshal([]byte(m.Content.Text()), &data)
-
-			var parameters map[string]any
-
-			if val, ok := data.(map[string]any); ok {
-				parameters = val
-			}
-
-			if val, ok := data.([]any); ok {
-				parameters = map[string]any{"data": val}
-			}
-
-			content, _ := json.Marshal(parameters)
-
-			message := &v2.ChatMessageV2{
-				Tool: &v2.ToolMessageV2{
-					ToolCallId: m.Tool,
-
-					Content: &v2.ToolMessageV2Content{
-						String: string(content),
-					},
-				},
 			}
 
 			req.Messages = append(req.Messages, message)
