@@ -259,7 +259,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 
 		for _, c := range m.ToolCalls {
 			if c.Type == ToolTypeFunction && c.Function != nil {
-				call := provider.ToolCall1{
+				call := provider.ToolCall{
 					ID: c.ID,
 
 					Name:      c.Function.Name,
