@@ -37,7 +37,7 @@ func (a *Adapter) Summarize(ctx context.Context, content string, options *summar
 			return nil, err
 		}
 
-		segments = append(segments, completion.Message.Content.Text())
+		segments = append(segments, completion.Message.Text())
 	}
 
 	completion, err := a.completer.Complete(ctx, []provider.Message{
@@ -49,7 +49,7 @@ func (a *Adapter) Summarize(ctx context.Context, content string, options *summar
 	}
 
 	result := &summarizer.Summary{
-		Text: completion.Message.Content.Text(),
+		Text: completion.Message.Text(),
 	}
 
 	return result, nil

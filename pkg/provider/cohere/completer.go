@@ -305,7 +305,7 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 		switch m.Role {
 
 		case provider.MessageRoleSystem:
-			content := m.Content.Text()
+			content := m.Text()
 
 			message := &v2.ChatMessageV2{
 				System: &v2.SystemMessage{
@@ -319,7 +319,7 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 		}
 
 		if m.Role == provider.MessageRoleUser {
-			if toolID, toolData, ok := m.Content.ToolResult(); ok {
+			if toolID, toolData, ok := m.ToolResult(); ok {
 				var data any
 				json.Unmarshal([]byte(toolData), &data)
 
@@ -347,7 +347,7 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 
 				req.Messages = append(req.Messages, message)
 			} else {
-				content := m.Content.Text()
+				content := m.Text()
 
 				message := &v2.ChatMessageV2{
 					User: &v2.UserMessage{

@@ -52,16 +52,18 @@ func (p *observableChain) Complete(ctx context.Context, messages []provider.Mess
 	meterRequest(ctx, p.library, p.provider, "complete", p.model)
 
 	if len(messages) > 0 {
-		input := messages[len(messages)-1].Content
+		input := messages[len(messages)-1].Text()
 
-		if input != nil {
-			span.SetAttributes(attribute.String("input", input.Text()))
+		if input != "" {
+			span.SetAttributes(attribute.String("input", input))
 		}
 	}
 
 	if result != nil {
-		if result.Message.Content != nil {
-			span.SetAttributes(attribute.String("output", result.Message.Content.Text()))
+		output := result.Message.Text()
+
+		if output != "" {
+			span.SetAttributes(attribute.String("output", output))
 		}
 	}
 

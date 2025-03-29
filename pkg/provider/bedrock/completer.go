@@ -132,7 +132,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 
-						Content: provider.MessageContent{
+						Content: []provider.Content{
 							provider.ToolCallContent(provider.ToolCall{
 								ID:   aws.ToString(b.Value.ToolUseId),
 								Name: aws.ToString(b.Value.Name),
@@ -156,7 +156,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 
-						Content: provider.MessageContent{
+						Content: []provider.Content{
 							provider.TextContent(b.Value),
 						},
 					},
@@ -204,7 +204,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 				Message: &provider.Message{
 					Role: provider.MessageRoleAssistant,
 
-					Content: provider.MessageContent{
+					Content: []provider.Content{
 						provider.TextContent(""),
 					},
 				},
@@ -223,7 +223,7 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 				Message: &provider.Message{
 					Role: provider.MessageRoleAssistant,
 
-					Content: provider.MessageContent{
+					Content: []provider.Content{
 						provider.TextContent(""),
 					},
 				},

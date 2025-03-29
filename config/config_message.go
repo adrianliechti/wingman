@@ -51,7 +51,7 @@ func parseMessage(message message) (*provider.Message, error) {
 	return &provider.Message{
 		Role: role,
 
-		Content: provider.MessageContent{
+		Content: []provider.Content{
 			provider.TextContent(message.Content),
 		},
 	}, nil

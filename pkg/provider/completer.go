@@ -12,14 +12,14 @@ type Completer interface {
 type Message struct {
 	Role MessageRole
 
-	Content MessageContent
+	Content []Content
 }
 
 func SystemMessage(text string) Message {
 	return Message{
 		Role: MessageRoleSystem,
 
-		Content: MessageContent{
+		Content: []Content{
 			{
 				Text: text,
 			},
@@ -31,7 +31,7 @@ func UserMessage(text string) Message {
 	return Message{
 		Role: MessageRoleUser,
 
-		Content: MessageContent{
+		Content: []Content{
 			{
 				Text: text,
 			},
@@ -43,7 +43,7 @@ func AssistantMessage(content string) Message {
 	return Message{
 		Role: MessageRoleAssistant,
 
-		Content: MessageContent{
+		Content: []Content{
 			{
 				Text: content,
 			},
@@ -51,36 +51,34 @@ func AssistantMessage(content string) Message {
 	}
 }
 
-type MessageContent []Content
-
-func (c MessageContent) Text() string {
+func (m Message) Text() string {
 	var parts []string
 
-	for _, content := range c {
-		if content.Text != "" {
-			parts = append(parts, content.Text)
+	for _, c := range m.Content {
+		if c.Text != "" {
+			parts = append(parts, c.Text)
 		}
 	}
 
 	return strings.Join(parts, "\n\n")
 }
 
-func (c MessageContent) Refusal() string {
+func (m Message) Refusal() string {
 	var parts []string
 
-	for _, content := range c {
-		if content.Refusal != "" {
-			parts = append(parts, content.Refusal)
+	for _, c := range m.Content {
+		if c.Refusal != "" {
+			parts = append(parts, c.Refusal)
 		}
 	}
 
 	return strings.Join(parts, "\n\n")
 }
 
-func (c MessageContent) ToolResult() (id string, data string, ok bool) {
-	for _, content := range c {
-		if content.ToolResult != nil {
-			return content.ToolResult.ID, content.ToolResult.Data, true
+func (m Message) ToolResult() (id string, data string, ok bool) {
+	for _, c := range m.Content {
+		if c.ToolResult != nil {
+			return c.ToolResult.ID, c.ToolResult.Data, true
 		}
 	}
 
@@ -153,7 +151,7 @@ func (a *CompletionAccumulator) Add(c Completion) {
 }
 
 func (a *CompletionAccumulator) Result() *Completion {
-	var content MessageContent
+	var content []Content
 
 	if a.content.Len() > 0 {
 		content = append(content, TextContent(a.content.String()))

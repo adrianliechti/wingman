@@ -155,7 +155,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 
-						Content: provider.MessageContent{
+						Content: []provider.Content{
 							provider.TextContent(event.Text),
 						},
 					},
@@ -174,7 +174,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 
-						Content: provider.MessageContent{
+						Content: []provider.Content{
 							provider.ToolCallContent(provider.ToolCall{
 								Arguments: event.PartialJSON,
 							}),
@@ -183,7 +183,7 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 				}
 
 				if options.Schema != nil {
-					delta.Message.Content = provider.MessageContent{
+					delta.Message.Content = []provider.Content{
 						{
 							Text: event.PartialJSON,
 						},

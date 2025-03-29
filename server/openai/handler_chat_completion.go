@@ -117,8 +117,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 						Delta: &ChatCompletionMessage{
 							Role: oaiMessageRole(completion.Message.Role),
 
-							Content: completion.Message.Content.Text(),
-							Refusal: completion.Message.Content.Refusal(),
+							Content: completion.Message.Text(),
+							Refusal: completion.Message.Refusal(),
 
 							ToolCalls: oaiToolCalls(completion.Message.Content),
 						},
@@ -189,8 +189,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 					Message: &ChatCompletionMessage{
 						Role: oaiMessageRole(completion.Message.Role),
 
-						Content: completion.Message.Content.Text(),
-						Refusal: completion.Message.Content.Refusal(),
+						Content: completion.Message.Text(),
+						Refusal: completion.Message.Refusal(),
 
 						ToolCalls: oaiToolCalls(completion.Message.Content),
 					},
@@ -216,7 +216,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
 	for _, m := range s {
-		var content provider.MessageContent
+		var content []provider.Content
 
 		if len(m.Contents) == 0 {
 			if m.ToolCallID != "" {

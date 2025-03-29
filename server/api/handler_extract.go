@@ -78,7 +78,7 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		content := completion.Message.Content.Text()
+		content := completion.Message.Text()
 
 		w.Header().Set("Content-Type", "application/json")
 
