@@ -134,6 +134,9 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 	acc := provider.CompletionAccumulator{}
 	accID := uuid.New().String()
 
+	var lastToolID string
+	var lastToolName string
+
 	stream := func(ctx context.Context, completion provider.Completion) error {
 		acc.Add(completion)
 
@@ -154,6 +157,29 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 			if c.Refusal != "" {
 				delta.Message.Content = append(delta.Message.Content, provider.RefusalContent(c.Text))
+			}
+
+			if c.ToolCall != nil {
+				if c.ToolCall.ID != "" {
+					lastToolID = c.ToolCall.ID
+				}
+
+				if c.ToolCall.Name != "" {
+					lastToolName = c.ToolCall.Name
+				}
+
+				if lastToolName != "" {
+					if _, found := agentTools[lastToolName]; found {
+						continue
+					}
+
+					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(provider.ToolCall1{
+						ID:   lastToolID,
+						Name: lastToolName,
+
+						Arguments: c.ToolCall.Arguments,
+					}))
+				}
 			}
 		}
 
