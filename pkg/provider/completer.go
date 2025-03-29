@@ -13,8 +13,6 @@ type Message struct {
 	Role MessageRole
 
 	Content MessageContent
-
-	ToolCalls []ToolCall
 }
 
 func SystemMessage(text string) Message {
@@ -98,7 +96,7 @@ type CompletionAccumulator struct {
 	content strings.Builder
 	refusal strings.Builder
 
-	toolCalls []ToolCall
+	toolCalls []ToolCall1
 
 	usage *Usage
 }
@@ -125,22 +123,22 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			if c.Refusal != "" {
 				a.refusal.WriteString(c.Refusal)
 			}
-		}
 
-		for _, c := range c.Message.ToolCalls {
-			if c.ID != "" {
-				a.toolCalls = append(a.toolCalls, ToolCall{
-					ID: c.ID,
-				})
+			if c.ToolCall != nil {
+				if c.ToolCall.ID != "" {
+					a.toolCalls = append(a.toolCalls, ToolCall1{
+						ID: c.ToolCall.ID,
+					})
+				}
+
+				if len(a.toolCalls) == 0 {
+					// TODO: Error Handling
+					continue
+				}
+
+				a.toolCalls[len(a.toolCalls)-1].Name += c.ToolCall.Name
+				a.toolCalls[len(a.toolCalls)-1].Arguments += c.ToolCall.Arguments
 			}
-
-			if len(a.toolCalls) == 0 {
-				// TODO: Error Handling
-				continue
-			}
-
-			a.toolCalls[len(a.toolCalls)-1].Name += c.Name
-			a.toolCalls[len(a.toolCalls)-1].Arguments += c.Arguments
 		}
 	}
 
@@ -165,6 +163,10 @@ func (a *CompletionAccumulator) Result() *Completion {
 		content = append(content, RefusalContent(a.refusal.String()))
 	}
 
+	for _, call := range a.toolCalls {
+		content = append(content, ToolCallContent(&call))
+	}
+
 	return &Completion{
 		ID: a.ID,
 
@@ -173,8 +175,6 @@ func (a *CompletionAccumulator) Result() *Completion {
 		Message: &Message{
 			Role:    a.Role,
 			Content: content,
-
-			ToolCalls: a.toolCalls,
 		},
 
 		Usage: a.usage,
@@ -199,6 +199,12 @@ func FileContent(val *File) Content {
 	}
 }
 
+func ToolCallContent(val *ToolCall1) Content {
+	return Content{
+		ToolCall: val,
+	}
+}
+
 func ToolResultContent(val *ToolResult) Content {
 	return Content{
 		ToolResult: val,
@@ -211,6 +217,7 @@ type Content struct {
 
 	File *File
 
+	ToolCall   *ToolCall1
 	ToolResult *ToolResult
 }
 
@@ -222,7 +229,7 @@ const (
 	MessageRoleAssistant MessageRole = "assistant"
 )
 
-type ToolCall struct {
+type ToolCall1 struct {
 	ID string
 
 	Name      string

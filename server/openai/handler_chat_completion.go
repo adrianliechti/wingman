@@ -120,7 +120,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 							Content: completion.Message.Content.Text(),
 							Refusal: completion.Message.Content.Refusal(),
 
-							ToolCalls: oaiToolCalls(completion.Message.ToolCalls),
+							ToolCalls: oaiToolCalls(completion.Message.Content),
 						},
 
 						FinishReason: oaiFinishReason(completion.Reason),
@@ -192,7 +192,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 						Content: completion.Message.Content.Text(),
 						Refusal: completion.Message.Content.Refusal(),
 
-						ToolCalls: oaiToolCalls(completion.Message.ToolCalls),
+						ToolCalls: oaiToolCalls(completion.Message.Content),
 					},
 
 					FinishReason: oaiFinishReason(completion.Reason),
@@ -257,12 +257,22 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 			}
 		}
 
+		for _, c := range m.ToolCalls {
+			if c.Type == ToolTypeFunction && c.Function != nil {
+				call := &provider.ToolCall1{
+					ID: c.ID,
+
+					Name:      c.Function.Name,
+					Arguments: c.Function.Arguments,
+				}
+
+				content = append(content, provider.ToolCallContent(call))
+			}
+		}
+
 		result = append(result, provider.Message{
-			Role: toMessageRole(m.Role),
-
+			Role:    toMessageRole(m.Role),
 			Content: content,
-
-			ToolCalls: toToolCalls(m.ToolCalls),
 		})
 	}
 
@@ -362,25 +372,6 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 	return result, nil
 }
 
-func toToolCalls(calls []ToolCall) []provider.ToolCall {
-	var result []provider.ToolCall
-
-	for _, c := range calls {
-		if c.Type == ToolTypeFunction && c.Function != nil {
-			call := provider.ToolCall{
-				ID: c.ID,
-
-				Name:      c.Function.Name,
-				Arguments: c.Function.Arguments,
-			}
-
-			result = append(result, call)
-		}
-	}
-
-	return result
-}
-
 func oaiMessageRole(r provider.MessageRole) MessageRole {
 	switch r {
 	case provider.MessageRoleAssistant:
@@ -410,20 +401,24 @@ func oaiFinishReason(val provider.CompletionReason) *FinishReason {
 	}
 }
 
-func oaiToolCalls(calls []provider.ToolCall) []ToolCall {
+func oaiToolCalls(content []provider.Content) []ToolCall {
 	result := make([]ToolCall, 0)
 
-	for i, c := range calls {
+	for i, c := range content {
+		if c.ToolCall == nil {
+			continue
+		}
+
 		result = append(result, ToolCall{
 			Index: i,
 
-			ID: c.ID,
+			ID: c.ToolCall.ID,
 
 			Type: ToolTypeFunction,
 
 			Function: &FunctionCall{
-				Name:      c.Name,
-				Arguments: c.Arguments,
+				Name:      c.ToolCall.Name,
+				Arguments: c.ToolCall.Arguments,
 			},
 		})
 	}
