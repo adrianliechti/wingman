@@ -164,7 +164,7 @@ func (a *CompletionAccumulator) Result() *Completion {
 	}
 
 	for _, call := range a.toolCalls {
-		content = append(content, ToolCallContent(&call))
+		content = append(content, ToolCallContent(call))
 	}
 
 	return &Completion{
@@ -199,15 +199,15 @@ func FileContent(val *File) Content {
 	}
 }
 
-func ToolCallContent(val *ToolCall1) Content {
+func ToolCallContent(val ToolCall1) Content {
 	return Content{
-		ToolCall: val,
+		ToolCall: &val,
 	}
 }
 
-func ToolResultContent(val *ToolResult) Content {
+func ToolResultContent(val ToolResult) Content {
 	return Content{
-		ToolResult: val,
+		ToolResult: &val,
 	}
 }
 
