@@ -92,8 +92,7 @@ func (c *Completer) complete(ctx context.Context, req *bedrockruntime.ConverseIn
 		Message: &provider.Message{
 			Role: provider.MessageRoleAssistant,
 
-			Content:   toContent(resp.Output),
-			ToolCalls: toToolCalls(resp.Output),
+			Content: toContent(resp.Output),
 		},
 
 		Usage: toUsage(resp.Usage),
@@ -133,11 +132,11 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 
-						ToolCalls: []provider.ToolCall{
-							{
+						Content: provider.MessageContent{
+							provider.ToolCallContent(provider.ToolCall1{
 								ID:   aws.ToString(b.Value.ToolUseId),
 								Name: aws.ToString(b.Value.Name),
-							},
+							}),
 						},
 					},
 				}
@@ -176,10 +175,10 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 
-						ToolCalls: []provider.ToolCall{
-							{
+						Content: []provider.Content{
+							provider.ToolCallContent(provider.ToolCall1{
 								Arguments: *b.Value.Input,
-							},
+							}),
 						},
 					},
 				}
@@ -368,22 +367,22 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 
 					message.Content = append(message.Content, content)
 				}
-			}
 
-			for _, t := range m.ToolCalls {
-				var data any
-				json.Unmarshal([]byte(t.Arguments), &data)
+				if c.ToolCall != nil {
+					var data any
+					json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
 
-				content := &types.ContentBlockMemberToolUse{
-					Value: types.ToolUseBlock{
-						ToolUseId: aws.String(t.ID),
-						Name:      aws.String(t.Name),
+					content := &types.ContentBlockMemberToolUse{
+						Value: types.ToolUseBlock{
+							ToolUseId: aws.String(c.ToolCall.ID),
+							Name:      aws.String(c.ToolCall.Name),
 
-						Input: document.NewLazyDocument(data),
-					},
+							Input: document.NewLazyDocument(data),
+						},
+					}
+
+					message.Content = append(message.Content, content)
 				}
-
-				message.Content = append(message.Content, content)
 			}
 
 			result = append(result, message)
@@ -582,45 +581,23 @@ func toContent(val types.ConverseOutput) []provider.Content {
 	for _, b := range message.Value.Content {
 		switch block := b.(type) {
 		case *types.ContentBlockMemberText:
-			parts = append(parts, provider.Content{
-				Text: block.Value,
-			})
-		}
-	}
+			parts = append(parts, provider.TextContent(block.Value))
 
-	return parts
-}
-
-func toToolCalls(val types.ConverseOutput) []provider.ToolCall {
-	message, ok := val.(*types.ConverseOutputMemberMessage)
-
-	if !ok {
-		return nil
-	}
-
-	var result []provider.ToolCall
-
-	for _, b := range message.Value.Content {
-		switch block := b.(type) {
 		case *types.ContentBlockMemberToolUse:
 			data, _ := block.Value.Input.MarshalSmithyDocument()
 
-			tool := provider.ToolCall{
+			tool := provider.ToolCall1{
 				ID:   aws.ToString(block.Value.ToolUseId),
 				Name: aws.ToString(block.Value.Name),
 
 				Arguments: string(data),
 			}
 
-			result = append(result, tool)
+			parts = append(parts, provider.ToolCallContent(tool))
 		}
 	}
 
-	if len(result) == 0 {
-		return nil
-	}
-
-	return result
+	return parts
 }
 
 func toUsage(val *types.TokenUsage) *provider.Usage {
