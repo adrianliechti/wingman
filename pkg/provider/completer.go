@@ -39,13 +39,13 @@ func UserMessage(text string) Message {
 	}
 }
 
-func AssistantMessage(content string) Message {
+func AssistantMessage(text string) Message {
 	return Message{
 		Role: MessageRoleAssistant,
 
 		Content: []Content{
 			{
-				Text: content,
+				Text: text,
 			},
 		},
 	}

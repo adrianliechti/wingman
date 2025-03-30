@@ -3,27 +3,19 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"flag"
 	"fmt"
-	"io"
-	"mime"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/config"
-
-	"github.com/google/uuid"
-
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	"github.com/adrianliechti/wingman/pkg/client"
 )
 
 func main() {
-	urlFlag := flag.String("url", "http://localhost:8080/v1", "server url")
+	urlFlag := flag.String("url", "http://localhost:8080", "server url")
 	tokenFlag := flag.String("token", "", "server token")
 	modelFlag := flag.String("model", "", "model id")
 
@@ -31,24 +23,18 @@ func main() {
 
 	ctx := context.Background()
 
-	options := []option.RequestOption{}
-
-	if *urlFlag != "" {
-		url := *urlFlag
-		url = strings.TrimRight(url, "/") + "/"
-
-		options = append(options, option.WithBaseURL(url))
-	}
-
-	if *tokenFlag != "" {
-		options = append(options, option.WithAPIKey(*tokenFlag))
-	}
-
-	client := openai.NewClient(options...)
 	model := *modelFlag
 
+	options := []client.RequestOption{}
+
+	if *tokenFlag != "" {
+		options = append(options, client.WithToken(*tokenFlag))
+	}
+
+	client := client.New(*urlFlag, options...)
+
 	if model == "" {
-		val, err := selectModel(ctx, &client)
+		val, err := selectModel(ctx, client)
 
 		if err != nil {
 			panic(err)
@@ -58,37 +44,32 @@ func main() {
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeEmbedder {
-		embed(ctx, &client, model)
+		embed(ctx, client, model)
 		return
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeRenderer {
-		render(ctx, &client, model)
-		return
+		panic("Image generation is not supported yet")
+		//render(ctx, &client, model)
+		//return
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeSynthesizer {
-		synthesize(ctx, &client, model)
-		return
+		panic("Audio synthesis is not supported yet")
+		//synthesize(ctx, &client, model)
+		//return
 	}
 
-	chat(ctx, &client, model)
+	chat(ctx, client, model)
 }
 
-func selectModel(ctx context.Context, client *openai.Client) (string, error) {
+func selectModel(ctx context.Context, client *client.Client) (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
-	page := client.Models.ListAutoPaging(ctx)
+	models, err := client.Models.List(ctx)
 
-	var models []openai.Model
-
-	for page.Next() {
-		model := page.Current()
-		models = append(models, model)
-	}
-
-	if err := page.Err(); err != nil {
+	if err != nil {
 		return "", err
 	}
 
@@ -121,16 +102,20 @@ func selectModel(ctx context.Context, client *openai.Client) (string, error) {
 	return model, nil
 }
 
-func chat(ctx context.Context, client *openai.Client, model string) {
+func chat(ctx context.Context, c *client.Client, model string) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
-	param := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(model),
-		Messages: []openai.ChatCompletionMessageParamUnion{},
+	req := client.CompletionRequest{
+		Model: model,
 
-		StreamOptions: openai.ChatCompletionStreamOptionsParam{
-			IncludeUsage: openai.Bool(true),
+		Messages: []client.Message{},
+
+		CompleteOptions: client.CompleteOptions{
+			Stream: func(ctx context.Context, completion client.Completion) error {
+				output.WriteString(completion.Message.Text())
+				return nil
+			},
 		},
 	}
 
@@ -148,7 +133,7 @@ LOOP:
 		if strings.HasPrefix(input, "/") {
 			switch strings.ToLower(input) {
 			case "/reset":
-				param.Messages = []openai.ChatCompletionMessageParamUnion{}
+				req.Messages = []client.Message{}
 				continue LOOP
 
 			default:
@@ -157,34 +142,23 @@ LOOP:
 			}
 		}
 
-		param.Messages = append(param.Messages, openai.UserMessage(input))
+		req.Messages = append(req.Messages, client.UserMessage(input))
 
-		completion := openai.ChatCompletionAccumulator{}
+		completion, err := c.Completions.New(ctx, req)
 
-		stream := client.Chat.Completions.NewStreaming(ctx, param)
-
-		for stream.Next() {
-			chunk := stream.Current()
-			completion.AddChunk(chunk)
-
-			if len(chunk.Choices) > 0 {
-				output.WriteString(chunk.Choices[0].Delta.Content)
-			}
-		}
-
-		if err := stream.Err(); err != nil {
+		if err != nil {
 			output.WriteString(err.Error() + "\n")
 			continue LOOP
 		}
 
-		param.Messages = append(param.Messages, completion.Choices[0].Message.ToParam())
+		req.Messages = append(req.Messages, *completion.Message)
 
 		output.WriteString("\n")
 		output.WriteString("\n")
 	}
 }
 
-func embed(ctx context.Context, client *openai.Client, model string) {
+func embed(ctx context.Context, c *client.Client, model string) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
@@ -199,14 +173,9 @@ LOOP:
 
 		input = strings.TrimSpace(input)
 
-		result, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
-			Model: openai.EmbeddingModel(model),
-
-			Input: openai.EmbeddingNewParamsInputUnion{
-				OfString: openai.String(input),
-			},
-
-			EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,
+		result, err := c.Embeddings.New(ctx, client.EmbeddingsRequest{
+			Model: model,
+			Texts: []string{input},
 		})
 
 		if err != nil {
@@ -214,9 +183,7 @@ LOOP:
 			continue LOOP
 		}
 
-		embedding := result.Data[0].Embedding
-
-		for i, e := range embedding {
+		for i, e := range result.Embeddings[0] {
 			if i > 0 {
 				output.WriteString(", ")
 			}
@@ -229,105 +196,105 @@ LOOP:
 	}
 }
 
-func render(ctx context.Context, client *openai.Client, model string) {
-	reader := bufio.NewReader(os.Stdin)
-	output := os.Stdout
+// func render(ctx context.Context, client *openai.Client, model string) {
+// 	reader := bufio.NewReader(os.Stdin)
+// 	output := os.Stdout
 
-LOOP:
-	for {
-		output.WriteString(">>> ")
-		input, err := reader.ReadString('\n')
+// LOOP:
+// 	for {
+// 		output.WriteString(">>> ")
+// 		input, err := reader.ReadString('\n')
 
-		if err != nil {
-			panic(err)
-		}
+// 		if err != nil {
+// 			panic(err)
+// 		}
 
-		input = strings.TrimSpace(input)
+// 		input = strings.TrimSpace(input)
 
-		image, err := client.Images.Generate(ctx, openai.ImageGenerateParams{
-			Model: openai.ImageModel(model),
+// 		image, err := client.Images.Generate(ctx, openai.ImageGenerateParams{
+// 			Model: openai.ImageModel(model),
 
-			Prompt: input,
+// 			Prompt: input,
 
-			ResponseFormat: openai.ImageGenerateParamsResponseFormatB64JSON,
-		})
+// 			ResponseFormat: openai.ImageGenerateParamsResponseFormatB64JSON,
+// 		})
 
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
+// 		if err != nil {
+// 			output.WriteString(err.Error() + "\n")
+// 			continue LOOP
+// 		}
 
-		data, err := base64.StdEncoding.DecodeString(image.Data[0].B64JSON)
+// 		data, err := base64.StdEncoding.DecodeString(image.Data[0].B64JSON)
 
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
+// 		if err != nil {
+// 			output.WriteString(err.Error() + "\n")
+// 			continue LOOP
+// 		}
 
-		name := uuid.New().String()
+// 		name := uuid.New().String()
 
-		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
-			name += ext[0]
-		}
+// 		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+// 			name += ext[0]
+// 		}
 
-		os.WriteFile(name, data, 0600)
-		fmt.Println("Saved: " + name)
+// 		os.WriteFile(name, data, 0600)
+// 		fmt.Println("Saved: " + name)
 
-		output.WriteString("\n")
-		output.WriteString("\n")
-	}
-}
+// 		output.WriteString("\n")
+// 		output.WriteString("\n")
+// 	}
+// }
 
-func synthesize(ctx context.Context, client *openai.Client, model string) {
-	reader := bufio.NewReader(os.Stdin)
-	output := os.Stdout
+// func synthesize(ctx context.Context, client *openai.Client, model string) {
+// 	reader := bufio.NewReader(os.Stdin)
+// 	output := os.Stdout
 
-LOOP:
-	for {
-		output.WriteString(">>> ")
-		input, err := reader.ReadString('\n')
+// LOOP:
+// 	for {
+// 		output.WriteString(">>> ")
+// 		input, err := reader.ReadString('\n')
 
-		if err != nil {
-			panic(err)
-		}
+// 		if err != nil {
+// 			panic(err)
+// 		}
 
-		input = strings.TrimSpace(input)
+// 		input = strings.TrimSpace(input)
 
-		result, err := client.Audio.Speech.New(ctx, openai.AudioSpeechNewParams{
-			Model: openai.SpeechModel(model),
+// 		result, err := client.Audio.Speech.New(ctx, openai.AudioSpeechNewParams{
+// 			Model: openai.SpeechModel(model),
 
-			Input: input,
+// 			Input: input,
 
-			Voice:          openai.AudioSpeechNewParamsVoiceAlloy,
-			ResponseFormat: openai.AudioSpeechNewParamsResponseFormatWAV,
-		})
+// 			Voice:          openai.AudioSpeechNewParamsVoiceAlloy,
+// 			ResponseFormat: openai.AudioSpeechNewParamsResponseFormatWAV,
+// 		})
 
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
+// 		if err != nil {
+// 			output.WriteString(err.Error() + "\n")
+// 			continue LOOP
+// 		}
 
-		defer result.Body.Close()
+// 		defer result.Body.Close()
 
-		data, err := io.ReadAll(result.Body)
+// 		data, err := io.ReadAll(result.Body)
 
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
+// 		if err != nil {
+// 			output.WriteString(err.Error() + "\n")
+// 			continue LOOP
+// 		}
 
-		name := uuid.New().String()
+// 		name := uuid.New().String()
 
-		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
-			name += ext[0]
-		} else {
-			name += ".wav"
-		}
+// 		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+// 			name += ext[0]
+// 		} else {
+// 			name += ".wav"
+// 		}
 
-		os.WriteFile(name, data, 0600)
-		fmt.Println("Saved: " + name)
+// 		os.WriteFile(name, data, 0600)
+// 		fmt.Println("Saved: " + name)
 
-		output.WriteString("\n")
-		output.WriteString("\n")
-	}
-}
+// 		output.WriteString("\n")
+// 		output.WriteString("\n")
+// 	}
+// }

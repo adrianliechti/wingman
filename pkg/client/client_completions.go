@@ -22,17 +22,31 @@ type Message = provider.Message
 
 type Completion = provider.Completion
 type CompletionFormat = provider.CompletionFormat
-type CompletionStreamHandler = provider.StreamHandler
 type CompletionReasoningEffort = provider.ReasoningEffort
+
+type CompleteOptions = provider.CompleteOptions
+type CompleteStreamHandler = provider.StreamHandler
 
 type Tool = provider.Tool
 type Schema = provider.Schema
 
+func SystemMessage(text string) Message {
+	return provider.SystemMessage(text)
+}
+
+func UserMessage(text string) Message {
+	return provider.UserMessage(text)
+}
+
+func AssistantMessage(text string) Message {
+	return provider.AssistantMessage(text)
+}
+
 type CompletionRequest struct {
+	CompleteOptions
+
 	Model    string
 	Messages []Message
-
-	provider.CompleteOptions
 }
 
 func (r *CompletionService) New(ctx context.Context, input CompletionRequest, opts ...RequestOption) (*Completion, error) {

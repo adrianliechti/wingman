@@ -22,13 +22,10 @@ func NewModelService(opts ...RequestOption) ModelService {
 
 type Model = provider.Model
 
-type ModelRequest struct {
-}
-
-func (r *ModelService) New(ctx context.Context, input ModelRequest, opts ...RequestOption) ([]Model, error) {
+func (r *ModelService) List(ctx context.Context, opts ...RequestOption) ([]Model, error) {
 	c := newRequestConfig(append(r.Options, opts...)...)
 
-	req, _ := http.NewRequestWithContext(ctx, "GEt", c.URL+"/v1/models", nil)
+	req, _ := http.NewRequestWithContext(ctx, "GET", c.URL+"/v1/models", nil)
 	req.Header.Set("Content-Type", "application/json")
 
 	if c.Token != "" {
