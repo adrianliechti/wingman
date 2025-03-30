@@ -18,8 +18,6 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/client"
 	"github.com/adrianliechti/wingman/pkg/to"
-
-	"github.com/openai/openai-go"
 )
 
 var (
@@ -176,11 +174,9 @@ func IndexDir(ctx context.Context, c *client.Client, index, root string) error {
 				Model: *embeddingFlag,
 			}
 
-			titleEmbedding, err := c.Embeddings.New(ctx, openai.EmbeddingNewParams{
-				Model: openai.EmbeddingModel(*embeddingFlag),
-				Input: openai.EmbeddingNewParamsInputUnion{
-					OfArrayOfStrings: []string{title},
-				},
+			titleEmbedding, err := c.Embeddings.New(ctx, client.EmbeddingsRequest{
+				Model: *embeddingFlag,
+				Texts: []string{title},
 			})
 
 			if err != nil {
@@ -190,15 +186,13 @@ func IndexDir(ctx context.Context, c *client.Client, index, root string) error {
 
 			embeddings.Segments = append(embeddings.Segments, Segment{
 				Text:      title,
-				Embedding: toFloat32(titleEmbedding.Data[0].Embedding),
+				Embedding: titleEmbedding.Embeddings[0],
 			})
 
 			for _, segment := range segments {
-				segmentEmbedding, err := c.Embeddings.New(ctx, openai.EmbeddingNewParams{
-					Model: openai.EmbeddingModel(*embeddingFlag),
-					Input: openai.EmbeddingNewParamsInputUnion{
-						OfString: openai.String(segment.Text),
-					},
+				segmentEmbedding, err := c.Embeddings.New(ctx, client.EmbeddingsRequest{
+					Model: *embeddingFlag,
+					Texts: []string{segment.Text},
 				})
 
 				if err != nil {
@@ -208,7 +202,7 @@ func IndexDir(ctx context.Context, c *client.Client, index, root string) error {
 
 				embeddings.Segments = append(embeddings.Segments, Segment{
 					Text:      segment.Text,
-					Embedding: toFloat32(segmentEmbedding.Data[0].Embedding),
+					Embedding: segmentEmbedding.Embeddings[0],
 				})
 			}
 
@@ -376,14 +370,4 @@ func writeJSON(dir, name string, v any) error {
 	}
 
 	return writeData(dir, name, data)
-}
-
-func toFloat32(input []float64) []float32 {
-	result := make([]float32, len(input))
-
-	for i, v := range input {
-		result[i] = float32(v)
-	}
-
-	return result
 }
