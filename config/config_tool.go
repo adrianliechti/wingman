@@ -11,7 +11,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool/crawler"
 	"github.com/adrianliechti/wingman/pkg/tool/custom"
 	"github.com/adrianliechti/wingman/pkg/tool/draw"
-	"github.com/adrianliechti/wingman/pkg/tool/genaitoolbox"
+	"github.com/adrianliechti/wingman/pkg/tool/mcp"
 	"github.com/adrianliechti/wingman/pkg/tool/retriever"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
 	"github.com/adrianliechti/wingman/pkg/tool/speak"
@@ -50,6 +50,11 @@ type toolConfig struct {
 
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
+
+	Command string   `yaml:"command"`
+	Args    []string `yaml:"args"`
+
+	Vars map[string]string `yaml:"vars"`
 
 	Model    string `yaml:"model"`
 	Provider string `yaml:"provider"`
@@ -155,6 +160,9 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	case "translate":
 		return translateTool(cfg, context)
 
+	case "mcp":
+		return mcpTool(cfg, context)
+
 	case "custom":
 		return customTool(cfg, context)
 
@@ -163,9 +171,6 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 
 	case "duckduckgo":
 		return duckduckgoTool(cfg, context)
-
-	case "genaitoolbox":
-		return genaitoolboxTool(cfg, context)
 
 	case "searxng":
 		return searxngTool(cfg, context)
@@ -214,6 +219,20 @@ func translateTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	return translate.New(context.Translator, options...)
 }
 
+func mcpTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	if cfg.Command != "" {
+		var env []string
+
+		for k, v := range cfg.Vars {
+			env = append(env, k+"="+v)
+		}
+
+		return mcp.NewStdio(cfg.Command, env, cfg.Args)
+	}
+
+	return mcp.NewSSE(cfg.URL, cfg.Vars)
+}
+
 func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []custom.Option
 
@@ -242,12 +261,6 @@ func duckduckgoTool(cfg toolConfig, context toolContext) (tool.Provider, error) 
 	context.Index = index
 
 	return searchTool(cfg, context)
-}
-
-func genaitoolboxTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []genaitoolbox.Option
-
-	return genaitoolbox.New(cfg.URL, options...)
 }
 
 func searxngTool(cfg toolConfig, context toolContext) (tool.Provider, error) {

@@ -1,3 +1,3 @@
-package genaitoolbox
+package mcp
 
 type Option func(*Client)
