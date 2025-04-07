@@ -10,6 +10,9 @@ type Client struct {
 	Embeddings  EmbeddingService
 	Completions CompletionService
 
+	Syntheses  SynthesisService
+	Renderings RenderingService
+
 	Segments    SegmentService
 	Extractions ExtractionService
 
@@ -25,6 +28,9 @@ func New(url string, opts ...RequestOption) *Client {
 
 		Embeddings:  NewEmbeddingService(opts...),
 		Completions: NewCompletionService(opts...),
+
+		Syntheses:  NewSynthesisService(opts...),
+		Renderings: NewRenderingService(opts...),
 
 		Segments:    NewSegmentService(opts...),
 		Extractions: NewExtractionService(opts...),
