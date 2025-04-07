@@ -5,6 +5,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
+	"mime"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -12,6 +15,8 @@ import (
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/client"
+
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -49,15 +54,13 @@ func main() {
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeRenderer {
-		panic("Image generation is not supported yet")
-		//render(ctx, &client, model)
-		//return
+		render(ctx, client, model)
+		return
 	}
 
 	if config.DetectModelType(model) == config.ModelTypeSynthesizer {
-		panic("Audio synthesis is not supported yet")
-		//synthesize(ctx, &client, model)
-		//return
+		synthesize(ctx, client, model)
+		return
 	}
 
 	chat(ctx, client, model)
@@ -196,105 +199,97 @@ LOOP:
 	}
 }
 
-// func render(ctx context.Context, client *openai.Client, model string) {
-// 	reader := bufio.NewReader(os.Stdin)
-// 	output := os.Stdout
+func render(ctx context.Context, c *client.Client, model string) {
+	reader := bufio.NewReader(os.Stdin)
+	output := os.Stdout
 
-// LOOP:
-// 	for {
-// 		output.WriteString(">>> ")
-// 		input, err := reader.ReadString('\n')
+LOOP:
+	for {
+		output.WriteString(">>> ")
+		input, err := reader.ReadString('\n')
 
-// 		if err != nil {
-// 			panic(err)
-// 		}
+		if err != nil {
+			panic(err)
+		}
 
-// 		input = strings.TrimSpace(input)
+		input = strings.TrimSpace(input)
 
-// 		image, err := client.Images.Generate(ctx, openai.ImageGenerateParams{
-// 			Model: openai.ImageModel(model),
+		image, err := c.Renderings.New(ctx, client.RenderingRequest{
+			Model: model,
+			Input: input,
+		})
 
-// 			Prompt: input,
+		if err != nil {
+			output.WriteString(err.Error() + "\n")
+			continue LOOP
+		}
 
-// 			ResponseFormat: openai.ImageGenerateParamsResponseFormatB64JSON,
-// 		})
+		data, err := io.ReadAll(image.Reader)
 
-// 		if err != nil {
-// 			output.WriteString(err.Error() + "\n")
-// 			continue LOOP
-// 		}
+		if err != nil {
+			output.WriteString(err.Error() + "\n")
+			continue LOOP
+		}
 
-// 		data, err := base64.StdEncoding.DecodeString(image.Data[0].B64JSON)
+		name := uuid.New().String()
 
-// 		if err != nil {
-// 			output.WriteString(err.Error() + "\n")
-// 			continue LOOP
-// 		}
+		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+			name += ext[0]
+		}
 
-// 		name := uuid.New().String()
+		os.WriteFile(name, data, 0600)
+		fmt.Println("Saved: " + name)
 
-// 		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
-// 			name += ext[0]
-// 		}
+		output.WriteString("\n")
+		output.WriteString("\n")
+	}
+}
 
-// 		os.WriteFile(name, data, 0600)
-// 		fmt.Println("Saved: " + name)
+func synthesize(ctx context.Context, c *client.Client, model string) {
+	reader := bufio.NewReader(os.Stdin)
+	output := os.Stdout
 
-// 		output.WriteString("\n")
-// 		output.WriteString("\n")
-// 	}
-// }
+LOOP:
+	for {
+		output.WriteString(">>> ")
+		input, err := reader.ReadString('\n')
 
-// func synthesize(ctx context.Context, client *openai.Client, model string) {
-// 	reader := bufio.NewReader(os.Stdin)
-// 	output := os.Stdout
+		if err != nil {
+			panic(err)
+		}
 
-// LOOP:
-// 	for {
-// 		output.WriteString(">>> ")
-// 		input, err := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
 
-// 		if err != nil {
-// 			panic(err)
-// 		}
+		synthesis, err := c.Syntheses.New(ctx, client.SynthesizeRequest{
+			Model: model,
 
-// 		input = strings.TrimSpace(input)
+			Input: input,
+		})
 
-// 		result, err := client.Audio.Speech.New(ctx, openai.AudioSpeechNewParams{
-// 			Model: openai.SpeechModel(model),
+		if err != nil {
+			output.WriteString(err.Error() + "\n")
+			continue LOOP
+		}
 
-// 			Input: input,
+		data, err := io.ReadAll(synthesis.Reader)
 
-// 			Voice:          openai.AudioSpeechNewParamsVoiceAlloy,
-// 			ResponseFormat: openai.AudioSpeechNewParamsResponseFormatWAV,
-// 		})
+		if err != nil {
+			output.WriteString(err.Error() + "\n")
+			continue LOOP
+		}
 
-// 		if err != nil {
-// 			output.WriteString(err.Error() + "\n")
-// 			continue LOOP
-// 		}
+		name := uuid.New().String()
 
-// 		defer result.Body.Close()
+		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+			name += ext[0]
+		} else {
+			name += ".wav"
+		}
 
-// 		data, err := io.ReadAll(result.Body)
+		os.WriteFile(name, data, 0600)
+		fmt.Println("Saved: " + name)
 
-// 		if err != nil {
-// 			output.WriteString(err.Error() + "\n")
-// 			continue LOOP
-// 		}
-
-// 		name := uuid.New().String()
-
-// 		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
-// 			name += ext[0]
-// 		} else {
-// 			name += ".wav"
-// 		}
-
-// 		os.WriteFile(name, data, 0600)
-// 		fmt.Println("Saved: " + name)
-
-// 		output.WriteString("\n")
-// 		output.WriteString("\n")
-// 	}
-// }
+		output.WriteString("\n")
+		output.WriteString("\n")
+	}
+}
