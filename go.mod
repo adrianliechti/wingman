@@ -6,7 +6,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v0.2.0-beta.3
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.13
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.28.1
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.29.0
 	github.com/cohere-ai/cohere-go/v2 v2.13.0
 	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/go-chi/chi/v5 v5.2.1
@@ -14,7 +14,7 @@ require (
 	github.com/google/generative-ai-go v0.19.0
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v0.18.0
-	github.com/openai/openai-go v0.1.0-beta.6
+	github.com/openai/openai-go v0.1.0-beta.7
 	github.com/replicate/replicate-go v0.26.0
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.36.0
