@@ -148,6 +148,8 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			Message: &provider.Message{
 				Role: provider.MessageRoleAssistant,
 			},
+
+			Usage: completion.Usage,
 		}
 
 		for _, c := range completion.Message.Content {
@@ -183,11 +185,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			}
 		}
 
-		if len(delta.Message.Content) > 0 {
-			return options.Stream(ctx, delta)
-		}
-
-		return nil
+		return options.Stream(ctx, delta)
 	}
 
 	if options.Stream != nil {
