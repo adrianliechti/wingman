@@ -90,6 +90,18 @@ func (m Message) Refusal() string {
 	return strings.Join(parts, "\n\n")
 }
 
+func (m Message) ToolCalls() []ToolCall {
+	var calls []ToolCall
+
+	for _, c := range m.Content {
+		if c.ToolCall != nil {
+			calls = append(calls, *c.ToolCall)
+		}
+	}
+
+	return calls
+}
+
 func (m Message) ToolResult() (id string, content string, ok bool) {
 	for _, c := range m.Content {
 		if c.ToolResult != nil {

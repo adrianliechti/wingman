@@ -51,3 +51,7 @@ func newRequestConfig(opts ...RequestOption) *RequestConfig {
 
 	return c
 }
+
+func Ptr[T any](v T) *T {
+	return &v
+}
