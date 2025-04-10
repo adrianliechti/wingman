@@ -28,18 +28,25 @@ type CompleteOptions = provider.CompleteOptions
 type CompleteStreamHandler = provider.StreamHandler
 
 type Tool = provider.Tool
+type ToolCall = provider.ToolCall
+type ToolResult = provider.ToolResult
+
 type Schema = provider.Schema
 
-func SystemMessage(text string) Message {
-	return provider.SystemMessage(text)
+func SystemMessage(content string) Message {
+	return provider.SystemMessage(content)
 }
 
-func UserMessage(text string) Message {
-	return provider.UserMessage(text)
+func UserMessage(content string) Message {
+	return provider.UserMessage(content)
 }
 
-func AssistantMessage(text string) Message {
-	return provider.AssistantMessage(text)
+func AssistantMessage(content string) Message {
+	return provider.AssistantMessage(content)
+}
+
+func ToolMessage(id, content string) Message {
+	return provider.ToolMessage(id, content)
 }
 
 type CompletionRequest struct {

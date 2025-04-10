@@ -15,37 +15,52 @@ type Message struct {
 	Content []Content
 }
 
-func SystemMessage(text string) Message {
+func SystemMessage(content string) Message {
 	return Message{
 		Role: MessageRoleSystem,
 
 		Content: []Content{
 			{
-				Text: text,
+				Text: content,
 			},
 		},
 	}
 }
 
-func UserMessage(text string) Message {
+func UserMessage(content string) Message {
 	return Message{
 		Role: MessageRoleUser,
 
 		Content: []Content{
 			{
-				Text: text,
+				Text: content,
 			},
 		},
 	}
 }
 
-func AssistantMessage(text string) Message {
+func AssistantMessage(content string) Message {
 	return Message{
 		Role: MessageRoleAssistant,
 
 		Content: []Content{
 			{
-				Text: text,
+				Text: content,
+			},
+		},
+	}
+}
+
+func ToolMessage(id, content string) Message {
+	return Message{
+		Role: MessageRoleUser,
+
+		Content: []Content{
+			{
+				ToolResult: &ToolResult{
+					ID:   id,
+					Data: content,
+				},
 			},
 		},
 	}
@@ -75,7 +90,7 @@ func (m Message) Refusal() string {
 	return strings.Join(parts, "\n\n")
 }
 
-func (m Message) ToolResult() (id string, data string, ok bool) {
+func (m Message) ToolResult() (id string, content string, ok bool) {
 	for _, c := range m.Content {
 		if c.ToolResult != nil {
 			return c.ToolResult.ID, c.ToolResult.Data, true
