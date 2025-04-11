@@ -99,6 +99,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
+		var reason provider.CompletionReason
+
 		options.Stream = func(ctx context.Context, completion provider.Completion) error {
 			if completion.Usage != nil && (completion.Message == nil || len(completion.Message.Content) == 0) {
 				return nil
@@ -132,6 +134,10 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			if completion.Reason != "" {
+				reason = completion.Reason
+			}
+
 			return writeEventData(w, result)
 		}
 
@@ -140,6 +146,35 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
+		}
+
+		if reason == "" {
+			reason = completion.Reason
+
+			if reason == "" {
+				reason = provider.CompletionReasonStop
+			}
+
+			result := ChatCompletion{
+				Object: "chat.completion.chunk",
+
+				ID: completion.ID,
+
+				Model:   req.Model,
+				Created: time.Now().Unix(),
+
+				Choices: []ChatCompletionChoice{
+					{
+						Delta: &ChatCompletionMessage{
+							Role: oaiMessageRole(completion.Message.Role),
+						},
+
+						FinishReason: oaiFinishReason(reason),
+					},
+				},
+			}
+
+			writeEventData(w, result)
 		}
 
 		if streamUsage(req) && completion.Usage != nil {

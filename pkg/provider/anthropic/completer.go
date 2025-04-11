@@ -212,7 +212,11 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 				Usage: toUsage(message.Usage),
 			}
 
-			if options.Schema != nil && delta.Reason == provider.CompletionReasonTool {
+			if delta.Reason == provider.CompletionReasonTool && options.Schema != nil {
+				delta.Reason = provider.CompletionReasonStop
+			}
+
+			if delta.Reason == "" {
 				delta.Reason = provider.CompletionReasonStop
 			}
 
