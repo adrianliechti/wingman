@@ -1,9 +1,5 @@
 package provider
 
-import (
-	"io"
-)
-
 type Provider = any
 
 type Model struct {
@@ -13,8 +9,8 @@ type Model struct {
 type File struct {
 	Name string
 
+	Content     []byte
 	ContentType string
-	Content     io.Reader
 }
 
 type Tool struct {

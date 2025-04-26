@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/to"
 	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
@@ -63,8 +64,8 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, errors.New("missing url parameter")
 	}
 
-	input := extractor.File{
-		URL: url,
+	input := extractor.Input{
+		URL: to.Ptr(url),
 	}
 
 	options := &extractor.ExtractOptions{}

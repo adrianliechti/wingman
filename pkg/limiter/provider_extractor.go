@@ -28,7 +28,7 @@ func NewExtractor(l *rate.Limiter, p extractor.Provider) Extractor {
 func (p *limitedExtractor) limiterSetup() {
 }
 
-func (p *limitedExtractor) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (p *limitedExtractor) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if p.limiter != nil {
 		p.limiter.Wait(ctx)
 	}

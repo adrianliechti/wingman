@@ -44,12 +44,12 @@ func NewRenderer(url, model string, options ...Option) (*Renderer, error) {
 	}, nil
 }
 
-func (r *Renderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Image, error) {
+func (r *Renderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Rendering, error) {
 	if options == nil {
 		options = new(provider.RenderOptions)
 	}
 
-	result := &provider.Image{
+	result := &provider.Rendering{
 		ID: uuid.NewString(),
 	}
 
@@ -69,8 +69,8 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			return nil, err
 		}
 
-		result.Name = result.ID + ".png"
-		result.Reader = io.NopCloser(bytes.NewReader(data))
+		result.Content = data
+		result.ContentType = "image/png"
 	} else {
 		var b bytes.Buffer
 		w := multipart.NewWriter(&b)
@@ -115,7 +115,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 
 			writer, _ := w.CreatePart(h)
 
-			if _, err := io.Copy(writer, options.Images[0].Content); err != nil {
+			if _, err := writer.Write(options.Images[0].Content); err != nil {
 				return nil, err
 			}
 		}
@@ -153,8 +153,8 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			return nil, err
 		}
 
-		result.Name = result.ID + ".png"
-		result.Reader = io.NopCloser(bytes.NewReader(data))
+		result.Content = data
+		result.ContentType = "image/png"
 	}
 
 	return result, nil

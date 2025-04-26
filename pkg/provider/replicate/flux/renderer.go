@@ -3,13 +3,11 @@ package flux
 import (
 	"context"
 	"errors"
-	"net/url"
-	"path"
+	"io"
 	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/replicate"
-
 	"github.com/google/uuid"
 )
 
@@ -55,7 +53,7 @@ func NewRenderer(model string, options ...replicate.Option) (*Renderer, error) {
 	}, nil
 }
 
-func (r *Renderer) Render(ctx context.Context, prompt string, options *provider.RenderOptions) (*provider.Image, error) {
+func (r *Renderer) Render(ctx context.Context, prompt string, options *provider.RenderOptions) (*provider.Rendering, error) {
 	if options == nil {
 		options = new(provider.RenderOptions)
 	}
@@ -150,19 +148,25 @@ func (r *Renderer) convertInput(prompt string, options *provider.RenderOptions) 
 	return nil, errors.New("unsupported model")
 }
 
-func (r *Renderer) convertImage(output replicate.PredictionOutput) (*provider.Image, error) {
+func (r *Renderer) convertImage(output replicate.PredictionOutput) (*provider.Rendering, error) {
 	file, ok := output.(*replicate.FileOutput)
 
 	if !ok {
 		return nil, errors.New("unsupported output")
 	}
 
-	url, _ := url.Parse(file.URL)
+	//url, _ := url.Parse(file.URL)
 
-	return &provider.Image{
+	data, err := io.ReadAll(file)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &provider.Rendering{
 		ID: uuid.New().String(),
 
-		Name:   path.Base(url.Path),
-		Reader: file,
+		Content:     data,
+		ContentType: "image/png",
 	}, nil
 }

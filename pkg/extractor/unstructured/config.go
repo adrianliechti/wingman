@@ -35,6 +35,36 @@ var SupportedExtensions = []string{
 	".xml",
 }
 
+var SupportedMimeTypes = []string{
+	"image/bmp",
+	"text/csv",
+	"application/msword",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"message/rfc822",
+	"application/epub+zip",
+	"image/heic",
+	"text/html",
+	"image/jpeg",
+	"image/png",
+	"text/markdown",
+	"application/vnd.ms-outlook",
+	"application/vnd.oasis.opendocument.text",
+	"text/org",
+	"application/pkcs7-signature",
+	"application/pdf",
+	"image/png",
+	"application/vnd.ms-powerpoint",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"text/rst",
+	"application/rtf",
+	"image/tiff",
+	"text/plain",
+	"text/tab-separated-values",
+	"application/vnd.ms-excel",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"application/xml",
+}
+
 type Option func(*Client)
 
 func WithClient(client *http.Client) Option {

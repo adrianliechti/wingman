@@ -1,12 +1,14 @@
 package unstructured
 
 import (
-	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/segmenter"
+	"github.com/google/uuid"
 )
 
 func (h *Handler) handlePartition(w http.ResponseWriter, r *http.Request) {
@@ -17,11 +19,11 @@ func (h *Handler) handlePartition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := extractor.File{
-		URL: r.FormValue("url"),
-	}
+	input := extractor.Input{}
 
-	if input.URL == "" {
+	if url := r.FormValue("url"); url != "" {
+		input.URL = &url
+	} else {
 		file, header, err := r.FormFile("file")
 
 		if err != nil {
@@ -33,15 +35,21 @@ func (h *Handler) handlePartition(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if header.Filename == "" {
-			http.Error(w, "invalid content type", http.StatusBadRequest)
+		data, err := io.ReadAll(file)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 
 		defer file.Close()
 
-		input.Name = header.Filename
-		input.Reader = file
+		input.File = &provider.File{
+			Name: header.Filename,
+
+			Content:     data,
+			ContentType: header.Header.Get("Content-Type"),
+		}
 	}
 
 	outputFormat := r.FormValue("output_format")
@@ -67,8 +75,8 @@ func (h *Handler) handlePartition(w http.ResponseWriter, r *http.Request) {
 
 	result := []Partition{
 		{
-			ID:   input.Name,
-			Text: document.Content,
+			ID:   uuid.NewString(),
+			Text: string(document.Content),
 		},
 	}
 
@@ -80,7 +88,7 @@ func (h *Handler) handlePartition(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		segments, err := s.Segment(r.Context(), document.Content, &segmenter.SegmentOptions{
+		segments, err := s.Segment(r.Context(), string(document.Content), &segmenter.SegmentOptions{
 			SegmentLength:  &chunkLength,
 			SegmentOverlap: &chunkOverlap,
 		})
@@ -92,9 +100,9 @@ func (h *Handler) handlePartition(w http.ResponseWriter, r *http.Request) {
 
 		result = []Partition{}
 
-		for i, s := range segments {
+		for _, s := range segments {
 			partition := Partition{
-				ID:   fmt.Sprintf("%s#%d", input.Name, i),
+				ID:   uuid.NewString(),
 				Text: s.Text,
 			}
 

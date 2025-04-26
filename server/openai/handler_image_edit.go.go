@@ -3,9 +3,7 @@ package openai
 import (
 	"encoding/base64"
 	"io"
-	"mime"
 	"net/http"
-	"path"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -19,7 +17,16 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 	model := r.FormValue("model")
 	prompt := r.FormValue("prompt")
 
-	reader, header, err := r.FormFile("image")
+	file, header, err := r.FormFile("image")
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -38,7 +45,7 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 			{
 				Name: header.Filename,
 
-				Content:     reader,
+				Content:     data,
 				ContentType: header.Header.Get("Content-Type"),
 			},
 		},
@@ -51,31 +58,18 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := io.ReadAll(image.Reader)
-
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-
 	result := ImageList{}
 
 	if r.FormValue("response_format") == "url" {
-		mime := mime.TypeByExtension(path.Ext(image.Name))
-
-		if mime == "" {
-			mime = "image/png"
-		}
-
 		result.Images = []Image{
 			{
-				URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data),
+				URL: "data:" + image.ContentType + ";base64," + base64.StdEncoding.EncodeToString(image.Content),
 			},
 		}
 	} else {
 		result.Images = []Image{
 			{
-				B64JSON: base64.StdEncoding.EncodeToString(data),
+				B64JSON: base64.StdEncoding.EncodeToString(image.Content),
 			},
 		}
 	}

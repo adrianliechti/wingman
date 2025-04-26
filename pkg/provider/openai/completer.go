@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"io"
 	"slices"
 	"strings"
 
@@ -299,14 +298,8 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				}
 
 				if c.File != nil {
-					data, err := io.ReadAll(c.File.Content)
-
-					if err != nil {
-						return nil, err
-					}
-
 					mime := c.File.ContentType
-					content := base64.StdEncoding.EncodeToString(data)
+					content := base64.StdEncoding.EncodeToString(c.File.Content)
 
 					switch c.File.ContentType {
 					case "image/png", "image/jpeg", "image/webp", "image/gif":

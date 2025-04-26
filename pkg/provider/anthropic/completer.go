@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -280,14 +279,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 
 				if c.File != nil {
-					data, err := io.ReadAll(c.File.Content)
-
-					if err != nil {
-						return nil, err
-					}
-
 					mime := c.File.ContentType
-					content := base64.StdEncoding.EncodeToString(data)
+					content := base64.StdEncoding.EncodeToString(c.File.Content)
 
 					switch mime {
 					case "image/jpeg", "image/png", "image/gif", "image/webp":

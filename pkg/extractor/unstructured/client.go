@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 var _ extractor.Provider = &Client{}
@@ -46,12 +47,18 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(input) {
+	if input.File == nil {
+		return nil, extractor.ErrUnsupported
+	}
+
+	file := *input.File
+
+	if !isSupported(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
@@ -61,13 +68,13 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 	w.WriteField("strategy", string(c.strategy))
 	w.WriteField("include_page_breaks", "true")
 
-	file, err := w.CreateFormFile("files", input.Name)
+	f, err := w.CreateFormFile("files", file.Name)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := io.Copy(file, input.Reader); err != nil {
+	if _, err := f.Write(file.Content); err != nil {
 		return nil, err
 	}
 
@@ -94,34 +101,37 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 		return nil, err
 	}
 
-	name := input.Name
-
 	var builder strings.Builder
 
 	for _, e := range elements {
 		builder.WriteString(e.Text)
 		builder.WriteString("\n")
-
-		if name == "" {
-			name = e.Metadata.FileName
-		}
 	}
 
-	return &extractor.Document{
-		Name: name,
+	text := strings.TrimSpace(builder.String())
 
-		Content:     builder.String(),
+	return &extractor.Document{
+		Content:     []byte(text),
 		ContentType: "text/plain",
 	}, nil
 }
 
-func isSupported(input extractor.File) bool {
-	if input.Reader == nil {
-		return false
+func isSupported(file provider.File) bool {
+	if file.Name != "" {
+		ext := strings.ToLower(path.Ext(file.Name))
+
+		if slices.Contains(SupportedExtensions, ext) {
+			return true
+		}
 	}
 
-	ext := strings.ToLower(path.Ext(input.Name))
-	return slices.Contains(SupportedExtensions, ext)
+	if file.ContentType != "" {
+		if slices.Contains(SupportedMimeTypes, file.ContentType) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func convertError(resp *http.Response) error {

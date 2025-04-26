@@ -2,20 +2,19 @@ package provider
 
 import (
 	"context"
-	"io"
 )
 
 type Renderer interface {
-	Render(ctx context.Context, input string, options *RenderOptions) (*Image, error)
+	Render(ctx context.Context, input string, options *RenderOptions) (*Rendering, error)
 }
 
 type RenderOptions struct {
 	Images []File
 }
 
-type Image struct {
+type Rendering struct {
 	ID string
 
-	Name   string
-	Reader io.ReadCloser
+	Content     []byte
+	ContentType string
 }

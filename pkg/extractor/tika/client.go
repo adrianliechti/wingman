@@ -1,6 +1,7 @@
 package tika
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/text"
 )
 
@@ -41,17 +43,23 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(input) {
+	if input.File == nil {
+		return nil, extractor.ErrUnsupported
+	}
+
+	file := *input.File
+
+	if !isSupported(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
 	url, _ := url.JoinPath(c.url, "/tika/text")
-	req, _ := http.NewRequestWithContext(ctx, "PUT", url, input.Reader)
+	req, _ := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewReader(file.Content))
 
 	resp, err := c.client.Do(req)
 
@@ -71,19 +79,30 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 		return nil, err
 	}
 
+	text := text.Normalize(response.Content)
+
 	return &extractor.Document{
-		Content:     text.Normalize(response.Content),
+		Content:     []byte(text),
 		ContentType: "text/plain",
 	}, nil
 }
 
-func isSupported(input extractor.File) bool {
-	if input.Reader == nil {
-		return false
+func isSupported(file provider.File) bool {
+	if file.Name != "" {
+		ext := strings.ToLower(path.Ext(file.Name))
+
+		if slices.Contains(SupportedExtensions, ext) {
+			return true
+		}
 	}
 
-	ext := strings.ToLower(path.Ext(input.Name))
-	return slices.Contains(SupportedExtensions, ext)
+	if file.ContentType != "" {
+		if slices.Contains(SupportedMimeTypes, file.ContentType) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func convertError(resp *http.Response) error {

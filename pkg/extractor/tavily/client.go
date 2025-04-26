@@ -35,12 +35,12 @@ func New(token string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	if input.URL == "" {
+	if input.URL == nil {
 		return nil, extractor.ErrUnsupported
 	}
 
@@ -75,8 +75,10 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 		return nil, errors.New("no results")
 	}
 
+	text := data.Results[0].Content
+
 	result := &extractor.Document{
-		Content:     data.Results[0].Content,
+		Content:     []byte(text),
 		ContentType: "text/plain",
 	}
 

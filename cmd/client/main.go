@@ -5,9 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"mime"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -224,20 +222,13 @@ LOOP:
 			continue LOOP
 		}
 
-		data, err := io.ReadAll(image.Reader)
-
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
-
 		name := uuid.New().String()
 
-		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+		if ext, _ := mime.ExtensionsByType(image.ContentType); len(ext) > 0 {
 			name += ext[0]
 		}
 
-		os.WriteFile(name, data, 0600)
+		os.WriteFile(name, image.Content, 0600)
 		fmt.Println("Saved: " + name)
 
 		output.WriteString("\n")
@@ -271,22 +262,15 @@ LOOP:
 			continue LOOP
 		}
 
-		data, err := io.ReadAll(synthesis.Reader)
-
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
-
 		name := uuid.New().String()
 
-		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+		if ext, _ := mime.ExtensionsByType(synthesis.ContentType); len(ext) > 0 {
 			name += ext[0]
 		} else {
 			name += ".wav"
 		}
 
-		os.WriteFile(name, data, 0600)
+		os.WriteFile(name, synthesis.Content, 0600)
 		fmt.Println("Saved: " + name)
 
 		output.WriteString("\n")

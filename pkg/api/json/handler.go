@@ -134,6 +134,5 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	contentType := "application/json"
 
 	w.Header().Set("Content-Type", contentType)
-	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(content))
 }

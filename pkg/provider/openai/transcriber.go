@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -42,7 +43,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 	transcription, err := t.transcriptions.New(ctx, openai.AudioTranscriptionNewParams{
 		Model: t.model,
 
-		File: openai.File(input.Content, input.Name, input.ContentType),
+		File: openai.File(bytes.NewReader(input.Content), input.Name, input.ContentType),
 
 		ResponseFormat: openai.AudioResponseFormatJSON,
 	})

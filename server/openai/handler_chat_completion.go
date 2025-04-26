@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -359,7 +358,7 @@ func toFile(url string) (*provider.File, error) {
 		}
 
 		file := provider.File{
-			Content:     bytes.NewReader(data),
+			Content:     data,
 			ContentType: resp.Header.Get("Content-Type"),
 		}
 
@@ -386,7 +385,7 @@ func toFile(url string) (*provider.File, error) {
 		}
 
 		file := provider.File{
-			Content:     bytes.NewReader(data),
+			Content:     data,
 			ContentType: match[1],
 		}
 

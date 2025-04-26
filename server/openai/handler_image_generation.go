@@ -3,10 +3,7 @@ package openai
 import (
 	"encoding/base64"
 	"encoding/json"
-	"io"
-	"mime"
 	"net/http"
-	"path"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -35,31 +32,18 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	data, err := io.ReadAll(image.Reader)
-
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-
 	result := ImageList{}
 
 	if req.ResponseFormat == "url" {
-		mime := mime.TypeByExtension(path.Ext(image.Name))
-
-		if mime == "" {
-			mime = "image/png"
-		}
-
 		result.Images = []Image{
 			{
-				URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data),
+				URL: "data:" + image.ContentType + ";base64," + base64.StdEncoding.EncodeToString(image.Content),
 			},
 		}
 	} else {
 		result.Images = []Image{
 			{
-				B64JSON: base64.StdEncoding.EncodeToString(data),
+				B64JSON: base64.StdEncoding.EncodeToString(image.Content),
 			},
 		}
 

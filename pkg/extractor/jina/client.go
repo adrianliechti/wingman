@@ -38,17 +38,17 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	if input.URL == "" {
+	if input.URL == nil {
 		return nil, extractor.ErrUnsupported
 	}
 
 	body := map[string]any{
-		"url": input.URL,
+		"url": *input.URL,
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", c.url, jsonReader(body))
@@ -78,7 +78,7 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 	}
 
 	return &extractor.Document{
-		Content:     string(data),
+		Content:     data,
 		ContentType: "text/plain",
 	}, nil
 }

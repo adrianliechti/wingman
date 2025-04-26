@@ -38,7 +38,7 @@ func NewExtractor(provider string, p extractor.Provider) Extractor {
 func (p *observableExtractor) otelSetup() {
 }
 
-func (p *observableExtractor) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (p *observableExtractor) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
 	defer span.End()
 

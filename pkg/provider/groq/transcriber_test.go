@@ -1,7 +1,6 @@
 package groq_test
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -36,7 +35,7 @@ func TestTranscriber(t *testing.T) {
 	result, err := p.Transcribe(ctx, provider.File{
 		Name: "jfk.wav",
 
-		Content:     bytes.NewReader(data),
+		Content:     data,
 		ContentType: "audio/wav",
 	}, nil)
 

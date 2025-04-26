@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strings"
 
 	"github.com/google/generative-ai-go/genai"
@@ -208,13 +207,7 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 				case "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
 					format := strings.Split(c.File.ContentType, "/")[1]
 
-					data, err := io.ReadAll(c.File.Content)
-
-					if err != nil {
-						return nil, err
-					}
-
-					part := genai.ImageData(format, data)
+					part := genai.ImageData(format, c.File.Content)
 					content.Parts = append(content.Parts, part)
 
 				default:

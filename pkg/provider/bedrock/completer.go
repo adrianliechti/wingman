@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -428,19 +427,13 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		return nil, nil
 	}
 
-	data, err := io.ReadAll(val.Content)
-
-	if err != nil {
-		return nil, err
-	}
-
 	if format, ok := convertDocumentFormat(val.ContentType); ok {
 		return &types.ContentBlockMemberDocument{
 			Value: types.DocumentBlock{
 				Name:   aws.String(uuid.NewString()),
 				Format: format,
 				Source: &types.DocumentSourceMemberBytes{
-					Value: data,
+					Value: val.Content,
 				},
 			},
 		}, nil
@@ -451,7 +444,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 			Value: types.ImageBlock{
 				Format: format,
 				Source: &types.ImageSourceMemberBytes{
-					Value: data,
+					Value: val.Content,
 				},
 			},
 		}, nil
@@ -462,7 +455,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 			Value: types.VideoBlock{
 				Format: format,
 				Source: &types.VideoSourceMemberBytes{
-					Value: data,
+					Value: val.Content,
 				},
 			},
 		}, nil

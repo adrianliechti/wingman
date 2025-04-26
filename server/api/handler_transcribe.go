@@ -25,10 +25,19 @@ func (h *Handler) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	input := provider.File{
 		Name: header.Filename,
 
-		Content:     file,
+		Content:     data,
 		ContentType: header.Header.Get("Content-Type"),
 	}
 

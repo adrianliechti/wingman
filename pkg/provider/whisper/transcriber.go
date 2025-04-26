@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -67,7 +66,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 		return nil, err
 	}
 
-	if _, err := io.Copy(file, input.Content); err != nil {
+	if _, err := file.Write(input.Content); err != nil {
 		return nil, err
 	}
 

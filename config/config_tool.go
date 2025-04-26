@@ -11,6 +11,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool/crawler"
 	"github.com/adrianliechti/wingman/pkg/tool/custom"
 	"github.com/adrianliechti/wingman/pkg/tool/draw"
+	"github.com/adrianliechti/wingman/pkg/tool/edit"
 	"github.com/adrianliechti/wingman/pkg/tool/mcp"
 	"github.com/adrianliechti/wingman/pkg/tool/retriever"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
@@ -148,6 +149,9 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	case "draw":
 		return drawTool(cfg, context)
 
+	case "edit":
+		return editTool(cfg, context)
+
 	case "retriever":
 		return retrieverTool(cfg, context)
 
@@ -193,6 +197,12 @@ func drawTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []draw.Option
 
 	return draw.New(context.Renderer, options...)
+}
+
+func editTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	var options []edit.Option
+
+	return edit.New(context.Renderer, options...)
 }
 
 func retrieverTool(cfg toolConfig, context toolContext) (tool.Provider, error) {

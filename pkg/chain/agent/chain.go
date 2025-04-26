@@ -96,6 +96,24 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		messages = slices.Concat(values, messages)
 	}
 
+	var contextFiles []provider.File
+
+	for _, m := range messages {
+		var files []provider.File
+
+		for _, c := range m.Content {
+			if c.File != nil {
+				files = append(files, *c.File)
+			}
+		}
+
+		contextFiles = files
+	}
+
+	if len(contextFiles) > 0 {
+		ctx = tool.WithFiles(ctx, contextFiles)
+	}
+
 	input := slices.Clone(messages)
 
 	agentTools := make(map[string]tool.Provider)

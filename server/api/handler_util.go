@@ -74,57 +74,69 @@ func (h *Handler) readText(r *http.Request) (string, error) {
 		return val, nil
 	}
 
-	_, reader, err := h.readContent(r)
+	file, err := h.readContent(r)
 
 	if err != nil {
 		return "", err
 	}
 
-	defer reader.Close()
-
-	data, err := io.ReadAll(reader)
-
-	if err != nil {
-		return "", err
-	}
-
-	return string(data), nil
+	return string(file.Content), nil
 }
 
-func (h *Handler) readContent(r *http.Request) (string, io.ReadCloser, error) {
+func (h *Handler) readContent(r *http.Request) (*provider.File, error) {
+	input := extractor.Input{}
+
+	if url := valueURL(r); url != "" {
+		input.URL = &url
+	} else {
+		f, err := h.readFile(r)
+
+		if err != nil {
+			return nil, err
+		}
+
+		input.File = &provider.File{
+			Name: f.Name,
+
+			Content:     f.Content,
+			ContentType: f.ContentType,
+		}
+	}
+
 	e, err := h.Extractor("")
 
 	if err != nil {
-		return "", nil, err
-	}
-
-	input := extractor.File{
-		URL: r.FormValue("url"),
-	}
-
-	if input.URL == "" {
-		name, reader, err := h.readFile(r)
-
-		if err != nil {
-			return "", nil, err
-		}
-
-		input.Name = name
-		input.Reader = reader
+		return nil, err
 	}
 
 	document, err := e.Extract(r.Context(), input, nil)
 
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
-	return "file.txt", io.NopCloser(strings.NewReader(document.Content)), nil
+	return &provider.File{
+		Name: "file.txt",
+
+		Content:     []byte(document.Content),
+		ContentType: document.ContentType,
+	}, nil
 }
 
-func (h *Handler) readFile(r *http.Request) (string, io.ReadCloser, error) {
+func (h *Handler) readFile(r *http.Request) (*provider.File, error) {
 	if file, header, err := r.FormFile("file"); err == nil {
-		return header.Filename, file, nil
+		data, err := io.ReadAll(file)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return &provider.File{
+			Name: header.Filename,
+
+			Content:     data,
+			ContentType: header.Header.Get("Content-Type"),
+		}, nil
 	}
 
 	contentType := r.Header.Get("Content-Type")
@@ -140,8 +152,16 @@ func (h *Handler) readFile(r *http.Request) (string, io.ReadCloser, error) {
 		filename = params["filename"]
 	}
 
-	_ = contentType
-	_ = contentDisposition
+	data, err := io.ReadAll(r.Body)
 
-	return filename, r.Body, nil
+	if err != nil {
+		return nil, err
+	}
+
+	return &provider.File{
+		Name: filename,
+
+		Content:     data,
+		ContentType: contentType,
+	}, nil
 }

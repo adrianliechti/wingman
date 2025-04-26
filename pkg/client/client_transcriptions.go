@@ -51,9 +51,15 @@ func (r *TranscriptionService) New(ctx context.Context, input TranscribeRequest,
 		return nil, err
 	}
 
+	data, err := io.ReadAll(input.Reader)
+
+	if err != nil {
+		return nil, err
+	}
+
 	file := provider.File{
 		Name:    input.Name,
-		Content: input.Reader,
+		Content: data,
 	}
 
 	return p.Transcribe(ctx, file, &input.TranscribeOptions)

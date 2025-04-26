@@ -2,6 +2,7 @@ package elevenlabs
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -59,12 +60,18 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 		return nil, convertError(resp)
 	}
 
+	data, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return nil, err
+	}
+
 	id := uuid.NewString()
 
 	return &provider.Synthesis{
 		ID: id,
 
-		Name:   id + ".mp3",
-		Reader: resp.Body,
+		Content:     data,
+		ContentType: "audio/mpeg",
 	}, nil
 }

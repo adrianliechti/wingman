@@ -1,10 +1,8 @@
 package multi
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 )
@@ -21,35 +19,13 @@ func New(provider ...extractor.Provider) *Extractor {
 	}
 }
 
-func (e *Extractor) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (e *Extractor) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	var content []byte
-
-	if input.Reader != nil {
-		data, err := io.ReadAll(input.Reader)
-
-		if err != nil {
-			return nil, err
-		}
-
-		content = data
-	}
-
 	for _, p := range e.providers {
-		file := extractor.File{
-			URL: input.URL,
-
-			Name: input.Name,
-		}
-
-		if content != nil {
-			file.Reader = bytes.NewReader(content)
-		}
-
-		result, err := p.Extract(ctx, file, options)
+		result, err := p.Extract(ctx, input, options)
 
 		if err != nil {
 			if errors.Is(err, extractor.ErrUnsupported) {

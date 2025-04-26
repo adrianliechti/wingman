@@ -18,7 +18,7 @@ func NewRenderingService(opts ...RequestOption) RenderingService {
 	}
 }
 
-type Image = provider.Image
+type Rendering = provider.Rendering
 
 type RenderOptions = provider.RenderOptions
 
@@ -30,7 +30,7 @@ type RenderingRequest struct {
 	Input string
 }
 
-func (r *RenderingService) New(ctx context.Context, input RenderingRequest, opts ...RequestOption) (*Image, error) {
+func (r *RenderingService) New(ctx context.Context, input RenderingRequest, opts ...RequestOption) (*Rendering, error) {
 	cfg := newRequestConfig(append(r.Options, opts...)...)
 	url := strings.TrimRight(cfg.URL, "/") + "/v1/"
 
