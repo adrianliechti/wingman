@@ -78,7 +78,7 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		id = uuid.New()
 	}
 
-	path := id.String() + ".wav"
+	path := id.String() + ".mp3"
 	os.MkdirAll(filepath.Join("public", "files"), 0755)
 
 	if err := os.WriteFile(filepath.Join("public", "files", path), synthesis.Content, 0644); err != nil {

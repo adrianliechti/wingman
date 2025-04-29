@@ -267,7 +267,7 @@ LOOP:
 		if ext, _ := mime.ExtensionsByType(synthesis.ContentType); len(ext) > 0 {
 			name += ext[0]
 		} else {
-			name += ".wav"
+			name += ".mp3"
 		}
 
 		os.WriteFile(name, synthesis.Content, 0600)
