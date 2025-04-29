@@ -110,12 +110,12 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			}
 
 			h := textproto.MIMEHeader{}
-			h.Set("Content-Type", options.Images[0].ContentType)
+			h.Set("Content-Type", image.ContentType)
 			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename="%s"`, escapeQuotes(imageName)))
 
 			writer, _ := w.CreatePart(h)
 
-			if _, err := writer.Write(options.Images[0].Content); err != nil {
+			if _, err := writer.Write(image.Content); err != nil {
 				return nil, err
 			}
 		}

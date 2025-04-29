@@ -44,7 +44,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 
 		Voice: openai.AudioSpeechNewParamsVoiceAlloy,
 
-		ResponseFormat: openai.AudioSpeechNewParamsResponseFormatWAV,
+		ResponseFormat: openai.AudioSpeechNewParamsResponseFormatMP3,
 	})
 
 	if err != nil {
@@ -61,6 +61,6 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 		ID: uuid.NewString(),
 
 		Content:     data,
-		ContentType: "audio/wav",
+		ContentType: "audio/mpeg",
 	}, nil
 }
