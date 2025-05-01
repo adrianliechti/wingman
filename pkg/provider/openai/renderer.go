@@ -98,9 +98,8 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			}
 
 			if imageType == "" {
-				ext := path.Ext(imageName)
-				switch ext {
-				case ".jpg", ".jpeg":
+				switch path.Ext(imageName) {
+				case ".jpg", ".jpeg", ".jpe":
 					imageType = "image/jpeg"
 				case ".png":
 					imageType = "image/png"
@@ -111,7 +110,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 
 			h := textproto.MIMEHeader{}
 			h.Set("Content-Type", image.ContentType)
-			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename="%s"`, escapeQuotes(imageName)))
+			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image[]"; filename="%s"`, escapeQuotes(imageName)))
 
 			writer, _ := w.CreatePart(h)
 
