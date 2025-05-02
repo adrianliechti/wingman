@@ -1,10 +1,11 @@
 package memory
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/index"
@@ -104,13 +105,6 @@ func (p *Provider) Query(ctx context.Context, query string, options *index.Query
 
 DOCUMENTS:
 	for _, d := range p.documents {
-		score := cosineSimilarity(embedding.Embeddings[0], d.Embedding)
-
-		r := index.Result{
-			Score:    score,
-			Document: d,
-		}
-
 		for k, v := range options.Filters {
 			val, ok := d.Metadata[k]
 
@@ -123,11 +117,18 @@ DOCUMENTS:
 			}
 		}
 
+		score := cosineSimilarity(embedding.Embeddings[0], d.Embedding)
+
+		r := index.Result{
+			Score:    score,
+			Document: d,
+		}
+
 		results = append(results, r)
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+	slices.SortFunc(results, func(a, b index.Result) int {
+		return cmp.Compare(b.Score, a.Score)
 	})
 
 	if options.Limit != nil {
@@ -138,26 +139,46 @@ DOCUMENTS:
 	return results, nil
 }
 
-func cosineSimilarity(a []float32, b []float32) float32 {
-	if len(a) != len(b) {
-		return 0.0
+func cosineSimilarity(vals1, vals2 []float32) float32 {
+	l2norm := func(v float64, s, t float64) (float64, float64) {
+		if v == 0 {
+			return s, t
+		}
+
+		a := math.Abs(v)
+
+		if a > t {
+			r := t / v
+			s = 1 + s*r*r
+			t = a
+		} else {
+			r := v / t
+			s = s + r*r
+		}
+
+		return s, t
 	}
 
-	var dot, magA, magB float64
+	dot := float64(0)
 
-	for i := range a {
-		valA := float64(a[i])
-		valB := float64(b[i])
+	s1 := float64(1)
+	t1 := float64(0)
 
-		dot += valA * valB
+	s2 := float64(1)
+	t2 := float64(0)
 
-		magA += valA * valA
-		magB += valB * valB
+	for i, v1f := range vals1 {
+		v1 := float64(v1f)
+		v2 := float64(vals2[i])
+
+		dot += v1 * v2
+
+		s1, t1 = l2norm(v1, s1, t1)
+		s2, t2 = l2norm(v2, s2, t2)
 	}
 
-	if magA == 0 || magB == 0 {
-		return 0.0
-	}
+	l1 := t1 * math.Sqrt(s1)
+	l2 := t2 * math.Sqrt(s2)
 
-	return float32(dot / math.Sqrt(magA*magB))
+	return float32(dot / (l1 * l2))
 }
