@@ -10,8 +10,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/tool/crawler"
 	"github.com/adrianliechti/wingman/pkg/tool/custom"
-	"github.com/adrianliechti/wingman/pkg/tool/draw"
-	"github.com/adrianliechti/wingman/pkg/tool/edit"
+	"github.com/adrianliechti/wingman/pkg/tool/image"
 	"github.com/adrianliechti/wingman/pkg/tool/mcp"
 	"github.com/adrianliechti/wingman/pkg/tool/retriever"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
@@ -146,11 +145,8 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	case "crawler":
 		return crawlerTool(cfg, context)
 
-	case "draw":
-		return drawTool(cfg, context)
-
-	case "edit":
-		return editTool(cfg, context)
+	case "draw", "image":
+		return imageTool(cfg, context)
 
 	case "retriever":
 		return retrieverTool(cfg, context)
@@ -193,16 +189,10 @@ func crawlerTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	return crawler.New(context.Extractor, options...)
 }
 
-func drawTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []draw.Option
+func imageTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	var options []image.Option
 
-	return draw.New(context.Renderer, options...)
-}
-
-func editTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []edit.Option
-
-	return edit.New(context.Renderer, options...)
+	return image.New(context.Renderer, options...)
 }
 
 func retrieverTool(cfg toolConfig, context toolContext) (tool.Provider, error) {

@@ -1,4 +1,4 @@
-package edit
+package image
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -34,8 +33,8 @@ func New(provider provider.Renderer, options ...Option) (*Client, error) {
 func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
-			Name:        "edit_image",
-			Description: "Edit images based based on user-provided text prompts. Returns a URL to download the generated image. Assume the images are already in the context.",
+			Name:        "generate_image",
+			Description: "Generate images based based on user-provided text prompt or edit an existing one in the context. Returns a URL to download the generated image.",
 
 			Parameters: map[string]any{
 				"type": "object",
@@ -43,7 +42,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 				"properties": map[string]any{
 					"prompt": map[string]any{
 						"type":        "string",
-						"description": "detailed text description how to edit the image. must be english.",
+						"description": "detailed text description of the image to generate or edit. must be english.",
 					},
 				},
 
@@ -54,7 +53,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 }
 
 func (c *Client) Execute(ctx context.Context, name string, parameters map[string]any) (any, error) {
-	if name != "edit_image" {
+	if name != "generate_image" {
 		return nil, tool.ErrInvalidTool
 	}
 
@@ -64,23 +63,7 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, errors.New("missing prompt parameter")
 	}
 
-	var images []provider.File
-
-	if files, ok := tool.FilesFromContext(ctx); ok {
-		for _, file := range files {
-			if strings.HasPrefix(file.ContentType, "image/") {
-				images = append(images, file)
-			}
-		}
-	}
-
-	if len(images) == 0 {
-		return nil, errors.New("no images found in context")
-	}
-
-	options := &provider.RenderOptions{
-		Images: images,
-	}
+	options := &provider.RenderOptions{}
 
 	image, err := c.provider.Render(ctx, prompt, options)
 

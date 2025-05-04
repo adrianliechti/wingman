@@ -1,3 +1,3 @@
-package draw
+package image
 
 type Option func(*Client)
