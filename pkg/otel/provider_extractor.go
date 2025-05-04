@@ -28,7 +28,7 @@ func NewExtractor(provider string, p extractor.Provider) Extractor {
 	return &observableExtractor{
 		extractor: p,
 
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-exctractor") + "-exctractor",
+		name:    strings.TrimSuffix(strings.ToLower(provider), "-extractor") + "-extractor",
 		library: library,
 
 		provider: provider,
