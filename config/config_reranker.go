@@ -38,7 +38,7 @@ func createReranker(cfg providerConfig, model modelContext) (provider.Reranker, 
 	case "huggingface":
 		return huggingfaceReranker(cfg, model)
 
-	case "jina":
+	case "jina", "wingman":
 		return jinaReranker(cfg, model)
 
 	default:

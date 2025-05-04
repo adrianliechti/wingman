@@ -104,7 +104,7 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "azure":
 		return azureExtractor(cfg)
 
-	case "jina":
+	case "jina", "wingman":
 		return jinaExtractor(cfg)
 
 	case "tavily":
