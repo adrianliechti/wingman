@@ -2,7 +2,6 @@ package openai
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -34,8 +33,6 @@ func (h *Handler) handleAudioSpeech(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer synthesis.Reader.Close()
-
-	w.Header().Set("Content-Type", "audio/wav")
-	io.Copy(w, synthesis.Reader)
+	w.Header().Set("Content-Type", synthesis.ContentType)
+	w.Write(synthesis.Content)
 }

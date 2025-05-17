@@ -24,14 +24,14 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ntool.proto\x12\x04tool\"\x0e\n\x0cToolsRequest\"6\n\rToolsResponse\x12%\n\x0b\x64\x65\x66initions\x18\x01 \x03(\x0b\x32\x10.tool.Definition\"C\n\nDefinition\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x12\n\nparameters\x18\x03 \x01(\t\"2\n\x0e\x45xecuteRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x12\n\nparameters\x18\x02 \x01(\t\"\x1e\n\x0eResultResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\t2s\n\x04Tool\x12\x32\n\x05Tools\x12\x12.tool.ToolsRequest\x1a\x13.tool.ToolsResponse\"\x00\x12\x37\n\x07\x45xecute\x12\x14.tool.ExecuteRequest\x1a\x14.tool.ResultResponse\"\x00\x42\x37Z5github.com/adrianliechti/wingman/pkg/tool/custom;customb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ntool.proto\x12\x04tool\"\x0e\n\x0cToolsRequest\"6\n\rToolsResponse\x12%\n\x0b\x64\x65\x66initions\x18\x01 \x03(\x0b\x32\x10.tool.Definition\"C\n\nDefinition\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x12\n\nparameters\x18\x03 \x01(\t\"2\n\x0e\x45xecuteRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x12\n\nparameters\x18\x02 \x01(\t\"\x1e\n\x0eResultResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\t2s\n\x04Tool\x12\x32\n\x05Tools\x12\x12.tool.ToolsRequest\x1a\x13.tool.ToolsResponse\"\x00\x12\x37\n\x07\x45xecute\x12\x14.tool.ExecuteRequest\x1a\x14.tool.ResultResponse\"\x00\x42\x39Z7github.com/adrianliechti/wingman/pkg/tool/custom;customb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'tool_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
-  _globals['DESCRIPTOR']._serialized_options = b'Z5github.com/adrianliechti/wingman/pkg/tool/custom;custom'
+  _globals['DESCRIPTOR']._serialized_options = b'Z7github.com/adrianliechti/wingman/pkg/tool/custom;custom'
   _globals['_TOOLSREQUEST']._serialized_start=20
   _globals['_TOOLSREQUEST']._serialized_end=34
   _globals['_TOOLSRESPONSE']._serialized_start=36

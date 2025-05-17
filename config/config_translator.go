@@ -4,9 +4,12 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
 	"github.com/adrianliechti/wingman/pkg/translator/azure"
+	"github.com/adrianliechti/wingman/pkg/translator/custom"
 	"github.com/adrianliechti/wingman/pkg/translator/deepl"
+	"github.com/adrianliechti/wingman/pkg/translator/llm"
 
 	"golang.org/x/time/rate"
 )
@@ -39,10 +42,14 @@ type translatorConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
+	Model string `yaml:"model"`
+
 	Limit *int `yaml:"limit"`
 }
 
 type translatorContext struct {
+	Completer provider.Completer
+
 	Limiter *rate.Limiter
 }
 
@@ -66,6 +73,12 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 			Limiter: createLimiter(config.Limit),
 		}
 
+		if config.Model != "" {
+			if p, err := cfg.Completer(config.Model); err == nil {
+				context.Completer = p
+			}
+		}
+
 		translator, err := createTranslator(config, context)
 
 		if err != nil {
@@ -80,15 +93,25 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 
 func createTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
+	case "llm":
+		return llmTranslator(cfg, context)
+
 	case "azure":
 		return azureTranslator(cfg, context)
 
 	case "deepl":
 		return deeplTranslator(cfg, context)
 
+	case "custom":
+		return customTranslator(cfg, context)
+
 	default:
 		return nil, errors.New("invalid translator type: " + cfg.Type)
 	}
+}
+
+func llmTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
+	return llm.New(context.Completer)
 }
 
 func azureTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
@@ -98,7 +121,7 @@ func azureTranslator(cfg translatorConfig, context translatorContext) (translato
 		options = append(options, azure.WithToken(cfg.Token))
 	}
 
-	return azure.NewTranslator(cfg.URL, options...)
+	return azure.New(cfg.URL, options...)
 }
 
 func deeplTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
@@ -108,5 +131,11 @@ func deeplTranslator(cfg translatorConfig, context translatorContext) (translato
 		options = append(options, deepl.WithToken(cfg.Token))
 	}
 
-	return deepl.NewTranslator(cfg.URL, options...)
+	return deepl.New(cfg.URL, options...)
+}
+
+func customTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
+	var options []custom.Option
+
+	return custom.New(cfg.URL, options...)
 }

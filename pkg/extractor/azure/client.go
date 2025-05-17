@@ -1,6 +1,7 @@
 package azure
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,7 +43,7 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
@@ -51,6 +52,8 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 		return nil, extractor.ErrUnsupported
 	}
 
+	content := bytes.NewReader(input.File.Content)
+
 	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/documentintelligence/documentModels/prebuilt-layout:analyze")
 
 	query := u.Query()
@@ -58,7 +61,7 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 
 	u.RawQuery = query.Encode()
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), input.Reader)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), content)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Ocp-Apim-Subscription-Key", c.token)
 
@@ -111,22 +114,35 @@ func (c *Client) Extract(ctx context.Context, input extractor.File, options *ext
 			return nil, errors.New("operation " + string(operation.Status))
 		}
 
-		return &extractor.Document{
-			Name: input.Name,
+		text := strings.TrimSpace(operation.Result.Content)
 
-			Content:     strings.TrimSpace(operation.Result.Content),
+		return &extractor.Document{
+			Content:     []byte(text),
 			ContentType: "text/plain",
 		}, nil
 	}
 }
 
-func isSupported(input extractor.File) bool {
-	if input.Reader == nil {
+func isSupported(input extractor.Input) bool {
+	if input.File == nil {
 		return false
 	}
 
-	ext := strings.ToLower(path.Ext(input.Name))
-	return slices.Contains(SupportedExtensions, ext)
+	if input.File.Name != "" {
+		ext := strings.ToLower(path.Ext(input.File.Name))
+
+		if slices.Contains(SupportedExtensions, ext) {
+			return true
+		}
+	}
+
+	if input.File.ContentType != "" {
+		if slices.Contains(SupportedMimeTypes, input.File.ContentType) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func convertError(resp *http.Response) error {

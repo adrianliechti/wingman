@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"io"
 )
 
 type Synthesizer interface {
@@ -14,8 +13,9 @@ type SynthesizeOptions struct {
 }
 
 type Synthesis struct {
-	ID string
+	ID    string
+	Model string
 
-	Name   string
-	Reader io.ReadCloser
+	Content     []byte
+	ContentType string
 }

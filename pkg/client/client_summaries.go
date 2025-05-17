@@ -3,9 +3,9 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 )
 
@@ -13,31 +13,41 @@ type SummaryService struct {
 	Options []RequestOption
 }
 
-func NewSummaryService(opts ...RequestOption) *SummaryService {
-	return &SummaryService{
+func NewSummaryService(opts ...RequestOption) SummaryService {
+	return SummaryService{
 		Options: opts,
 	}
-}
-
-type SummaryRequest struct {
-	Content string `json:"content"`
 }
 
 type Summary struct {
 	Text string `json:"content"`
 }
 
-func (r *SummaryService) New(ctx context.Context, body SummaryRequest, opts ...RequestOption) (*Summary, error) {
+type SummaryRequest struct {
+	Name   string
+	Reader io.Reader
+}
+
+func (r *SummaryService) New(ctx context.Context, input SummaryRequest, opts ...RequestOption) (*Summary, error) {
 	c := newRequestConfig(append(r.Options, opts...)...)
 
 	var data bytes.Buffer
+	w := multipart.NewWriter(&data)
 
-	if err := json.NewEncoder(&data).Encode(body); err != nil {
+	file, err := w.CreateFormFile("file", input.Name)
+
+	if err != nil {
 		return nil, err
 	}
 
+	if _, err := io.Copy(file, input.Reader); err != nil {
+		return nil, err
+	}
+
+	w.Close()
+
 	req, _ := http.NewRequestWithContext(ctx, "POST", c.URL+"/v1/summarize", &data)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)

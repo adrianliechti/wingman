@@ -28,7 +28,7 @@ func NewRenderer(l *rate.Limiter, p provider.Renderer) Renderer {
 func (p *limitedRenderer) limiterSetup() {
 }
 
-func (p *limitedRenderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Image, error) {
+func (p *limitedRenderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Rendering, error) {
 	if p.limiter != nil {
 		p.limiter.Wait(ctx)
 	}

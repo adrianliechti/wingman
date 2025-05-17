@@ -9,6 +9,8 @@ type Embedder interface {
 }
 
 type Embedding struct {
+	Model string
+
 	Embeddings [][]float32
 
 	Usage *Usage

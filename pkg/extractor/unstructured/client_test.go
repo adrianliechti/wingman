@@ -1,7 +1,6 @@
 package unstructured_test
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/unstructured"
+	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -46,9 +46,11 @@ func TestExtract(t *testing.T) {
 	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	input := extractor.File{
-		Name:   "acrobat_reference.pdf",
-		Reader: bytes.NewReader(data),
+	input := extractor.Input{
+		File: &provider.File{
+			Content:     data,
+			ContentType: "application/pdf",
+		},
 	}
 
 	result, err := c.Extract(ctx, input, nil)

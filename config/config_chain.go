@@ -2,6 +2,8 @@ package config
 
 import (
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/index"
@@ -15,7 +17,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/chain/assistant"
 	"github.com/adrianliechti/wingman/pkg/chain/rag"
 
-	"github.com/adrianliechti/wingman/pkg/to"
 	"github.com/adrianliechti/wingman/pkg/tool"
 
 	"golang.org/x/time/rate"
@@ -49,6 +50,8 @@ type chainConfig struct {
 }
 
 type chainContext struct {
+	Model string
+
 	Index index.Provider
 
 	Embedder  provider.Embedder
@@ -80,6 +83,8 @@ func (cfg *Config) registerChains(f *configFile) error {
 		}
 
 		context := chainContext{
+			Model: id,
+
 			Messages: make([]provider.Message, 0),
 
 			Tools:  make(map[string]tool.Provider),
@@ -182,7 +187,7 @@ func agentChain(cfg chainConfig, context chainContext) (chain.Provider, error) {
 	}
 
 	if context.Tools != nil {
-		options = append(options, agent.WithTools(to.Values(context.Tools)...))
+		options = append(options, agent.WithTools(slices.Collect(maps.Values(context.Tools))...))
 	}
 
 	if context.Messages != nil {
@@ -193,7 +198,7 @@ func agentChain(cfg chainConfig, context chainContext) (chain.Provider, error) {
 		options = append(options, agent.WithEffort(context.Effort))
 	}
 
-	return agent.New(options...)
+	return agent.New(context.Model, options...)
 }
 
 func assistantChain(cfg chainConfig, context chainContext) (chain.Provider, error) {

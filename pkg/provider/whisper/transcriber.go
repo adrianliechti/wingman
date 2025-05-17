@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -20,6 +19,8 @@ var _ provider.Transcriber = (*Transcriber)(nil)
 
 type Transcriber struct {
 	*Config
+
+	model string
 }
 
 func NewTranscriber(url, model string, options ...Option) (*Transcriber, error) {
@@ -67,7 +68,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 		return nil, err
 	}
 
-	if _, err := io.Copy(file, input.Content); err != nil {
+	if _, err := file.Write(input.Content); err != nil {
 		return nil, err
 	}
 
@@ -101,12 +102,13 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 	}
 
 	result := provider.Transcription{
-		ID: id,
+		ID:    id,
+		Model: t.model,
 
 		Text: content,
 
-		Language: inference.Language,
-		Duration: inference.Duration,
+		// Language: inference.Language,
+		// Duration: inference.Duration,
 	}
 
 	return &result, nil

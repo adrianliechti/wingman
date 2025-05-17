@@ -13,7 +13,5 @@ type TranslateOptions struct {
 }
 
 type Translation struct {
-	ID string
-
-	Content string
+	Text string
 }

@@ -1,8 +1,11 @@
 package openai
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/go-chi/chi/v5"
@@ -37,6 +40,7 @@ func (h *Handler) Attach(r chi.Router) {
 	r.Post("/audio/transcriptions", h.handleAudioTranscription)
 
 	r.Post("/images/generations", h.handleImageGeneration)
+	r.Post("/images/edits", h.handleImageEdit)
 }
 
 func writeJson(w http.ResponseWriter, v any) {
@@ -69,4 +73,26 @@ func writeError(w http.ResponseWriter, code int, err error) {
 	enc.SetEscapeHTML(false)
 
 	enc.Encode(resp)
+}
+
+func writeEventData(w http.ResponseWriter, v any) error {
+	rc := http.NewResponseController(w)
+
+	var data bytes.Buffer
+
+	enc := json.NewEncoder(&data)
+	enc.SetEscapeHTML(false)
+	enc.Encode(v)
+
+	event := strings.TrimSpace(data.String())
+
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", event); err != nil {
+		return err
+	}
+
+	if err := rc.Flush(); err != nil {
+		return err
+	}
+
+	return nil
 }

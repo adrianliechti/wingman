@@ -4,16 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strings"
-	"unicode"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/google/uuid"
 	"google.golang.org/api/iterator"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/to"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -113,36 +110,25 @@ func (c *Completer) complete(ctx context.Context, session *genai.ChatSession, pa
 
 	candidate := resp.Candidates[0]
 
-	content := toContent(candidate.Content)
-	content = strings.TrimRightFunc(content, unicode.IsSpace)
-
 	return &provider.Completion{
-		ID:     uuid.New().String(),
+		ID:    uuid.New().String(),
+		Model: c.model,
+
 		Reason: toCompletionResult(candidate),
 
-		Message: provider.Message{
+		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
-			Content: content,
-
-			ToolCalls: toToolCalls(candidate.Content),
+			Content: toContent(candidate.Content),
 		},
+
+		Usage: toUsage(resp.UsageMetadata),
 	}, nil
 }
 
 func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSession, parts []genai.Part, options *provider.CompleteOptions) (*provider.Completion, error) {
 	iter := session.SendMessageStream(ctx, parts...)
 
-	result := &provider.Completion{
-		ID: uuid.New().String(),
-
-		Message: provider.Message{
-			Role: provider.MessageRoleAssistant,
-		},
-
-		//Usage: &provider.Usage{},
-	}
-
-	resultToolCalls := map[string]provider.ToolCall{}
+	result := provider.CompletionAccumulator{}
 
 	for i := 0; ; i++ {
 		resp, err := iter.Next()
@@ -155,54 +141,31 @@ func (c *Completer) completeStream(ctx context.Context, session *genai.ChatSessi
 			return nil, convertError(err)
 		}
 
-		candidate := resp.Candidates[0]
+		delta := provider.Completion{
+			ID: uuid.New().String(),
 
-		if reason := toCompletionResult(candidate); reason != "" {
-			result.Reason = reason
+			Message: &provider.Message{
+				Role: provider.MessageRoleAssistant,
+			},
+
+			Usage: toUsage(resp.UsageMetadata),
 		}
 
-		content := toContent(candidate.Content)
+		if len(resp.Candidates) > 0 {
+			candidate := resp.Candidates[0]
 
-		if i == 0 {
-			content = strings.TrimLeftFunc(content, unicode.IsSpace)
+			delta.Reason = toCompletionResult(candidate)
+			delta.Message.Content = toContent(candidate.Content)
 		}
 
-		result.Message.Content += content
+		result.Add(delta)
 
-		for _, c := range toToolCalls(candidate.Content) {
-			resultToolCalls[c.Name] = c
-		}
-
-		if len(content) > 0 {
-			delta := provider.Completion{
-				ID: result.ID,
-
-				Reason: result.Reason,
-
-				Message: provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: content,
-				},
-			}
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
+		if err := options.Stream(ctx, delta); err != nil {
+			return nil, err
 		}
 	}
 
-	result.Message.Content = strings.TrimRightFunc(result.Message.Content, unicode.IsSpace)
-
-	if result.Reason == "" {
-		result.Reason = provider.CompletionReasonStop
-	}
-
-	if len(resultToolCalls) > 0 {
-		result.Reason = provider.CompletionReasonTool
-		result.Message.ToolCalls = to.Values(resultToolCalls)
-	}
-
-	return result, nil
+	return result.Result(), nil
 }
 
 func convertSystem(messages []provider.Message) (*genai.Content, error) {
@@ -213,8 +176,10 @@ func convertSystem(messages []provider.Message) (*genai.Content, error) {
 			continue
 		}
 
-		if m.Content != "" {
-			parts = append(parts, genai.Text(m.Content))
+		for _, c := range m.Content {
+			if c.Text != "" {
+				parts = append(parts, genai.Text(c.Text))
+			}
 		}
 	}
 
@@ -228,81 +193,74 @@ func convertSystem(messages []provider.Message) (*genai.Content, error) {
 }
 
 func convertContent(message provider.Message) (*genai.Content, error) {
-	var role string
-	var parts []genai.Part
+	content := &genai.Content{}
 
 	switch message.Role {
 	case provider.MessageRoleUser:
-		role = "user"
+		content.Role = "user"
 
-		if message.Content != "" {
-			parts = append(parts, genai.Text(message.Content))
-		}
+		for _, c := range message.Content {
+			if c.Text != "" {
+				content.Parts = append(content.Parts, genai.Text(c.Text))
+			}
 
-		for _, f := range message.Files {
-			switch f.ContentType {
-			case "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
-				format := strings.Split(f.ContentType, "/")[1]
+			if c.File != nil {
+				switch c.File.ContentType {
+				case "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
+					format := strings.Split(c.File.ContentType, "/")[1]
 
-				data, err := io.ReadAll(f.Content)
+					part := genai.ImageData(format, c.File.Content)
+					content.Parts = append(content.Parts, part)
 
-				if err != nil {
-					return nil, err
+				default:
+					return nil, errors.New("unsupported content type")
+				}
+			}
+
+			if c.ToolResult != nil {
+				var data any
+				json.Unmarshal([]byte(c.ToolResult.Data), &data)
+
+				var parameters map[string]any
+
+				if val, ok := data.(map[string]any); ok {
+					parameters = val
 				}
 
-				parts = append(parts, genai.ImageData(format, data))
+				if val, ok := data.([]any); ok {
+					parameters = map[string]any{"data": val}
+				}
 
-			default:
-				return nil, errors.New("unsupported content type")
+				part := genai.FunctionResponse{
+					Name:     c.ToolResult.ID,
+					Response: parameters,
+				}
+
+				content.Parts = append(content.Parts, part)
 			}
 		}
 
 	case provider.MessageRoleAssistant:
-		role = "model"
+		content.Role = "model"
 
-		if message.Content != "" {
-			parts = append(parts, genai.Text(message.Content))
-		}
-
-		for _, c := range message.ToolCalls {
-			var data map[string]any
-			json.Unmarshal([]byte(c.Arguments), &data)
-
-			part := genai.FunctionCall{
-				Name: c.Name,
-				Args: data,
+		for _, c := range message.Content {
+			if c.Text != "" {
+				part := genai.Text(c.Text)
+				content.Parts = append(content.Parts, part)
 			}
 
-			parts = append(parts, part)
+			if c.ToolCall != nil {
+				var data map[string]any
+				json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
+
+				part := genai.FunctionCall{
+					Name: c.ToolCall.Name,
+					Args: data,
+				}
+
+				content.Parts = append(content.Parts, part)
+			}
 		}
-
-	case provider.MessageRoleTool:
-		role = "user"
-
-		var data any
-		json.Unmarshal([]byte(message.Content), &data)
-
-		var parameters map[string]any
-
-		if val, ok := data.(map[string]any); ok {
-			parameters = val
-		}
-
-		if val, ok := data.([]any); ok {
-			parameters = map[string]any{"data": val}
-		}
-
-		part := genai.FunctionResponse{
-			Name:     message.Tool,
-			Response: parameters,
-		}
-
-		parts = append(parts, part)
-	}
-
-	content := &genai.Content{
-		Role:  role,
-		Parts: parts,
 	}
 
 	return content, nil
@@ -426,30 +384,14 @@ func convertSchema(parameters map[string]any) *genai.Schema {
 	return schema
 }
 
-func toContent(content *genai.Content) string {
-	if content == nil {
-		return ""
-	}
+func toContent(content *genai.Content) []provider.Content {
+	var parts []provider.Content
 
 	for _, p := range content.Parts {
 		switch v := p.(type) {
 		case genai.Text:
-			return string(v)
-		}
-	}
+			parts = append(parts, provider.TextContent(string(v)))
 
-	return ""
-}
-
-func toToolCalls(content *genai.Content) []provider.ToolCall {
-	if content == nil {
-		return nil
-	}
-
-	var result []provider.ToolCall
-
-	for _, p := range content.Parts {
-		switch v := p.(type) {
 		case genai.FunctionCall:
 			data, _ := json.Marshal(v.Args)
 
@@ -460,15 +402,26 @@ func toToolCalls(content *genai.Content) []provider.ToolCall {
 				Arguments: string(data),
 			}
 
-			result = append(result, call)
+			parts = append(parts, provider.ToolCallContent(call))
 		}
 	}
 
-	return result
+	return parts
 }
 
 func toCompletionResult(candidate *genai.Candidate) provider.CompletionReason {
+	if candidate.Content != nil {
+		for _, p := range candidate.Content.Parts {
+			if _, ok := p.(genai.FunctionCall); ok {
+				return provider.CompletionReasonTool
+			}
+		}
+	}
+
 	switch candidate.FinishReason {
+	case genai.FinishReasonStop:
+		return provider.CompletionReasonStop
+
 	case genai.FinishReasonMaxTokens:
 		return provider.CompletionReasonLength
 
@@ -479,15 +432,16 @@ func toCompletionResult(candidate *genai.Candidate) provider.CompletionReason {
 		return provider.CompletionReasonFilter
 	}
 
-	if len(toToolCalls(candidate.Content)) > 0 {
-		return provider.CompletionReasonTool
+	return ""
+}
+
+func toUsage(metadata *genai.UsageMetadata) *provider.Usage {
+	if metadata == nil {
+		return nil
 	}
 
-	switch candidate.FinishReason {
-	case genai.FinishReasonStop:
-		return provider.CompletionReasonStop
-
-	default:
-		return ""
+	return &provider.Usage{
+		InputTokens:  int(metadata.PromptTokenCount),
+		OutputTokens: int(metadata.CandidatesTokenCount),
 	}
 }

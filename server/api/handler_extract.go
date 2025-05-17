@@ -26,16 +26,29 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := extractor.File{
-		URL: valueURL(r),
+	input := extractor.Input{}
+
+	if url := valueURL(r); url != "" {
+		input.URL = &url
 	}
 
 	if file, header, err := r.FormFile("file"); err == nil {
-		input.Name = header.Filename
-		input.Reader = file
+		data, err := io.ReadAll(file)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		input.File = &provider.File{
+			Name: header.Filename,
+
+			Content:     data,
+			ContentType: header.Header.Get("Content-Type"),
+		}
 	}
 
-	if input.URL == "" && input.Reader == nil {
+	if input.URL == nil && input.File == nil {
 		writeError(w, http.StatusBadRequest, errors.New("invalid input"))
 		return
 	}
@@ -63,11 +76,10 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		text := string(document.Content)
+
 		messages := []provider.Message{
-			{
-				Role:    provider.MessageRoleUser,
-				Content: document.Content,
-			},
+			provider.UserMessage(text),
 		}
 
 		options := &provider.CompleteOptions{
@@ -81,16 +93,16 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		content := completion.Message.Text()
+
 		w.Header().Set("Content-Type", "application/json")
 
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, completion.Message.Content)
+		io.WriteString(w, content)
 
 		return
 	}
 
 	w.Header().Set("Content-Type", contentType)
-
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, document.Content)
+	w.Write(document.Content)
 }

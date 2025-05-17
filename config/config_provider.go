@@ -107,7 +107,7 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				}
 
 				cfg.RegisterEmbedder(id, embedder)
-				cfg.RegisterReranker(id, reranker.FromEmbedder(embedder))
+				cfg.RegisterReranker(id, reranker.FromEmbedder(id, embedder))
 
 			case ModelTypeReranker:
 				reranker, err := createReranker(p, context)

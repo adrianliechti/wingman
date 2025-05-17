@@ -15,3 +15,15 @@ var SupportedExtensions = []string{
 	".md",
 	".rst",
 }
+
+var SupportedMimeTypes = []string{
+	"text/plain",
+	"text/markdown",
+
+	"text/csv",
+	"text/tab-separated-values",
+
+	"application/json",
+	"application/xml",
+	"application/yaml",
+}

@@ -38,7 +38,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 				"properties": map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "the text to search online for to get the necessary information",
+						"description": "the text to search online for",
 					},
 				},
 

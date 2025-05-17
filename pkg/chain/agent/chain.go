@@ -4,18 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/chain"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/template"
-	"github.com/adrianliechti/wingman/pkg/to"
 	"github.com/adrianliechti/wingman/pkg/tool"
+
+	"github.com/google/uuid"
 )
 
 var _ chain.Provider = &Chain{}
 
 type Chain struct {
+	model string
+
 	completer provider.Completer
 
 	tools    []tool.Provider
@@ -27,8 +31,10 @@ type Chain struct {
 
 type Option func(*Chain)
 
-func New(options ...Option) (*Chain, error) {
-	c := &Chain{}
+func New(model string, options ...Option) (*Chain, error) {
+	c := &Chain{
+		model: model,
+	}
 
 	for _, option := range options {
 		option(c)
@@ -94,6 +100,24 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		messages = slices.Concat(values, messages)
 	}
 
+	var contextFiles []provider.File
+
+	for _, m := range messages {
+		var files []provider.File
+
+		for _, c := range m.Content {
+			if c.File != nil {
+				files = append(files, *c.File)
+			}
+		}
+
+		contextFiles = files
+	}
+
+	if len(contextFiles) > 0 {
+		ctx = tool.WithFiles(ctx, contextFiles)
+	}
+
 	input := slices.Clone(messages)
 
 	agentTools := make(map[string]tool.Provider)
@@ -116,13 +140,11 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		inputTools[t.Name] = t
 	}
 
-	var result *provider.Completion
-
 	inputOptions := &provider.CompleteOptions{
 		Effort: options.Effort,
 
 		Stop:  options.Stop,
-		Tools: to.Values(inputTools),
+		Tools: slices.Collect(maps.Values(inputTools)),
 
 		MaxTokens:   options.MaxTokens,
 		Temperature: options.Temperature,
@@ -131,42 +153,62 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		Schema: options.Schema,
 	}
 
-	var lastToolCallID string
-	var lastToolCallName string
+	acc := provider.CompletionAccumulator{}
+	accID := uuid.New().String()
 
-	streamToolCalls := map[string]provider.ToolCall{}
+	var lastToolID string
+	var lastToolName string
 
 	stream := func(ctx context.Context, completion provider.Completion) error {
-		for _, t := range completion.Message.ToolCalls {
-			if t.ID != "" {
-				lastToolCallID = t.ID
+		acc.Add(completion)
+
+		delta := provider.Completion{
+			ID:    accID,
+			Model: c.model,
+
+			Reason: completion.Reason,
+
+			Message: &provider.Message{
+				Role: provider.MessageRoleAssistant,
+			},
+
+			Usage: completion.Usage,
+		}
+
+		for _, c := range completion.Message.Content {
+			if c.Text != "" {
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(c.Text))
 			}
 
-			if t.Name != "" {
-				lastToolCallName = t.Name
+			if c.Refusal != "" {
+				delta.Message.Content = append(delta.Message.Content, provider.RefusalContent(c.Text))
 			}
 
-			if lastToolCallName == "" {
-				continue
-			}
+			if c.ToolCall != nil {
+				if c.ToolCall.ID != "" {
+					lastToolID = c.ToolCall.ID
+				}
 
-			if _, found := agentTools[lastToolCallName]; !found {
-				call := streamToolCalls[lastToolCallID]
-				call.ID = lastToolCallID
-				call.Name = lastToolCallName
-				call.Arguments += t.Arguments
+				if c.ToolCall.Name != "" {
+					lastToolName = c.ToolCall.Name
+				}
 
-				streamToolCalls[lastToolCallID] = call
+				if lastToolName != "" {
+					if _, found := agentTools[lastToolName]; found {
+						continue
+					}
+
+					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(provider.ToolCall{
+						ID:   lastToolID,
+						Name: lastToolName,
+
+						Arguments: c.ToolCall.Arguments,
+					}))
+				}
 			}
 		}
 
-		if completion.Message.Content != "" || completion.Reason != "" {
-			completion.Message.ToolCalls = to.Values(streamToolCalls)
-
-			return options.Stream(ctx, completion)
-		}
-
-		return nil
+		return options.Stream(ctx, delta)
 	}
 
 	if options.Stream != nil {
@@ -180,12 +222,23 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			return nil, err
 		}
 
-		input = append(input, completion.Message)
+		completion.ID = accID
+		completion.Model = c.model
+
+		if completion.Message == nil {
+			return completion, nil
+		}
 
 		var loop bool
 
-		for _, t := range completion.Message.ToolCalls {
-			p, found := agentTools[t.Name]
+		input = append(input, *completion.Message)
+
+		for _, c := range completion.Message.Content {
+			if c.ToolCall == nil {
+				continue
+			}
+
+			t, found := agentTools[c.ToolCall.Name]
 
 			if !found {
 				continue
@@ -193,11 +246,11 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 			var params map[string]any
 
-			if err := json.Unmarshal([]byte(t.Arguments), &params); err != nil {
+			if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &params); err != nil {
 				return nil, err
 			}
 
-			result, err := p.Execute(ctx, t.Name, params)
+			result, err := t.Execute(ctx, c.ToolCall.Name, params)
 
 			if err != nil {
 				return nil, err
@@ -210,24 +263,21 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			}
 
 			input = append(input, provider.Message{
-				Role: provider.MessageRoleTool,
+				Role: provider.MessageRoleUser,
 
-				Tool:    t.ID,
-				Content: string(data),
+				Content: []provider.Content{
+					provider.ToolResultContent(provider.ToolResult{
+						ID:   c.ToolCall.ID,
+						Data: string(data),
+					}),
+				},
 			})
 
 			loop = true
 		}
 
 		if !loop {
-			result = completion
-			break
+			return completion, nil
 		}
 	}
-
-	if result == nil {
-		return nil, errors.New("unable to handle request")
-	}
-
-	return result, nil
 }

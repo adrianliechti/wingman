@@ -67,7 +67,6 @@ func (c *Client) Query(ctx context.Context, query string, options *index.QueryOp
 	for _, r := range data.Results {
 		result := index.Result{
 			Document: index.Document{
-
 				Title:   r.Title,
 				Source:  r.URL,
 				Content: r.Content,

@@ -6,6 +6,9 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
+type Embedder = provider.Embedder
+type Reranker = provider.Reranker
+
 type Provider interface {
 	List(ctx context.Context, options *ListOptions) (*Page[Document], error)
 
@@ -48,6 +51,3 @@ type Result struct {
 	Document
 	Score float32
 }
-
-type Embedder = provider.Embedder
-type Reranker = provider.Reranker

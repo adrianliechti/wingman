@@ -6,6 +6,8 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/azure"
+	"github.com/adrianliechti/wingman/pkg/extractor/custom"
+	"github.com/adrianliechti/wingman/pkg/extractor/exa"
 	"github.com/adrianliechti/wingman/pkg/extractor/jina"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
 	"github.com/adrianliechti/wingman/pkg/extractor/tavily"
@@ -104,7 +106,10 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "azure":
 		return azureExtractor(cfg)
 
-	case "jina":
+	case "exa":
+		return exaExtractor(cfg)
+
+	case "jina", "wingman-reader":
 		return jinaExtractor(cfg)
 
 	case "tavily":
@@ -116,8 +121,11 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "tika":
 		return tikaExtractor(cfg)
 
-	case "unstructured":
+	case "unstructured", "wingman-extractor":
 		return unstructuredExtractor(cfg)
+
+	case "custom":
+		return customExtractor(cfg)
 
 	default:
 		return nil, errors.New("invalid extractor type: " + cfg.Type)
@@ -132,6 +140,12 @@ func azureExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	}
 
 	return azure.New(cfg.URL, options...)
+}
+
+func exaExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	var options []exa.Option
+
+	return exa.New(cfg.Token, options...)
 }
 
 func jinaExtractor(cfg extractorConfig) (extractor.Provider, error) {
@@ -166,4 +180,10 @@ func unstructuredExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	}
 
 	return unstructured.New(cfg.URL, options...)
+}
+
+func customExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	var options []custom.Option
+
+	return custom.New(cfg.URL, options...)
 }

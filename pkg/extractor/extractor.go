@@ -3,11 +3,12 @@ package extractor
 import (
 	"context"
 	"errors"
-	"io"
+
+	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 type Provider interface {
-	Extract(ctx context.Context, input File, options *ExtractOptions) (*Document, error)
+	Extract(ctx context.Context, input Input, options *ExtractOptions) (*Document, error)
 }
 
 var (
@@ -17,16 +18,13 @@ var (
 type ExtractOptions struct {
 }
 
-type File struct {
-	Name string
+type Input struct {
+	URL *string
 
-	URL    string
-	Reader io.Reader
+	File *provider.File
 }
 
 type Document struct {
-	Name string
-
-	Content     string
+	Content     []byte
 	ContentType string
 }

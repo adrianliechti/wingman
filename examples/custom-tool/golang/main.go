@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	l, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", 6666))
+	l, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", 50051))
 
 	if err != nil {
 		panic(err)

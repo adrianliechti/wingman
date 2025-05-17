@@ -52,7 +52,7 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 
 	if EnableDebug {
 		if len(messages) > 0 {
-			input := messages[len(messages)-1].Content
+			input := messages[len(messages)-1].Text()
 
 			if input != "" {
 				span.SetAttributes(attribute.String("input", input))
@@ -60,8 +60,10 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 		}
 
 		if result != nil {
-			if result.Message.Content != "" {
-				span.SetAttributes(attribute.String("output", result.Message.Content))
+			output := result.Message.Text()
+
+			if output != "" {
+				span.SetAttributes(attribute.String("output", output))
 			}
 		}
 	}

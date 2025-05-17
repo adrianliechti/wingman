@@ -15,7 +15,7 @@ services:
       - ollama-companion
   
   ollama:
-    image: ollama/ollama:0.5.4
+    image: ollama/ollama:0.6.7
     pull_policy: always
     volumes:
       - ollama-data:/root/.ollama

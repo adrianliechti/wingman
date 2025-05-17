@@ -1,26 +1,30 @@
 package config
 
 import (
+	"crypto/tls"
 	"errors"
+	"net/http"
+	"net/url"
 	"strings"
+
+	"github.com/adrianliechti/wingman/pkg/tool"
+	"github.com/adrianliechti/wingman/pkg/tool/custom"
+	"github.com/adrianliechti/wingman/pkg/tool/extract"
+	"github.com/adrianliechti/wingman/pkg/tool/mcp"
+	"github.com/adrianliechti/wingman/pkg/tool/render"
+	"github.com/adrianliechti/wingman/pkg/tool/retrieve"
+	"github.com/adrianliechti/wingman/pkg/tool/search"
+	"github.com/adrianliechti/wingman/pkg/tool/synthesize"
+	"github.com/adrianliechti/wingman/pkg/tool/translate"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/provider"
-
-	"github.com/adrianliechti/wingman/pkg/tool"
-	"github.com/adrianliechti/wingman/pkg/tool/crawler"
-	"github.com/adrianliechti/wingman/pkg/tool/custom"
-	"github.com/adrianliechti/wingman/pkg/tool/draw"
-	"github.com/adrianliechti/wingman/pkg/tool/genaitoolbox"
-	"github.com/adrianliechti/wingman/pkg/tool/retriever"
-	"github.com/adrianliechti/wingman/pkg/tool/search"
-	"github.com/adrianliechti/wingman/pkg/tool/speak"
-	"github.com/adrianliechti/wingman/pkg/tool/translate"
 	"github.com/adrianliechti/wingman/pkg/translator"
 
 	"github.com/adrianliechti/wingman/pkg/index"
 	"github.com/adrianliechti/wingman/pkg/index/bing"
 	"github.com/adrianliechti/wingman/pkg/index/duckduckgo"
+	"github.com/adrianliechti/wingman/pkg/index/exa"
 	"github.com/adrianliechti/wingman/pkg/index/searxng"
 	"github.com/adrianliechti/wingman/pkg/index/tavily"
 
@@ -50,6 +54,12 @@ type toolConfig struct {
 
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
+
+	Command string   `yaml:"command"`
+	Args    []string `yaml:"args"`
+
+	Vars  map[string]string `yaml:"vars"`
+	Proxy *proxyConfig      `yaml:"proxy"`
 
 	Model    string `yaml:"model"`
 	Provider string `yaml:"provider"`
@@ -137,23 +147,26 @@ func (cfg *Config) registerTools(f *configFile) error {
 func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
 
-	case "crawler":
-		return crawlerTool(cfg, context)
+	case "extractor", "crawler":
+		return extractTool(cfg, context)
 
-	case "draw":
-		return drawTool(cfg, context)
+	case "renderer", "draw":
+		return renderTool(cfg, context)
 
 	case "retriever":
-		return retrieverTool(cfg, context)
+		return retrieveTool(cfg, context)
 
 	case "search":
 		return searchTool(cfg, context)
 
-	case "speak":
-		return speakTool(cfg, context)
+	case "synthesizer", "speak":
+		return synthesizeTool(cfg, context)
 
-	case "translate":
+	case "translator":
 		return translateTool(cfg, context)
+
+	case "mcp":
+		return mcpTool(cfg, context)
 
 	case "custom":
 		return customTool(cfg, context)
@@ -164,8 +177,8 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	case "duckduckgo":
 		return duckduckgoTool(cfg, context)
 
-	case "genaitoolbox":
-		return genaitoolboxTool(cfg, context)
+	case "exa":
+		return exaTool(cfg, context)
 
 	case "searxng":
 		return searxngTool(cfg, context)
@@ -178,22 +191,22 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	}
 }
 
-func crawlerTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []crawler.Option
+func extractTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	var options []extract.Option
 
-	return crawler.New(context.Extractor, options...)
+	return extract.New(context.Extractor, options...)
 }
 
-func drawTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []draw.Option
+func renderTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	var options []render.Option
 
-	return draw.New(context.Renderer, options...)
+	return render.New(context.Renderer, options...)
 }
 
-func retrieverTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []retriever.Option
+func retrieveTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	var options []retrieve.Option
 
-	return retriever.New(context.Index, options...)
+	return retrieve.New(context.Index, options...)
 }
 
 func searchTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
@@ -202,16 +215,30 @@ func searchTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	return search.New(context.Index, options...)
 }
 
-func speakTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []speak.Option
+func synthesizeTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	var options []synthesize.Option
 
-	return speak.New(context.Synthesizer, options...)
+	return synthesize.New(context.Synthesizer, options...)
 }
 
 func translateTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []translate.Option
 
 	return translate.New(context.Translator, options...)
+}
+
+func mcpTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	if cfg.Command != "" {
+		var env []string
+
+		for k, v := range cfg.Vars {
+			env = append(env, k+"="+v)
+		}
+
+		return mcp.NewStdio(cfg.Command, env, cfg.Args)
+	}
+
+	return mcp.NewSSE(cfg.URL, cfg.Vars)
 }
 
 func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
@@ -221,7 +248,29 @@ func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 }
 
 func bingTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	index, err := bing.New(cfg.Token)
+	var options []bing.Option
+
+	if cfg.Proxy != nil && cfg.Proxy.URL != "" {
+		proxyURL, err := url.Parse(cfg.Proxy.URL)
+
+		if err != nil {
+			return nil, err
+		}
+
+		client := &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyURL(proxyURL),
+
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		}
+
+		options = append(options, bing.WithClient(client))
+	}
+
+	index, err := bing.New(cfg.Token, options...)
 
 	if err != nil {
 		return nil, err
@@ -244,10 +293,16 @@ func duckduckgoTool(cfg toolConfig, context toolContext) (tool.Provider, error) 
 	return searchTool(cfg, context)
 }
 
-func genaitoolboxTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []genaitoolbox.Option
+func exaTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	index, err := exa.New(cfg.Token)
 
-	return genaitoolbox.New(cfg.URL, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	context.Index = index
+
+	return searchTool(cfg, context)
 }
 
 func searxngTool(cfg toolConfig, context toolContext) (tool.Provider, error) {

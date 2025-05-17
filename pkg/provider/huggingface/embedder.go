@@ -82,6 +82,8 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embeddi
 
 	if err := json.Unmarshal(data, &result1); err == nil {
 		return &provider.Embedding{
+			Model: e.model,
+
 			Embeddings: [][]float32{result1},
 		}, nil
 	}
@@ -90,6 +92,8 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embeddi
 
 	if err := json.Unmarshal(data, &result2); err == nil && len(result2) > 0 {
 		return &provider.Embedding{
+			Model: e.model,
+
 			Embeddings: result2,
 		}, nil
 	}

@@ -36,16 +36,19 @@ func (c *Config) Options() []option.RequestOption {
 		c.url = "https://api.openai.com/v1/"
 	}
 
+	if c.client == nil {
+		c.client = http.DefaultClient
+	}
+
 	c.url = strings.TrimRight(c.url, "/") + "/"
 
-	if strings.Contains(c.url, "openai.azure.com") {
+	if strings.Contains(c.url, "openai.azure.com") || strings.Contains(c.url, "cognitiveservices.azure.com") {
 		options := make([]option.RequestOption, 0)
 
-		options = append(options, azure.WithEndpoint(c.url, "2025-01-01-preview"))
-
-		if c.client != nil {
-			options = append(options, option.WithHTTPClient(c.client))
-		}
+		options = append(options,
+			option.WithHTTPClient(c.client),
+			azure.WithEndpoint(c.url, "2025-01-01-preview"),
+		)
 
 		if c.token != "" {
 			options = append(options, azure.WithAPIKey(c.token))
@@ -56,10 +59,7 @@ func (c *Config) Options() []option.RequestOption {
 
 	options := []option.RequestOption{
 		option.WithBaseURL(c.url),
-	}
-
-	if c.client != nil {
-		options = append(options, option.WithHTTPClient(c.client))
+		option.WithHTTPClient(c.client),
 	}
 
 	if c.token != "" {

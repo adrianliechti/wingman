@@ -54,8 +54,8 @@ func (p *observableTranslator) Translate(ctx context.Context, content string, op
 		span.SetAttributes(attribute.String("input", content))
 
 		if result != nil {
-			if result.Content != "" {
-				span.SetAttributes(attribute.String("output", result.Content))
+			if result.Text != "" {
+				span.SetAttributes(attribute.String("output", result.Text))
 			}
 		}
 	}

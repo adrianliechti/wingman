@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/server/api"
@@ -14,8 +17,8 @@ type SegmentService struct {
 	Options []RequestOption
 }
 
-func NewSegmentService(opts ...RequestOption) *SegmentService {
-	return &SegmentService{
+func NewSegmentService(opts ...RequestOption) SegmentService {
+	return SegmentService{
 		Options: opts,
 	}
 }
@@ -23,23 +26,41 @@ func NewSegmentService(opts ...RequestOption) *SegmentService {
 type Segment = api.Segment
 
 type SegmentRequest struct {
-	Text string `json:"text"`
+	Name   string
+	Reader io.Reader
 
-	SegmentLength  *int `json:"segment_length"`
-	SegmentOverlap *int `json:"segment_overlap"`
+	SegmentLength  *int
+	SegmentOverlap *int
 }
 
 func (r *SegmentService) New(ctx context.Context, input SegmentRequest, opts ...RequestOption) ([]Segment, error) {
 	c := newRequestConfig(append(r.Options, opts...)...)
 
 	var data bytes.Buffer
+	w := multipart.NewWriter(&data)
 
-	if err := json.NewEncoder(&data).Encode(input); err != nil {
+	file, err := w.CreateFormFile("file", input.Name)
+
+	if err != nil {
 		return nil, err
 	}
 
+	if _, err := io.Copy(file, input.Reader); err != nil {
+		return nil, err
+	}
+
+	if input.SegmentLength != nil {
+		w.WriteField("segment_length", fmt.Sprintf("%d", *input.SegmentLength))
+	}
+
+	if input.SegmentOverlap != nil {
+		w.WriteField("segment_overlap", fmt.Sprintf("%d", *input.SegmentOverlap))
+	}
+
+	w.Close()
+
 	req, _ := http.NewRequestWithContext(ctx, "POST", c.URL+"/v1/segment", &data)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)

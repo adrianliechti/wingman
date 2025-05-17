@@ -13,8 +13,8 @@ type ExtractionService struct {
 	Options []RequestOption
 }
 
-func NewExtractionService(opts ...RequestOption) *ExtractionService {
-	return &ExtractionService{
+func NewExtractionService(opts ...RequestOption) ExtractionService {
+	return ExtractionService{
 		Options: opts,
 	}
 }
@@ -56,7 +56,7 @@ func (r *ExtractionService) New(ctx context.Context, input ExtractionRequest, op
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.Client.Do(req)
 
 	if err != nil {
 		return nil, err

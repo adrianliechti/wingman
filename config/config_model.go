@@ -101,6 +101,7 @@ func DetectModelType(id string) ModelType {
 		"nova",
 		"o1",
 		"o3",
+		"o4",
 		"orca",
 		"phi",
 		"pixtral",
@@ -133,6 +134,7 @@ func DetectModelType(id string) ModelType {
 		"flux.1-dev",
 		"flux.1-pro",
 		"flux.1-schnell",
+		"gpt-image",
 		"sd-turbo",
 		"sdxl-turbo",
 		"stable-diffusion",
@@ -145,6 +147,7 @@ func DetectModelType(id string) ModelType {
 	}
 
 	transcribers := []string{
+		"transcribe",
 		"whisper",
 	}
 

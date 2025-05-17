@@ -42,7 +42,7 @@ func NewRenderer(provider, model string, p provider.Renderer) Renderer {
 func (p *observableRenderer) otelSetup() {
 }
 
-func (p *observableRenderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Image, error) {
+func (p *observableRenderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Rendering, error) {
 	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
 	defer span.End()
 

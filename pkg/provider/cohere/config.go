@@ -7,8 +7,6 @@ import (
 )
 
 type Config struct {
-	url string
-
 	token string
 	model string
 

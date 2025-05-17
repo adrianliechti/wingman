@@ -105,10 +105,10 @@ func (c *Client) List(ctx context.Context, options *index.ListOptions) (*index.P
 		d := index.Document{
 			ID: id,
 
-			Title:  title,
-			Source: source,
+			Title:   title,
+			Source:  source,
+			Content: content,
 
-			Content:  content,
 			Metadata: metadata,
 		}
 

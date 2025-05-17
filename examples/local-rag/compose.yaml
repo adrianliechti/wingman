@@ -16,7 +16,7 @@ services:
       - qdrant
   
   ollama:
-    image: ollama/ollama:0.5.4
+    image: ollama/ollama:0.6.7
     pull_policy: always
     volumes:
       - ollama-data:/root/.ollama
@@ -63,7 +63,7 @@ configs:
             llama:
               id: llama3.2:1b
             
-            nomic:
+            nomic-embed:
               id: nomic-embed-text:v1.5
       
       extractors:
@@ -79,7 +79,7 @@ configs:
           type: qdrant
           url: http://qdrant:6333
           namespace: docs
-          embedder: nomic
+          embedder: nomic-embed
       
       chains:
         docs:

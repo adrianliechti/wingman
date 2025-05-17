@@ -11,11 +11,15 @@ import (
 var _ provider.Reranker = (*Adapter)(nil)
 
 type Adapter struct {
+	model string
+
 	embedder provider.Embedder
 }
 
-func FromEmbedder(embedder provider.Embedder) *Adapter {
+func FromEmbedder(model string, embedder provider.Embedder) *Adapter {
 	return &Adapter{
+		model: model,
+
 		embedder: embedder,
 	}
 }

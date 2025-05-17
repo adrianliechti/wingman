@@ -2,13 +2,13 @@ package text
 
 import (
 	"context"
-	"io"
 	"path"
 	"slices"
 	"strings"
 	"unicode"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 var _ extractor.Provider = &Extractor{}
@@ -20,39 +20,41 @@ func New() (*Extractor, error) {
 	return &Extractor{}, nil
 }
 
-func (e *Extractor) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (e *Extractor) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	if input.Reader == nil {
+	if input.File == nil {
 		return nil, extractor.ErrUnsupported
 	}
 
-	data, err := io.ReadAll(input.Reader)
+	file := *input.File
 
-	if err != nil {
-		return nil, err
+	if !detectText(file) {
+		return nil, extractor.ErrUnsupported
 	}
 
-	if !detectText(input.Name, data) {
-		return nil, extractor.ErrUnsupported
+	mime := file.ContentType
+
+	if mime == "" {
+		mime = "text/plain"
 	}
 
 	return &extractor.Document{
-		Content:     string(data),
-		ContentType: "text/plain",
+		Content:     file.Content,
+		ContentType: mime,
 	}, nil
 }
 
-func detectText(name string, data []byte) bool {
-	if isSupported(name) {
+func detectText(input provider.File) bool {
+	if isSupported(input) {
 		return true
 	}
 
 	var printableCount int
 
-	for _, b := range data {
+	for _, b := range input.Content {
 		if b == 0 {
 			return false
 		}
@@ -62,10 +64,23 @@ func detectText(name string, data []byte) bool {
 		}
 	}
 
-	return printableCount > (len(data) * 90 / 100)
+	return printableCount > (len(input.Content) * 90 / 100)
 }
 
-func isSupported(name string) bool {
-	ext := strings.ToLower(path.Ext(name))
-	return slices.Contains(SupportedExtensions, ext)
+func isSupported(file provider.File) bool {
+	if file.Name != "" {
+		ext := strings.ToLower(path.Ext(file.Name))
+
+		if slices.Contains(SupportedExtensions, ext) {
+			return true
+		}
+	}
+
+	if file.ContentType != "" {
+		if slices.Contains(SupportedMimeTypes, file.ContentType) {
+			return true
+		}
+	}
+
+	return false
 }

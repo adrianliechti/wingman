@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -68,8 +67,10 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	switch req.ReasoningEffort {
 	case ReasoningEffortLow:
 		options.Effort = provider.ReasoningEffortLow
+
 	case ReasoningEffortMedium:
 		options.Effort = provider.ReasoningEffortMedium
+
 	case ReasoningEffortHigh:
 		options.Effort = provider.ReasoningEffortHigh
 	}
@@ -97,66 +98,118 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		rc := http.NewResponseController(w)
+		var reason provider.CompletionReason
 
 		options.Stream = func(ctx context.Context, completion provider.Completion) error {
+			if completion.Usage != nil && (completion.Message == nil || len(completion.Message.Content) == 0) {
+				return nil
+			}
+
 			result := ChatCompletion{
 				Object: "chat.completion.chunk",
 
 				ID: completion.ID,
 
-				Model:   req.Model,
+				Model:   completion.Model,
 				Created: time.Now().Unix(),
 
-				Choices: []ChatCompletionChoice{
-					{
-						FinishReason: oaiFinishReason(completion.Reason),
-
-						Delta: &ChatCompletionMessage{
-							Role:    oaiMessageRole(completion.Message.Role),
-							Content: completion.Message.Content,
-
-							ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
-							ToolCallID: completion.Message.Tool,
-						},
-					},
-				},
+				Choices: []ChatCompletionChoice{},
 			}
 
-			if completion.Usage != nil {
-				result.Usage = &Usage{
-					PromptTokens:     completion.Usage.InputTokens,
-					CompletionTokens: completion.Usage.OutputTokens,
-					TotalTokens:      completion.Usage.InputTokens + completion.Usage.OutputTokens,
+			if result.Model == "" {
+				result.Model = req.Model
+			}
+
+			if completion.Message != nil {
+				result.Choices = []ChatCompletionChoice{
+					{
+						Delta: &ChatCompletionMessage{
+							Role: oaiMessageRole(completion.Message.Role),
+
+							Content: completion.Message.Text(),
+							Refusal: completion.Message.Refusal(),
+
+							ToolCalls: oaiToolCalls(completion.Message.Content),
+						},
+
+						FinishReason: oaiFinishReason(completion.Reason),
+					},
 				}
 			}
 
-			var data bytes.Buffer
-
-			enc := json.NewEncoder(&data)
-			enc.SetEscapeHTML(false)
-			enc.Encode(result)
-
-			event := strings.TrimSpace(data.String())
-
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", event); err != nil {
-				return err
+			if completion.Reason != "" {
+				reason = completion.Reason
 			}
 
-			if err := rc.Flush(); err != nil {
-				return err
-			}
-
-			return nil
+			return writeEventData(w, result)
 		}
 
-		if _, err := completer.Complete(r.Context(), messages, options); err != nil {
+		completion, err := completer.Complete(r.Context(), messages, options)
+
+		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 
+		if reason == "" {
+			reason = completion.Reason
+
+			if reason == "" {
+				reason = provider.CompletionReasonStop
+			}
+
+			result := ChatCompletion{
+				Object: "chat.completion.chunk",
+
+				ID: completion.ID,
+
+				Model:   completion.Model,
+				Created: time.Now().Unix(),
+
+				Choices: []ChatCompletionChoice{
+					{
+						Delta: &ChatCompletionMessage{
+							Role: oaiMessageRole(completion.Message.Role),
+						},
+
+						FinishReason: oaiFinishReason(reason),
+					},
+				},
+			}
+
+			if result.Model == "" {
+				result.Model = req.Model
+			}
+
+			writeEventData(w, result)
+		}
+
+		if streamUsage(req) && completion.Usage != nil {
+			result := ChatCompletion{
+				Object: "chat.completion.chunk",
+
+				ID: completion.ID,
+
+				Model:   completion.Model,
+				Created: time.Now().Unix(),
+
+				Choices: []ChatCompletionChoice{},
+			}
+
+			if result.Model == "" {
+				result.Model = req.Model
+			}
+
+			result.Usage = &Usage{
+				PromptTokens:     completion.Usage.InputTokens,
+				CompletionTokens: completion.Usage.OutputTokens,
+				TotalTokens:      completion.Usage.InputTokens + completion.Usage.OutputTokens,
+			}
+
+			writeEventData(w, result)
+		}
+
 		fmt.Fprintf(w, "data: [DONE]\n\n")
-		rc.Flush()
 	} else {
 		completion, err := completer.Complete(r.Context(), messages, options)
 
@@ -170,22 +223,31 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 			ID: completion.ID,
 
-			Model:   req.Model,
+			Model:   completion.Model,
 			Created: time.Now().Unix(),
 
-			Choices: []ChatCompletionChoice{
+			Choices: []ChatCompletionChoice{},
+		}
+
+		if result.Model == "" {
+			result.Model = req.Model
+		}
+
+		if completion.Message != nil {
+			result.Choices = []ChatCompletionChoice{
 				{
-					FinishReason: oaiFinishReason(completion.Reason),
-
 					Message: &ChatCompletionMessage{
-						Role:    oaiMessageRole(completion.Message.Role),
-						Content: completion.Message.Content,
+						Role: oaiMessageRole(completion.Message.Role),
 
-						ToolCalls:  oaiToolCalls(completion.Message.ToolCalls),
-						ToolCallID: completion.Message.Tool,
+						Content: completion.Message.Text(),
+						Refusal: completion.Message.Refusal(),
+
+						ToolCalls: oaiToolCalls(completion.Message.Content),
 					},
+
+					FinishReason: oaiFinishReason(completion.Reason),
 				},
-			},
+			}
 		}
 
 		if completion.Usage != nil {
@@ -200,21 +262,40 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func streamUsage(req ChatCompletionRequest) bool {
+	if req.StreamOptions == nil {
+		return false
+	}
+
+	if req.StreamOptions.IncludeUsage == nil {
+		return false
+	}
+
+	return *req.StreamOptions.IncludeUsage
+}
+
 func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
 	for _, m := range s {
-		content := m.Content
+		var content []provider.Content
 
-		files := make([]provider.File, 0)
-
-		for _, c := range m.Contents {
-			if c.Type == "text" {
-				if len(content) > 0 {
-					content += "\n\n"
+		if len(m.Contents) == 0 {
+			if m.ToolCallID != "" {
+				result := provider.ToolResult{
+					ID:   m.ToolCallID,
+					Data: m.Content,
 				}
 
-				content += c.Text
+				content = append(content, provider.ToolResultContent(result))
+			} else {
+				content = append(content, provider.TextContent(m.Content))
+			}
+		}
+
+		for _, c := range m.Contents {
+			if c.Type == MessageContentTypeText {
+				content = append(content, provider.TextContent(c.Text))
 			}
 
 			if c.Type == MessageContentTypeFileURL && c.FileURL != nil {
@@ -224,7 +305,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 					return nil, err
 				}
 
-				files = append(files, *file)
+				content = append(content, provider.FileContent(file))
 			}
 
 			if c.Type == MessageContentTypeImageURL && c.ImageURL != nil {
@@ -234,20 +315,27 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 					return nil, err
 				}
 
-				files = append(files, *file)
+				content = append(content, provider.FileContent(file))
+			}
+		}
+
+		for _, c := range m.ToolCalls {
+			if c.Type == ToolTypeFunction && c.Function != nil {
+				call := provider.ToolCall{
+					ID: c.ID,
+
+					Name:      c.Function.Name,
+					Arguments: c.Function.Arguments,
+				}
+
+				content = append(content, provider.ToolCallContent(call))
 			}
 		}
 
 		result = append(result, provider.Message{
 			Role:    toMessageRole(m.Role),
 			Content: content,
-
-			Files: files,
-
-			Tool:      m.ToolCallID,
-			ToolCalls: toToolCalls(m.ToolCalls),
 		})
-
 	}
 
 	return result, nil
@@ -258,14 +346,11 @@ func toMessageRole(r MessageRole) provider.MessageRole {
 	case MessageRoleSystem:
 		return provider.MessageRoleSystem
 
-	case MessageRoleUser:
+	case MessageRoleUser, MessageRoleTool:
 		return provider.MessageRoleUser
 
 	case MessageRoleAssistant:
 		return provider.MessageRoleAssistant
-
-	case MessageRoleTool:
-		return provider.MessageRoleTool
 
 	default:
 		return ""
@@ -289,7 +374,7 @@ func toFile(url string) (*provider.File, error) {
 		}
 
 		file := provider.File{
-			Content:     bytes.NewReader(data),
+			Content:     data,
 			ContentType: resp.Header.Get("Content-Type"),
 		}
 
@@ -316,7 +401,7 @@ func toFile(url string) (*provider.File, error) {
 		}
 
 		file := provider.File{
-			Content:     bytes.NewReader(data),
+			Content:     data,
 			ContentType: match[1],
 		}
 
@@ -349,38 +434,10 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 	return result, nil
 }
 
-func toToolCalls(calls []ToolCall) []provider.ToolCall {
-	var result []provider.ToolCall
-
-	for _, c := range calls {
-		if c.Type == ToolTypeFunction && c.Function != nil {
-			call := provider.ToolCall{
-				ID: c.ID,
-
-				Name:      c.Function.Name,
-				Arguments: c.Function.Arguments,
-			}
-
-			result = append(result, call)
-		}
-	}
-
-	return result
-}
-
 func oaiMessageRole(r provider.MessageRole) MessageRole {
 	switch r {
-	case provider.MessageRoleSystem:
-		return MessageRoleSystem
-
-	case provider.MessageRoleUser:
-		return MessageRoleUser
-
 	case provider.MessageRoleAssistant:
 		return MessageRoleAssistant
-
-	case provider.MessageRoleTool:
-		return MessageRoleTool
 
 	default:
 		return ""
@@ -406,20 +463,24 @@ func oaiFinishReason(val provider.CompletionReason) *FinishReason {
 	}
 }
 
-func oaiToolCalls(calls []provider.ToolCall) []ToolCall {
+func oaiToolCalls(content []provider.Content) []ToolCall {
 	result := make([]ToolCall, 0)
 
-	for i, c := range calls {
+	for i, c := range content {
+		if c.ToolCall == nil {
+			continue
+		}
+
 		result = append(result, ToolCall{
 			Index: i,
 
-			ID: c.ID,
+			ID: c.ToolCall.ID,
 
 			Type: ToolTypeFunction,
 
 			Function: &FunctionCall{
-				Name:      c.Name,
-				Arguments: c.Arguments,
+				Name:      c.ToolCall.Name,
+				Arguments: c.ToolCall.Arguments,
 			},
 		})
 	}

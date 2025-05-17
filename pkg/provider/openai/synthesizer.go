@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"io"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -13,7 +14,7 @@ var _ provider.Synthesizer = (*Synthesizer)(nil)
 
 type Synthesizer struct {
 	*Config
-	speech *openai.AudioSpeechService
+	speech openai.AudioSpeechService
 }
 
 func NewSynthesizer(url, model string, options ...Option) (*Synthesizer, error) {
@@ -38,24 +39,29 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 	}
 
 	result, err := s.speech.New(ctx, openai.AudioSpeechNewParams{
-		Model: openai.F(s.model),
-		Input: openai.F(content),
+		Model: s.model,
+		Input: content,
 
-		Voice: openai.F(openai.AudioSpeechNewParamsVoiceAlloy),
+		Voice: openai.AudioSpeechNewParamsVoiceAlloy,
 
-		ResponseFormat: openai.F(openai.AudioSpeechNewParamsResponseFormatWAV),
+		ResponseFormat: openai.AudioSpeechNewParamsResponseFormatMP3,
 	})
 
 	if err != nil {
 		return nil, convertError(err)
 	}
 
-	id := uuid.NewString()
+	data, err := io.ReadAll(result.Body)
+
+	if err != nil {
+		return nil, err
+	}
 
 	return &provider.Synthesis{
-		ID: id,
+		ID:    uuid.NewString(),
+		Model: s.model,
 
-		Name:   id + ".wav",
-		Reader: result.Body,
+		Content:     data,
+		ContentType: "audio/mpeg",
 	}, nil
 }

@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/translator"
-
-	"github.com/google/uuid"
 )
 
 type Client struct {
@@ -20,7 +18,7 @@ type Client struct {
 	token string
 }
 
-func NewTranslator(url string, options ...Option) (*Client, error) {
+func New(url string, options ...Option) (*Client, error) {
 	if url == "" {
 		url = "https://api-free.deepl.com"
 	}
@@ -95,8 +93,6 @@ func (c *Client) Translate(ctx context.Context, content string, options *transla
 	}
 
 	return &translator.Translation{
-		ID: uuid.New().String(),
-
-		Content: result.Translations[0].Text,
+		Text: result.Translations[0].Text,
 	}, nil
 }

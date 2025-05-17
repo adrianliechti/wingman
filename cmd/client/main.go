@@ -3,27 +3,22 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"flag"
 	"fmt"
-	"io"
 	"mime"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/client"
 
 	"github.com/google/uuid"
-
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
 )
 
 func main() {
-	urlFlag := flag.String("url", "http://localhost:8080/v1", "server url")
+	urlFlag := flag.String("url", "http://localhost:8080", "server url")
 	tokenFlag := flag.String("token", "", "server token")
 	modelFlag := flag.String("model", "", "model id")
 
@@ -31,21 +26,15 @@ func main() {
 
 	ctx := context.Background()
 
-	options := []option.RequestOption{}
+	model := *modelFlag
 
-	if *urlFlag != "" {
-		url := *urlFlag
-		url = strings.TrimRight(url, "/") + "/"
-
-		options = append(options, option.WithBaseURL(url))
-	}
+	options := []client.RequestOption{}
 
 	if *tokenFlag != "" {
-		options = append(options, option.WithAPIKey(*tokenFlag))
+		options = append(options, client.WithToken(*tokenFlag))
 	}
 
-	client := openai.NewClient(options...)
-	model := *modelFlag
+	client := client.New(*urlFlag, options...)
 
 	if model == "" {
 		val, err := selectModel(ctx, client)
@@ -75,20 +64,13 @@ func main() {
 	chat(ctx, client, model)
 }
 
-func selectModel(ctx context.Context, client *openai.Client) (string, error) {
+func selectModel(ctx context.Context, client *client.Client) (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
-	page := client.Models.ListAutoPaging(ctx)
+	models, err := client.Models.List(ctx)
 
-	var models []openai.Model
-
-	for page.Next() {
-		model := page.Current()
-		models = append(models, model)
-	}
-
-	if err := page.Err(); err != nil {
+	if err != nil {
 		return "", err
 	}
 
@@ -121,11 +103,22 @@ func selectModel(ctx context.Context, client *openai.Client) (string, error) {
 	return model, nil
 }
 
-func chat(ctx context.Context, client *openai.Client, model string) {
+func chat(ctx context.Context, c *client.Client, model string) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
-	var messages []openai.ChatCompletionMessageParamUnion
+	req := client.CompletionRequest{
+		Model: model,
+
+		Messages: []client.Message{},
+
+		CompleteOptions: client.CompleteOptions{
+			Stream: func(ctx context.Context, completion client.Completion) error {
+				output.WriteString(completion.Message.Text())
+				return nil
+			},
+		},
+	}
 
 LOOP:
 	for {
@@ -141,7 +134,7 @@ LOOP:
 		if strings.HasPrefix(input, "/") {
 			switch strings.ToLower(input) {
 			case "/reset":
-				messages = nil
+				req.Messages = []client.Message{}
 				continue LOOP
 
 			default:
@@ -150,37 +143,23 @@ LOOP:
 			}
 		}
 
-		messages = append(messages, openai.UserMessage(input))
+		req.Messages = append(req.Messages, client.UserMessage(input))
 
-		stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-			Model:    openai.F(model),
-			Messages: openai.F(messages),
-		})
+		completion, err := c.Completions.New(ctx, req)
 
-		completion := openai.ChatCompletionAccumulator{}
-
-		for stream.Next() {
-			chunk := stream.Current()
-			completion.AddChunk(chunk)
-
-			if len(chunk.Choices) > 0 {
-				output.WriteString(chunk.Choices[0].Delta.Content)
-			}
-		}
-
-		if err := stream.Err(); err != nil {
+		if err != nil {
 			output.WriteString(err.Error() + "\n")
 			continue LOOP
 		}
 
-		messages = append(messages, completion.Choices[0].Message)
+		req.Messages = append(req.Messages, *completion.Message)
 
 		output.WriteString("\n")
 		output.WriteString("\n")
 	}
 }
 
-func embed(ctx context.Context, client *openai.Client, model string) {
+func embed(ctx context.Context, c *client.Client, model string) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
@@ -195,10 +174,9 @@ LOOP:
 
 		input = strings.TrimSpace(input)
 
-		result, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
-			Model:          openai.F(model),
-			Input:          openai.F[openai.EmbeddingNewParamsInputUnion](openai.EmbeddingNewParamsInputArrayOfStrings([]string{input})),
-			EncodingFormat: openai.F(openai.EmbeddingNewParamsEncodingFormatFloat),
+		result, err := c.Embeddings.New(ctx, client.EmbeddingsRequest{
+			Model: model,
+			Texts: []string{input},
 		})
 
 		if err != nil {
@@ -206,9 +184,7 @@ LOOP:
 			continue LOOP
 		}
 
-		embedding := result.Data[0].Embedding
-
-		for i, e := range embedding {
+		for i, e := range result.Embeddings[0] {
 			if i > 0 {
 				output.WriteString(", ")
 			}
@@ -221,7 +197,7 @@ LOOP:
 	}
 }
 
-func render(ctx context.Context, client *openai.Client, model string) {
+func render(ctx context.Context, c *client.Client, model string) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
@@ -236,20 +212,10 @@ LOOP:
 
 		input = strings.TrimSpace(input)
 
-		image, err := client.Images.Generate(ctx, openai.ImageGenerateParams{
-			Model:  openai.F(model),
-			Prompt: openai.F(input),
-
-			N:              openai.F(int64(1)),
-			ResponseFormat: openai.F(openai.ImageGenerateParamsResponseFormatB64JSON),
+		image, err := c.Renderings.New(ctx, client.RenderingRequest{
+			Model: model,
+			Input: input,
 		})
-
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
-
-		data, err := base64.StdEncoding.DecodeString(image.Data[0].B64JSON)
 
 		if err != nil {
 			output.WriteString(err.Error() + "\n")
@@ -258,11 +224,11 @@ LOOP:
 
 		name := uuid.New().String()
 
-		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+		if ext, _ := mime.ExtensionsByType(image.ContentType); len(ext) > 0 {
 			name += ext[0]
 		}
 
-		os.WriteFile(name, data, 0600)
+		os.WriteFile(name, image.Content, 0600)
 		fmt.Println("Saved: " + name)
 
 		output.WriteString("\n")
@@ -270,7 +236,7 @@ LOOP:
 	}
 }
 
-func synthesize(ctx context.Context, client *openai.Client, model string) {
+func synthesize(ctx context.Context, c *client.Client, model string) {
 	reader := bufio.NewReader(os.Stdin)
 	output := os.Stdout
 
@@ -285,22 +251,11 @@ LOOP:
 
 		input = strings.TrimSpace(input)
 
-		result, err := client.Audio.Speech.New(ctx, openai.AudioSpeechNewParams{
-			Model: openai.F(model),
-			Input: openai.F(input),
+		synthesis, err := c.Syntheses.New(ctx, client.SynthesizeRequest{
+			Model: model,
 
-			Voice:          openai.F(openai.AudioSpeechNewParamsVoiceAlloy),
-			ResponseFormat: openai.F(openai.AudioSpeechNewParamsResponseFormatWAV),
+			Input: input,
 		})
-
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
-		}
-
-		defer result.Body.Close()
-
-		data, err := io.ReadAll(result.Body)
 
 		if err != nil {
 			output.WriteString(err.Error() + "\n")
@@ -309,13 +264,13 @@ LOOP:
 
 		name := uuid.New().String()
 
-		if ext, _ := mime.ExtensionsByType(http.DetectContentType(data)); len(ext) > 0 {
+		if ext, _ := mime.ExtensionsByType(synthesis.ContentType); len(ext) > 0 {
 			name += ext[0]
 		} else {
-			name += ".wav"
+			name += ".mp3"
 		}
 
-		os.WriteFile(name, data, 0600)
+		os.WriteFile(name, synthesis.Content, 0600)
 		fmt.Println("Saved: " + name)
 
 		output.WriteString("\n")

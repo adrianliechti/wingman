@@ -50,7 +50,9 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embeddi
 		return nil, convertError(err)
 	}
 
-	result := &provider.Embedding{}
+	result := &provider.Embedding{
+		Model: e.model,
+	}
 
 	for _, e := range resp.Embeddings.Float {
 		result.Embeddings = append(result.Embeddings, toFloat32(e))

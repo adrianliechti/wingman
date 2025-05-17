@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+option go_package = "github.com/adrianliechti/wingman/pkg/translator/custom;custom";
+
+package translator;
+
+service Translator {
+  rpc Translate (TranslateRequest) returns (Translation) {}
+}
+
+message TranslateRequest {
+  string text = 1;
+  string language = 2;
+}
+
+message Translation {
+  string text = 1;
+}

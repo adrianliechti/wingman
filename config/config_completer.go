@@ -9,6 +9,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/azure"
 	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
 	"github.com/adrianliechti/wingman/pkg/provider/cohere"
+	"github.com/adrianliechti/wingman/pkg/provider/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/groq"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
@@ -93,6 +94,9 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 
 	case "xai":
 		return xaiCompleter(cfg, model)
+
+	case "custom":
+		return customCompleter(cfg, model)
 
 	default:
 		return nil, errors.New("invalid completer type: " + cfg.Type)
@@ -211,4 +215,10 @@ func xaiCompleter(cfg providerConfig, model modelContext) (provider.Completer, e
 	}
 
 	return xai.NewCompleter(cfg.URL, model.ID, options...)
+}
+
+func customCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+	var options []custom.Option
+
+	return custom.NewCompleter(cfg.URL, options...)
 }

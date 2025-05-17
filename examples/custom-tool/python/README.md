@@ -13,7 +13,7 @@ pip install grpcio-tools grpcio-reflection
 ```
 
 ```shell
-$ curl -Lo tool.proto https://raw.githubusercontent.com/adrianliechti/llama/refs/heads/main/pkg/tool/custom/tool.proto
+$ curl -Lo tool.proto https://raw.githubusercontent.com/adrianliechti/wingman/refs/heads/main/pkg/tool/custom/tool.proto
 $ python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. tool.proto
 ```
 

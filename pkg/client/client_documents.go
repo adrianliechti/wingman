@@ -7,51 +7,23 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/adrianliechti/wingman/server/index"
+	api "github.com/adrianliechti/wingman/server/index"
 )
 
-type Document = index.Document
-type DocumentPage = index.Page[Document]
+type Document = api.Document
+type DocumentPage = api.Page[Document]
+type DocumentResult = api.Result
+
+type DocumentQueryRequest = api.Query
 
 type DocumentService struct {
 	Options []RequestOption
 }
 
-func NewDocumentService(opts ...RequestOption) *DocumentService {
-	return &DocumentService{
+func NewDocumentService(opts ...RequestOption) DocumentService {
+	return DocumentService{
 		Options: opts,
 	}
-}
-
-func (r *DocumentService) New(ctx context.Context, index string, input []Document, opts ...RequestOption) ([]Document, error) {
-	c := newRequestConfig(append(r.Options, opts...)...)
-
-	var data bytes.Buffer
-
-	if err := json.NewEncoder(&data).Encode(input); err != nil {
-		return nil, err
-	}
-
-	req, _ := http.NewRequestWithContext(ctx, "POST", c.URL+"/v1/index/"+index, &data)
-	req.Header.Set("Content-Type", "application/json")
-
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-
-	resp, err := c.Client.Do(req)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		return nil, errors.New(resp.Status)
-	}
-
-	return input, nil
 }
 
 func (r *DocumentService) List(ctx context.Context, index string, opts ...RequestOption) ([]Document, error) {
@@ -104,6 +76,37 @@ func (r *DocumentService) List(ctx context.Context, index string, opts ...Reques
 	return items, nil
 }
 
+func (r *DocumentService) Index(ctx context.Context, index string, input []Document, opts ...RequestOption) ([]Document, error) {
+	c := newRequestConfig(append(r.Options, opts...)...)
+
+	var data bytes.Buffer
+
+	if err := json.NewEncoder(&data).Encode(input); err != nil {
+		return nil, err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", c.URL+"/v1/index/"+index, &data)
+	req.Header.Set("Content-Type", "application/json")
+
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.Client.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return nil, errors.New(resp.Status)
+	}
+
+	return input, nil
+}
+
 func (r *DocumentService) Delete(ctx context.Context, index string, ids []string, opts ...RequestOption) error {
 	c := newRequestConfig(append(r.Options, opts...)...)
 
@@ -133,4 +136,41 @@ func (r *DocumentService) Delete(ctx context.Context, index string, ids []string
 	}
 
 	return nil
+}
+
+func (r *DocumentService) Query(ctx context.Context, index string, input DocumentQueryRequest, opts ...RequestOption) ([]DocumentResult, error) {
+	c := newRequestConfig(append(r.Options, opts...)...)
+
+	var data bytes.Buffer
+
+	if err := json.NewEncoder(&data).Encode(input); err != nil {
+		return nil, err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", c.URL+"/v1/index/"+index+"/query", &data)
+	req.Header.Set("Content-Type", "application/json")
+
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.Client.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New(resp.Status)
+	}
+
+	var results []DocumentResult
+
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }

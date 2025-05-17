@@ -14,10 +14,11 @@ type TranscribeOptions struct {
 }
 
 type Transcription struct {
-	ID string
+	ID    string
+	Model string
 
 	Text string
 
-	Language string
-	Duration float64
+	// Language string
+	// Duration float64
 }

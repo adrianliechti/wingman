@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option go_package = "github.com/adrianliechti/wingman/pkg/summarizer/custom;custom";
+
+package summarizer;
+
+service Summarizer {
+  rpc Summarize (SummarizeRequest) returns (Summary) {}
+}
+
+message SummarizeRequest {
+  string text = 1;
+}
+
+message Summary {
+  string text = 1;
+}

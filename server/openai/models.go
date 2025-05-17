@@ -128,6 +128,8 @@ type ChatCompletionRequest struct {
 
 	ResponseFormat *ChatCompletionResponseFormat `json:"response_format,omitempty"`
 
+	StreamOptions *ChatCompletionStreamOptions `json:"stream_options,omitempty"`
+
 	// frequency_penalty *float32
 	// presence_penalty *float32
 
@@ -158,6 +160,10 @@ var (
 type ChatCompletionResponseFormat struct {
 	Type       ResponseFormat `json:"type"`
 	JSONSchema *Schema        `json:"json_schema,omitempty"`
+}
+
+type ChatCompletionStreamOptions struct {
+	IncludeUsage *bool `json:"include_usage"`
 }
 
 type Schema struct {
@@ -197,7 +203,9 @@ type ChatCompletionChoice struct {
 type ChatCompletionMessage struct {
 	Role MessageRole `json:"role,omitempty"`
 
-	Content  string           `json:"content"`
+	Content string `json:"content"`
+	Refusal string `json:"refusal,omitempty"`
+
 	Contents []MessageContent `json:"-"`
 
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -234,7 +242,9 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 		type2 := struct {
 			Role MessageRole `json:"role"`
 
-			Content  string           `json:"-"`
+			Content string `json:"-"`
+			Refusal string `json:"refusal,omitempty"`
+
 			Contents []MessageContent `json:"content,omitempty"`
 
 			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -246,7 +256,9 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 		type1 := struct {
 			Role MessageRole `json:"role"`
 
-			Content  string           `json:"content"`
+			Content string `json:"content"`
+			Refusal string `json:"refusal,omitempty"`
+
 			Contents []MessageContent `json:"-"`
 
 			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -261,7 +273,9 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 	type1 := struct {
 		Role MessageRole `json:"role"`
 
-		Content  string `json:"content"`
+		Content string `json:"content"`
+		Refusal string `json:"refusal,omitempty"`
+
 		Contents []MessageContent
 
 		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -276,7 +290,9 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 	type2 := struct {
 		Role MessageRole `json:"role"`
 
-		Content  string
+		Content string
+		Refusal string `json:"refusal,omitempty"`
+
 		Contents []MessageContent `json:"content"`
 
 		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -347,19 +363,10 @@ type Transcription struct {
 	Text string `json:"text"`
 }
 
-type ImageStyle string
-
-const (
-	ImageStyleNatural ImageStyle = "natural"
-	ImageStyleVivid   ImageStyle = "vivid"
-)
-
 // https://platform.openai.com/docs/api-reference/images/create
 type ImageCreateRequest struct {
-	Model string `json:"model"`
-
-	Prompt string     `json:"prompt"`
-	Style  ImageStyle `json:"style,omitempty"`
+	Model  string `json:"model"`
+	Prompt string `json:"prompt"`
 
 	ResponseFormat string `json:"response_format,omitempty"`
 }

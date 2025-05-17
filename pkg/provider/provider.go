@@ -1,9 +1,5 @@
 package provider
 
-import (
-	"io"
-)
-
 type Provider = any
 
 type Model struct {
@@ -13,8 +9,8 @@ type Model struct {
 type File struct {
 	Name string
 
+	Content     []byte
 	ContentType string
-	Content     io.Reader
 }
 
 type Tool struct {
@@ -26,13 +22,19 @@ type Tool struct {
 	Parameters map[string]any
 }
 
+type ToolResult struct {
+	ID string
+
+	Data string
+}
+
 type Schema struct {
 	Name        string
 	Description string
 
 	Strict *bool
 
-	Schema map[string]any
+	Schema map[string]any // TODO: Rename to Properties
 }
 
 type Usage struct {

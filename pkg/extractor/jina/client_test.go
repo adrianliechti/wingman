@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/jina"
+	"github.com/adrianliechti/wingman/pkg/to"
 
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -33,8 +34,8 @@ func TestExtract(t *testing.T) {
 	c, err := jina.New("http://" + url)
 	require.NoError(t, err)
 
-	input := extractor.File{
-		URL: "https://example.org",
+	input := extractor.Input{
+		URL: to.Ptr("https://example.org"),
 	}
 
 	result, err := c.Extract(ctx, input, nil)

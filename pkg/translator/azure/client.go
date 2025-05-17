@@ -20,7 +20,7 @@ type Client struct {
 	token string
 }
 
-func NewTranslator(url string, options ...Option) (*Client, error) {
+func New(url string, options ...Option) (*Client, error) {
 	c := &Client{
 		client: http.DefaultClient,
 
@@ -99,6 +99,6 @@ func (c *Client) Translate(ctx context.Context, content string, options *transla
 	}
 
 	return &translator.Translation{
-		Content: result[0].Translations[0].Text,
+		Text: result[0].Translations[0].Text,
 	}, nil
 }

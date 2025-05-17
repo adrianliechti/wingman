@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 )
@@ -23,7 +24,10 @@ func (h *Handler) handleSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	options := &segmenter.SegmentOptions{}
+	options := &segmenter.SegmentOptions{
+		SegmentLength:  valueSegmentLength(r),
+		SegmentOverlap: valueSegmentOverlap(r),
+	}
 
 	segments, err := p.Segment(r.Context(), text, options)
 
@@ -43,4 +47,24 @@ func (h *Handler) handleSegment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJson(w, result)
+}
+
+func valueSegmentLength(r *http.Request) *int {
+	if val := r.FormValue("segment_length"); val != "" {
+		if val, err := strconv.Atoi(val); err == nil {
+			return &val
+		}
+	}
+
+	return nil
+}
+
+func valueSegmentOverlap(r *http.Request) *int {
+	if val := r.FormValue("segment_overlap"); val != "" {
+		if val, err := strconv.Atoi(val); err == nil {
+			return &val
+		}
+	}
+
+	return nil
 }

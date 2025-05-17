@@ -3,10 +3,7 @@ package openai
 import (
 	"encoding/base64"
 	"encoding/json"
-	"io"
-	"mime"
 	"net/http"
-	"path"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -26,9 +23,7 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	options := &provider.RenderOptions{
-		Style: toImageStyle(req.Style),
-	}
+	options := &provider.RenderOptions{}
 
 	image, err := renderer.Render(r.Context(), req.Prompt, options)
 
@@ -37,47 +32,22 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	data, err := io.ReadAll(image.Reader)
-
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-
 	result := ImageList{}
 
-	if req.ResponseFormat == "b64_json" {
+	if req.ResponseFormat == "url" {
 		result.Images = []Image{
 			{
-				B64JSON: base64.StdEncoding.EncodeToString(data),
+				URL: "data:" + image.ContentType + ";base64," + base64.StdEncoding.EncodeToString(image.Content),
 			},
 		}
-
 	} else {
-		mime := mime.TypeByExtension(path.Ext(image.Name))
-
-		if mime == "" {
-			mime = "image/png"
-		}
-
 		result.Images = []Image{
 			{
-				URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data),
+				B64JSON: base64.StdEncoding.EncodeToString(image.Content),
 			},
 		}
+
 	}
 
 	writeJson(w, result)
-}
-
-func toImageStyle(style ImageStyle) provider.ImageStyle {
-	switch style {
-	case ImageStyleVivid:
-		return provider.ImageStyleVivid
-
-	case ImageStyleNatural:
-		return provider.ImageStyleNatural
-	}
-
-	return ""
 }

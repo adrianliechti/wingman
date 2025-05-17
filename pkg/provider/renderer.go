@@ -2,27 +2,20 @@ package provider
 
 import (
 	"context"
-	"io"
 )
 
 type Renderer interface {
-	Render(ctx context.Context, input string, options *RenderOptions) (*Image, error)
+	Render(ctx context.Context, input string, options *RenderOptions) (*Rendering, error)
 }
 
 type RenderOptions struct {
-	Style ImageStyle
+	Images []File
 }
 
-type ImageStyle string
+type Rendering struct {
+	ID    string
+	Model string
 
-const (
-	ImageStyleNatural ImageStyle = "natural"
-	ImageStyleVivid   ImageStyle = "vivid"
-)
-
-type Image struct {
-	ID string
-
-	Name   string
-	Reader io.ReadCloser
+	Content     []byte
+	ContentType string
 }

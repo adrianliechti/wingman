@@ -88,6 +88,6 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 
 	return &Result{
 		Language: lang,
-		Text:     data.Content,
+		Text:     data.Text,
 	}, nil
 }

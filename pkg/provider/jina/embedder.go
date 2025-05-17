@@ -76,7 +76,9 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embeddi
 		return nil, err
 	}
 
-	result := &provider.Embedding{}
+	result := &provider.Embedding{
+		Model: e.model,
+	}
 
 	for _, e := range embedding.Data {
 		result.Embeddings = append(result.Embeddings, e.Embedding)

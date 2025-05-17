@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+option go_package = "github.com/adrianliechti/wingman/pkg/provider/custom;custom";
+
+package provider;
+
+service Completer {
+  rpc Complete (CompleteRequest) returns (stream Completion) {}
+}
+
+service Embedder {
+  rpc Embed (EmbedRequest) returns (Embeddings) {}
+}
+
+message CompleteRequest {
+  repeated Tool tools = 1;
+  repeated Message messages = 2;
+
+  optional string effort = 3;
+
+  optional int32 max_tokens = 4;
+  
+  optional float temperature = 5;
+  optional float top_k = 6;
+  optional float top_p = 7;
+
+  repeated string stops = 8;
+  
+  optional string format = 9;
+  optional Schema schema = 10;
+}
+
+message Completion {
+  string id = 1;
+  string model = 2;
+
+  optional string reason = 4;
+
+  optional Message delta = 5;
+  optional Message message = 6;
+
+  optional Usage usage = 7;
+}
+
+message Message {
+  string role = 1;
+  repeated Content content = 2;
+}
+
+message Content {
+  optional string text = 1;
+  optional string refusal = 2;
+
+  optional File file = 3;
+
+  optional ToolCall tool_call = 4;
+  optional ToolResult tool_result = 5;
+}
+
+message File {
+  string name = 1;
+
+  bytes content = 2;
+  string content_type = 3;
+}
+
+message Tool {
+	string name = 1;
+	string description = 2;
+
+	string properties = 3;
+}
+
+message ToolCall {
+  string id = 1;
+
+  string name = 2;
+  string arguments = 3;
+}
+
+message ToolResult {
+  string id = 1;
+
+  string data = 2;
+}
+
+message Schema {
+  string name = 1;
+	string description = 2;
+  
+  string properties = 3;
+}
+
+message Usage {
+  int32 input_tokens = 1;
+  int32 output_tokens = 2;
+}
+
+message EmbedRequest {
+  repeated string texts = 1;
+}
+
+message Embeddings {
+  string id = 1;
+  string model = 2;
+
+  repeated Embedding Embeddings = 3;
+
+  optional Usage usage = 4;
+}
+
+message Embedding {
+  repeated float data = 1;
+}

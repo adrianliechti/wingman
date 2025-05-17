@@ -7,6 +7,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/azure"
 	"github.com/adrianliechti/wingman/pkg/provider/cohere"
+	"github.com/adrianliechti/wingman/pkg/provider/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/jina"
@@ -67,6 +68,9 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 
 	case "openai":
 		return openaiEmbedder(cfg, model)
+
+	case "custom":
+		return customEmbedder(cfg, model)
 
 	default:
 		return nil, errors.New("invalid embedder type: " + cfg.Type)
@@ -143,4 +147,10 @@ func openaiEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 	}
 
 	return openai.NewEmbedder(cfg.URL, model.ID, options...)
+}
+
+func customEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
+	var options []custom.Option
+
+	return custom.NewEmbedder(cfg.URL, options...)
 }

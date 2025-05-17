@@ -117,7 +117,7 @@ func createIndex(cfg indexConfig, context indexContext) (index.Provider, error) 
 		return chromaIndex(cfg, context)
 
 	case "elasticsearch":
-		return elasticsearchIndex(cfg)
+		return elasticsearchIndex(cfg, context)
 
 	case "memory":
 		return memoryIndex(cfg, context)
@@ -156,7 +156,7 @@ func chromaIndex(cfg indexConfig, context indexContext) (index.Provider, error) 
 	return chroma.New(cfg.URL, cfg.Namespace, options...)
 }
 
-func elasticsearchIndex(cfg indexConfig) (index.Provider, error) {
+func elasticsearchIndex(cfg indexConfig, context indexContext) (index.Provider, error) {
 	var options []elasticsearch.Option
 
 	return elasticsearch.New(cfg.URL, cfg.Namespace, options...)

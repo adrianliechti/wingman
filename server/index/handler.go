@@ -32,8 +32,6 @@ func (h *Handler) Attach(r chi.Router) {
 
 	r.Post("/{index}", h.handleIndex)
 	r.Post("/{index}/query", h.handleQuery)
-
-	r.Post("/{index}/unstructured", h.handleUnstructured)
 }
 
 func writeJson(w http.ResponseWriter, v any) {

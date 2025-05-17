@@ -39,5 +39,5 @@ func (h *Handler) handleTranslate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 
 	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, translation.Content)
+	io.WriteString(w, translation.Text)
 }

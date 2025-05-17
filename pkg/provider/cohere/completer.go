@@ -8,7 +8,6 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/to"
-	"github.com/google/uuid"
 
 	v2 "github.com/cohere-ai/cohere-go/v2"
 	client "github.com/cohere-ai/cohere-go/v2/v2"
@@ -60,6 +59,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			StopSequences: req.StopSequences,
 			Temperature:   req.Temperature,
 		}
+
 		return c.completeStream(ctx, req, options)
 	}
 
@@ -74,17 +74,25 @@ func (c *Completer) complete(ctx context.Context, req *v2.V2ChatRequest, options
 	}
 
 	return &provider.Completion{
-		ID:     resp.Id,
+		ID:    resp.Id,
+		Model: c.model,
+
 		Reason: toCompletionReason(resp.FinishReason),
 
-		Message: provider.Message{
+		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
 			Content: fromAssistantMessageContent(resp.Message),
 		},
+
+		Usage: toUsage(resp.Usage),
 	}, nil
 }
 
 func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequest, options *provider.CompleteOptions) (*provider.Completion, error) {
+	result := provider.CompletionAccumulator{}
+
+	var id string
+
 	stream, err := c.client.ChatStream(ctx, req)
 
 	if err != nil {
@@ -92,19 +100,6 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 	}
 
 	defer stream.Close()
-
-	result := &provider.Completion{
-		ID: uuid.New().String(),
-
-		Message: provider.Message{
-			Role: provider.MessageRoleAssistant,
-		},
-
-		//Usage: &provider.Usage{},
-	}
-
-	resultToolID := ""
-	resultToolCalls := map[string]provider.ToolCall{}
 
 	for {
 		resp, err := stream.Recv()
@@ -114,55 +109,54 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 		}
 
 		if err != nil {
-			return nil, convertError(err)
+			continue
 		}
 
 		if resp.MessageStart != nil {
-			result.ID = *resp.MessageStart.Id
+			id = *resp.MessageStart.Id
 		}
 
 		if resp.ContentStart != nil {
-			if resp.ContentStart.Delta != nil && resp.ContentStart.Delta.Message != nil && resp.ContentStart.Delta.Message.Content != nil && resp.ContentStart.Delta.Message.Content.Text != nil {
-				content := *resp.ContentStart.Delta.Message.Content.Text
-				result.Message.Content += content
+			delta := provider.Completion{
+				ID:    id,
+				Model: c.model,
 
-				if len(content) > 0 {
-					delta := provider.Completion{
-						ID: result.ID,
-
-						Message: provider.Message{
-							Role:    provider.MessageRoleAssistant,
-							Content: content,
-						},
-					}
-
-					if err := options.Stream(ctx, delta); err != nil {
-						return nil, err
-					}
-				}
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
 			}
 
+			if resp.ContentStart.Delta != nil && resp.ContentStart.Delta.Message != nil && resp.ContentStart.Delta.Message.Content != nil && resp.ContentStart.Delta.Message.Content.Text != nil {
+				content := *resp.ContentStart.Delta.Message.Content.Text
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(content))
+			}
+
+			result.Add(delta)
+
+			if err := options.Stream(ctx, delta); err != nil {
+				return nil, err
+			}
 		}
 
 		if resp.ContentDelta != nil {
+			delta := provider.Completion{
+				ID:    id,
+				Model: c.model,
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
+			}
+
 			if resp.ContentDelta.Delta != nil && resp.ContentDelta.Delta.Message != nil && resp.ContentDelta.Delta.Message.Content != nil && resp.ContentDelta.Delta.Message.Content.Text != nil {
 				content := *resp.ContentDelta.Delta.Message.Content.Text
-				result.Message.Content += content
+				delta.Message.Content = append(delta.Message.Content, provider.TextContent(content))
+			}
 
-				if len(content) > 0 {
-					delta := provider.Completion{
-						ID: result.ID,
+			result.Add(delta)
 
-						Message: provider.Message{
-							Role:    provider.MessageRoleAssistant,
-							Content: content,
-						},
-					}
-
-					if err := options.Stream(ctx, delta); err != nil {
-						return nil, err
-					}
-				}
+			if err := options.Stream(ctx, delta); err != nil {
+				return nil, err
 			}
 		}
 
@@ -170,24 +164,30 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 		}
 
 		if resp.MessageEnd != nil {
-			reson := resp.MessageEnd.Delta.FinishReason
-
 			delta := provider.Completion{
-				ID: result.ID,
+				ID:    id,
+				Model: c.model,
 
-				Message: provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: "",
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
 				},
 			}
 
-			if resp.MessageEnd.Delta != nil && reson != nil {
-				result.Reason = toCompletionReason(*reson)
+			if resp.MessageEnd.Delta != nil && resp.MessageEnd.Delta.FinishReason != nil {
+				reason := toCompletionReason(*resp.MessageEnd.Delta.FinishReason)
+
+				if reason == "" {
+					reason = provider.CompletionReasonStop
+				}
+
+				delta.Reason = reason
 			}
 
-			if delta.Reason == "" {
-				delta.Reason = provider.CompletionReasonStop
+			if resp.MessageEnd.Delta != nil && resp.MessageEnd.Delta.Usage != nil {
+				delta.Usage = toUsage(resp.MessageEnd.Delta.Usage)
 			}
+
+			result.Add(delta)
 
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
@@ -195,89 +195,81 @@ func (c *Completer) completeStream(ctx context.Context, req *v2.V2ChatStreamRequ
 		}
 
 		if resp.ToolCallStart != nil {
+			delta := provider.Completion{
+				ID:    id,
+				Model: c.model,
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
+			}
+
 			if resp.ToolCallStart.Delta != nil && resp.ToolCallStart.Delta.Message != nil && resp.ToolCallStart.Delta.Message.ToolCalls != nil {
-				call := resp.ToolCallStart.Delta.Message.ToolCalls
+				c := resp.ToolCallStart.Delta.Message.ToolCalls
 
-				tool := provider.ToolCall{}
+				if c.Function != nil {
+					call := provider.ToolCall{}
 
-				if call.Id != nil {
-					tool.ID = *call.Id
-				}
-
-				if call.Function != nil {
-					if call.Function.Name != nil {
-						tool.Name = *call.Function.Name
+					if c.Id != nil {
+						call.ID = *c.Id
 					}
 
-					if call.Function.Arguments != nil {
-						tool.Arguments = *call.Function.Arguments
+					if c.Function.Name != nil {
+						call.Name = *c.Function.Name
+					}
+
+					if c.Function.Arguments != nil {
+						call.Arguments = *c.Function.Arguments
+					}
+
+					delta.Message.Content = []provider.Content{
+						provider.ToolCallContent(call),
 					}
 				}
+			}
 
-				if tool.ID != "" {
-					resultToolID = tool.ID
-					resultToolCalls[tool.ID] = tool
-				}
+			result.Add(delta)
 
-				delta := provider.Completion{
-					ID: result.ID,
-
-					Message: provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						ToolCalls: []provider.ToolCall{tool},
-					},
-				}
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
-				}
+			if err := options.Stream(ctx, delta); err != nil {
+				return nil, err
 			}
 		}
 
 		if resp.ToolCallDelta != nil {
+			delta := provider.Completion{
+				ID:    id,
+				Model: c.model,
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
+			}
+
 			if resp.ToolCallDelta.Delta != nil && resp.ToolCallDelta.Delta.Message != nil && resp.ToolCallDelta.Delta.Message.ToolCalls != nil {
-				call := resp.ToolCallDelta.Delta.Message.ToolCalls
+				c := resp.ToolCallDelta.Delta.Message.ToolCalls
 
-				tool := provider.ToolCall{}
+				if c.Function != nil {
+					call := provider.ToolCall{}
 
-				if call.Function != nil {
-					if call.Function.Arguments != nil {
-						tool.Arguments = *call.Function.Arguments
+					if c.Function.Arguments != nil {
+						call.Arguments = *c.Function.Arguments
+					}
+
+					delta.Message.Content = []provider.Content{
+						provider.ToolCallContent(call),
 					}
 				}
+			}
 
-				if t, ok := resultToolCalls[resultToolID]; ok {
-					t.Arguments += tool.Arguments
-					resultToolCalls[resultToolID] = t
-				}
+			result.Add(delta)
 
-				delta := provider.Completion{
-					ID: result.ID,
-
-					Message: provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						ToolCalls: []provider.ToolCall{tool},
-					},
-				}
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
-				}
+			if err := options.Stream(ctx, delta); err != nil {
+				return nil, err
 			}
 		}
-
-		if resp.ToolCallEnd != nil {
-			resultToolID = ""
-		}
 	}
 
-	if len(resultToolCalls) > 0 {
-		result.Message.ToolCalls = to.Values(resultToolCalls)
-	}
-
-	return result, nil
+	return result.Result(), nil
 }
 
 func convertChatRequest(model string, messages []provider.Message, options *provider.CompleteOptions) (*v2.V2ChatRequest, error) {
@@ -306,7 +298,7 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 			Type: to.Ptr("function"),
 
 			Function: &v2.ToolV2Function{
-				Name:        to.Ptr(t.Name),
+				Name:        t.Name,
 				Description: to.Ptr(t.Description),
 
 				Parameters: t.Parameters,
@@ -320,12 +312,12 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 		switch m.Role {
 
 		case provider.MessageRoleSystem:
-			message := &v2.ChatMessageV2{
-				Role: "system",
+			content := m.Text()
 
+			message := &v2.ChatMessageV2{
 				System: &v2.SystemMessage{
 					Content: &v2.SystemMessageContent{
-						String: m.Content,
+						String: content,
 					},
 				},
 			}
@@ -334,75 +326,85 @@ func convertChatRequest(model string, messages []provider.Message, options *prov
 		}
 
 		if m.Role == provider.MessageRoleUser {
-			message := &v2.ChatMessageV2{
-				Role: "user",
+			if toolID, toolData, ok := m.ToolResult(); ok {
+				var data any
+				json.Unmarshal([]byte(toolData), &data)
 
-				User: &v2.UserMessage{
-					Content: &v2.UserMessageContent{
-						String: m.Content,
+				var parameters map[string]any
+
+				if val, ok := data.(map[string]any); ok {
+					parameters = val
+				}
+
+				if val, ok := data.([]any); ok {
+					parameters = map[string]any{"data": val}
+				}
+
+				content, _ := json.Marshal(parameters)
+
+				message := &v2.ChatMessageV2{
+					Tool: &v2.ToolMessageV2{
+						ToolCallId: toolID,
+
+						Content: &v2.ToolMessageV2Content{
+							String: string(content),
+						},
 					},
-				},
-			}
+				}
 
-			req.Messages = append(req.Messages, message)
+				req.Messages = append(req.Messages, message)
+			} else {
+				content := m.Text()
+
+				message := &v2.ChatMessageV2{
+					User: &v2.UserMessage{
+						Content: &v2.UserMessageContent{
+							String: content,
+						},
+					},
+				}
+
+				req.Messages = append(req.Messages, message)
+			}
 		}
 
 		if m.Role == provider.MessageRoleAssistant {
 			message := &v2.ChatMessageV2{
-				Role: "assistant",
-
 				Assistant: &v2.AssistantMessage{},
 			}
 
-			if m.Content != "" {
-				message.Assistant.Content = &v2.AssistantMessageContent{
-					String: m.Content,
+			for _, c := range m.Content {
+				if c.Text != "" {
+					if message.Assistant.Content == nil {
+						message.Assistant.Content = &v2.AssistantMessageContent{
+							AssistantMessageContentItemList: []*v2.AssistantMessageContentItem{},
+						}
+					}
+
+					message.Assistant.Content.AssistantMessageContentItemList = append(message.Assistant.Content.AssistantMessageContentItemList, &v2.AssistantMessageContentItem{
+						Text: &v2.TextContent{
+							Text: c.Text,
+						},
+					})
+				}
+
+				if c.ToolCall != nil {
+					call := &v2.ToolCallV2{
+						Id:   to.Ptr(c.ToolCall.ID),
+						Type: to.Ptr("function"),
+
+						Function: &v2.ToolCallV2Function{
+							Name:      to.Ptr(c.ToolCall.Name),
+							Arguments: to.Ptr(c.ToolCall.Arguments),
+						},
+					}
+
+					message.Assistant.ToolCalls = append(message.Assistant.ToolCalls, call)
 				}
 			}
 
-			for _, t := range m.ToolCalls {
-				call := &v2.ToolCallV2{
-					Id:   to.Ptr(t.ID),
-					Type: to.Ptr("function"),
-
-					Function: &v2.ToolCallV2Function{
-						Name:      to.Ptr(t.Name),
-						Arguments: to.Ptr(t.Arguments),
-					},
-				}
-
-				message.Assistant.ToolCalls = append(message.Assistant.ToolCalls, call)
-			}
-
-			req.Messages = append(req.Messages, message)
-		}
-
-		if m.Role == provider.MessageRoleTool {
-			var data any
-			json.Unmarshal([]byte(m.Content), &data)
-
-			var parameters map[string]any
-
-			if val, ok := data.(map[string]any); ok {
-				parameters = val
-			}
-
-			if val, ok := data.([]any); ok {
-				parameters = map[string]any{"data": val}
-			}
-
-			content, _ := json.Marshal(parameters)
-
-			message := &v2.ChatMessageV2{
-				Role: "tool",
-
-				Tool: &v2.ToolMessageV2{
-					ToolCallId: m.Tool,
-
-					Content: &v2.ToolMessageV2Content{
-						String: string(content),
-					},
-				},
+			if len(message.Assistant.ToolCalls) > 0 {
+				message.Assistant.Content = nil
 			}
 
 			req.Messages = append(req.Messages, message)
@@ -433,18 +435,35 @@ func toCompletionReason(reason v2.ChatFinishReason) provider.CompletionReason {
 	return ""
 }
 
-func fromAssistantMessageContent(val *v2.AssistantMessageResponse) string {
-	if val == nil {
-		return ""
+func toUsage(usage *v2.Usage) *provider.Usage {
+	if usage == nil {
+		return nil
 	}
+
+	if usage.Tokens != nil {
+		return &provider.Usage{
+			InputTokens:  int(*usage.Tokens.InputTokens),
+			OutputTokens: int(*usage.Tokens.OutputTokens),
+		}
+	}
+
+	return nil
+}
+
+func fromAssistantMessageContent(val *v2.AssistantMessageResponse) []provider.Content {
+	if val == nil {
+		return nil
+	}
+
+	var parts []provider.Content
 
 	for _, c := range val.Content {
-		if c.Text == nil || c.Text.Text == "" {
-			continue
+		if c.Text != nil {
+			parts = append(parts, provider.Content{
+				Text: c.Text.Text,
+			})
 		}
-
-		return c.Text.Text
 	}
 
-	return ""
+	return parts
 }

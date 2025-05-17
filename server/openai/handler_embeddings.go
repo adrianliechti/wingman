@@ -35,17 +35,21 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := &EmbeddingList{
-		Object: "list",
-
-		Model: req.Model,
-	}
-
 	embedding, err := embedder.Embed(r.Context(), inputs)
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+
+	result := &EmbeddingList{
+		Object: "list",
+
+		Model: embedding.Model,
+	}
+
+	if result.Model == "" {
+		result.Model = req.Model
 	}
 
 	for i, e := range embedding.Embeddings {

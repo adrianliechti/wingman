@@ -5,7 +5,7 @@ version: "3"
 tasks:
   server:
     cmds:
-      - docker run -it --rm -p 6333:6333 -v qdrant-data:/qdrant/storage qdrant/qdrant:v1.13.2
+      - docker run -it --rm -p 6333:6333 -v qdrant-data:/qdrant/storage qdrant/qdrant:v1.14.0
   
   webui:
     cmds:
