@@ -32,20 +32,13 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 		input.URL = url
 	}
 
-	if file, header, err := r.FormFile("file"); err == nil {
-		data, err := io.ReadAll(file)
+	if file, err := h.readFile(r); err == nil {
+		input.File = file
+	}
 
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-
-		input.File = &provider.File{
-			Name: header.Filename,
-
-			Content:     data,
-			ContentType: header.Header.Get("Content-Type"),
-		}
+	if input.URL == "" && input.File == nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
 
 	if input.URL == "" && input.File == nil {

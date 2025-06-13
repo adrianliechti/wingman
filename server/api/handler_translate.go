@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/translator"
 )
@@ -17,19 +18,44 @@ func (h *Handler) handleTranslate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	text, err := h.readText(r)
-
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-
 	options := &translator.TranslateOptions{
 		Language: language,
 	}
 
-	input := translator.Input{
-		Text: text,
+	acceptText := false
+	acceptHeader := strings.Split(r.Header.Get("Accept"), ", ")
+
+	if len(acceptHeader) == 0 {
+		acceptHeader = []string{"*/*"}
+	}
+
+	for _, accept := range acceptHeader {
+		if strings.HasPrefix(accept, "text/") || accept == "*/*" {
+			acceptText = true
+			break
+		}
+	}
+
+	input := translator.Input{}
+
+	if acceptText {
+		text, err := h.readText(r)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		input.Text = text
+	} else {
+		file, err := h.readFile(r)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		input.File = file
 	}
 
 	result, err := p.Translate(r.Context(), input, options)

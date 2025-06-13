@@ -53,10 +53,6 @@ func (c *Client) Translate(ctx context.Context, input translator.Input, options 
 		options = new(translator.TranslateOptions)
 	}
 
-	if input.File != nil {
-		return nil, translator.ErrUnsupported
-	}
-
 	req := &TranslateRequest{
 		Language: options.Language,
 	}
