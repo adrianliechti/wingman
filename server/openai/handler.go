@@ -32,6 +32,7 @@ func (h *Handler) Attach(r chi.Router) {
 	r.Get("/models", h.handleModels)
 	r.Get("/models/{id}", h.handleModel)
 
+	r.Post("/responses", h.handleResponses)
 	r.Post("/embeddings", h.handleEmbeddings)
 
 	r.Post("/chat/completions", h.handleChatCompletion)

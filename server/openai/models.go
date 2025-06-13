@@ -21,6 +21,20 @@ type ModelList struct {
 	Models []Model `json:"data"`
 }
 
+// https://platform.openai.com/docs/api-reference/responses/create
+type ResponseRequest struct {
+	Model string `json:"model"`
+
+	Input any `json:"input"`
+
+	Instructions *string `json:"instructions"`
+
+	MaxOutputTokens *int `json:"max_output_tokens,omitempty"`
+
+	Stream      *bool    `json:"stream,omitempty"`
+	Temperature *float32 `json:"temperature,omitempty"`
+}
+
 // https://platform.openai.com/docs/api-reference/embeddings/create
 type EmbeddingsRequest struct {
 	Model string `json:"model"`
