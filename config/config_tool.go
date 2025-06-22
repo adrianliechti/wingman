@@ -235,14 +235,14 @@ func mcpTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 			env = append(env, k+"="+v)
 		}
 
-		return mcp.NewStdio(cfg.Command, env, cfg.Args)
+		return mcp.NewCommand(cfg.Command, env, cfg.Args)
 	}
 
 	if strings.Contains(strings.ToLower(cfg.URL), "/sse") {
 		return mcp.NewSSE(cfg.URL, cfg.Vars)
 	}
 
-	return mcp.NewHTTP(cfg.URL, cfg.Vars)
+	return mcp.NewStreamable(cfg.URL, cfg.Vars)
 }
 
 func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {

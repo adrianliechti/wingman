@@ -4,69 +4,91 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"os/exec"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/tool"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 var _ tool.Provider = (*Client)(nil)
 
 type Client struct {
-	transportFn func() (transport.Interface, error)
+	transportFn func() (mcp.Transport, error)
+}
+
+func NewCommand(command string, env, args []string) (*Client, error) {
+	return &Client{
+		transportFn: func() (mcp.Transport, error) {
+			cmd := exec.Command(command, args...)
+			return mcp.NewCommandTransport(cmd), nil
+		},
+	}, nil
+}
+
+func NewStreamable(url string, headers map[string]string) (*Client, error) {
+	var client *http.Client
+
+	if len(headers) > 0 {
+		client = &http.Client{
+			Transport: &rt{
+				headers: headers,
+			},
+		}
+	}
+
+	return &Client{
+		transportFn: func() (mcp.Transport, error) {
+			return mcp.NewStreamableClientTransport(url, &mcp.StreamableClientTransportOptions{
+				HTTPClient: client,
+			}), nil
+		},
+	}, nil
 }
 
 func NewSSE(url string, headers map[string]string) (*Client, error) {
+	var client *http.Client
+
+	if len(headers) > 0 {
+		client = &http.Client{
+			Transport: &rt{
+				headers: headers,
+			},
+		}
+	}
+
 	return &Client{
-		transportFn: func() (transport.Interface, error) {
-			var options []transport.ClientOption
-
-			if len(headers) > 0 {
-				options = append(options, transport.WithHeaders(headers))
-			}
-
-			return transport.NewSSE(url, options...)
+		transportFn: func() (mcp.Transport, error) {
+			return mcp.NewSSEClientTransport(url, &mcp.SSEClientTransportOptions{
+				HTTPClient: client,
+			}), nil
 		},
 	}, nil
 }
 
-func NewHTTP(url string, headers map[string]string) (*Client, error) {
-	return &Client{
-		transportFn: func() (transport.Interface, error) {
-			var options []transport.StreamableHTTPCOption
-
-			if len(headers) > 0 {
-				options = append(options, transport.WithHTTPHeaders(headers))
-			}
-
-			return transport.NewStreamableHTTP(url, options...)
-		},
-	}, nil
-}
-
-func NewStdio(command string, env, args []string) (*Client, error) {
-	return &Client{
-		transportFn: func() (transport.Interface, error) {
-			return transport.NewStdio(command, env, args...), nil
-		},
-	}, nil
-}
-
-func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
-	client, err := c.createClient(ctx)
+func (c *Client) createSession(ctx context.Context) (*mcp.ClientSession, error) {
+	transport, err := c.transportFn()
 
 	if err != nil {
 		return nil, err
 	}
 
-	defer client.Close()
+	client := mcp.NewClient("wingman", "1.0.0", nil)
+	return client.Connect(ctx, transport)
+}
 
-	req := mcp.ListToolsRequest{}
+func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
+	session, err := c.createSession(ctx)
 
-	resp, err := client.ListTools(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer session.Close()
+
+	resp, err := session.ListTools(ctx, nil)
 
 	if err != nil {
 		return nil, err
@@ -77,7 +99,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	for _, t := range resp.Tools {
 		var schema map[string]any
 
-		input, _ := json.Marshal(t.InputSchema)
+		input, _ := t.InputSchema.MarshalJSON()
 
 		if err := json.Unmarshal([]byte(input), &schema); err != nil {
 			return nil, err
@@ -105,19 +127,18 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 }
 
 func (c *Client) Execute(ctx context.Context, name string, parameters map[string]any) (any, error) {
-	client, err := c.createClient(ctx)
+	session, err := c.createSession(ctx)
 
 	if err != nil {
 		return nil, err
 	}
 
-	defer client.Close()
+	defer session.Close()
 
-	req := mcp.CallToolRequest{}
-	req.Params.Name = name
-	req.Params.Arguments = parameters
-
-	resp, err := client.CallTool(ctx, req)
+	resp, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      name,
+		Arguments: parameters,
+	})
 
 	if err != nil {
 		return nil, err
@@ -128,17 +149,16 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	}
 
 	for _, content := range resp.Content {
-		switch content := content.(type) {
-		case mcp.TextContent:
+		switch content.Type {
+		case "text":
 			text := strings.TrimSpace(content.Text)
 			return text, nil
-
-		case mcp.ImageContent:
+		case "image":
 			return nil, errors.New("image content not supported")
-
-		case mcp.EmbeddedResource:
+		case "audio":
+			return nil, errors.New("audio content not supported")
+		case "resource":
 			return nil, errors.New("embedded resource not supported")
-
 		default:
 			return nil, errors.New("unknown content type")
 		}
@@ -147,35 +167,25 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	return nil, errors.New("no content returned")
 }
 
-func (c *Client) createClient(ctx context.Context) (*client.Client, error) {
-	tr, err := c.transportFn()
+type rt struct {
+	headers   map[string]string
+	transport http.RoundTripper
+}
 
-	if err != nil {
-		return nil, err
+func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
+	for key, value := range rt.headers {
+		if req.Header.Get(key) != "" {
+			continue // already set
+		}
+
+		req.Header.Set(key, value)
 	}
 
-	client := client.NewClient(tr)
+	tr := rt.transport
 
-	if err := client.Start(ctx); err != nil {
-		client.Close()
-		return nil, err
+	if tr == nil {
+		tr = http.DefaultTransport
 	}
 
-	req := mcp.InitializeRequest{}
-	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	req.Params.ClientInfo = mcp.Implementation{
-		Name:    "wingman",
-		Version: "1.0.0",
-	}
-
-	resp, err := client.Initialize(ctx, req)
-
-	if err != nil {
-		client.Close()
-		return nil, err
-	}
-
-	_ = resp
-
-	return client, nil
+	return tr.RoundTrip(req)
 }
