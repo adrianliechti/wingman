@@ -2,7 +2,7 @@ module github.com/adrianliechti/wingman
 
 go 1.24
 
-replace github.com/modelcontextprotocol/go-sdk => github.com/findleyr/mcp v0.0.0-20250620211930-2a32e84b65e0
+replace github.com/modelcontextprotocol/go-sdk => github.com/findleyr/mcp v0.0.0-20250623163535-bc6cb611b473
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.4.0
@@ -16,7 +16,7 @@ require (
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v0.0.0-00010101000000-000000000000
-	github.com/openai/openai-go v1.6.0
+	github.com/openai/openai-go v1.7.0
 	github.com/replicate/replicate-go v0.26.0
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.37.0
