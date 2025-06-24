@@ -149,19 +149,20 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	}
 
 	for _, content := range resp.Content {
-		switch content.Type {
-		case "text":
+		switch content := content.(type) {
+		case *mcp.TextContent:
 			text := strings.TrimSpace(content.Text)
 			return text, nil
-		case "image":
+		case *mcp.ImageContent:
 			return nil, errors.New("image content not supported")
-		case "audio":
+		case *mcp.AudioContent:
 			return nil, errors.New("audio content not supported")
-		case "resource":
+		case *mcp.EmbeddedResource:
 			return nil, errors.New("embedded resource not supported")
 		default:
 			return nil, errors.New("unknown content type")
 		}
+
 	}
 
 	return nil, errors.New("no content returned")
