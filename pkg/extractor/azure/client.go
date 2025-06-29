@@ -64,7 +64,8 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/documentintelligence/documentModels/prebuilt-layout:analyze")
 
 	query := u.Query()
-	query.Set("api-version", "2024-07-31-preview")
+	query.Set("api-version", "2024-11-30")
+	query.Set("outputContentFormat", "markdown")
 
 	u.RawQuery = query.Encode()
 
