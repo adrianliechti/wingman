@@ -6,11 +6,11 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.4.0
 	github.com/aws/aws-sdk-go-v2 v1.36.5
 	github.com/aws/aws-sdk-go-v2/config v1.29.17
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.30.2
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.31.0
 	github.com/cohere-ai/cohere-go/v2 v2.14.1
 	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/go-chi/chi/v5 v5.2.2
-	github.com/go-chi/cors v1.2.1
+	github.com/go-chi/cors v1.2.2
 	github.com/google/generative-ai-go v0.20.1
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v0.0.0-20250627194314-8a3f272dbbcf
@@ -30,7 +30,7 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.13.0
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	golang.org/x/time v0.12.0
-	google.golang.org/api v0.239.0
+	google.golang.org/api v0.240.0
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1
