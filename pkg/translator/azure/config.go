@@ -17,3 +17,9 @@ func WithToken(token string) Option {
 		c.token = token
 	}
 }
+
+func WithRegion(region string) Option {
+	return func(c *Client) {
+		c.region = region
+	}
+}

@@ -67,7 +67,7 @@ func (h *Handler) handleTranslate(w http.ResponseWriter, r *http.Request) {
 
 	contentType := result.ContentType
 
-	if contentType != "" {
+	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 

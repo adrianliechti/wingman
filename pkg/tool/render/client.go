@@ -34,7 +34,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        "generate_image",
-			Description: "Generate images based based on user-provided text prompt or edit an existing one in the context. Returns a URL to download the generated image.",
+			Description: "Generate images based based on user-provided text prompt or edit an existing one in the context. Returns a URL to the generated image. Only use if user explicitly asks for image output.",
 
 			Parameters: map[string]any{
 				"type": "object",

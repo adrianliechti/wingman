@@ -38,14 +38,26 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 		options = new(provider.SynthesizeOptions)
 	}
 
-	result, err := s.speech.New(ctx, openai.AudioSpeechNewParams{
+	params := openai.AudioSpeechNewParams{
 		Model: s.model,
 		Input: content,
 
 		Voice: openai.AudioSpeechNewParamsVoiceAlloy,
+	}
 
-		ResponseFormat: openai.AudioSpeechNewParamsResponseFormatMP3,
-	})
+	if options.Voice != "" {
+		params.Voice = openai.AudioSpeechNewParamsVoice(options.Voice)
+	}
+
+	if options.Speed != nil {
+		params.Speed = openai.Float(float64(*options.Speed))
+	}
+
+	if options.Format != "" {
+		params.ResponseFormat = openai.AudioSpeechNewParamsResponseFormat(options.Format)
+	}
+
+	result, err := s.speech.New(ctx, params)
 
 	if err != nil {
 		return nil, convertError(err)

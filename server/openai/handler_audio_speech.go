@@ -24,6 +24,11 @@ func (h *Handler) handleAudioSpeech(w http.ResponseWriter, r *http.Request) {
 
 	options := &provider.SynthesizeOptions{
 		Voice: req.Voice,
+		Speed: req.Speed,
+
+		Format: req.ResponseFormat,
+
+		Instructions: req.Instructions,
 	}
 
 	synthesis, err := synthesizer.Synthesize(r.Context(), req.Input, options)

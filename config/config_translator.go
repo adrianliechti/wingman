@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
 	"github.com/adrianliechti/wingman/pkg/translator/azure"
@@ -42,13 +43,17 @@ type translatorConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
-	Model string `yaml:"model"`
+	Model     string `yaml:"model"`
+	Extractor string `yaml:"extractor"`
+
+	Vars map[string]string `yaml:"vars"`
 
 	Limit *int `yaml:"limit"`
 }
 
 type translatorContext struct {
 	Completer provider.Completer
+	Extractor extractor.Provider
 
 	Limiter *rate.Limiter
 }
@@ -76,6 +81,12 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 		if config.Model != "" {
 			if p, err := cfg.Completer(config.Model); err == nil {
 				context.Completer = p
+			}
+		}
+
+		if config.Extractor != "" {
+			if p, err := cfg.Extractor(config.Extractor); err == nil {
+				context.Extractor = p
 			}
 		}
 
@@ -111,7 +122,7 @@ func createTranslator(cfg translatorConfig, context translatorContext) (translat
 }
 
 func llmTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
-	return llm.New(context.Completer)
+	return llm.New(context.Completer, context.Extractor)
 }
 
 func azureTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
@@ -119,6 +130,10 @@ func azureTranslator(cfg translatorConfig, context translatorContext) (translato
 
 	if cfg.Token != "" {
 		options = append(options, azure.WithToken(cfg.Token))
+	}
+
+	if region := cfg.Vars["region"]; region != "" {
+		options = append(options, azure.WithRegion(region))
 	}
 
 	return azure.New(cfg.URL, options...)
