@@ -130,16 +130,8 @@ func DetectModelType(id string) ModelType {
 
 	renderers := []string{
 		"dall-e",
-		"flux-dev",
-		"flux-pro",
-		"flux-schnell",
-		"flux.1-dev",
-		"flux.1-pro",
-		"flux.1-schnell",
+		"flux",
 		"gpt-image",
-		"sd-turbo",
-		"sdxl-turbo",
-		"stable-diffusion",
 	}
 
 	synthesizers := []string{
