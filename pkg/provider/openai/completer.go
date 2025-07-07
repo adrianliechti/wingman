@@ -283,7 +283,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 
 			message := openai.SystemMessage(parts)
 
-			if slices.Contains([]string{"o1", "o1-mini", "o3-mini"}, c.model) {
+			if slices.Contains([]string{"o1", "o1-mini", "o3", "o3-mini", "o4", "o4-mini"}, c.model) {
 				message = openai.DeveloperMessage(parts)
 			}
 

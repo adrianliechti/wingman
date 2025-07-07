@@ -39,6 +39,18 @@ func (c *Config) RegisterTool(id string, p tool.Provider) {
 	c.tools[id] = p
 }
 
+func (cfg *Config) Tools() []tool.Provider {
+	var tools []tool.Provider
+
+	if cfg.tools != nil {
+		for _, p := range cfg.tools {
+			tools = append(tools, p)
+		}
+	}
+
+	return tools
+}
+
 func (cfg *Config) Tool(id string) (tool.Provider, error) {
 	if cfg.tools != nil {
 		if p, ok := cfg.tools[id]; ok {

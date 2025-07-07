@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/replicate"
@@ -24,6 +25,10 @@ const (
 
 	FluxPro11      string = "black-forest-labs/flux-1.1-pro"
 	FluxProUltra11 string = "black-forest-labs/flux-1.1-pro-ultra"
+
+	FluxKontextDev string = "black-forest-labs/flux-kontext-dev"
+	FluxKontextPro string = "black-forest-labs/flux-kontext-pro"
+	FluxKontextMax string = "black-forest-labs/flux-kontext-max"
 )
 
 var SupportedModels = []string{
@@ -33,6 +38,10 @@ var SupportedModels = []string{
 
 	FluxPro11,
 	FluxProUltra11,
+
+	FluxKontextDev,
+	FluxKontextPro,
+	FluxKontextMax,
 }
 
 func NewRenderer(model string, options ...replicate.Option) (*Renderer, error) {
@@ -59,7 +68,28 @@ func (r *Renderer) Render(ctx context.Context, prompt string, options *provider.
 	}
 
 	if len(options.Images) > 0 {
-		return nil, errors.New("image input not supported")
+		if len(options.Images) > 1 {
+			return nil, errors.New("only one image input is supported")
+		}
+
+		file, err := r.UploadFile(ctx, options.Images[0])
+
+		if err != nil {
+			return nil, err
+		}
+
+		fileID := file.ID
+		fileURL := file.URLs["get"]
+
+		defer func() {
+			r.DeleteFile(context.Background(), fileID)
+		}()
+
+		options.Images = []provider.File{
+			{
+				Name: fileURL,
+			},
+		}
 	}
 
 	input, err := r.convertInput(prompt, options)
@@ -79,20 +109,8 @@ func (r *Renderer) Render(ctx context.Context, prompt string, options *provider.
 
 func (r *Renderer) convertInput(prompt string, options *provider.RenderOptions) (replicate.PredictionInput, error) {
 	switch r.model {
-	case FluxSchnell:
+	case FluxSchnell, FluxDev:
 		// https://replicate.com/black-forest-labs/flux-schnell/api/schema#input-schema
-		input := map[string]any{
-			"prompt": prompt,
-
-			"aspect_ratio":  "3:2",
-			"output_format": "png",
-
-			"disable_safety_checker": true,
-		}
-
-		return input, nil
-
-	case FluxDev:
 		// https://replicate.com/black-forest-labs/flux-dev/api/schema#input-schema
 		input := map[string]any{
 			"prompt": prompt,
@@ -105,21 +123,11 @@ func (r *Renderer) convertInput(prompt string, options *provider.RenderOptions) 
 
 		return input, nil
 
-	case FluxPro:
+	case FluxPro, FluxPro11, FluxProUltra11:
 		// https://replicate.com/black-forest-labs/flux-pro/api/schema#input-schema
-		input := map[string]any{
-			"prompt": prompt,
-
-			"aspect_ratio":  "3:2",
-			"output_format": "png",
-
-			"safety_tolerance": 6,
-		}
-
-		return input, nil
-
-	case FluxPro11:
 		// https://replicate.com/black-forest-labs/flux-1.1-pro/api/schema#input-schema
+		// https://replicate.com/black-forest-labs/flux-1.1-pro-ultra/api/schema#input-schema
+
 		input := map[string]any{
 			"prompt": prompt,
 
@@ -131,12 +139,57 @@ func (r *Renderer) convertInput(prompt string, options *provider.RenderOptions) 
 
 		return input, nil
 
-	case FluxProUltra11:
-		// https://replicate.com/black-forest-labs/flux-1.1-pro-ultra/api/schema#input-schema
+	case FluxKontextDev:
+		if options == nil || len(options.Images) == 0 {
+			return nil, errors.New("image input required")
+		}
+
+		image := options.Images[0]
+
+		var imageURL string
+
+		if strings.HasPrefix(image.Name, "https://") || strings.HasPrefix(image.Name, "http://") {
+			imageURL = image.Name
+		}
+
+		if imageURL == "" {
+			return nil, errors.New("image URL required")
+		}
+
+		// https://replicate.com/black-forest-labs/flux-kontext-dev/api/schema#input-schema
 		input := map[string]any{
 			"prompt": prompt,
 
-			"aspect_ratio":  "3:2",
+			"input_image":   imageURL,
+			"output_format": "png",
+
+			"disable_safety_checker": true,
+		}
+
+		return input, nil
+	case FluxKontextPro, FluxKontextMax:
+		if options == nil || len(options.Images) == 0 {
+			return nil, errors.New("image input required")
+		}
+
+		image := options.Images[0]
+
+		var imageURL string
+
+		if strings.HasPrefix(image.Name, "https://") || strings.HasPrefix(image.Name, "http://") {
+			imageURL = image.Name
+		}
+
+		if imageURL == "" {
+			return nil, errors.New("image URL required")
+		}
+
+		// https://replicate.com/black-forest-labs/flux-kontext-pro/api/schema#input-schema
+		// https://replicate.com/black-forest-labs/flux-kontext-max/api/schema#input-schema
+		input := map[string]any{
+			"prompt": prompt,
+
+			"input_image":   imageURL,
 			"output_format": "png",
 
 			"safety_tolerance": 6,
