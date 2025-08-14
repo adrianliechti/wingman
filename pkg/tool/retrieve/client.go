@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 
-	"github.com/adrianliechti/wingman/pkg/index"
+	"github.com/adrianliechti/wingman/pkg/retriever"
 	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
 var _ tool.Provider = (*Client)(nil)
 
 type Client struct {
-	provider index.Provider
+	provider retriever.Provider
 }
 
-func New(provider index.Provider, options ...Option) (*Client, error) {
+func New(provider retriever.Provider, options ...Option) (*Client, error) {
 	c := &Client{
 		provider: provider,
 	}
@@ -61,9 +61,9 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, errors.New("missing query parameter")
 	}
 
-	options := &index.QueryOptions{}
+	options := &retriever.RetrieveOptions{}
 
-	data, err := c.provider.Query(ctx, query, options)
+	data, err := c.provider.Retrieve(ctx, query, options)
 
 	if err != nil {
 		return nil, err

@@ -1,12 +1,10 @@
 package config
 
 import (
-	"crypto/tls"
 	"errors"
-	"net/http"
-	"net/url"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/retriever"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/tool/custom"
 	"github.com/adrianliechti/wingman/pkg/tool/extract"
@@ -20,13 +18,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
-
-	"github.com/adrianliechti/wingman/pkg/index"
-	"github.com/adrianliechti/wingman/pkg/index/bing"
-	"github.com/adrianliechti/wingman/pkg/index/duckduckgo"
-	"github.com/adrianliechti/wingman/pkg/index/exa"
-	"github.com/adrianliechti/wingman/pkg/index/searxng"
-	"github.com/adrianliechti/wingman/pkg/index/tavily"
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 )
@@ -76,14 +67,14 @@ type toolConfig struct {
 	Model    string `yaml:"model"`
 	Provider string `yaml:"provider"`
 
-	Index      string `yaml:"index"`
 	Extractor  string `yaml:"extractor"`
+	Retriever  string `yaml:"retriever"`
 	Translator string `yaml:"translator"`
 }
 
 type toolContext struct {
-	Index      index.Provider
 	Extractor  extractor.Provider
+	Retriever  retriever.Provider
 	Translator translator.Provider
 
 	Renderer    provider.Renderer
@@ -108,20 +99,16 @@ func (cfg *Config) registerTools(f *configFile) error {
 
 		context := toolContext{}
 
-		if p, err := cfg.Index(config.Index); err == nil {
-			context.Index = p
-		}
-
 		if p, err := cfg.Extractor(config.Extractor); err == nil {
 			context.Extractor = p
 		}
 
-		if p, err := cfg.Translator(config.Translator); err == nil {
-			context.Translator = p
+		if p, err := cfg.Retriever(config.Retriever); err == nil {
+			context.Retriever = p
 		}
 
-		if p, err := cfg.Index(config.Provider); err == nil {
-			context.Index = p
+		if p, err := cfg.Translator(config.Translator); err == nil {
+			context.Translator = p
 		}
 
 		if p, err := cfg.Extractor(config.Provider); err == nil {
@@ -183,21 +170,6 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	case "custom":
 		return customTool(cfg, context)
 
-	case "bing":
-		return bingTool(cfg, context)
-
-	case "duckduckgo":
-		return duckduckgoTool(cfg, context)
-
-	case "exa":
-		return exaTool(cfg, context)
-
-	case "searxng":
-		return searxngTool(cfg, context)
-
-	case "tavily":
-		return tavilyTool(cfg, context)
-
 	default:
 		return nil, errors.New("invalid tool type: " + cfg.Type)
 	}
@@ -218,13 +190,13 @@ func renderTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 func retrieveTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []retrieve.Option
 
-	return retrieve.New(context.Index, options...)
+	return retrieve.New(context.Retriever, options...)
 }
 
 func searchTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []search.Option
 
-	return search.New(context.Index, options...)
+	return search.New(context.Retriever, options...)
 }
 
 func synthesizeTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
@@ -261,108 +233,4 @@ func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []custom.Option
 
 	return custom.New(cfg.URL, options...)
-}
-
-func bingTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []bing.Option
-
-	if cfg.Proxy != nil && cfg.Proxy.URL != "" {
-		proxyURL, err := url.Parse(cfg.Proxy.URL)
-
-		if err != nil {
-			return nil, err
-		}
-
-		client := &http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-
-		options = append(options, bing.WithClient(client))
-	}
-
-	index, err := bing.New(cfg.Token, options...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	context.Index = index
-
-	return searchTool(cfg, context)
-}
-
-func duckduckgoTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	index, err := duckduckgo.New()
-
-	if err != nil {
-		return nil, err
-	}
-
-	context.Index = index
-
-	return searchTool(cfg, context)
-}
-
-func exaTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []exa.Option
-
-	if cfg.Proxy != nil && cfg.Proxy.URL != "" {
-		proxyURL, err := url.Parse(cfg.Proxy.URL)
-
-		if err != nil {
-			return nil, err
-		}
-
-		client := &http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-
-		options = append(options, exa.WithClient(client))
-	}
-
-	index, err := exa.New(cfg.Token, options...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	context.Index = index
-
-	return searchTool(cfg, context)
-}
-
-func searxngTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	index, err := searxng.New(cfg.Token)
-
-	if err != nil {
-		return nil, err
-	}
-
-	context.Index = index
-
-	return searchTool(cfg, context)
-}
-
-func tavilyTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	index, err := tavily.New(cfg.Token)
-
-	if err != nil {
-		return nil, err
-	}
-
-	context.Index = index
-
-	return searchTool(cfg, context)
 }

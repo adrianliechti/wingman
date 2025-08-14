@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option go_package = "github.com/adrianliechti/wingman/pkg/retriever/custom;custom";
+
+package retriever;
+
+service Retriever {
+  rpc Retrieve (RetrieveRequest) returns (Results) {}
+}
+
+message RetrieveRequest {
+  string query = 1;
+
+  optional int32 limit = 2;
+
+  map<string, string> filters = 3;
+}
+
+message Results {
+    repeated Result results = 1;
+}
+
+message Result {
+  string id = 1;
+
+  string source = 2;
+
+	float score = 3;
+  string title = 4;
+	string content = 5;
+
+	map<string, string> metadata = 6;
+}

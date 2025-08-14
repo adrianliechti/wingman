@@ -8,8 +8,8 @@ import (
 	"github.com/adrianliechti/wingman/pkg/authorizer"
 	"github.com/adrianliechti/wingman/pkg/chain"
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/index"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/retriever"
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 	"github.com/adrianliechti/wingman/pkg/summarizer"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -33,9 +33,8 @@ type Config struct {
 	synthesizer map[string]provider.Synthesizer
 	transcriber map[string]provider.Transcriber
 
-	indexes map[string]index.Provider
-
 	extractors map[string]extractor.Provider
+	retrievers map[string]retriever.Provider
 	segmenter  map[string]segmenter.Provider
 	summarizer map[string]summarizer.Provider
 	translator map[string]translator.Provider
@@ -69,6 +68,10 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := c.registerRetrievers(file); err != nil {
+		return nil, err
+	}
+
 	if err := c.registerSegmenters(file); err != nil {
 		return nil, err
 	}
@@ -78,10 +81,6 @@ func Parse(path string) (*Config, error) {
 	}
 
 	if err := c.registerTranslators(file); err != nil {
-		return nil, err
-	}
-
-	if err := c.registerIndexes(file); err != nil {
 		return nil, err
 	}
 
@@ -109,9 +108,8 @@ type configFile struct {
 
 	Providers []providerConfig `yaml:"providers"`
 
-	Indexes yaml.Node `yaml:"indexes"`
-
 	Extractors  yaml.Node `yaml:"extractors"`
+	Retrievers  yaml.Node `yaml:"retrievers"`
 	Segmenters  yaml.Node `yaml:"segmenters"`
 	Summarizers yaml.Node `yaml:"summarizers"`
 	Translators yaml.Node `yaml:"translators"`

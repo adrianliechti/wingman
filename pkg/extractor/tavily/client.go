@@ -8,7 +8,6 @@ import (
 	"net/url"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/index"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -90,16 +89,4 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 	}
 
 	return result, nil
-}
-
-func (c *Client) List(ctx context.Context, options *index.ListOptions) ([]index.Document, error) {
-	return nil, errors.ErrUnsupported
-}
-
-func (c *Client) Index(ctx context.Context, documents ...index.Document) error {
-	return errors.ErrUnsupported
-}
-
-func (c *Client) Delete(ctx context.Context, ids ...string) error {
-	return errors.ErrUnsupported
 }
