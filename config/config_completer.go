@@ -190,7 +190,7 @@ func openaiCompleter(cfg providerConfig, model modelContext) (provider.Completer
 		options = append(options, openai.WithToken(cfg.Token))
 	}
 
-	return openai.NewCompleter(cfg.URL, model.ID, options...)
+	return openai.NewResponder(cfg.URL, model.ID, options...)
 }
 
 func xaiCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
