@@ -235,17 +235,56 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	}
 
 	switch options.Effort {
-	case provider.ReasoningEffortMinimal:
+	case provider.EffortMinimal:
 		req.Reasoning.Effort = shared.ReasoningEffortMinimal
-
-	case provider.ReasoningEffortLow:
+	case provider.EffortLow:
 		req.Reasoning.Effort = shared.ReasoningEffortLow
-
-	case provider.ReasoningEffortMedium:
+	case provider.EffortMedium:
 		req.Reasoning.Effort = shared.ReasoningEffortMedium
-
-	case provider.ReasoningEffortHigh:
+	case provider.EffortHigh:
 		req.Reasoning.Effort = shared.ReasoningEffortHigh
+	}
+
+	switch options.Verbosity {
+	case provider.VerbosityLow:
+		req.Text.Verbosity = responses.ResponseTextConfigVerbosityLow
+	case provider.VerbosityMedium:
+		req.Text.Verbosity = responses.ResponseTextConfigVerbosityMedium
+	case provider.VerbosityHigh:
+		req.Text.Verbosity = responses.ResponseTextConfigVerbosityHigh
+	}
+
+	if options.Format == provider.CompletionFormatJSON {
+		req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
+		}
+	}
+
+	if options.Schema != nil {
+		schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
+			Name:   options.Schema.Name,
+			Schema: options.Schema.Schema,
+		}
+
+		if options.Schema.Strict != nil {
+			schema.Strict = openai.Bool(*options.Schema.Strict)
+		}
+
+		if options.Schema.Description != "" {
+			schema.Description = openai.String(options.Schema.Description)
+		}
+
+		req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+			OfJSONSchema: schema,
+		}
+	}
+
+	if options.MaxTokens != nil {
+		req.MaxOutputTokens = openai.Int(int64(*options.MaxTokens))
+	}
+
+	if options.Temperature != nil {
+		req.Temperature = openai.Float(float64(*options.Temperature))
 	}
 
 	return req, nil

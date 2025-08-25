@@ -192,16 +192,13 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	switch options.Effort {
-	case provider.ReasoningEffortMinimal:
+	case provider.EffortMinimal:
 		req.ReasoningEffort = shared.ReasoningEffortMinimal
-
-	case provider.ReasoningEffortLow:
+	case provider.EffortLow:
 		req.ReasoningEffort = shared.ReasoningEffortLow
-
-	case provider.ReasoningEffortMedium:
+	case provider.EffortMedium:
 		req.ReasoningEffort = shared.ReasoningEffortMedium
-
-	case provider.ReasoningEffortHigh:
+	case provider.EffortHigh:
 		req.ReasoningEffort = shared.ReasoningEffortHigh
 	}
 

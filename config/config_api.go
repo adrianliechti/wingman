@@ -21,8 +21,10 @@ func (cfg *Config) RegisterAPI(id string, p api.Provider) {
 type apiConfig struct {
 	Type string `yaml:"type"`
 
-	Model  string `yaml:"model"`
-	Effort string `yaml:"effort"`
+	Model string `yaml:"model"`
+
+	Effort    string `yaml:"effort"`
+	Verbosity string `yaml:"verbosity"`
 
 	InputSchema  *apiSchema `yaml:"input"`
 	OutputSchema *apiSchema `yaml:"output"`
@@ -38,7 +40,8 @@ type apiSchema struct {
 type apiContext struct {
 	Completer provider.Completer
 
-	Effort provider.ReasoningEffort
+	Effort    provider.Effort
+	Verbosity provider.Verbosity
 
 	InputSchema  *api.Schema
 	OutputSchema *api.Schema
@@ -61,7 +64,8 @@ func (cfg *Config) registerAPI(f *configFile) error {
 		}
 
 		context := apiContext{
-			Effort: parseEffort(config.Effort),
+			Effort:    provider.Effort(config.Effort),
+			Verbosity: provider.Verbosity(config.Verbosity),
 		}
 
 		if config.Model != "" {
