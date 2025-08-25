@@ -73,16 +73,23 @@ func (r *Responder) complete(ctx context.Context, req responses.ResponseNewParam
 	}
 
 	for _, item := range resp.Output {
-		for _, c := range item.Content {
-			if c.JSON.Text.Valid() {
-				content := provider.TextContent(c.Text)
-				result.Message.Content = append(result.Message.Content, content)
+		switch item := item.AsAny().(type) {
+		case responses.ResponseOutputMessage:
+			for _, c := range item.Content {
+				if c.JSON.Text.Valid() {
+					content := provider.TextContent(c.Text)
+					result.Message.Content = append(result.Message.Content, content)
+				}
+			}
+		case responses.ResponseFunctionToolCall:
+			call := provider.ToolCall{
+				ID: item.CallID,
+
+				Name:      item.Name,
+				Arguments: item.Arguments,
 			}
 
-			if c.JSON.Refusal.Valid() {
-				content := provider.RefusalContent(c.Refusal)
-				result.Message.Content = append(result.Message.Content, content)
-			}
+			result.Message.Content = append(result.Message.Content, provider.ToolCallContent(call))
 		}
 	}
 
@@ -97,7 +104,40 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 	for stream.Next() {
 		data := stream.Current()
 
-		if data.JSON.Delta.Valid() {
+		println(data.RawJSON())
+
+		switch event := data.AsAny().(type) {
+		case responses.ResponseCreatedEvent:
+		case responses.ResponseInProgressEvent:
+		case responses.ResponseOutputItemAddedEvent:
+			switch item := event.Item.AsAny().(type) {
+			case responses.ResponseFunctionToolCall:
+				delta := provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.ToolCallContent(provider.ToolCall{
+								ID: item.CallID,
+
+								Name:      item.Name,
+								Arguments: item.Arguments,
+							}),
+						},
+					},
+				}
+
+				result.Add(delta)
+
+				if err := options.Stream(ctx, delta); err != nil {
+					return nil, err
+				}
+			}
+		case responses.ResponseContentPartAddedEvent:
+		case responses.ResponseTextDeltaEvent:
 			delta := provider.Completion{
 				ID:    data.Response.ID,
 				Model: data.Response.Model,
@@ -106,7 +146,7 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 					Role: provider.MessageRoleAssistant,
 
 					Content: []provider.Content{
-						provider.TextContent(data.Delta),
+						provider.TextContent(event.Delta),
 					},
 				},
 			}
@@ -116,9 +156,8 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
-		}
-
-		if data.JSON.Refusal.Valid() {
+		case responses.ResponseTextDoneEvent:
+		case responses.ResponseFunctionCallArgumentsDeltaEvent:
 			delta := provider.Completion{
 				ID:    data.Response.ID,
 				Model: data.Response.Model,
@@ -127,7 +166,9 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 					Role: provider.MessageRoleAssistant,
 
 					Content: []provider.Content{
-						provider.RefusalContent(data.Refusal),
+						provider.ToolCallContent(provider.ToolCall{
+							Arguments: event.Delta,
+						}),
 					},
 				},
 			}
@@ -137,6 +178,24 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 			if err := options.Stream(ctx, delta); err != nil {
 				return nil, err
 			}
+		case responses.ResponseFunctionCallArgumentsDoneEvent:
+		case responses.ResponseContentPartDoneEvent:
+		case responses.ResponseOutputItemDoneEvent:
+		case responses.ResponseCompletedEvent:
+			delta := provider.Completion{
+				ID:    data.Response.ID,
+				Model: data.Response.Model,
+
+				Usage: toResponseUsage(event.Response.Usage),
+			}
+
+			result.Add(delta)
+
+			if err := options.Stream(ctx, delta); err != nil {
+				return nil, err
+			}
+		default:
+			println("unknown event", data.Type)
 		}
 	}
 
@@ -286,14 +345,6 @@ func convertResponsesInput(messages []provider.Message) (responses.ResponseNewPa
 					})
 				}
 
-				if c.Refusal != "" {
-					message.Content = append(message.Content, responses.ResponseOutputMessageContentUnionParam{
-						OfRefusal: &responses.ResponseOutputRefusalParam{
-							Refusal: c.Refusal,
-						},
-					})
-				}
-
 				if c.ToolCall != nil {
 					call := &responses.ResponseFunctionToolCallParam{
 						CallID: c.ToolCall.ID,
@@ -349,4 +400,15 @@ func convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, e
 	}
 
 	return result, nil
+}
+
+func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
+	if usage.TotalTokens == 0 {
+		return nil
+	}
+
+	return &provider.Usage{
+		InputTokens:  int(usage.InputTokens),
+		OutputTokens: int(usage.OutputTokens),
+	}
 }

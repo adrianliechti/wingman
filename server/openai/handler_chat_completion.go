@@ -145,13 +145,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 					message.Content = &content
 				}
 
-				if refusal := completion.Message.Refusal(); refusal != "" {
-					message.Refusal = &refusal
-				}
-
 				if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
 					message.Content = nil
-					message.Refusal = nil
 
 					for i, c := range calls {
 						if c.ID != "" {
@@ -293,13 +288,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				message.Content = &content
 			}
 
-			if refusal := completion.Message.Refusal(); refusal != "" {
-				message.Refusal = &refusal
-			}
-
 			if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
 				message.Content = nil
-				message.Refusal = nil
 
 				message.ToolCalls = calls
 			}

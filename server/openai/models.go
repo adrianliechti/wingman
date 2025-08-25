@@ -205,7 +205,6 @@ type ChatCompletionMessage struct {
 	Role MessageRole `json:"role,omitempty"`
 
 	Content *string `json:"content,omitempty"`
-	Refusal *string `json:"refusal,omitempty"`
 
 	Contents []MessageContent `json:"-"`
 
@@ -256,7 +255,6 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 			Role MessageRole `json:"role,omitempty"`
 
 			Content *string `json:"-"`
-			Refusal *string `json:"refusal,omitempty"`
 
 			Contents []MessageContent `json:"content,omitempty"`
 
@@ -270,7 +268,6 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 			Role MessageRole `json:"role,omitempty"`
 
 			Content *string `json:"content,omitempty"`
-			Refusal *string `json:"refusal,omitempty"`
 
 			Contents []MessageContent `json:"-"`
 
@@ -287,7 +284,6 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 		Role MessageRole `json:"role,omitempty"`
 
 		Content *string `json:"content"`
-		Refusal *string `json:"refusal,omitempty"`
 
 		Contents []MessageContent
 
@@ -304,7 +300,6 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 		Role MessageRole `json:"role,omitempty"`
 
 		Content *string
-		Refusal *string `json:"refusal,omitempty"`
 
 		Contents []MessageContent `json:"content"`
 

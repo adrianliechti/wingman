@@ -180,10 +180,6 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 				delta.Message.Content = append(delta.Message.Content, provider.TextContent(c.Text))
 			}
 
-			if c.Refusal != "" {
-				delta.Message.Content = append(delta.Message.Content, provider.RefusalContent(c.Text))
-			}
-
 			if c.ToolCall != nil {
 				if c.ToolCall.ID != "" {
 					lastToolID = c.ToolCall.ID

@@ -86,10 +86,6 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 		result.Message.Content = append(result.Message.Content, provider.TextContent(choice.Message.Content))
 	}
 
-	if choice.Message.JSON.Refusal.Valid() {
-		result.Message.Content = append(result.Message.Content, provider.RefusalContent(choice.Message.Content))
-	}
-
 	for _, c := range choice.Message.ToolCalls {
 		call := provider.ToolCall{
 			ID: c.ID,
@@ -130,10 +126,6 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 
 			if choice.Delta.JSON.Content.Valid() {
 				delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Content))
-			}
-
-			if choice.Delta.JSON.Refusal.Valid() {
-				delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Refusal))
 			}
 
 			for _, c := range choice.Delta.ToolCalls {
@@ -378,14 +370,6 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 					content = append(content, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
 						OfText: &openai.ChatCompletionContentPartTextParam{
 							Text: c.Text,
-						},
-					})
-				}
-
-				if c.Refusal != "" {
-					content = append(content, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
-						OfRefusal: &openai.ChatCompletionContentPartRefusalParam{
-							Refusal: c.Refusal,
 						},
 					})
 				}
