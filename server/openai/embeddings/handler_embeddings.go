@@ -1,4 +1,4 @@
-package openai
+package embeddings
 
 import (
 	"encoding/json"

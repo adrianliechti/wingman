@@ -1,4 +1,4 @@
-package openai
+package chat
 
 import (
 	"context"

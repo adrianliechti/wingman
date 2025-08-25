@@ -351,10 +351,6 @@ providers:
 https://github.com/ggerganov/llama.cpp/tree/master/examples/server
 
 ```shell
-# using taskfile.dev
-$ task llama:server
-
-# LLAMA.CPP Server
 $ llama-server --port 9081 --log-disable --model ./models/mistral-7b-instruct-v0.2.Q4_K_M.gguf
 ```
 
@@ -393,10 +389,6 @@ providers:
 https://github.com/ggerganov/whisper.cpp/tree/master/examples/server
 
 ```shell
-# using taskfile.dev
-$ task whisper:server
-
-# WHISPER.CPP Server
 $ whisper-server --port 9083 --convert --model ./models/whisper-large-v3-turbo.bin
 ```
 
@@ -512,10 +504,6 @@ extractors:
 https://unstructured.io
 
 ```shell
-# using taskfile.dev
-task unstructured:server
-
-# using Docker
 docker run -it --rm -p 9085:8000 quay.io/unstructured-io/unstructured-api:0.0.80 --port 8000 --host 0.0.0.0
 ```
 
