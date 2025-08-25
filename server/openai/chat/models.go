@@ -40,6 +40,7 @@ type ChatCompletionRequest struct {
 	Messages []ChatCompletionMessage `json:"messages"`
 
 	ReasoningEffort ReasoningEffort `json:"reasoning_effort,omitempty"`
+	Verbosity       Verbosity       `json:"verbosity,omitempty"`
 
 	Stream bool   `json:"stream,omitempty"`
 	Stop   any    `json:"stop,omitempty"`
@@ -77,6 +78,14 @@ var (
 	ReasoningEffortLow     ReasoningEffort = "low"
 	ReasoningEffortMedium  ReasoningEffort = "medium"
 	ReasoningEffortHigh    ReasoningEffort = "high"
+)
+
+type Verbosity string
+
+var (
+	VerbosityLow    Verbosity = "low"
+	VerbosityMedium Verbosity = "medium"
+	VerbosityHigh   Verbosity = "high"
 )
 
 // https://platform.openai.com/docs/api-reference/chat/create

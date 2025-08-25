@@ -68,15 +68,21 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	switch req.ReasoningEffort {
 	case ReasoningEffortMinimal:
 		options.Effort = provider.EffortMinimal
-
 	case ReasoningEffortLow:
 		options.Effort = provider.EffortLow
-
 	case ReasoningEffortMedium:
 		options.Effort = provider.EffortMedium
-
 	case ReasoningEffortHigh:
 		options.Effort = provider.EffortHigh
+	}
+
+	switch req.Verbosity {
+	case VerbosityLow:
+		options.Verbosity = provider.VerbosityLow
+	case VerbosityMedium:
+		options.Verbosity = provider.VerbosityMedium
+	case VerbosityHigh:
+		options.Verbosity = provider.VerbosityHigh
 	}
 
 	if req.ResponseFormat != nil {
