@@ -104,7 +104,7 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 	for stream.Next() {
 		data := stream.Current()
 
-		println(data.RawJSON())
+		//println(data.RawJSON())
 
 		switch event := data.AsAny().(type) {
 		case responses.ResponseCreatedEvent:
