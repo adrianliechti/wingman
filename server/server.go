@@ -26,23 +26,9 @@ type Server struct {
 }
 
 func New(cfg *config.Config) (*Server, error) {
-	api, err := api.New(cfg)
-
-	if err != nil {
-		return nil, err
-	}
-
-	mcp, err := mcp.New(cfg)
-
-	if err != nil {
-		return nil, err
-	}
-
-	openai, err := openai.New(cfg)
-
-	if err != nil {
-		return nil, err
-	}
+	api := api.New(cfg)
+	mcp := mcp.New(cfg)
+	openai := openai.New(cfg)
 
 	mux := chi.NewMux()
 

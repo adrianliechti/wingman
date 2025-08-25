@@ -1,4 +1,4 @@
-package openai
+package image
 
 import (
 	"encoding/base64"

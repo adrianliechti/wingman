@@ -49,7 +49,6 @@ message Message {
 
 message Content {
   optional string text = 1;
-  optional string refusal = 2;
 
   optional File file = 3;
 
