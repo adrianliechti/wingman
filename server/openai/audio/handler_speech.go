@@ -5,10 +5,11 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/openai/openai-go/v2"
 )
 
 func (h *Handler) handleAudioSpeech(w http.ResponseWriter, r *http.Request) {
-	var req SpeechRequest
+	var req openai.AudioSpeechNewParams
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -23,12 +24,17 @@ func (h *Handler) handleAudioSpeech(w http.ResponseWriter, r *http.Request) {
 	}
 
 	options := &provider.SynthesizeOptions{
-		Voice: req.Voice,
-		Speed: req.Speed,
+		Voice:  string(req.Voice),
+		Format: string(req.ResponseFormat),
+	}
 
-		Format: req.ResponseFormat,
+	if req.Speed.Valid() {
+		val := float32(req.Speed.Value)
+		options.Speed = &val
+	}
 
-		Instructions: req.Instructions,
+	if req.Instructions.Valid() {
+		options.Instructions = req.Instructions.Value
 	}
 
 	synthesis, err := synthesizer.Synthesize(r.Context(), req.Input, options)

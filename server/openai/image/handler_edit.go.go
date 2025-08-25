@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/openai/openai-go/v2"
 )
 
 func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
@@ -58,16 +60,18 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := ImageList{}
+	result := openai.ImagesResponse{
+		Created: time.Now().Unix(),
+	}
 
 	if r.FormValue("response_format") == "url" {
-		result.Images = []Image{
+		result.Data = []openai.Image{
 			{
 				URL: "data:" + image.ContentType + ";base64," + base64.StdEncoding.EncodeToString(image.Content),
 			},
 		}
 	} else {
-		result.Images = []Image{
+		result.Data = []openai.Image{
 			{
 				B64JSON: base64.StdEncoding.EncodeToString(image.Content),
 			},

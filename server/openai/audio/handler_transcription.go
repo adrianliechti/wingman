@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/openai/openai-go/v2"
 )
 
 func (h *Handler) handleAudioTranscription(w http.ResponseWriter, r *http.Request) {
@@ -60,12 +61,7 @@ func (h *Handler) handleAudioTranscription(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	result := Transcription{
-		Task: "transcribe",
-
-		// Language: transcription.Language,
-		// Duration: transcription.Duration,
-
+	result := openai.Transcription{
 		Text: transcription.Text,
 	}
 

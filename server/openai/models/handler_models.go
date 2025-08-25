@@ -3,17 +3,18 @@ package models
 import (
 	"net/http"
 	"time"
+
+	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v2/packages/pagination"
 )
 
 func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
-	result := &ModelList{
+	result := pagination.Page[openai.Model]{
 		Object: "list",
 	}
 
 	for _, m := range h.Models() {
-		result.Models = append(result.Models, Model{
-			Object: "model",
-
+		result.Data = append(result.Data, openai.Model{
 			ID:      m.ID,
 			Created: time.Now().Unix(),
 			OwnedBy: "openai",
@@ -31,9 +32,7 @@ func (h *Handler) handleModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := &Model{
-		Object: "model",
-
+	result := openai.Model{
 		ID:      model.ID,
 		Created: time.Now().Unix(),
 		OwnedBy: "openai",
