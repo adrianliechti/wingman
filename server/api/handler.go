@@ -28,6 +28,7 @@ func New(cfg *config.Config) (*Handler, error) {
 
 func (h *Handler) Attach(r chi.Router) {
 	r.Post("/extract", h.handleExtract)
+	r.Post("/render", h.handleRender)
 	r.Post("/retrieve", h.handleRetrieve)
 
 	r.Post("/rerank", h.handleRerank)
