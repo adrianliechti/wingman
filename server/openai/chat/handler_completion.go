@@ -190,7 +190,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				reason = completion.Reason
 			}
 
-			return writeEventData(w, result)
+			return writeEvent(w, result)
 		}
 
 		completion, err := completer.Complete(r.Context(), messages, options)
@@ -233,7 +233,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				result.Model = req.Model
 			}
 
-			writeEventData(w, result)
+			writeEvent(w, result)
 		}
 
 		if streamUsage(req) && completion.Usage != nil {
@@ -258,7 +258,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				TotalTokens:      completion.Usage.InputTokens + completion.Usage.OutputTokens,
 			}
 
-			writeEventData(w, result)
+			writeEvent(w, result)
 		}
 
 		fmt.Fprintf(w, "data: [DONE]\n\n")
