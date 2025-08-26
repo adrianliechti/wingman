@@ -37,7 +37,7 @@ func writeError(w http.ResponseWriter, code int, err error) {
 	shared.WriteError(w, code, err)
 }
 
-func writeEventData(w http.ResponseWriter, v any) error {
+func writeEvent(w http.ResponseWriter, v any) error {
 	rc := http.NewResponseController(w)
 
 	var data bytes.Buffer
