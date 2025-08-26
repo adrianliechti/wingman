@@ -23,11 +23,9 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := h.readFile(r)
-
 	options := &provider.RenderOptions{}
 
-	if file != nil {
+	if file, err := h.readFile(r); err == nil {
 		options.Images = append(options.Images, *file)
 	}
 
