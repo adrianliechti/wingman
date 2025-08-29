@@ -32,15 +32,18 @@ func (cfg *Config) RegisterChain(id string, p chain.Provider) {
 type chainConfig struct {
 	Type string `yaml:"type"`
 
-	Model  string `yaml:"model"`
-	Effort string `yaml:"effort"`
+	Model string `yaml:"model"`
 
 	Template string    `yaml:"template"`
 	Messages []message `yaml:"messages"`
 
 	Tools []string `yaml:"tools"`
 
-	Limit       *int     `yaml:"limit"`
+	Limit *int `yaml:"limit"`
+
+	Effort    string `yaml:"effort"`
+	Verbosity string `yaml:"verbosity"`
+
 	Temperature *float32 `yaml:"temperature"`
 }
 
@@ -53,8 +56,10 @@ type chainContext struct {
 	Template *template.Template
 	Messages []provider.Message
 
-	Tools  map[string]tool.Provider
-	Effort provider.ReasoningEffort
+	Tools map[string]tool.Provider
+
+	Effort    provider.Effort
+	Verbosity provider.Verbosity
 
 	Limiter *rate.Limiter
 }
@@ -80,8 +85,10 @@ func (cfg *Config) registerChains(f *configFile) error {
 
 			Messages: make([]provider.Message, 0),
 
-			Tools:  make(map[string]tool.Provider),
-			Effort: parseEffort(config.Effort),
+			Tools: make(map[string]tool.Provider),
+
+			Effort:    provider.Effort(config.Effort),
+			Verbosity: provider.Verbosity(config.Verbosity),
 
 			Limiter: createLimiter(config.Limit),
 		}
@@ -173,6 +180,10 @@ func agentChain(cfg chainConfig, context chainContext) (chain.Provider, error) {
 
 	if context.Effort != "" {
 		options = append(options, agent.WithEffort(context.Effort))
+	}
+
+	if context.Verbosity != "" {
+		options = append(options, agent.WithVerbosity(context.Verbosity))
 	}
 
 	return agent.New(context.Model, options...)

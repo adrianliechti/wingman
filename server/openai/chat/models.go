@@ -1,87 +1,9 @@
-package openai
+package chat
 
 import (
 	"encoding/json"
 	"errors"
 )
-
-// https://platform.openai.com/docs/api-reference/models/object
-type Model struct {
-	Object string `json:"object"` // "model"
-
-	ID      string `json:"id"`
-	Created int64  `json:"created"`
-	OwnedBy string `json:"owned_by"`
-}
-
-// https://platform.openai.com/docs/api-reference/models
-type ModelList struct {
-	Object string `json:"object"` // "list"
-
-	Models []Model `json:"data"`
-}
-
-// https://platform.openai.com/docs/api-reference/embeddings/create
-type EmbeddingsRequest struct {
-	Model string `json:"model"`
-
-	Input any `json:"input"`
-
-	// encoding_format string: float, base64
-	// dimensions int
-	// user string
-}
-
-func (r *EmbeddingsRequest) UnmarshalJSON(data []byte) error {
-	type1 := struct {
-		Model string `json:"model"`
-		Input string `json:"input"`
-	}{}
-
-	if err := json.Unmarshal(data, &type1); err == nil {
-		*r = EmbeddingsRequest{
-			Model: type1.Model,
-			Input: type1.Input,
-		}
-
-		return nil
-	}
-
-	type2 := struct {
-		Model string `json:"model"`
-
-		Input []string `json:"input"`
-	}{}
-
-	if err := json.Unmarshal(data, &type2); err == nil {
-		*r = EmbeddingsRequest{
-			Model: type2.Model,
-			Input: type2.Input,
-		}
-
-		return nil
-	}
-
-	return nil
-}
-
-// https://platform.openai.com/docs/api-reference/embeddings/object
-type Embedding struct {
-	Object string `json:"object"` // "embedding"
-
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
-}
-
-// https://platform.openai.com/docs/api-reference/embeddings/create
-type EmbeddingList struct {
-	Object string `json:"object"` // "list"
-
-	Model string      `json:"model"`
-	Data  []Embedding `json:"data"`
-
-	Usage *Usage `json:"usage,omitempty"`
-}
 
 type MessageRole string
 
@@ -118,6 +40,7 @@ type ChatCompletionRequest struct {
 	Messages []ChatCompletionMessage `json:"messages"`
 
 	ReasoningEffort ReasoningEffort `json:"reasoning_effort,omitempty"`
+	Verbosity       Verbosity       `json:"verbosity,omitempty"`
 
 	Stream bool   `json:"stream,omitempty"`
 	Stop   any    `json:"stop,omitempty"`
@@ -155,6 +78,14 @@ var (
 	ReasoningEffortLow     ReasoningEffort = "low"
 	ReasoningEffortMedium  ReasoningEffort = "medium"
 	ReasoningEffortHigh    ReasoningEffort = "high"
+)
+
+type Verbosity string
+
+var (
+	VerbosityLow    Verbosity = "low"
+	VerbosityMedium Verbosity = "medium"
+	VerbosityHigh   Verbosity = "high"
 )
 
 // https://platform.openai.com/docs/api-reference/chat/create
@@ -205,7 +136,6 @@ type ChatCompletionMessage struct {
 	Role MessageRole `json:"role,omitempty"`
 
 	Content *string `json:"content,omitempty"`
-	Refusal *string `json:"refusal,omitempty"`
 
 	Contents []MessageContent `json:"-"`
 
@@ -256,7 +186,6 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 			Role MessageRole `json:"role,omitempty"`
 
 			Content *string `json:"-"`
-			Refusal *string `json:"refusal,omitempty"`
 
 			Contents []MessageContent `json:"content,omitempty"`
 
@@ -270,7 +199,6 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 			Role MessageRole `json:"role,omitempty"`
 
 			Content *string `json:"content,omitempty"`
-			Refusal *string `json:"refusal,omitempty"`
 
 			Contents []MessageContent `json:"-"`
 
@@ -287,7 +215,6 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 		Role MessageRole `json:"role,omitempty"`
 
 		Content *string `json:"content"`
-		Refusal *string `json:"refusal,omitempty"`
 
 		Contents []MessageContent
 
@@ -304,7 +231,6 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 		Role MessageRole `json:"role,omitempty"`
 
 		Content *string
-		Refusal *string `json:"refusal,omitempty"`
 
 		Contents []MessageContent `json:"content"`
 
@@ -359,60 +285,8 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-// https://platform.openai.com/docs/api-reference/audio/createSpeech
-type SpeechRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
-
-	Voice string   `json:"voice,omitempty"`
-	Speed *float32 `json:"speed,omitempty"`
-
-	Instructions string `json:"instructions,omitempty"`
-
-	ResponseFormat string `json:"response_format,omitempty"`
-}
-
-type Transcription struct {
-	Task string `json:"task"`
-
-	Language string  `json:"language"`
-	Duration float64 `json:"duration"`
-
-	Text string `json:"text"`
-}
-
-// https://platform.openai.com/docs/api-reference/images/create
-type ImageCreateRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-
-	ResponseFormat string `json:"response_format,omitempty"`
-}
-
-// https://platform.openai.com/docs/api-reference/images/create
-type ImageList struct {
-	Images []Image `json:"data"`
-}
-
-// https://platform.openai.com/docs/api-reference/images/object
-type Image struct {
-	URL     string `json:"url,omitempty"`
-	B64JSON string `json:"b64_json,omitempty"`
-
-	RevisedPrompt string `json:"revised_prompt,omitempty"`
-}
-
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	TotalTokens      int `json:"total_tokens,omitempty"`
-}
-
-type ErrorResponse struct {
-	Error Error `json:"error,omitempty"`
-}
-
-type Error struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
 }

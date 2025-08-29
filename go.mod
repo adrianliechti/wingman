@@ -15,7 +15,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v0.3.0
 	github.com/openai/openai-go/v2 v2.1.1
 	github.com/replicate/replicate-go v0.26.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	github.com/testcontainers/testcontainers-go v0.38.0
 	go.opentelemetry.io/contrib/bridges/otelslog v0.12.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0
@@ -32,7 +32,7 @@ require (
 	google.golang.org/api v0.248.0
 	google.golang.org/genai v1.21.0
 	google.golang.org/grpc v1.75.0
-	google.golang.org/protobuf v1.36.7
+	google.golang.org/protobuf v1.36.8
 	gopkg.in/yaml.v3 v3.0.1
 )
 

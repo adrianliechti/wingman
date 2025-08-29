@@ -78,18 +78,6 @@ func (m Message) Text() string {
 	return strings.Join(parts, "\n\n")
 }
 
-func (m Message) Refusal() string {
-	var parts []string
-
-	for _, c := range m.Content {
-		if c.Refusal != "" {
-			parts = append(parts, c.Refusal)
-		}
-	}
-
-	return strings.Join(parts, "\n\n")
-}
-
 func (m Message) ToolCalls() []ToolCall {
 	var calls []ToolCall
 
@@ -120,7 +108,6 @@ type CompletionAccumulator struct {
 	reason CompletionReason
 
 	content strings.Builder
-	refusal strings.Builder
 
 	toolCalls []ToolCall
 
@@ -148,10 +135,6 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		for _, c := range c.Message.Content {
 			if c.Text != "" {
 				a.content.WriteString(c.Text)
-			}
-
-			if c.Refusal != "" {
-				a.refusal.WriteString(c.Refusal)
 			}
 
 			if c.ToolCall != nil {
@@ -189,10 +172,6 @@ func (a *CompletionAccumulator) Result() *Completion {
 		content = append(content, TextContent(a.content.String()))
 	}
 
-	if a.refusal.Len() > 0 {
-		content = append(content, RefusalContent(a.refusal.String()))
-	}
-
 	for _, call := range a.toolCalls {
 		content = append(content, ToolCallContent(call))
 	}
@@ -218,12 +197,6 @@ func TextContent(val string) Content {
 	}
 }
 
-func RefusalContent(val string) Content {
-	return Content{
-		Refusal: val,
-	}
-}
-
 func FileContent(val *File) Content {
 	return Content{
 		File: val,
@@ -243,8 +216,7 @@ func ToolResultContent(val ToolResult) Content {
 }
 
 type Content struct {
-	Text    string
-	Refusal string
+	Text string
 
 	File *File
 
@@ -272,7 +244,8 @@ type StreamHandler = func(ctx context.Context, completion Completion) error
 type CompleteOptions struct {
 	Stream StreamHandler
 
-	Effort ReasoningEffort
+	Effort    Effort
+	Verbosity Verbosity
 
 	Stop  []string
 	Tools []Tool
@@ -295,13 +268,21 @@ type Completion struct {
 	Usage *Usage
 }
 
-type ReasoningEffort string
+type Effort string
 
 const (
-	ReasoningEffortMinimal ReasoningEffort = "minimal"
-	ReasoningEffortLow     ReasoningEffort = "low"
-	ReasoningEffortMedium  ReasoningEffort = "medium"
-	ReasoningEffortHigh    ReasoningEffort = "high"
+	EffortMinimal Effort = "minimal"
+	EffortLow     Effort = "low"
+	EffortMedium  Effort = "medium"
+	EffortHigh    Effort = "high"
+)
+
+type Verbosity string
+
+const (
+	VerbosityLow    Verbosity = "low"
+	VerbosityMedium Verbosity = "medium"
+	VerbosityHigh   Verbosity = "high"
 )
 
 type CompletionFormat string
