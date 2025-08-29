@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/pkg/provider/replicate"
 	"github.com/adrianliechti/wingman/pkg/provider/replicate/flux"
@@ -37,6 +38,9 @@ func (cfg *Config) Renderer(id string) (provider.Renderer, error) {
 
 func createRenderer(cfg providerConfig, model modelContext) (provider.Renderer, error) {
 	switch strings.ToLower(cfg.Type) {
+	case "gemini", "google":
+		return googleRenderer(cfg, model)
+
 	case "openai":
 		return openaiRenderer(cfg, model)
 
@@ -46,6 +50,16 @@ func createRenderer(cfg providerConfig, model modelContext) (provider.Renderer, 
 	default:
 		return nil, errors.New("invalid renderer type: " + cfg.Type)
 	}
+}
+
+func googleRenderer(cfg providerConfig, model modelContext) (provider.Renderer, error) {
+	var options []google.Option
+
+	if cfg.Token != "" {
+		options = append(options, google.WithToken(cfg.Token))
+	}
+
+	return google.NewRenderer(model.ID, options...)
 }
 
 func openaiRenderer(cfg providerConfig, model modelContext) (provider.Renderer, error) {

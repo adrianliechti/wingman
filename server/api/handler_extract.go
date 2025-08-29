@@ -32,7 +32,7 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 		input.URL = url
 	}
 
-	if file, err := h.readFile(r); err == nil {
+	if file, err := readFile(r); err == nil {
 		input.File = file
 	}
 
