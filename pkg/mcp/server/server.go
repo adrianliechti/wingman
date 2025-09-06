@@ -90,10 +90,7 @@ func (s *Server) refreshTools() error {
 
 			handler := func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				var args map[string]any
-
-				if r, ok := req.Params.Arguments.(json.RawMessage); ok {
-					json.Unmarshal(r, &args)
-				}
+				json.Unmarshal(req.Params.Arguments, &args)
 
 				result, err := p.Execute(ctx, t.Name, args)
 
