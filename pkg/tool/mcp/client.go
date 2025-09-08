@@ -3,8 +3,9 @@ package mcp
 import (
 	"context"
 	"crypto/tls"
+	"log"
 	"net/http"
-	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -15,57 +16,39 @@ import (
 var _ tool.Provider = (*Client)(nil)
 
 type Client struct {
-	transportFn func() (mcp.Transport, error)
+	transport mcp.Transport
 }
 
-func NewCommand(command string, env, args []string) (*Client, error) {
-	return &Client{
-		transportFn: func() (mcp.Transport, error) {
-			cmd := exec.Command(command, args...)
-			return mcp.NewCommandTransport(cmd), nil
-		},
-	}, nil
-}
-
-func NewStreamable(url string, headers map[string]string) (*Client, error) {
-	client := &http.Client{
+func New(url string, headers map[string]string) (*Client, error) {
+	hc := &http.Client{
 		Transport: &rt{
 			headers: headers,
 		},
 	}
 
-	return &Client{
-		transportFn: func() (mcp.Transport, error) {
-			return mcp.NewStreamableClientTransport(url, &mcp.StreamableClientTransportOptions{
-				HTTPClient: client,
-			}), nil
-		},
-	}, nil
-}
+	var tr mcp.Transport = &mcp.StreamableClientTransport{
+		Endpoint: url,
 
-func NewSSE(url string, headers map[string]string) (*Client, error) {
-	client := &http.Client{
-		Transport: &rt{
-			headers: headers,
-		},
+		HTTPClient: hc,
+		MaxRetries: -1,
 	}
 
-	return &Client{
-		transportFn: func() (mcp.Transport, error) {
-			return mcp.NewSSEClientTransport(url, &mcp.SSEClientTransportOptions{
-				HTTPClient: client,
-			}), nil
-		},
-	}, nil
+	if strings.Contains(strings.ToLower(url), "/sse") {
+		tr = &mcp.SSEClientTransport{
+			Endpoint: url,
+
+			HTTPClient: hc,
+		}
+	}
+
+	c := &Client{
+		transport: tr,
+	}
+
+	return c, nil
 }
 
 func (c *Client) createSession(ctx context.Context) (*mcp.ClientSession, error) {
-	transport, err := c.transportFn()
-
-	if err != nil {
-		return nil, err
-	}
-
 	impl := &mcp.Implementation{
 		Name:    "wingman",
 		Version: "1.0.0",
@@ -76,8 +59,7 @@ func (c *Client) createSession(ctx context.Context) (*mcp.ClientSession, error) 
 	}
 
 	client := mcp.NewClient(impl, opts)
-
-	return client.Connect(ctx, transport, nil)
+	return client.Connect(ctx, c.transport, nil)
 }
 
 func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
@@ -117,6 +99,7 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	session, err := c.createSession(ctx)
 
 	if err != nil {
+		log.Printf("MCP transport creation failed: %v", err)
 		return nil, err
 	}
 
@@ -128,6 +111,7 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	})
 
 	if err != nil {
+		log.Printf("MCP tool execution failed - tool: %s, error: %v", name, err)
 		return nil, err
 	}
 

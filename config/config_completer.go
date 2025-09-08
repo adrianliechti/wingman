@@ -14,7 +14,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
 	"github.com/adrianliechti/wingman/pkg/provider/mistral"
-	"github.com/adrianliechti/wingman/pkg/provider/mistralrs"
 	"github.com/adrianliechti/wingman/pkg/provider/ollama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/pkg/provider/xai"
@@ -78,9 +77,6 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 
 	case "mistral":
 		return mistralCompleter(cfg, model)
-
-	case "mistralrs":
-		return mistralrsCompleter(cfg, model)
 
 	case "ollama":
 		return ollamaCompleter(cfg, model)
@@ -169,12 +165,6 @@ func mistralCompleter(cfg providerConfig, model modelContext) (provider.Complete
 	}
 
 	return mistral.NewCompleter(model.ID, options...)
-}
-
-func mistralrsCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []mistralrs.Option
-
-	return mistralrs.NewCompleter(cfg.URL, model.ID, options...)
 }
 
 func ollamaCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
