@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/config"
 
@@ -22,15 +23,22 @@ func New(cfg *config.Config) (*Handler, error) {
 
 func (h *Handler) Attach(r chi.Router) {
 	r.HandleFunc("/mcp/{id}", h.handleMCP)
+	r.HandleFunc("/mcp/{id}/*", h.handleMCP)
 }
 
 func (h *Handler) handleMCP(w http.ResponseWriter, r *http.Request) {
-	handler, err := h.MCP(r.PathValue("id"))
+	id := r.PathValue("id")
+	handler, err := h.MCP(id)
 
 	if err != nil {
 		http.Error(w, "MCP not found", http.StatusNotFound)
 		return
 	}
+
+	path := "/" + strings.Trim(r.PathValue("*"), "/")
+
+	r.URL.Path = path
+	r.RequestURI = r.URL.RequestURI()
 
 	handler.ServeHTTP(w, r)
 }

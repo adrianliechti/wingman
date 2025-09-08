@@ -56,9 +56,6 @@ type toolConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
-	Command string   `yaml:"command"`
-	Args    []string `yaml:"args"`
-
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
@@ -192,21 +189,7 @@ func translateTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 }
 
 func mcpTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	if cfg.Command != "" {
-		var env []string
-
-		for k, v := range cfg.Vars {
-			env = append(env, k+"="+v)
-		}
-
-		return mcp.NewCommand(cfg.Command, env, cfg.Args)
-	}
-
-	if strings.Contains(strings.ToLower(cfg.URL), "/sse") {
-		return mcp.NewSSE(cfg.URL, cfg.Vars)
-	}
-
-	return mcp.NewStreamable(cfg.URL, cfg.Vars)
+	return mcp.New(cfg.URL, cfg.Vars)
 }
 
 func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
