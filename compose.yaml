@@ -1,0 +1,104 @@
+services:
+  chat:
+    image: ghcr.io/adrianliechti/wingman-chat
+
+    environment:
+      - WINGMAN_URL=http://platform:8080
+      - VISION_ENABLED=true
+      - INTERNET_ENABLED=true
+      - ARTIFACTS_ENABLED=true
+      - REPOSITORY_ENABLED=true
+      - REPOSITORY_EMBEDDER=gemma-embedding
+    
+    ports:
+      - "8000"
+
+    configs:
+      - source: models
+        target: /app/models.yaml
+
+  platform:
+    image: ghcr.io/adrianliechti/wingman-platform
+    
+    models:
+      - llm
+      - embedding
+    
+    configs:
+      - source: platform
+        target: /config.yaml
+  
+  extractor:
+    image: ghcr.io/adrianliechti/wingman-extractor
+  
+  segmenter:
+    image: ghcr.io/adrianliechti/wingman-segmenter
+
+models:
+  llm:
+    model: ai/gemma3-qat
+  
+  embedding:
+    model: ai/embeddinggemma
+
+configs:
+  platform:
+    content: |
+      providers:
+        - type: openai
+          url: $${LLM_URL}
+
+          models:
+            gemma:
+              id: $${LLM_MODEL}
+
+        - type: openai
+          url: $${EMBEDDING_URL}
+
+          models:
+            gemma-embedding:
+              id: $${EMBEDDING_MODEL}
+      
+      retrievers:
+        web:
+          type: duckduckgo
+      
+      extractors:
+        text:
+          type: text
+
+        default:
+          type: wingman-extractor
+          url: grpc://extractor:50051
+      
+      segmenters:
+        default:
+          type: wingman-segmenter
+          url: grpc://segmenter:50051
+      
+      translators:
+        default:
+          type: llm
+          model: gemma
+      
+      chains:
+        wingman:
+          type: agent
+          model: gemma
+
+          messages:
+            - role: system
+              content: |
+                You are Wingman, a large language model based on Google Gemma 3.
+                
+                - Use GitHub Flavored Markdown to format text
+                - Visualize Data as Markdown Tables
+                - Format Code in Markdown Blocks using triple backticks and the language name
+          
+                Current date: {{ now | date "2006-01-02" }}
+  
+  models:
+    content: |
+      - id: wingman
+        name: Wingman
+        description: Wingman (based on Gemma 3)
