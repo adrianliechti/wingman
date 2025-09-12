@@ -10,10 +10,10 @@ require (
 	github.com/coreos/go-oidc/v3 v3.15.0
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-chi/cors v1.2.2
-	github.com/google/jsonschema-go v0.2.2
+	github.com/google/jsonschema-go v0.2.3
 	github.com/google/uuid v1.6.0
-	github.com/modelcontextprotocol/go-sdk v0.4.0
-	github.com/openai/openai-go/v2 v2.4.1
+	github.com/modelcontextprotocol/go-sdk v0.5.0
+	github.com/openai/openai-go/v2 v2.4.2
 	github.com/replicate/replicate-go v0.26.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.38.0

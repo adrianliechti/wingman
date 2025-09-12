@@ -4,14 +4,14 @@ services:
 
     environment:
       - WINGMAN_URL=http://platform:8080
-      - VISION_ENABLED=true
       - INTERNET_ENABLED=true
       - ARTIFACTS_ENABLED=true
       - REPOSITORY_ENABLED=true
-      - REPOSITORY_EMBEDDER=gemma-embedding
+      - REPOSITORY_EMBEDDER=qwen3-embedding
+      - REPOSITORY_CONTEXT_PAGES=4
     
     ports:
-      - "8000"
+      - "${PORT:-8000}:8000"
 
     configs:
       - source: models
@@ -36,10 +36,10 @@ services:
 
 models:
   llm:
-    model: ai/gemma3-qat
+    model: adrianliechti/qwen3
   
   embedding:
-    model: ai/embeddinggemma
+    model: adrianliechti/qwen3-embedding
 
 configs:
   platform:
@@ -49,14 +49,14 @@ configs:
           url: $${LLM_URL}
 
           models:
-            gemma:
+            qwen3:
               id: $${LLM_MODEL}
 
         - type: openai
           url: $${EMBEDDING_URL}
 
           models:
-            gemma-embedding:
+            qwen3-embedding:
               id: $${EMBEDDING_MODEL}
       
       retrievers:
@@ -79,17 +79,17 @@ configs:
       translators:
         default:
           type: llm
-          model: gemma
+          model: qwen3
       
       chains:
         wingman:
           type: agent
-          model: gemma
+          model: qwen3
 
           messages:
             - role: system
               content: |
-                You are Wingman, a large language model based on Google Gemma 3.
+                You are Wingman, a large language model.
                 
                 - Use GitHub Flavored Markdown to format text
                 - Visualize Data as Markdown Tables
@@ -101,4 +101,4 @@ configs:
     content: |
       - id: wingman
         name: Wingman
-        description: Wingman (based on Gemma 3)
+        description: Smart, efficient model for everyday use

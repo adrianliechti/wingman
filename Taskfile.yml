@@ -23,4 +23,4 @@ tasks:
   
   run:
     cmds:
-      - docker compose up
+      - docker compose up --remove-orphans --force-recreate
