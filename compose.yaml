@@ -1,4 +1,14 @@
 services:
+  caddy:
+    image: caddy:2
+
+    ports:
+      - "${PORT:-4242}:80"
+
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+
   chat:
     image: ghcr.io/adrianliechti/wingman-chat
 
@@ -9,9 +19,6 @@ services:
       - REPOSITORY_ENABLED=true
       - REPOSITORY_EMBEDDER=qwen3-embedding
       - REPOSITORY_CONTEXT_PAGES=4
-    
-    ports:
-      - "${PORT:-8000}:8000"
 
     configs:
       - source: models
@@ -42,6 +49,22 @@ models:
     model: adrianliechti/qwen3-embedding
 
 configs:
+  caddyfile:
+    content: |
+      {
+        auto_https off
+      }
+
+      :80 {
+        handle /v1/* {
+          reverse_proxy http://platform:8080
+        }
+        
+        handle {
+          reverse_proxy http://chat:8000
+        }
+      }
+
   platform:
     content: |
       providers:
