@@ -68,14 +68,14 @@ configs:
   platform:
     content: |
       providers:
-        - type: openai
+        - type: openai-compatible
           url: $${LLM_URL}
 
           models:
             qwen3:
               id: $${LLM_MODEL}
 
-        - type: openai
+        - type: openai-compatible
           url: $${EMBEDDING_URL}
 
           models:
