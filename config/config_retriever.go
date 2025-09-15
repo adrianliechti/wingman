@@ -7,6 +7,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/retriever"
+	"github.com/adrianliechti/wingman/pkg/retriever/anthropic"
 	"github.com/adrianliechti/wingman/pkg/retriever/custom"
 	"github.com/adrianliechti/wingman/pkg/retriever/duckduckgo"
 	"github.com/adrianliechti/wingman/pkg/retriever/exa"
@@ -96,6 +97,9 @@ func (cfg *Config) registerRetrievers(f *configFile) error {
 func createRetriever(cfg retrieverConfig, context retrieverContext) (retriever.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
 
+	case "anthropic":
+		return anthropicRetriever(cfg, context)
+
 	case "duckduckgo":
 		return duckduckgoRetriever(cfg, context)
 
@@ -111,6 +115,16 @@ func createRetriever(cfg retrieverConfig, context retrieverContext) (retriever.P
 	default:
 		return nil, errors.New("invalid index type: " + cfg.Type)
 	}
+}
+
+func anthropicRetriever(cfg retrieverConfig, context retrieverContext) (retriever.Provider, error) {
+	var options []anthropic.Option
+
+	if context.Client != nil {
+		options = append(options, anthropic.WithClient(context.Client))
+	}
+
+	return anthropic.New(cfg.Token, options...)
 }
 
 func duckduckgoRetriever(cfg retrieverConfig, context retrieverContext) (retriever.Provider, error) {
