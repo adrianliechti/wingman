@@ -22,7 +22,7 @@ type Message = provider.Message
 
 type Completion = provider.Completion
 type CompletionFormat = provider.CompletionFormat
-type CompletionReasoningEffort = provider.ReasoningEffort
+type CompletionReasoningEffort = provider.Effort
 
 type CompleteOptions = provider.CompleteOptions
 type CompleteStreamHandler = provider.StreamHandler

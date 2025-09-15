@@ -183,10 +183,6 @@ func wireMessage(val provider.Message) *Message {
 			content.Text = &c.Text
 		}
 
-		if c.Refusal != "" {
-			content.Refusal = &c.Refusal
-		}
-
 		if c.File != nil {
 			content.File = &File{
 				Name: c.File.Name,
@@ -245,10 +241,6 @@ func unwireCompletion(val *Completion) provider.Completion {
 
 			if c.Text != nil {
 				content.Text = *c.Text
-			}
-
-			if c.Refusal != nil {
-				content.Refusal = *c.Refusal
 			}
 
 			if c.File != nil {

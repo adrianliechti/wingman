@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/server/openai"
 )
 
 type ModelService struct {
@@ -44,7 +43,14 @@ func (r *ModelService) List(ctx context.Context, opts ...RequestOption) ([]Model
 		return nil, errors.New(resp.Status)
 	}
 
-	var result openai.ModelList
+	// https://platform.openai.com/docs/api-reference/models
+	type ModelList struct {
+		Models []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	var result ModelList
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err

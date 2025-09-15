@@ -1,4 +1,4 @@
-package openai
+package models
 
 import (
 	"net/http"

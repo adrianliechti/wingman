@@ -1,93 +1,48 @@
 package openai
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"strings"
-
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/server/openai/audio"
+	"github.com/adrianliechti/wingman/server/openai/chat"
+	"github.com/adrianliechti/wingman/server/openai/embeddings"
+	"github.com/adrianliechti/wingman/server/openai/image"
+	"github.com/adrianliechti/wingman/server/openai/models"
+
 	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {
 	*config.Config
+
+	models *models.Handler
+
+	chat  *chat.Handler
+	audio *audio.Handler
+	image *image.Handler
+
+	embeddings *embeddings.Handler
 }
 
-func New(cfg *config.Config) (*Handler, error) {
-	h := &Handler{
+func New(cfg *config.Config) *Handler {
+	return &Handler{
 		Config: cfg,
-	}
 
-	return h, nil
+		models: models.New(cfg),
+
+		chat:  chat.New(cfg),
+		audio: audio.New(cfg),
+		image: image.New(cfg),
+
+		embeddings: embeddings.New(cfg),
+	}
 }
 
 func (h *Handler) Attach(r chi.Router) {
-	r.Get("/models", h.handleModels)
-	r.Get("/models/{id}", h.handleModel)
+	h.models.Attach(r)
 
-	r.Post("/embeddings", h.handleEmbeddings)
+	h.chat.Attach(r)
+	h.audio.Attach(r)
+	h.image.Attach(r)
 
-	r.Post("/chat/completions", h.handleChatCompletion)
-
-	r.Post("/audio/speech", h.handleAudioSpeech)
-	r.Post("/audio/transcriptions", h.handleAudioTranscription)
-
-	r.Post("/images/generations", h.handleImageGeneration)
-	r.Post("/images/edits", h.handleImageEdit)
-}
-
-func writeJson(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-
-	enc.Encode(v)
-}
-
-func writeError(w http.ResponseWriter, code int, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-
-	errorType := "invalid_request_error"
-
-	if code >= 500 {
-		errorType = "internal_server_error"
-	}
-
-	resp := ErrorResponse{
-		Error: Error{
-			Type:    errorType,
-			Message: err.Error(),
-		},
-	}
-
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-
-	enc.Encode(resp)
-}
-
-func writeEventData(w http.ResponseWriter, v any) error {
-	rc := http.NewResponseController(w)
-
-	var data bytes.Buffer
-
-	enc := json.NewEncoder(&data)
-	enc.SetEscapeHTML(false)
-	enc.Encode(v)
-
-	event := strings.TrimSpace(data.String())
-
-	if _, err := fmt.Fprintf(w, "data: %s\n\n", event); err != nil {
-		return err
-	}
-
-	if err := rc.Flush(); err != nil {
-		return err
-	}
-
-	return nil
+	h.embeddings.Attach(r)
 }

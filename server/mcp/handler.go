@@ -13,12 +13,12 @@ type Handler struct {
 	*config.Config
 }
 
-func New(cfg *config.Config) (*Handler, error) {
+func New(cfg *config.Config) *Handler {
 	h := &Handler{
 		Config: cfg,
 	}
 
-	return h, nil
+	return h
 }
 
 func (h *Handler) Attach(r chi.Router) {

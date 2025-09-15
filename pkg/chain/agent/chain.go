@@ -25,7 +25,9 @@ type Chain struct {
 	tools    []tool.Provider
 	messages []provider.Message
 
-	effort      provider.ReasoningEffort
+	effort    provider.Effort
+	verbosity provider.Verbosity
+
 	temperature *float32
 }
 
@@ -65,9 +67,15 @@ func WithTools(tool ...tool.Provider) Option {
 	}
 }
 
-func WithEffort(effort provider.ReasoningEffort) Option {
+func WithEffort(effort provider.Effort) Option {
 	return func(c *Chain) {
 		c.effort = effort
+	}
+}
+
+func WithVerbosity(verbosity provider.Verbosity) Option {
+	return func(c *Chain) {
+		c.verbosity = verbosity
 	}
 }
 
@@ -178,10 +186,6 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		for _, c := range completion.Message.Content {
 			if c.Text != "" {
 				delta.Message.Content = append(delta.Message.Content, provider.TextContent(c.Text))
-			}
-
-			if c.Refusal != "" {
-				delta.Message.Content = append(delta.Message.Content, provider.RefusalContent(c.Text))
 			}
 
 			if c.ToolCall != nil {

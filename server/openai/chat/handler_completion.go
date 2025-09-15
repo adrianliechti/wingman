@@ -1,4 +1,4 @@
-package openai
+package chat
 
 import (
 	"context"
@@ -67,16 +67,22 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 	switch req.ReasoningEffort {
 	case ReasoningEffortMinimal:
-		options.Effort = provider.ReasoningEffortMinimal
-
+		options.Effort = provider.EffortMinimal
 	case ReasoningEffortLow:
-		options.Effort = provider.ReasoningEffortLow
-
+		options.Effort = provider.EffortLow
 	case ReasoningEffortMedium:
-		options.Effort = provider.ReasoningEffortMedium
-
+		options.Effort = provider.EffortMedium
 	case ReasoningEffortHigh:
-		options.Effort = provider.ReasoningEffortHigh
+		options.Effort = provider.EffortHigh
+	}
+
+	switch req.Verbosity {
+	case VerbosityLow:
+		options.Verbosity = provider.VerbosityLow
+	case VerbosityMedium:
+		options.Verbosity = provider.VerbosityMedium
+	case VerbosityHigh:
+		options.Verbosity = provider.VerbosityHigh
 	}
 
 	if req.ResponseFormat != nil {
@@ -145,13 +151,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 					message.Content = &content
 				}
 
-				if refusal := completion.Message.Refusal(); refusal != "" {
-					message.Refusal = &refusal
-				}
-
 				if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
 					message.Content = nil
-					message.Refusal = nil
 
 					for i, c := range calls {
 						if c.ID != "" {
@@ -189,7 +190,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				reason = completion.Reason
 			}
 
-			return writeEventData(w, result)
+			return writeEvent(w, result)
 		}
 
 		completion, err := completer.Complete(r.Context(), messages, options)
@@ -232,7 +233,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				result.Model = req.Model
 			}
 
-			writeEventData(w, result)
+			writeEvent(w, result)
 		}
 
 		if streamUsage(req) && completion.Usage != nil {
@@ -257,7 +258,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				TotalTokens:      completion.Usage.InputTokens + completion.Usage.OutputTokens,
 			}
 
-			writeEventData(w, result)
+			writeEvent(w, result)
 		}
 
 		fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -293,13 +294,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				message.Content = &content
 			}
 
-			if refusal := completion.Message.Refusal(); refusal != "" {
-				message.Refusal = &refusal
-			}
-
 			if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
 				message.Content = nil
-				message.Refusal = nil
 
 				message.ToolCalls = calls
 			}
