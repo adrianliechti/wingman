@@ -75,5 +75,5 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, err
 	}
 
-	return document.Content, nil
+	return string(document.Content), nil
 }

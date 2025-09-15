@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"os"
 
-	"github.com/adrianliechti/wingman/pkg/api"
 	"github.com/adrianliechti/wingman/pkg/authorizer"
 	"github.com/adrianliechti/wingman/pkg/chain"
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/mcp"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/retriever"
 	"github.com/adrianliechti/wingman/pkg/segmenter"
@@ -42,7 +42,7 @@ type Config struct {
 	tools  map[string]tool.Provider
 	chains map[string]chain.Provider
 
-	APIs map[string]api.Provider
+	mcps map[string]mcp.Provider
 }
 
 func Parse(path string) (*Config, error) {
@@ -96,7 +96,7 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if err := c.registerAPI(file); err != nil {
+	if err := c.registerMCP(file); err != nil {
 		return nil, err
 	}
 
@@ -119,7 +119,7 @@ type configFile struct {
 
 	Routers yaml.Node `yaml:"routers"`
 
-	APIs yaml.Node `yaml:"apis"`
+	MCPs yaml.Node `yaml:"mcps"`
 }
 
 func parseFile(path string) (*configFile, error) {

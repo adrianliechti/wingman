@@ -1,0 +1,127 @@
+services:
+  caddy:
+    image: caddy:2
+
+    ports:
+      - "${PORT:-4242}:80"
+
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+
+  chat:
+    image: ghcr.io/adrianliechti/wingman-chat
+
+    environment:
+      - WINGMAN_URL=http://platform:8080
+      - INTERNET_ENABLED=true
+      - ARTIFACTS_ENABLED=true
+      - REPOSITORY_ENABLED=true
+      - REPOSITORY_EMBEDDER=qwen3-embedding
+      - REPOSITORY_CONTEXT_PAGES=4
+
+    configs:
+      - source: models
+        target: /app/models.yaml
+
+  platform:
+    image: ghcr.io/adrianliechti/wingman-platform
+    
+    models:
+      - llm
+      - embedding
+    
+    configs:
+      - source: platform
+        target: /config.yaml
+  
+  extractor:
+    image: ghcr.io/adrianliechti/wingman-extractor
+  
+  segmenter:
+    image: ghcr.io/adrianliechti/wingman-segmenter
+
+models:
+  llm:
+    model: adrianliechti/qwen3
+  
+  embedding:
+    model: adrianliechti/qwen3-embedding
+
+configs:
+  caddyfile:
+    content: |
+      {
+        auto_https off
+      }
+
+      :80 {
+        handle /v1/* {
+          reverse_proxy http://platform:8080
+        }
+        
+        handle {
+          reverse_proxy http://chat:8000
+        }
+      }
+
+  platform:
+    content: |
+      providers:
+        - type: openai
+          url: $${LLM_URL}
+
+          models:
+            qwen3:
+              id: $${LLM_MODEL}
+
+        - type: openai
+          url: $${EMBEDDING_URL}
+
+          models:
+            qwen3-embedding:
+              id: $${EMBEDDING_MODEL}
+      
+      retrievers:
+        web:
+          type: duckduckgo
+      
+      extractors:
+        text:
+          type: text
+
+        default:
+          type: wingman-extractor
+          url: grpc://extractor:50051
+      
+      segmenters:
+        default:
+          type: wingman-segmenter
+          url: grpc://segmenter:50051
+      
+      translators:
+        default:
+          type: llm
+          model: qwen3
+      
+      chains:
+        wingman:
+          type: agent
+          model: qwen3
+
+          messages:
+            - role: system
+              content: |
+                You are Wingman, a large language model.
+                
+                - Use GitHub Flavored Markdown to format text
+                - Visualize Data as Markdown Tables
+                - Format Code in Markdown Blocks using triple backticks and the language name
+          
+                Current date: {{ now | date "2006-01-02" }}
+  
+  models:
+    content: |
+      - id: wingman
+        name: Wingman
+        description: Smart, efficient model for everyday use
