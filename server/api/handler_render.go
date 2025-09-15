@@ -16,17 +16,17 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input, err := h.readText(r)
+	input := valueInput(r)
 
-	if err != nil {
+	if input == "" {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
 	options := &provider.RenderOptions{}
 
-	if file, err := h.readFile(r); err == nil {
-		options.Images = append(options.Images, *file)
+	if files, err := readFiles(r); err == nil {
+		options.Images = append(options.Images, files...)
 	}
 
 	result, err := p.Render(r.Context(), input, options)

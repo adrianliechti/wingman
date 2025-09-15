@@ -48,7 +48,7 @@ func (h *Handler) handleTranslate(w http.ResponseWriter, r *http.Request) {
 
 		input.Text = text
 	} else {
-		file, err := h.readFile(r)
+		file, err := readFile(r)
 
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)

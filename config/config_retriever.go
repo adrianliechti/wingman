@@ -103,7 +103,7 @@ func createRetriever(cfg retrieverConfig, context retrieverContext) (retriever.P
 		return exaRetriever(cfg, context)
 
 	case "tavily":
-		return exaRetriever(cfg, context)
+		return tavilyRetriever(cfg, context)
 
 	case "custom":
 		return customIndex(cfg)
