@@ -82,7 +82,10 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 		return ollamaCompleter(cfg, model)
 
 	case "openai":
-		return openaiCompleter(cfg, model)
+		return openaiCompleter(cfg, model, false)
+
+	case "openai-compatible":
+		return openaiCompleter(cfg, model, true)
 
 	case "xai":
 		return xaiCompleter(cfg, model)
@@ -173,11 +176,15 @@ func ollamaCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	return ollama.NewCompleter(cfg.URL, model.ID, options...)
 }
 
-func openaiCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
+func openaiCompleter(cfg providerConfig, model modelContext, useLegacy bool) (provider.Completer, error) {
 	var options []openai.Option
 
 	if cfg.Token != "" {
 		options = append(options, openai.WithToken(cfg.Token))
+	}
+
+	if useLegacy {
+		return openai.NewCompleter(cfg.URL, model.ID, options...)
 	}
 
 	return openai.NewResponder(cfg.URL, model.ID, options...)
