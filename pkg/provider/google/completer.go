@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/google/uuid"
 	"google.golang.org/genai"
@@ -186,10 +185,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 
 			if c.File != nil {
 				switch c.File.ContentType {
-				case "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
-					format := strings.Split(c.File.ContentType, "/")[1]
-
-					part := genai.NewPartFromBytes(c.File.Content, format)
+				case "application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
+					part := genai.NewPartFromBytes(c.File.Content, c.File.ContentType)
 					content.Parts = append(content.Parts, part)
 
 				default:
