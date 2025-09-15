@@ -221,10 +221,6 @@ func unwireCompletion(val *Completion) provider.Completion {
 		Model: val.Model,
 	}
 
-	if val.Reason != nil {
-		result.Reason = provider.CompletionReason(*val.Reason)
-	}
-
 	m := val.Message
 
 	if m == nil {

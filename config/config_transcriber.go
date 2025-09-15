@@ -39,7 +39,7 @@ func createTranscriber(cfg providerConfig, model modelContext) (provider.Transcr
 	case "groq":
 		return groqTranscriber(cfg, model)
 
-	case "openai":
+	case "openai", "openai-compatible":
 		return openaiTranscriber(cfg, model)
 
 	case "whisper":

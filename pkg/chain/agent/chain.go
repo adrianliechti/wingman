@@ -174,42 +174,44 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			ID:    accID,
 			Model: c.model,
 
-			Reason: completion.Reason,
-
-			Message: &provider.Message{
-				Role: provider.MessageRoleAssistant,
-			},
-
 			Usage: completion.Usage,
 		}
 
-		for _, c := range completion.Message.Content {
-			if c.Text != "" {
-				delta.Message.Content = append(delta.Message.Content, provider.TextContent(c.Text))
+		if completion.Message != nil {
+			message := &provider.Message{
+				Role: completion.Message.Role,
 			}
 
-			if c.ToolCall != nil {
-				if c.ToolCall.ID != "" {
-					lastToolID = c.ToolCall.ID
+			for _, c := range completion.Message.Content {
+				if c.Text != "" {
+					message.Content = append(message.Content, provider.TextContent(c.Text))
 				}
 
-				if c.ToolCall.Name != "" {
-					lastToolName = c.ToolCall.Name
-				}
-
-				if lastToolName != "" {
-					if _, found := agentTools[lastToolName]; found {
-						continue
+				if c.ToolCall != nil {
+					if c.ToolCall.ID != "" {
+						lastToolID = c.ToolCall.ID
 					}
 
-					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(provider.ToolCall{
-						ID:   lastToolID,
-						Name: lastToolName,
+					if c.ToolCall.Name != "" {
+						lastToolName = c.ToolCall.Name
+					}
 
-						Arguments: c.ToolCall.Arguments,
-					}))
+					if lastToolName != "" {
+						if _, found := agentTools[lastToolName]; found {
+							continue
+						}
+
+						message.Content = append(message.Content, provider.ToolCallContent(provider.ToolCall{
+							ID:   lastToolID,
+							Name: lastToolName,
+
+							Arguments: c.ToolCall.Arguments,
+						}))
+					}
 				}
 			}
+
+			delta.Message = message
 		}
 
 		return options.Stream(ctx, delta)

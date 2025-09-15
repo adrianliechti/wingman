@@ -104,8 +104,7 @@ type CompletionAccumulator struct {
 	id    string
 	model string
 
-	role   MessageRole
-	reason CompletionReason
+	role MessageRole
 
 	content strings.Builder
 
@@ -121,10 +120,6 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Model != "" {
 		a.model = c.Model
-	}
-
-	if c.Reason != "" {
-		a.reason = c.Reason
 	}
 
 	if c.Message != nil {
@@ -179,8 +174,6 @@ func (a *CompletionAccumulator) Result() *Completion {
 	return &Completion{
 		ID:    a.id,
 		Model: a.model,
-
-		Reason: a.reason,
 
 		Message: &Message{
 			Role:    a.role,
@@ -261,8 +254,6 @@ type Completion struct {
 	ID    string
 	Model string
 
-	Reason CompletionReason
-
 	Message *Message
 
 	Usage *Usage
@@ -289,13 +280,4 @@ type CompletionFormat string
 
 const (
 	CompletionFormatJSON CompletionFormat = "json"
-)
-
-type CompletionReason string
-
-const (
-	CompletionReasonStop   CompletionReason = "stop"
-	CompletionReasonLength CompletionReason = "length"
-	CompletionReasonTool   CompletionReason = "tool"
-	CompletionReasonFilter CompletionReason = "filter"
 )

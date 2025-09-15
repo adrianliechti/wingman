@@ -34,7 +34,7 @@ func (cfg *Config) Synthesizer(id string) (provider.Synthesizer, error) {
 
 func createSynthesizer(cfg providerConfig, model modelContext) (provider.Synthesizer, error) {
 	switch strings.ToLower(cfg.Type) {
-	case "openai":
+	case "openai", "openai-compatible":
 		return openaiSynthesizer(cfg, model)
 
 	default:

@@ -41,7 +41,7 @@ func createRenderer(cfg providerConfig, model modelContext) (provider.Renderer, 
 	case "gemini", "google":
 		return googleRenderer(cfg, model)
 
-	case "openai":
+	case "openai", "openai-compatible":
 		return openaiRenderer(cfg, model)
 
 	case "replicate":

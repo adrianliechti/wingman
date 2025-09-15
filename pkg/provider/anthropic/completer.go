@@ -71,8 +71,6 @@ func (c *Completer) complete(ctx context.Context, req anthropic.MessageNewParams
 		ID:    message.ID,
 		Model: c.model,
 
-		Reason: toCompletionResult(message.StopReason),
-
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
 			Content: content,
@@ -137,8 +135,6 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 					ID:    message.ID,
 					Model: c.model,
 
-					Reason: toCompletionResult(message.StopReason),
-
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 
@@ -160,8 +156,6 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 				delta := provider.Completion{
 					ID:    message.ID,
 					Model: c.model,
-
-					Reason: toCompletionResult(message.StopReason),
 
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
@@ -251,21 +245,11 @@ func (c *Completer) completeStream(ctx context.Context, req anthropic.MessageNew
 				ID:    message.ID,
 				Model: c.model,
 
-				Reason: toCompletionResult(message.StopReason),
-
 				Message: &provider.Message{
 					Role: provider.MessageRoleAssistant,
 				},
 
 				Usage: toUsage(message.Usage),
-			}
-
-			if delta.Reason == provider.CompletionReasonTool && options.Schema != nil {
-				delta.Reason = provider.CompletionReasonStop
-			}
-
-			if delta.Reason == "" {
-				delta.Reason = provider.CompletionReasonStop
 			}
 
 			result.Add(delta)
@@ -481,25 +465,6 @@ func toContent(blocks []anthropic.ContentBlockUnion) []provider.Content {
 	}
 
 	return parts
-}
-
-func toCompletionResult(val anthropic.StopReason) provider.CompletionReason {
-	switch val {
-	case anthropic.StopReasonEndTurn:
-		return provider.CompletionReasonStop
-
-	case anthropic.StopReasonMaxTokens:
-		return provider.CompletionReasonLength
-
-	case anthropic.StopReasonStopSequence:
-		return provider.CompletionReasonStop
-
-	case anthropic.StopReasonToolUse:
-		return provider.CompletionReasonTool
-
-	default:
-		return ""
-	}
 }
 
 func toUsage(usage anthropic.Usage) *provider.Usage {
