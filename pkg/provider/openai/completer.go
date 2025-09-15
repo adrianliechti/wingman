@@ -67,15 +67,9 @@ func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewPa
 		ID:    completion.ID,
 		Model: c.model,
 
-		Reason: provider.CompletionReasonStop,
-
 		Message: &provider.Message{
 			Role: provider.MessageRoleAssistant,
 		},
-	}
-
-	if val := toCompletionResult(choice.FinishReason); val != "" {
-		result.Reason = val
 	}
 
 	if val := toUsage(completion.Usage); val != nil {
@@ -121,8 +115,6 @@ func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletio
 
 		if len(chunk.Choices) > 0 {
 			choice := chunk.Choices[0]
-
-			delta.Reason = toCompletionResult(choice.FinishReason)
 
 			if choice.Delta.JSON.Content.Valid() {
 				delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Content))
@@ -430,25 +422,6 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 	}
 
 	return result, nil
-}
-
-func toCompletionResult(val string) provider.CompletionReason {
-	switch val {
-	case "stop":
-		return provider.CompletionReasonStop
-
-	case "length":
-		return provider.CompletionReasonLength
-
-	case "tool_calls":
-		return provider.CompletionReasonTool
-
-	case "content_filter":
-		return provider.CompletionReasonFilter
-
-	default:
-		return ""
-	}
 }
 
 func toUsage(metadata openai.CompletionUsage) *provider.Usage {

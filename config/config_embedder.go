@@ -62,7 +62,7 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 	case "ollama":
 		return ollamaEmbedder(cfg, model)
 
-	case "openai":
+	case "openai", "openai-compatible":
 		return openaiEmbedder(cfg, model)
 
 	case "custom":

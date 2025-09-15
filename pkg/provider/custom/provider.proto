@@ -34,8 +34,6 @@ message Completion {
   string id = 1;
   string model = 2;
 
-  optional string reason = 4;
-
   optional Message delta = 5;
   optional Message message = 6;
 

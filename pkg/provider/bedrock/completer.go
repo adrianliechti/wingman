@@ -88,8 +88,6 @@ func (c *Completer) complete(ctx context.Context, req *bedrockruntime.ConverseIn
 		ID:    uuid.New().String(),
 		Model: c.model,
 
-		Reason: toCompletionResult(resp.StopReason),
-
 		Message: &provider.Message{
 			Role: provider.MessageRoleAssistant,
 
@@ -204,8 +202,6 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 			delta := provider.Completion{
 				ID:    id,
 				Model: c.model,
-
-				Reason: toCompletionResult(v.Value.StopReason),
 
 				Message: &provider.Message{
 					Role: provider.MessageRoleAssistant,
@@ -530,31 +526,6 @@ func convertVideoFormat(mime string) (types.VideoFormat, bool) {
 	}
 
 	return "", false
-}
-
-func toCompletionResult(val types.StopReason) provider.CompletionReason {
-	switch val {
-	case types.StopReasonEndTurn:
-		return provider.CompletionReasonStop
-
-	case types.StopReasonToolUse:
-		return provider.CompletionReasonTool
-
-	case types.StopReasonMaxTokens:
-		return provider.CompletionReasonLength
-
-	case types.StopReasonStopSequence:
-		return provider.CompletionReasonStop
-
-	case types.StopReasonGuardrailIntervened:
-		return provider.CompletionReasonFilter
-
-	case types.StopReasonContentFiltered:
-		return provider.CompletionReasonFilter
-
-	default:
-		return ""
-	}
 }
 
 func toRole(val types.ConversationRole) provider.MessageRole {

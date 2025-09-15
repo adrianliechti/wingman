@@ -71,8 +71,6 @@ func (c *Completer) complete(ctx context.Context, client *genai.Client, contents
 		ID:    uuid.New().String(),
 		Model: c.model,
 
-		Reason: toCompletionResult(candidate),
-
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
 			Content: toContent(candidate.Content),
@@ -105,7 +103,6 @@ func (c *Completer) completeStream(ctx context.Context, client *genai.Client, co
 		if len(resp.Candidates) > 0 {
 			candidate := resp.Candidates[0]
 
-			delta.Reason = toCompletionResult(candidate)
 			delta.Message.Content = toContent(candidate.Content)
 		}
 
@@ -317,32 +314,6 @@ func toContent(content *genai.Content) []provider.Content {
 	}
 
 	return parts
-}
-
-func toCompletionResult(candidate *genai.Candidate) provider.CompletionReason {
-	if candidate.Content != nil {
-		for _, p := range candidate.Content.Parts {
-			if p.FunctionCall != nil {
-				return provider.CompletionReasonTool
-			}
-		}
-	}
-
-	switch candidate.FinishReason {
-	case genai.FinishReasonStop:
-		return provider.CompletionReasonStop
-
-	case genai.FinishReasonMaxTokens:
-		return provider.CompletionReasonLength
-
-	case genai.FinishReasonSafety:
-		return provider.CompletionReasonFilter
-
-	case genai.FinishReasonRecitation:
-		return provider.CompletionReasonFilter
-	}
-
-	return ""
 }
 
 func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *provider.Usage {

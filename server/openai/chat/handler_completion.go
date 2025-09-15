@@ -108,8 +108,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		var role provider.MessageRole
-		var reason provider.CompletionReason
+		streamRole := true
+		streamReason := FinishReasonStop
 
 		completionCall := ""
 		completionCallIndex := map[string]int{}
@@ -129,8 +129,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 				Choices: []ChatCompletionChoice{
 					{
-						Delta:        &ChatCompletionMessage{},
-						FinishReason: oaiFinishReason(completion.Reason),
+						Delta: &ChatCompletionMessage{},
 					},
 				},
 			}
@@ -142,18 +141,11 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			if completion.Message != nil {
 				message := &ChatCompletionMessage{}
 
-				if completion.Message.Role != role {
-					role = completion.Message.Role
-					message.Role = oaiMessageRole(completion.Message.Role)
-				}
-
 				if content := completion.Message.Text(); content != "" {
 					message.Content = &content
 				}
 
 				if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
-					message.Content = nil
-
 					for i, c := range calls {
 						if c.ID != "" {
 							completionCall = c.ID
@@ -175,19 +167,22 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 						calls[i] = call
 					}
 
+					streamReason = FinishReasonToolCalls
+
+					message.Content = nil
 					message.ToolCalls = calls
 				}
 
 				result.Choices = []ChatCompletionChoice{
 					{
-						Delta:        message,
-						FinishReason: oaiFinishReason(completion.Reason),
+						Delta: message,
 					},
 				}
 			}
 
-			if completion.Reason != "" {
-				reason = completion.Reason
+			if streamRole {
+				streamRole = false
+				result.Choices[0].Delta.Role = MessageRoleAssistant
 			}
 
 			return writeEvent(w, result)
@@ -200,19 +195,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if reason == "" {
-			reason = completion.Reason
-
-			if reason == "" {
-				reason = provider.CompletionReasonStop
-
-				if completion.Message != nil {
-					if len(oaiToolCalls(completion.Message.Content)) > 0 {
-						reason = provider.CompletionReasonTool
-					}
-				}
-			}
-
+		if streamReason != "" {
 			result := ChatCompletion{
 				Object: "chat.completion.chunk",
 
@@ -224,7 +207,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				Choices: []ChatCompletionChoice{
 					{
 						Delta:        &ChatCompletionMessage{},
-						FinishReason: oaiFinishReason(reason),
+						FinishReason: &streamReason,
 					},
 				},
 			}
@@ -270,6 +253,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		role := MessageRoleAssistant
+
 		result := ChatCompletion{
 			Object: "chat.completion",
 
@@ -287,23 +272,26 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 		if completion.Message != nil {
 			message := &ChatCompletionMessage{
-				Role: oaiMessageRole(completion.Message.Role),
+				Role: role,
 			}
 
 			if content := completion.Message.Text(); content != "" {
 				message.Content = &content
 			}
 
-			if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
-				message.Content = nil
+			reason := FinishReasonStop
 
+			if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
+				reason = FinishReasonToolCalls
+
+				message.Content = nil
 				message.ToolCalls = calls
 			}
 
 			result.Choices = []ChatCompletionChoice{
 				{
 					Message:      message,
-					FinishReason: oaiFinishReason(completion.Reason),
+					FinishReason: &reason,
 				},
 			}
 		}
@@ -515,35 +503,6 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 	}
 
 	return result, nil
-}
-
-func oaiMessageRole(r provider.MessageRole) MessageRole {
-	switch r {
-	case provider.MessageRoleAssistant:
-		return MessageRoleAssistant
-
-	default:
-		return ""
-	}
-}
-
-func oaiFinishReason(val provider.CompletionReason) *FinishReason {
-	switch val {
-	case provider.CompletionReasonStop:
-		return &FinishReasonStop
-
-	case provider.CompletionReasonLength:
-		return &FinishReasonLength
-
-	case provider.CompletionReasonTool:
-		return &FinishReasonToolCalls
-
-	case provider.CompletionReasonFilter:
-		return &FinishReasonContentFilter
-
-	default:
-		return nil
-	}
 }
 
 func oaiToolCalls(content []provider.Content) []ToolCall {
