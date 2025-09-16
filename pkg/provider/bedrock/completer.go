@@ -69,6 +69,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			System:     req.System,
 			ToolConfig: req.ToolConfig,
+
+			InferenceConfig: &types.InferenceConfiguration{
+				MaxTokens: aws.Int32(16384),
+			},
 		}
 
 		return c.completeStream(ctx, req, options)
@@ -123,6 +127,10 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 
 			result.Add(delta)
 
+			if err := options.Stream(ctx, delta); err != nil {
+				return nil, err
+			}
+
 		case *types.ConverseStreamOutputMemberContentBlockStart:
 			switch b := v.Value.Start.(type) {
 			case *types.ContentBlockStartMemberToolUse:
@@ -143,6 +151,10 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 				}
 
 				result.Add(delta)
+
+				if err := options.Stream(ctx, delta); err != nil {
+					return nil, err
+				}
 
 			default:
 				fmt.Printf("unknown block type, %T\n", b)
