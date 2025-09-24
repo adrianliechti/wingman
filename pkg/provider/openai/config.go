@@ -48,8 +48,6 @@ func (c *Config) Options() []option.RequestOption {
 		options = append(options,
 			option.WithBaseURL(c.url),
 			option.WithHTTPClient(c.client),
-
-			option.WithQueryAdd("api-version", "preview"),
 		)
 
 		if c.token != "" {
@@ -91,7 +89,7 @@ func (c *Config) HackOldAzure() []option.RequestOption {
 		)
 
 		if c.token != "" {
-			options = append(options, option.WithHeader("Api-Key", c.token))
+			options = append(options, azure.WithAPIKey(c.token))
 		}
 
 		return options

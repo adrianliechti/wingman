@@ -37,7 +37,7 @@ func NewRenderer(url, model string, options ...Option) (*Renderer, error) {
 
 	return &Renderer{
 		Config: cfg,
-		images: openai.NewImageService(cfg.Options()...),
+		images: openai.NewImageService(cfg.HackOldAzure()...),
 	}, nil
 }
 
