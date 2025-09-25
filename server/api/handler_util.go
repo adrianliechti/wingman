@@ -151,11 +151,17 @@ func readFile(r *http.Request) (*provider.File, error) {
 				return nil, err
 			}
 
+			contentType := header.Header.Get("Content-Type")
+
+			if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+				contentType = mediatype
+			}
+
 			return &provider.File{
 				Name: header.Filename,
 
 				Content:     data,
-				ContentType: header.Header.Get("Content-Type"),
+				ContentType: contentType,
 			}, nil
 		}
 
@@ -215,11 +221,17 @@ func readFiles(r *http.Request) ([]provider.File, error) {
 					return nil, err
 				}
 
+				contentType := header.Header.Get("Content-Type")
+
+				if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+					contentType = mediatype
+				}
+
 				files = append(files, provider.File{
 					Name: header.Filename,
 
 					Content:     data,
-					ContentType: header.Header.Get("Content-Type"),
+					ContentType: contentType,
 				})
 			}
 		}

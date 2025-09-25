@@ -444,9 +444,15 @@ func toFile(url string) (*provider.File, error) {
 			return nil, err
 		}
 
+		contentType := resp.Header.Get("Content-Type")
+
+		if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+			contentType = mediatype
+		}
+
 		file := provider.File{
 			Content:     data,
-			ContentType: resp.Header.Get("Content-Type"),
+			ContentType: contentType,
 		}
 
 		if ext, _ := mime.ExtensionsByType(file.ContentType); len(ext) > 0 {
