@@ -10,7 +10,6 @@ import (
 
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/responses"
-	"github.com/openai/openai-go/v2/shared"
 )
 
 var _ provider.Completer = (*Responder)(nil)
@@ -252,13 +251,13 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 
 	switch options.Effort {
 	case provider.EffortMinimal:
-		req.Reasoning.Effort = shared.ReasoningEffortMinimal
+		req.Reasoning.Effort = responses.ReasoningEffortMinimal
 	case provider.EffortLow:
-		req.Reasoning.Effort = shared.ReasoningEffortLow
+		req.Reasoning.Effort = responses.ReasoningEffortLow
 	case provider.EffortMedium:
-		req.Reasoning.Effort = shared.ReasoningEffortMedium
+		req.Reasoning.Effort = responses.ReasoningEffortMedium
 	case provider.EffortHigh:
-		req.Reasoning.Effort = shared.ReasoningEffortHigh
+		req.Reasoning.Effort = responses.ReasoningEffortHigh
 	}
 
 	switch options.Verbosity {
@@ -272,7 +271,7 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 
 	if options.Format == provider.CompletionFormatJSON {
 		req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
-			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
+			OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
 		}
 	}
 

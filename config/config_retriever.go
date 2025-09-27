@@ -11,6 +11,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/retriever/custom"
 	"github.com/adrianliechti/wingman/pkg/retriever/duckduckgo"
 	"github.com/adrianliechti/wingman/pkg/retriever/exa"
+	"github.com/adrianliechti/wingman/pkg/retriever/openai"
 	"github.com/adrianliechti/wingman/pkg/retriever/tavily"
 )
 
@@ -106,6 +107,9 @@ func createRetriever(cfg retrieverConfig, context retrieverContext) (retriever.P
 	case "exa":
 		return exaRetriever(cfg, context)
 
+	case "openai":
+		return openaiRetriever(cfg, context)
+
 	case "tavily":
 		return tavilyRetriever(cfg, context)
 
@@ -145,6 +149,16 @@ func exaRetriever(cfg retrieverConfig, context retrieverContext) (retriever.Prov
 	}
 
 	return exa.New(cfg.Token, options...)
+}
+
+func openaiRetriever(cfg retrieverConfig, context retrieverContext) (retriever.Provider, error) {
+	var options []openai.Option
+
+	if context.Client != nil {
+		options = append(options, openai.WithClient(context.Client))
+	}
+
+	return openai.New(cfg.Token, options...)
 }
 
 func tavilyRetriever(cfg retrieverConfig, context retrieverContext) (retriever.Provider, error) {

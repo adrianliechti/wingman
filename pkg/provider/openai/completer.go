@@ -10,7 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/shared"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -185,13 +184,13 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 
 	switch options.Effort {
 	case provider.EffortMinimal:
-		req.ReasoningEffort = shared.ReasoningEffortMinimal
+		req.ReasoningEffort = openai.ReasoningEffortMinimal
 	case provider.EffortLow:
-		req.ReasoningEffort = shared.ReasoningEffortLow
+		req.ReasoningEffort = openai.ReasoningEffortLow
 	case provider.EffortMedium:
-		req.ReasoningEffort = shared.ReasoningEffortMedium
+		req.ReasoningEffort = openai.ReasoningEffortMedium
 	case provider.EffortHigh:
-		req.ReasoningEffort = shared.ReasoningEffortHigh
+		req.ReasoningEffort = openai.ReasoningEffortHigh
 	}
 
 	if options.Format == provider.CompletionFormatJSON {
