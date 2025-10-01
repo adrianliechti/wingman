@@ -8,8 +8,8 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/responses"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 var _ provider.Completer = (*Responder)(nil)
@@ -372,7 +372,10 @@ func convertResponsesInput(messages []provider.Message) (responses.ResponseNewPa
 				if c.ToolResult != nil {
 					output := &responses.ResponseInputItemFunctionCallOutputParam{
 						CallID: c.ToolResult.ID,
-						Output: c.ToolResult.Data,
+
+						Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+							OfString: openai.String(c.ToolResult.Data),
+						},
 					}
 
 					result = append(result, responses.ResponseInputItemUnionParam{

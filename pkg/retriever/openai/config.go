@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go/v3/option"
 )
 
 type Config struct {

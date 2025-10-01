@@ -5,8 +5,8 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/retriever"
 
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/responses"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 var _ retriever.Provider = &Client{}

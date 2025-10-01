@@ -9,7 +9,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
-	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v3"
 )
 
 var _ provider.Completer = (*Completer)(nil)
