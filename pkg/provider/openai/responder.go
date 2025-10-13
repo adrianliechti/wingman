@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -222,6 +223,21 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {
+	models := []string{
+		"o1",
+		"o1-mini",
+		"o3",
+		"o3-mini",
+		"o4",
+		"o4-mini",
+
+		"gpt-5",
+	}
+
+	if slices.Contains(models, r.model) {
+		options.Temperature = nil
+	}
+
 	input, err := convertResponsesInput(messages)
 
 	if err != nil {

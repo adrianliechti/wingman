@@ -45,7 +45,7 @@ func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.
 
 		Contents: SearchContents{
 			Text:      true,
-			LiveCrawl: LiveCrawlAlways,
+			LiveCrawl: LiveCrawlAuto,
 		},
 	})
 
