@@ -232,6 +232,10 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		"o4-mini",
 
 		"gpt-5",
+		"gpt-5-mini",
+		"gpt-5-nano",
+
+		"gpt-5-codex",
 	}
 
 	if slices.Contains(models, r.model) {

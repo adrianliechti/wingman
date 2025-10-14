@@ -236,6 +236,10 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 			"o4-mini",
 
 			"gpt-5",
+			"gpt-5-mini",
+			"gpt-5-nano",
+
+			"gpt-5-codex",
 		}
 
 		if slices.Contains(models, c.model) {
@@ -255,6 +259,10 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 			"o4-mini",
 
 			"gpt-5",
+			"gpt-5-mini",
+			"gpt-5-nano",
+
+			"gpt-5-codex",
 		}
 
 		if !slices.Contains(models, c.model) {
@@ -290,6 +298,10 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				"o4-mini",
 
 				"gpt-5",
+				"gpt-5-mini",
+				"gpt-5-nano",
+
+				"gpt-5-codex",
 			}
 
 			if slices.Contains(models, c.model) {
