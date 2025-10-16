@@ -54,7 +54,9 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 	body, _ := json.Marshal(&ContentsRequest{
 		URLs: []string{input.URL},
 
-		LiveCrawl: LiveCrawlAuto,
+		Text:     true,
+
+		LiveCrawl: LiveCrawlPreferred,
 	})
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", "https://api.exa.ai/contents", bytes.NewBuffer(body))
