@@ -8,11 +8,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/retriever"
+	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/text"
 )
 
-var _ retriever.Provider = &Client{}
+var _ searcher.Provider = &Client{}
 
 type Client struct {
 	client *http.Client
@@ -30,7 +30,11 @@ func New(options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.RetrieveOptions) ([]retriever.Result, error) {
+func (c *Client) Search(ctx context.Context, query string, options *searcher.SearchOptions) ([]searcher.Result, error) {
+	if options == nil {
+		options = new(searcher.SearchOptions)
+	}
+
 	url, _ := url.Parse("https://duckduckgo.com/html/")
 
 	values := url.Query()
@@ -55,7 +59,7 @@ func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.
 
 	defer resp.Body.Close()
 
-	var results []retriever.Result
+	var results []searcher.Result
 
 	regexLink := regexp.MustCompile(`href="([^"]+)"`)
 	regexSnippet := regexp.MustCompile(`<[^>]*>`)
@@ -95,7 +99,7 @@ func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.
 			continue
 		}
 
-		result := retriever.Result{
+		result := searcher.Result{
 			Source: resultURL,
 
 			Title:   resultTitle,
