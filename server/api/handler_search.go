@@ -3,44 +3,41 @@ package api
 import (
 	"net/http"
 
-	"github.com/adrianliechti/wingman/pkg/retriever"
+	"github.com/adrianliechti/wingman/pkg/searcher"
 )
 
-func (h *Handler) handleRetrieve(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	model := valueModel(r)
 
-	p, err := h.Retriever(model)
+	p, err := h.Searcher(model)
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	query := valueQuery(r)
+	query := valueInput(r)
 
 	if query == "" {
 		writeError(w, http.StatusBadRequest, nil)
 		return
 	}
 
-	options := &retriever.RetrieveOptions{}
+	options := &searcher.SearchOptions{}
 
-	results, err := p.Retrieve(r.Context(), query, options)
+	results, err := p.Search(r.Context(), query, options)
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	result := make([]RetrieveResult, 0)
+	result := make([]SearchResult, 0)
 
 	for _, r := range results {
-		segment := RetrieveResult{
-			ID: r.ID,
-
+		segment := SearchResult{
 			Source: r.Source,
 
-			Score:   r.Score,
 			Title:   r.Title,
 			Content: r.Content,
 
@@ -53,14 +50,11 @@ func (h *Handler) handleRetrieve(w http.ResponseWriter, r *http.Request) {
 	writeJson(w, result)
 }
 
-type RetrieveResult struct {
-	ID string `json:"id,omitempty"`
-
+type SearchResult struct {
 	Source string `json:"source,omitempty"`
 
-	Score   float32 `json:"score,omitempty"`
-	Title   string  `json:"title,omitempty"`
-	Content string  `json:"content,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Content string `json:"content,omitempty"`
 
 	Metadata map[string]string `json:"metadata,omitempty"`
 }

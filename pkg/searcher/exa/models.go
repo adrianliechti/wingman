@@ -15,10 +15,10 @@ type SearchContents struct {
 type LiveCrawl string
 
 const (
-	LiveCrawlAuto     LiveCrawl = "auto"
-	LiveCrawlAlways   LiveCrawl = "always"
-	LiveCrawlNever    LiveCrawl = "never"
-	LiveCrawlFallback LiveCrawl = "fallback"
+	LiveCrawlNever     LiveCrawl = "never"
+	LiveCrawlAlways    LiveCrawl = "always"
+	LiveCrawlFallback  LiveCrawl = "fallback"
+	LiveCrawlPreferred LiveCrawl = "preferred"
 )
 
 type SearchResponse struct {

@@ -25,20 +25,20 @@ import (
 )
 
 func (cfg *Config) RegisterExtractor(id string, p extractor.Provider) {
-	if cfg.extractors == nil {
-		cfg.extractors = make(map[string]extractor.Provider)
+	if cfg.extractor == nil {
+		cfg.extractor = make(map[string]extractor.Provider)
 	}
 
-	if _, ok := cfg.extractors[""]; !ok {
-		cfg.extractors[""] = p
+	if _, ok := cfg.extractor[""]; !ok {
+		cfg.extractor[""] = p
 	}
 
-	cfg.extractors[id] = p
+	cfg.extractor[id] = p
 }
 
 func (cfg *Config) Extractor(id string) (extractor.Provider, error) {
-	if cfg.extractors != nil {
-		if c, ok := cfg.extractors[id]; ok {
+	if cfg.extractor != nil {
+		if c, ok := cfg.extractor[id]; ok {
 			return c, nil
 		}
 	}

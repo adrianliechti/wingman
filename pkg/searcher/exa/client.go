@@ -1,16 +1,17 @@
-package tavily
+package exa
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"net/url"
 
-	"github.com/adrianliechti/wingman/pkg/retriever"
+	"github.com/adrianliechti/wingman/pkg/searcher"
 )
 
-var _ retriever.Provider = &Client{}
+var _ searcher.Provider = &Client{}
 
 type Client struct {
 	token  string
@@ -34,20 +35,22 @@ func New(token string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.RetrieveOptions) ([]retriever.Result, error) {
+func (c *Client) Search(ctx context.Context, query string, options *searcher.SearchOptions) ([]searcher.Result, error) {
 	if options == nil {
-		options = new(retriever.RetrieveOptions)
+		options = new(searcher.SearchOptions)
 	}
 
-	u, _ := url.Parse("https://api.tavily.com/search")
+	body, _ := json.Marshal(&SearchRequest{
+		Query: query,
 
-	body := map[string]any{
-		"api_key":      c.token,
-		"query":        query,
-		"search_depth": "advanced",
-	}
+		Contents: SearchContents{
+			Text:      true,
+			LiveCrawl: LiveCrawlPreferred,
+		},
+	})
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", u.String(), jsonReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", "https://api.exa.ai/search", bytes.NewReader(body))
+	req.Header.Set("x-api-key", c.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -56,24 +59,27 @@ func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.
 		return nil, err
 	}
 
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, convertError(resp)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, errors.New(string(body))
 	}
 
-	var data searchResult
+	var data SearchResponse
 
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
 
-	var results []retriever.Result
+	var results []searcher.Result
 
 	for _, r := range data.Results {
-		result := retriever.Result{
+		result := searcher.Result{
 			Source: r.URL,
 
 			Title:   r.Title,
-			Content: r.Content,
+			Content: r.Text,
 		}
 
 		results = append(results, result)

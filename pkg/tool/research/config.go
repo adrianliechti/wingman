@@ -1,3 +1,3 @@
-package retrieve
+package research
 
 type Option func(*Client)

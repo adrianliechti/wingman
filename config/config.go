@@ -9,7 +9,8 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/mcp"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/retriever"
+	"github.com/adrianliechti/wingman/pkg/researcher"
+	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 	"github.com/adrianliechti/wingman/pkg/summarizer"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -33,11 +34,13 @@ type Config struct {
 	synthesizer map[string]provider.Synthesizer
 	transcriber map[string]provider.Transcriber
 
-	extractors map[string]extractor.Provider
-	retrievers map[string]retriever.Provider
+	extractor  map[string]extractor.Provider
 	segmenter  map[string]segmenter.Provider
 	summarizer map[string]summarizer.Provider
 	translator map[string]translator.Provider
+
+	searcher   map[string]searcher.Provider
+	researcher map[string]researcher.Provider
 
 	tools  map[string]tool.Provider
 	chains map[string]chain.Provider
@@ -68,10 +71,6 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if err := c.registerRetrievers(file); err != nil {
-		return nil, err
-	}
-
 	if err := c.registerSegmenters(file); err != nil {
 		return nil, err
 	}
@@ -81,6 +80,14 @@ func Parse(path string) (*Config, error) {
 	}
 
 	if err := c.registerTranslators(file); err != nil {
+		return nil, err
+	}
+
+	if err := c.registerSearchers(file); err != nil {
+		return nil, err
+	}
+
+	if err := c.registerResearchers(file); err != nil {
 		return nil, err
 	}
 
@@ -109,10 +116,12 @@ type configFile struct {
 	Providers []providerConfig `yaml:"providers"`
 
 	Extractors  yaml.Node `yaml:"extractors"`
-	Retrievers  yaml.Node `yaml:"retrievers"`
 	Segmenters  yaml.Node `yaml:"segmenters"`
 	Summarizers yaml.Node `yaml:"summarizers"`
 	Translators yaml.Node `yaml:"translators"`
+
+	Searchers   yaml.Node `yaml:"searchers"`
+	Researchers yaml.Node `yaml:"researchers"`
 
 	Tools  yaml.Node `yaml:"tools"`
 	Chains yaml.Node `yaml:"chains"`

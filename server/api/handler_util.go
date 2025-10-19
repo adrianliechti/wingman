@@ -28,14 +28,6 @@ func valueModel(r *http.Request) string {
 	return ""
 }
 
-func valueQuery(r *http.Request) string {
-	if val := r.FormValue("query"); val != "" {
-		return val
-	}
-
-	return ""
-}
-
 func valueInput(r *http.Request) string {
 	if val := r.FormValue("input"); val != "" {
 		return val
@@ -46,6 +38,14 @@ func valueInput(r *http.Request) string {
 	}
 
 	if val := r.FormValue("text"); val != "" {
+		return val
+	}
+
+	if val := r.FormValue("query"); val != "" {
+		return val
+	}
+
+	if val := r.FormValue("instructions"); val != "" {
 		return val
 	}
 

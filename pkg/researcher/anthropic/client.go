@@ -3,11 +3,11 @@ package anthropic
 import (
 	"context"
 
-	"github.com/adrianliechti/wingman/pkg/retriever"
+	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
-var _ retriever.Provider = &Client{}
+var _ researcher.Provider = &Client{}
 
 type Client struct {
 	*Config
@@ -29,9 +29,9 @@ func New(token string, options ...Option) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.RetrieveOptions) ([]retriever.Result, error) {
+func (c *Client) Research(ctx context.Context, instructions string, options *researcher.ResearchOptions) (*researcher.Result, error) {
 	if options == nil {
-		options = new(retriever.RetrieveOptions)
+		options = new(researcher.ResearchOptions)
 	}
 
 	model := c.model
@@ -45,7 +45,7 @@ func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.
 		MaxTokens: 1024,
 
 		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(query)),
+			anthropic.NewUserMessage(anthropic.NewTextBlock(instructions)),
 		},
 
 		Tools: []anthropic.ToolUnionParam{
@@ -63,17 +63,16 @@ func (c *Client) Retrieve(ctx context.Context, query string, options *retriever.
 		return nil, err
 	}
 
-	var result []retriever.Result
+	var content string
 
 	for _, c := range message.Content {
-		for _, c := range c.Citations {
-			result = append(result, retriever.Result{
-				Source: c.URL,
-
-				Title:   c.Title,
-				Content: c.CitedText,
-			})
+		if c.Type == "text" && len(c.Citations) > 0 {
+			content += c.Text
 		}
+	}
+
+	result := &researcher.Result{
+		Content: content,
 	}
 
 	return result, nil
