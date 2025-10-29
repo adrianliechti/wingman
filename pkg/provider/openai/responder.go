@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"slices"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -68,6 +67,8 @@ func (r *Responder) complete(ctx context.Context, req responses.ResponseNewParam
 		Message: &provider.Message{
 			Role: provider.MessageRoleAssistant,
 		},
+
+		Usage: toResponseUsage(resp.Usage),
 	}
 
 	for _, item := range resp.Output {
@@ -242,17 +243,31 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		options.Temperature = nil
 	}
 
-	input, err := convertResponsesInput(messages)
+	input, err := r.convertResponsesInput(messages)
 
 	if err != nil {
 		return nil, err
 	}
 
-	tools, err := convertResponsesTools(options.Tools)
+	tools, err := r.convertResponsesTools(options.Tools)
 
 	if err != nil {
 		return nil, err
 	}
+
+	// tools = append(tools, responses.ToolUnionParam{
+	// 	OfCodeInterpreter: &responses.ToolCodeInterpreterParam{
+	// 		Container: responses.ToolCodeInterpreterContainerUnionParam{
+	// 			OfCodeInterpreterContainerAuto: &responses.ToolCodeInterpreterContainerCodeInterpreterContainerAutoParam{},
+	// 		},
+	// 	},
+	// })
+
+	// tools = append(tools, responses.ToolUnionParam{
+	// 	OfWebSearch: &responses.WebSearchToolParam{
+	// 		Type: responses.WebSearchToolTypeWebSearch,
+	// 	},
+	// })
 
 	req := &responses.ResponseNewParams{
 		Model: r.model,
@@ -263,10 +278,6 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		Tools: tools,
 
 		Truncation: responses.ResponseNewParamsTruncationAuto,
-	}
-
-	if val := convertInstructions(messages); val != "" {
-		req.Instructions = openai.String(val)
 	}
 
 	switch options.Effort {
@@ -325,28 +336,51 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	return req, nil
 }
 
-func convertInstructions(messages []provider.Message) string {
-	var result []string
+func (r *Responder) convertResponsesInput(messages []provider.Message) (responses.ResponseNewParamsInputUnion, error) {
+	models := []string{
+		"o1",
+		"o1-mini",
+		"o3",
+		"o3-mini",
+		"o4",
+		"o4-mini",
 
-	for _, m := range messages {
-		if m.Role == provider.MessageRoleSystem {
-			for _, c := range m.Content {
-				if c.Text != "" {
-					result = append(result, c.Text)
-				}
-			}
-		}
+		"gpt-5",
+		"gpt-5-mini",
+		"gpt-5-nano",
+
+		"gpt-5-codex",
 	}
 
-	return strings.Join(result, "\n\n")
-}
-
-func convertResponsesInput(messages []provider.Message) (responses.ResponseNewParamsInputUnion, error) {
 	var result []responses.ResponseInputItemUnionParam
 
 	for _, m := range messages {
 		switch m.Role {
 		case provider.MessageRoleSystem:
+			message := &responses.ResponseInputItemMessageParam{
+				Role: string(responses.ResponseInputMessageItemRoleSystem),
+			}
+
+			if slices.Contains(models, r.model) {
+				message.Role = string(responses.ResponseInputMessageItemRoleDeveloper)
+			}
+
+			for _, c := range m.Content {
+				if c.Text != "" {
+					message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
+						OfInputText: &responses.ResponseInputTextParam{
+							Text: c.Text,
+						},
+					})
+				}
+			}
+
+			if len(message.Content) > 0 {
+				result = append(result, responses.ResponseInputItemUnionParam{
+					OfInputMessage: message,
+				})
+			}
+
 		case provider.MessageRoleUser:
 			message := &responses.ResponseInputItemMessageParam{
 				Role: string(responses.ResponseInputMessageItemRoleUser),
@@ -449,7 +483,7 @@ func convertResponsesInput(messages []provider.Message) (responses.ResponseNewPa
 	}, nil
 }
 
-func convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, error) {
+func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, error) {
 	var result []responses.ToolUnionParam
 
 	for _, t := range tools {

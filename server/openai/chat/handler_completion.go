@@ -324,6 +324,12 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
 	for _, m := range s {
+		role := toMessageRole(m.Role)
+
+		if role == "" {
+			continue
+		}
+
 		var content []provider.Content
 
 		if len(m.Contents) == 0 {
@@ -404,7 +410,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 		}
 
 		result = append(result, provider.Message{
-			Role:    toMessageRole(m.Role),
+			Role:    role,
 			Content: content,
 		})
 	}
@@ -414,7 +420,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 
 func toMessageRole(r MessageRole) provider.MessageRole {
 	switch r {
-	case MessageRoleSystem:
+	case MessageRoleSystem, MessageRoleDeveloper:
 		return provider.MessageRoleSystem
 
 	case MessageRoleUser, MessageRoleTool:
