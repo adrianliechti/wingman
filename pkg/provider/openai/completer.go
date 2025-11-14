@@ -235,6 +235,13 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 			"o4",
 			"o4-mini",
 
+			"gpt-5.1",
+			"gpt-5.1-mini",
+			"gpt-5.1-nano",
+
+			"gpt-5.1-codex",
+			"gpt-5.1-codex-mini",
+
 			"gpt-5",
 			"gpt-5-mini",
 			"gpt-5-nano",
@@ -257,6 +264,13 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 			"o3-mini",
 			"o4",
 			"o4-mini",
+
+			"gpt-5.1",
+			"gpt-5.1-mini",
+			"gpt-5.1-nano",
+
+			"gpt-5.1-codex",
+			"gpt-5.1-codex-mini",
 
 			"gpt-5",
 			"gpt-5-mini",
@@ -296,6 +310,13 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				"o3-mini",
 				"o4",
 				"o4-mini",
+
+				"gpt-5.1",
+				"gpt-5.1-mini",
+				"gpt-5.1-nano",
+
+				"gpt-5.1-codex",
+				"gpt-5.1-codex-mini",
 
 				"gpt-5",
 				"gpt-5-mini",
