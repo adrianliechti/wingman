@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/searcher"
+	"github.com/adrianliechti/wingman/pkg/searcher/custom"
 	"github.com/adrianliechti/wingman/pkg/searcher/duckduckgo"
 	"github.com/adrianliechti/wingman/pkg/searcher/exa"
 	"github.com/adrianliechti/wingman/pkg/searcher/tavily"
@@ -103,6 +104,9 @@ func createSearcher(cfg searcherConfig, context searcherContext) (searcher.Provi
 	case "tavily":
 		return tavilySearch(cfg, context)
 
+	case "custom", "wingman-searcher":
+		return customSearcher(cfg)
+
 	default:
 		return nil, errors.New("invalid search type: " + cfg.Type)
 	}
@@ -136,4 +140,10 @@ func tavilySearch(cfg searcherConfig, context searcherContext) (searcher.Provide
 	}
 
 	return tavily.New(cfg.Token, options...)
+}
+
+func customSearcher(cfg searcherConfig) (searcher.Provider, error) {
+	var options []custom.Option
+
+	return custom.New(cfg.URL, options...)
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/mcp"
 )
@@ -44,6 +45,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(s.url)
 			r.SetXForwarded()
+
+			// remove trailing slash if the original request did not have one
+			if !strings.HasSuffix(s.url.Path, "/") && r.In.URL.Path == "/" {
+				r.Out.URL.Path = strings.TrimRight(r.Out.URL.Path, "/")
+			}
 
 			r.Out.Host = s.url.Host
 		},

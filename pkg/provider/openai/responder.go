@@ -224,22 +224,7 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {
-	models := []string{
-		"o1",
-		"o1-mini",
-		"o3",
-		"o3-mini",
-		"o4",
-		"o4-mini",
-
-		"gpt-5",
-		"gpt-5-mini",
-		"gpt-5-nano",
-
-		"gpt-5-codex",
-	}
-
-	if slices.Contains(models, r.model) {
+	if slices.Contains(ReasoningModels, r.model) {
 		options.Temperature = nil
 	}
 
@@ -337,21 +322,6 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 }
 
 func (r *Responder) convertResponsesInput(messages []provider.Message) (responses.ResponseNewParamsInputUnion, error) {
-	models := []string{
-		"o1",
-		"o1-mini",
-		"o3",
-		"o3-mini",
-		"o4",
-		"o4-mini",
-
-		"gpt-5",
-		"gpt-5-mini",
-		"gpt-5-nano",
-
-		"gpt-5-codex",
-	}
-
 	var result []responses.ResponseInputItemUnionParam
 
 	for _, m := range messages {
@@ -361,7 +331,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				Role: string(responses.ResponseInputMessageItemRoleSystem),
 			}
 
-			if slices.Contains(models, r.model) {
+			if slices.Contains(ReasoningModels, r.model) {
 				message.Role = string(responses.ResponseInputMessageItemRoleDeveloper)
 			}
 

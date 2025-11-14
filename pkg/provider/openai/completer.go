@@ -227,22 +227,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	if options.MaxTokens != nil {
-		models := []string{
-			"o1",
-			"o1-mini",
-			"o3",
-			"o3-mini",
-			"o4",
-			"o4-mini",
-
-			"gpt-5",
-			"gpt-5-mini",
-			"gpt-5-nano",
-
-			"gpt-5-codex",
-		}
-
-		if slices.Contains(models, c.model) {
+		if slices.Contains(ReasoningModels, c.model) {
 			req.MaxCompletionTokens = openai.Int(int64(*options.MaxTokens))
 		} else {
 			req.MaxTokens = openai.Int(int64(*options.MaxTokens))
@@ -250,22 +235,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	if options.Temperature != nil {
-		models := []string{
-			"o1",
-			"o1-mini",
-			"o3",
-			"o3-mini",
-			"o4",
-			"o4-mini",
-
-			"gpt-5",
-			"gpt-5-mini",
-			"gpt-5-nano",
-
-			"gpt-5-codex",
-		}
-
-		if !slices.Contains(models, c.model) {
+		if !slices.Contains(ReasoningModels, c.model) {
 			req.Temperature = openai.Float(float64(*options.Temperature))
 		}
 	}
@@ -289,22 +259,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 
 			message := openai.SystemMessage(parts)
 
-			models := []string{
-				"o1",
-				"o1-mini",
-				"o3",
-				"o3-mini",
-				"o4",
-				"o4-mini",
-
-				"gpt-5",
-				"gpt-5-mini",
-				"gpt-5-nano",
-
-				"gpt-5-codex",
-			}
-
-			if slices.Contains(models, c.model) {
+			if slices.Contains(ReasoningModels, c.model) {
 				message = openai.DeveloperMessage(parts)
 			}
 
