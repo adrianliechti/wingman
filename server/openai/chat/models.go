@@ -9,6 +9,7 @@ type MessageRole string
 
 var (
 	MessageRoleSystem    MessageRole = "system"
+	MessageRoleDeveloper MessageRole = "developer"
 	MessageRoleUser      MessageRole = "user"
 	MessageRoleAssistant MessageRole = "assistant"
 	MessageRoleTool      MessageRole = "tool"

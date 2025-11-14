@@ -3,11 +3,12 @@ package openai
 import (
 	"bytes"
 	"context"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
-	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v3"
 )
 
 var _ provider.Transcriber = (*Transcriber)(nil)
@@ -40,10 +41,16 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 
 	id := uuid.NewString()
 
+	fileName := input.Name
+
+	if strings.HasSuffix(fileName, ".weba") {
+		fileName = strings.TrimSuffix(fileName, ".weba") + ".webm"
+	}
+
 	transcription, err := t.transcriptions.New(ctx, openai.AudioTranscriptionNewParams{
 		Model: t.model,
 
-		File: openai.File(bytes.NewReader(input.Content), input.Name, input.ContentType),
+		File: openai.File(bytes.NewReader(input.Content), fileName, input.ContentType),
 
 		ResponseFormat: openai.AudioResponseFormatJSON,
 	})

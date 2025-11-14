@@ -80,13 +80,13 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	var result []tool.Tool
 
 	for _, t := range resp.Tools {
-		input, _ := t.InputSchema.MarshalJSON()
+		input, _ := t.InputSchema.(map[string]any)
 
 		tool := tool.Tool{
 			Name:        t.Name,
 			Description: t.Description,
 
-			Parameters: tool.ParseNormalizedSchema(input),
+			Parameters: input,
 		}
 
 		result = append(result, tool)

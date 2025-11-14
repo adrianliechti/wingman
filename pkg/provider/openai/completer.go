@@ -9,8 +9,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/shared"
+	"github.com/openai/openai-go/v3"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -185,13 +184,13 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 
 	switch options.Effort {
 	case provider.EffortMinimal:
-		req.ReasoningEffort = shared.ReasoningEffortMinimal
+		req.ReasoningEffort = openai.ReasoningEffortMinimal
 	case provider.EffortLow:
-		req.ReasoningEffort = shared.ReasoningEffortLow
+		req.ReasoningEffort = openai.ReasoningEffortLow
 	case provider.EffortMedium:
-		req.ReasoningEffort = shared.ReasoningEffortMedium
+		req.ReasoningEffort = openai.ReasoningEffortMedium
 	case provider.EffortHigh:
-		req.ReasoningEffort = shared.ReasoningEffortHigh
+		req.ReasoningEffort = openai.ReasoningEffortHigh
 	}
 
 	if options.Format == provider.CompletionFormatJSON {
@@ -228,18 +227,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	if options.MaxTokens != nil {
-		models := []string{
-			"o1",
-			"o1-mini",
-			"o3",
-			"o3-mini",
-			"o4",
-			"o4-mini",
-
-			"gpt-5",
-		}
-
-		if slices.Contains(models, c.model) {
+		if slices.Contains(ReasoningModels, c.model) {
 			req.MaxCompletionTokens = openai.Int(int64(*options.MaxTokens))
 		} else {
 			req.MaxTokens = openai.Int(int64(*options.MaxTokens))
@@ -247,18 +235,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	if options.Temperature != nil {
-		models := []string{
-			"o1",
-			"o1-mini",
-			"o3",
-			"o3-mini",
-			"o4",
-			"o4-mini",
-
-			"gpt-5",
-		}
-
-		if !slices.Contains(models, c.model) {
+		if !slices.Contains(ReasoningModels, c.model) {
 			req.Temperature = openai.Float(float64(*options.Temperature))
 		}
 	}
@@ -282,18 +259,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 
 			message := openai.SystemMessage(parts)
 
-			models := []string{
-				"o1",
-				"o1-mini",
-				"o3",
-				"o3-mini",
-				"o4",
-				"o4-mini",
-
-				"gpt-5",
-			}
-
-			if slices.Contains(models, c.model) {
+			if slices.Contains(ReasoningModels, c.model) {
 				message = openai.DeveloperMessage(parts)
 			}
 

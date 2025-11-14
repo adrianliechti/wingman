@@ -15,7 +15,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/google/uuid"
 
-	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v3"
 )
 
 var _ provider.Renderer = (*Renderer)(nil)

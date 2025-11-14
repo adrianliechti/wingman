@@ -2,6 +2,7 @@ package api
 
 import (
 	"io"
+	"mime"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -34,11 +35,17 @@ func (h *Handler) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	contentType := header.Header.Get("Content-Type")
+
+	if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+		contentType = mediatype
+	}
+
 	input := provider.File{
 		Name: header.Filename,
 
 		Content:     data,
-		ContentType: header.Header.Get("Content-Type"),
+		ContentType: contentType,
 	}
 
 	options := &provider.TranscribeOptions{

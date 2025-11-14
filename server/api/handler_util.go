@@ -28,14 +28,6 @@ func valueModel(r *http.Request) string {
 	return ""
 }
 
-func valueQuery(r *http.Request) string {
-	if val := r.FormValue("query"); val != "" {
-		return val
-	}
-
-	return ""
-}
-
 func valueInput(r *http.Request) string {
 	if val := r.FormValue("input"); val != "" {
 		return val
@@ -46,6 +38,14 @@ func valueInput(r *http.Request) string {
 	}
 
 	if val := r.FormValue("text"); val != "" {
+		return val
+	}
+
+	if val := r.FormValue("query"); val != "" {
+		return val
+	}
+
+	if val := r.FormValue("instructions"); val != "" {
 		return val
 	}
 
@@ -151,11 +151,17 @@ func readFile(r *http.Request) (*provider.File, error) {
 				return nil, err
 			}
 
+			contentType := header.Header.Get("Content-Type")
+
+			if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+				contentType = mediatype
+			}
+
 			return &provider.File{
 				Name: header.Filename,
 
 				Content:     data,
-				ContentType: header.Header.Get("Content-Type"),
+				ContentType: contentType,
 			}, nil
 		}
 
@@ -215,11 +221,17 @@ func readFiles(r *http.Request) ([]provider.File, error) {
 					return nil, err
 				}
 
+				contentType := header.Header.Get("Content-Type")
+
+				if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+					contentType = mediatype
+				}
+
 				files = append(files, provider.File{
 					Name: header.Filename,
 
 					Content:     data,
-					ContentType: header.Header.Get("Content-Type"),
+					ContentType: contentType,
 				})
 			}
 		}

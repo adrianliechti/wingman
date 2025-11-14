@@ -2,6 +2,7 @@ package audio
 
 import (
 	"io"
+	"mime"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -44,11 +45,17 @@ func (h *Handler) handleAudioTranscription(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	contentType := header.Header.Get("Content-Type")
+
+	if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+		contentType = mediatype
+	}
+
 	input := provider.File{
 		Name: header.Filename,
 
 		Content:     data,
-		ContentType: header.Header.Get("Content-Type"),
+		ContentType: contentType,
 	}
 
 	options := &provider.TranscribeOptions{}

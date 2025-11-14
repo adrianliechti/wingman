@@ -53,6 +53,9 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 		return nil, extractor.ErrUnsupported
 	}
 
+	//model := "prebuilt-read"
+	model := "prebuilt-layout"
+
 	if options.Format != nil {
 		if *options.Format != extractor.FormatText {
 			return nil, extractor.ErrUnsupported
@@ -61,7 +64,7 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 
 	content := bytes.NewReader(input.File.Content)
 
-	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/documentintelligence/documentModels/prebuilt-layout:analyze")
+	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/documentintelligence/documentModels/" + model + ":analyze")
 
 	query := u.Query()
 	query.Set("api-version", "2024-11-30")

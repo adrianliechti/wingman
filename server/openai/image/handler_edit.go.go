@@ -3,6 +3,7 @@ package image
 import (
 	"encoding/base64"
 	"io"
+	"mime"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -40,13 +41,19 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	contentType := header.Header.Get("Content-Type")
+
+	if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
+		contentType = mediatype
+	}
+
 	options := &provider.RenderOptions{
 		Images: []provider.File{
 			{
 				Name: header.Filename,
 
 				Content:     data,
-				ContentType: header.Header.Get("Content-Type"),
+				ContentType: contentType,
 			},
 		},
 	}

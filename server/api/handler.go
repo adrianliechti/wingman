@@ -24,7 +24,10 @@ func New(cfg *config.Config) *Handler {
 func (h *Handler) Attach(r chi.Router) {
 	r.Post("/extract", h.handleExtract)
 	r.Post("/render", h.handleRender)
-	r.Post("/retrieve", h.handleRetrieve)
+
+	r.Post("/search", h.handleSearch)
+	r.Post("/research", h.handleResearch)
+	r.Post("/retrieve", h.handleSearch) // alias for search
 
 	r.Post("/rerank", h.handleRerank)
 	r.Post("/segment", h.handleSegment)

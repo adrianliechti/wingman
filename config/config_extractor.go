@@ -10,6 +10,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/azure"
 	"github.com/adrianliechti/wingman/pkg/extractor/custom"
+	"github.com/adrianliechti/wingman/pkg/extractor/docling"
 	"github.com/adrianliechti/wingman/pkg/extractor/exa"
 	"github.com/adrianliechti/wingman/pkg/extractor/jina"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
@@ -24,20 +25,20 @@ import (
 )
 
 func (cfg *Config) RegisterExtractor(id string, p extractor.Provider) {
-	if cfg.extractors == nil {
-		cfg.extractors = make(map[string]extractor.Provider)
+	if cfg.extractor == nil {
+		cfg.extractor = make(map[string]extractor.Provider)
 	}
 
-	if _, ok := cfg.extractors[""]; !ok {
-		cfg.extractors[""] = p
+	if _, ok := cfg.extractor[""]; !ok {
+		cfg.extractor[""] = p
 	}
 
-	cfg.extractors[id] = p
+	cfg.extractor[id] = p
 }
 
 func (cfg *Config) Extractor(id string) (extractor.Provider, error) {
-	if cfg.extractors != nil {
-		if c, ok := cfg.extractors[id]; ok {
+	if cfg.extractor != nil {
+		if c, ok := cfg.extractor[id]; ok {
 			return c, nil
 		}
 	}
@@ -112,6 +113,9 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "azure":
 		return azureExtractor(cfg)
 
+	case "docling":
+		return doclingExtractor(cfg)
+
 	case "exa":
 		return exaExtractor(cfg)
 
@@ -146,6 +150,16 @@ func azureExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	}
 
 	return azure.New(cfg.URL, options...)
+}
+
+func doclingExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	var options []docling.Option
+
+	if cfg.Token != "" {
+		options = append(options, docling.WithToken(cfg.Token))
+	}
+
+	return docling.New(cfg.URL, options...)
 }
 
 func exaExtractor(cfg extractorConfig) (extractor.Provider, error) {

@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"strings"
+	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/responses"
-	"github.com/openai/openai-go/v2/shared"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 )
 
 var _ provider.Completer = (*Responder)(nil)
@@ -68,6 +67,8 @@ func (r *Responder) complete(ctx context.Context, req responses.ResponseNewParam
 		Message: &provider.Message{
 			Role: provider.MessageRoleAssistant,
 		},
+
+		Usage: toResponseUsage(resp.Usage),
 	}
 
 	for _, item := range resp.Output {
@@ -223,17 +224,35 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {
-	input, err := convertResponsesInput(messages)
+	if slices.Contains(ReasoningModels, r.model) {
+		options.Temperature = nil
+	}
+
+	input, err := r.convertResponsesInput(messages)
 
 	if err != nil {
 		return nil, err
 	}
 
-	tools, err := convertResponsesTools(options.Tools)
+	tools, err := r.convertResponsesTools(options.Tools)
 
 	if err != nil {
 		return nil, err
 	}
+
+	// tools = append(tools, responses.ToolUnionParam{
+	// 	OfCodeInterpreter: &responses.ToolCodeInterpreterParam{
+	// 		Container: responses.ToolCodeInterpreterContainerUnionParam{
+	// 			OfCodeInterpreterContainerAuto: &responses.ToolCodeInterpreterContainerCodeInterpreterContainerAutoParam{},
+	// 		},
+	// 	},
+	// })
+
+	// tools = append(tools, responses.ToolUnionParam{
+	// 	OfWebSearch: &responses.WebSearchToolParam{
+	// 		Type: responses.WebSearchToolTypeWebSearch,
+	// 	},
+	// })
 
 	req := &responses.ResponseNewParams{
 		Model: r.model,
@@ -246,19 +265,15 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		Truncation: responses.ResponseNewParamsTruncationAuto,
 	}
 
-	if val := convertInstructions(messages); val != "" {
-		req.Instructions = openai.String(val)
-	}
-
 	switch options.Effort {
 	case provider.EffortMinimal:
-		req.Reasoning.Effort = shared.ReasoningEffortMinimal
+		req.Reasoning.Effort = responses.ReasoningEffortMinimal
 	case provider.EffortLow:
-		req.Reasoning.Effort = shared.ReasoningEffortLow
+		req.Reasoning.Effort = responses.ReasoningEffortLow
 	case provider.EffortMedium:
-		req.Reasoning.Effort = shared.ReasoningEffortMedium
+		req.Reasoning.Effort = responses.ReasoningEffortMedium
 	case provider.EffortHigh:
-		req.Reasoning.Effort = shared.ReasoningEffortHigh
+		req.Reasoning.Effort = responses.ReasoningEffortHigh
 	}
 
 	switch options.Verbosity {
@@ -272,7 +287,7 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 
 	if options.Format == provider.CompletionFormatJSON {
 		req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
-			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
+			OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
 		}
 	}
 
@@ -306,28 +321,36 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	return req, nil
 }
 
-func convertInstructions(messages []provider.Message) string {
-	var result []string
-
-	for _, m := range messages {
-		if m.Role == provider.MessageRoleSystem {
-			for _, c := range m.Content {
-				if c.Text != "" {
-					result = append(result, c.Text)
-				}
-			}
-		}
-	}
-
-	return strings.Join(result, "\n\n")
-}
-
-func convertResponsesInput(messages []provider.Message) (responses.ResponseNewParamsInputUnion, error) {
+func (r *Responder) convertResponsesInput(messages []provider.Message) (responses.ResponseNewParamsInputUnion, error) {
 	var result []responses.ResponseInputItemUnionParam
 
 	for _, m := range messages {
 		switch m.Role {
 		case provider.MessageRoleSystem:
+			message := &responses.ResponseInputItemMessageParam{
+				Role: string(responses.ResponseInputMessageItemRoleSystem),
+			}
+
+			if slices.Contains(ReasoningModels, r.model) {
+				message.Role = string(responses.ResponseInputMessageItemRoleDeveloper)
+			}
+
+			for _, c := range m.Content {
+				if c.Text != "" {
+					message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
+						OfInputText: &responses.ResponseInputTextParam{
+							Text: c.Text,
+						},
+					})
+				}
+			}
+
+			if len(message.Content) > 0 {
+				result = append(result, responses.ResponseInputItemUnionParam{
+					OfInputMessage: message,
+				})
+			}
+
 		case provider.MessageRoleUser:
 			message := &responses.ResponseInputItemMessageParam{
 				Role: string(responses.ResponseInputMessageItemRoleUser),
@@ -373,7 +396,10 @@ func convertResponsesInput(messages []provider.Message) (responses.ResponseNewPa
 				if c.ToolResult != nil {
 					output := &responses.ResponseInputItemFunctionCallOutputParam{
 						CallID: c.ToolResult.ID,
-						Output: c.ToolResult.Data,
+
+						Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+							OfString: openai.String(c.ToolResult.Data),
+						},
 					}
 
 					result = append(result, responses.ResponseInputItemUnionParam{
@@ -427,7 +453,7 @@ func convertResponsesInput(messages []provider.Message) (responses.ResponseNewPa
 	}, nil
 }
 
-func convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, error) {
+func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, error) {
 	var result []responses.ToolUnionParam
 
 	for _, t := range tools {
