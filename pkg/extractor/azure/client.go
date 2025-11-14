@@ -53,7 +53,8 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 		return nil, extractor.ErrUnsupported
 	}
 
-	model := "prebuilt-read" // prebuilt-layout
+	//model := "prebuilt-read"
+	model := "prebuilt-layout"
 
 	if options.Format != nil {
 		if *options.Format != extractor.FormatText {
