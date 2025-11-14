@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option go_package = "github.com/adrianliechti/wingman/pkg/researcher/custom;custom";
+
+package researcher;
+
+service Researcher {
+  rpc Research (ResearchRequest) returns (ResearchResponse) {}
+}
+
+message ResearchRequest {
+  string instructions = 1;
+}
+
+message ResearchResponse {
+  string content = 1;
+}

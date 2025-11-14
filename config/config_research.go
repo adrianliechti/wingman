@@ -7,6 +7,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/researcher/anthropic"
+	"github.com/adrianliechti/wingman/pkg/researcher/custom"
 	"github.com/adrianliechti/wingman/pkg/researcher/exa"
 	"github.com/adrianliechti/wingman/pkg/researcher/openai"
 	"github.com/adrianliechti/wingman/pkg/researcher/perplexity"
@@ -107,6 +108,9 @@ func createResearcher(cfg researcherConfig, context researcherContext) (research
 	case "perplexity":
 		return perplexityResearcher(cfg, context)
 
+	case "custom", "wingman-researcher":
+		return customResearcher(cfg)
+
 	default:
 		return nil, errors.New("invalid researcher type: " + cfg.Type)
 	}
@@ -150,4 +154,10 @@ func perplexityResearcher(cfg researcherConfig, context researcherContext) (rese
 	}
 
 	return perplexity.New(cfg.Token, options...)
+}
+
+func customResearcher(cfg researcherConfig) (researcher.Provider, error) {
+	var options []custom.Option
+
+	return custom.New(cfg.URL, options...)
 }
