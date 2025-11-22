@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor/docling"
 	"github.com/adrianliechti/wingman/pkg/extractor/exa"
 	"github.com/adrianliechti/wingman/pkg/extractor/jina"
+	"github.com/adrianliechti/wingman/pkg/extractor/kreuzberg"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
 	"github.com/adrianliechti/wingman/pkg/extractor/tavily"
 	"github.com/adrianliechti/wingman/pkg/extractor/text"
@@ -122,6 +123,9 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "jina":
 		return jinaExtractor(cfg)
 
+	case "kreuzberg":
+		return kreuzbergExtractor(cfg)
+
 	case "tavily":
 		return tavilyExtractor(cfg)
 
@@ -196,6 +200,16 @@ func jinaExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	}
 
 	return jina.New(cfg.URL, options...)
+}
+
+func kreuzbergExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	var options []kreuzberg.Option
+
+	if cfg.Token != "" {
+		options = append(options, kreuzberg.WithToken(cfg.Token))
+	}
+
+	return kreuzberg.New(cfg.URL, options...)
 }
 
 func textExtractor(cfg extractorConfig) (extractor.Provider, error) {

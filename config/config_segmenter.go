@@ -9,6 +9,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 	"github.com/adrianliechti/wingman/pkg/segmenter/custom"
 	"github.com/adrianliechti/wingman/pkg/segmenter/jina"
+	"github.com/adrianliechti/wingman/pkg/segmenter/kreuzberg"
 	"github.com/adrianliechti/wingman/pkg/segmenter/text"
 	"github.com/adrianliechti/wingman/pkg/segmenter/unstructured"
 
@@ -100,6 +101,9 @@ func createSegmenter(cfg segmenterConfig, context segmenterContext) (segmenter.P
 	case "jina":
 		return jinaSegmenter(cfg)
 
+	case "kreuzberg":
+		return kreuzbergSegmenter(cfg)
+
 	case "text":
 		return textSegmenter(cfg)
 
@@ -122,6 +126,16 @@ func jinaSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
 	}
 
 	return jina.New(cfg.URL, options...)
+}
+
+func kreuzbergSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
+	var options []kreuzberg.Option
+
+	if cfg.Token != "" {
+		options = append(options, kreuzberg.WithToken(cfg.Token))
+	}
+
+	return kreuzberg.New(cfg.URL, options...)
 }
 
 func textSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
