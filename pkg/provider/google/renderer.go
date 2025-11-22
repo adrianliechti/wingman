@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/google/uuid"
 	"google.golang.org/genai"
 )
 
@@ -63,7 +62,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 	}
 
 	result := &provider.Rendering{
-		ID:    uuid.NewString(),
+		ID:    image.ResponseID,
 		Model: r.model,
 	}
 

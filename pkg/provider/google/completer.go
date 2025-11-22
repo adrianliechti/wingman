@@ -7,7 +7,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/google/uuid"
 	"google.golang.org/genai"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -69,7 +68,7 @@ func (c *Completer) complete(ctx context.Context, client *genai.Client, contents
 	candidate := resp.Candidates[0]
 
 	return &provider.Completion{
-		ID:    uuid.New().String(),
+		ID:    resp.ResponseID,
 		Model: c.model,
 
 		Message: &provider.Message{
@@ -92,7 +91,7 @@ func (c *Completer) completeStream(ctx context.Context, client *genai.Client, co
 		}
 
 		delta := provider.Completion{
-			ID: uuid.New().String(),
+			ID: resp.ResponseID,
 
 			Message: &provider.Message{
 				Role: provider.MessageRoleAssistant,
