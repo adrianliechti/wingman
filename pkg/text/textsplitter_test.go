@@ -6,7 +6,7 @@ import (
 )
 
 func TestSplitterBasic(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 20
 	splitter.ChunkOverlap = 0
 
@@ -32,7 +32,7 @@ func TestSplitterBasic(t *testing.T) {
 }
 
 func TestSplitterWithLineBreaks(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 30 // Smaller to force splitting
 	splitter.ChunkOverlap = 0
 
@@ -49,7 +49,7 @@ func TestSplitterWithLineBreaks(t *testing.T) {
 }
 
 func TestSplitterWithOverlap(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 30
 	splitter.ChunkOverlap = 10
 
@@ -86,7 +86,7 @@ func TestSplitterWithOverlap(t *testing.T) {
 }
 
 func TestSplitterSmallChunkSize(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 5
 
 	text := "This is a very long sentence that needs to be split"
@@ -102,7 +102,7 @@ func TestSplitterSmallChunkSize(t *testing.T) {
 }
 
 func TestSplitterEmptyText(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	chunks := splitter.Split("")
 
 	if len(chunks) != 0 {
@@ -111,7 +111,7 @@ func TestSplitterEmptyText(t *testing.T) {
 }
 
 func TestSplitterWhitespaceOnly(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	chunks := splitter.Split("   \n\n   \t  ")
 
 	if len(chunks) != 0 {
@@ -120,7 +120,7 @@ func TestSplitterWhitespaceOnly(t *testing.T) {
 }
 
 func TestSplitterSingleWord(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 100
 
 	chunks := splitter.Split("Hello")
@@ -135,7 +135,7 @@ func TestSplitterSingleWord(t *testing.T) {
 }
 
 func TestSplitterLongWord(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 5
 
 	longWord := "supercalifragilisticexpialidocious"
@@ -153,7 +153,7 @@ func TestSplitterLongWord(t *testing.T) {
 }
 
 func TestSplitterSentenceBoundaries(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 40
 
 	text := "First sentence. Second sentence! Third sentence? Fourth."
@@ -169,7 +169,7 @@ func TestSplitterSentenceBoundaries(t *testing.T) {
 }
 
 func TestSplitterTrimDisabled(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 20
 	splitter.Trim = false
 
@@ -188,7 +188,7 @@ func TestSplitterTrimDisabled(t *testing.T) {
 }
 
 func TestSplitterCodeSample(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 100
 	splitter.ChunkOverlap = 20
 
@@ -212,7 +212,7 @@ func test() {
 }
 
 func TestSplitterMarkdown(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 60
 
 	markdown := `# Title
@@ -235,7 +235,7 @@ Another paragraph here.`
 }
 
 func TestChunkByParagraphs(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 25
 	splitter.Trim = false
 	splitter.Normalize = false
@@ -255,7 +255,7 @@ func TestChunkByParagraphs(t *testing.T) {
 }
 
 func TestHandlesEndingOnNewline(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 18
 	splitter.Trim = false
 	splitter.Normalize = false
@@ -274,7 +274,7 @@ func TestHandlesEndingOnNewline(t *testing.T) {
 }
 
 func TestDoubleNewlineFallbackToSingleAndSentences(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 18
 	splitter.Trim = false
 	splitter.Normalize = false
@@ -302,7 +302,7 @@ func TestDoubleNewlineFallbackToSingleAndSentences(t *testing.T) {
 }
 
 func TestChunkOverlapCharacters(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 4
 	splitter.ChunkOverlap = 2
 
@@ -325,7 +325,7 @@ func TestChunkOverlapCharacters(t *testing.T) {
 }
 
 func TestChunkOverlapWords(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 10
 	splitter.ChunkOverlap = 5
 	splitter.Trim = false
@@ -349,7 +349,7 @@ func TestChunkOverlapWords(t *testing.T) {
 }
 
 func TestChunkOverlapWordsTrim(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 10
 	splitter.ChunkOverlap = 5
 	splitter.Trim = true
@@ -372,7 +372,7 @@ func TestChunkOverlapWordsTrim(t *testing.T) {
 }
 
 func TestChunkOverlapParagraph(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 14
 	splitter.ChunkOverlap = 7
 
@@ -394,7 +394,7 @@ func TestChunkOverlapParagraph(t *testing.T) {
 }
 
 func TestAllChunksWithinSize(t *testing.T) {
-	splitter := NewSplitter()
+	splitter := NewTextSplitter()
 	splitter.ChunkSize = 50
 
 	text := strings.Repeat("This is a test sentence with multiple words. ", 100)
@@ -439,7 +439,7 @@ func TestChunksPreserveContent(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			splitter := NewSplitter()
+			splitter := NewTextSplitter()
 			splitter.ChunkSize = tc.chunkSize
 
 			chunks := splitter.Split(tc.text)
@@ -482,7 +482,7 @@ func TestSplitterNewlines(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			splitter := NewSplitter()
+			splitter := NewTextSplitter()
 			splitter.ChunkSize = 30
 
 			chunks := splitter.Split(tc.text)
