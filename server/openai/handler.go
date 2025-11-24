@@ -7,6 +7,7 @@ import (
 	"github.com/adrianliechti/wingman/server/openai/embeddings"
 	"github.com/adrianliechti/wingman/server/openai/image"
 	"github.com/adrianliechti/wingman/server/openai/models"
+	"github.com/adrianliechti/wingman/server/openai/responses"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -20,6 +21,7 @@ type Handler struct {
 	audio *audio.Handler
 	image *image.Handler
 
+	responses  *responses.Handler
 	embeddings *embeddings.Handler
 }
 
@@ -33,6 +35,7 @@ func New(cfg *config.Config) *Handler {
 		audio: audio.New(cfg),
 		image: image.New(cfg),
 
+		responses:  responses.New(cfg),
 		embeddings: embeddings.New(cfg),
 	}
 }
@@ -44,5 +47,6 @@ func (h *Handler) Attach(r chi.Router) {
 	h.audio.Attach(r)
 	h.image.Attach(r)
 
+	h.responses.Attach(r)
 	h.embeddings.Attach(r)
 }
