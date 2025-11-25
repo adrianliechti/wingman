@@ -27,6 +27,8 @@ type ExtractOptions struct {
 	Format *Format
 }
 
+type File = provider.File
+
 type Input struct {
 	URL string
 
