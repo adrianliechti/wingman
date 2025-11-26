@@ -6,6 +6,8 @@ import (
 )
 
 func Normalize(text string) string {
+	text = strings.TrimSpace(text)
+
 	// Remove any existing \a characters to prevent interference
 	text = strings.ReplaceAll(text, "\a", "")
 
@@ -23,6 +25,8 @@ func Normalize(text string) string {
 
 	// Restore line breaks from temporary markers
 	text = strings.ReplaceAll(text, "\a", "\n")
+
+	text = strings.TrimSpace(text)
 
 	return text
 }

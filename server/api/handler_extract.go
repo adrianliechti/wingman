@@ -1,23 +1,21 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
-	"io"
+	"mime"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 )
 
 func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
+	acceptType, _, _ := mime.ParseMediaType(r.Header.Get("Accept"))
+	acceptJSON := acceptType == "application/json"
+
 	model := valueModel(r)
-
-	p, err := h.Extractor(model)
-
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
 
 	schema, err := valueSchema(r)
 
@@ -26,44 +24,93 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := extractor.Input{}
+	var content string
+	var contentType string
 
 	if url := valueURL(r); url != "" {
-		input.URL = url
+		p, err := h.Scraper(model)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		options := &scraper.ScrapeOptions{}
+
+		result, err := p.Scrape(r.Context(), url, options)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		content = result.Text
+		contentType = "text/plain"
+
+		if acceptJSON {
+			data, _ := json.Marshal(result)
+
+			content = string(data)
+			contentType = "application/json"
+		}
 	}
 
 	if file, err := readFile(r); err == nil {
-		input.File = file
+		p, err := h.Extractor(model)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		options := &extractor.ExtractOptions{}
+
+		result, err := p.Extract(r.Context(), *file, options)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		content = result.Text
+		contentType = "text/plain"
+
+		if acceptJSON {
+			document := Document{
+				Text: result.Text,
+
+				Pages:  []Page{},
+				Blocks: []Block{},
+			}
+
+			for _, p := range result.Pages {
+				document.Pages = append(document.Pages, Page{
+					Page: p.Page,
+
+					Width:  p.Width,
+					Height: p.Height,
+				})
+			}
+
+			for _, b := range result.Blocks {
+				document.Blocks = append(document.Blocks, Block{
+					Page: b.Page,
+					Text: b.Text,
+
+					Polygon: b.Polygon,
+				})
+			}
+
+			data, _ := json.Marshal(document)
+
+			content = string(data)
+			contentType = "application/json"
+		}
 	}
-
-	if input.URL == "" && input.File == nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	if input.URL == "" && input.File == nil {
-		writeError(w, http.StatusBadRequest, errors.New("invalid input"))
-		return
-	}
-
-	options := &extractor.ExtractOptions{}
-
-	if val := valueFormat(r); val != "" {
-		format := extractor.Format(val)
-		options.Format = &format
-	}
-
-	result, err := p.Extract(r.Context(), input, options)
-
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	contentType := result.ContentType
 
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		writeError(w, http.StatusBadRequest, errors.New("invalid input"))
+		return
 	}
 
 	if schema != nil {
@@ -74,10 +121,8 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		text := string(result.Content)
-
 		messages := []provider.Message{
-			provider.UserMessage(text),
+			provider.UserMessage(content),
 		}
 
 		options := &provider.CompleteOptions{
@@ -91,16 +136,10 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		content := completion.Message.Text()
-
-		w.Header().Set("Content-Type", "application/json")
-
-		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, content)
-
-		return
+		content = completion.Message.Text()
+		contentType = "application/json"
 	}
 
 	w.Header().Set("Content-Type", contentType)
-	w.Write(result.Content)
+	w.Write([]byte(content))
 }

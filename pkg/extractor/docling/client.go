@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 var _ extractor.Provider = &Client{}
@@ -44,37 +43,28 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(input) {
+	if !isSupported(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
-	if options.Format != nil {
-		if *options.Format != extractor.FormatText {
-			return nil, extractor.ErrUnsupported
-		}
-	}
+	var body bytes.Buffer
 
-	var data bytes.Buffer
-	w := multipart.NewWriter(&data)
+	w := multipart.NewWriter(&body)
 
-	file, err := w.CreateFormFile("files", input.File.Name)
+	f, _ := w.CreateFormFile("files", file.Name)
 
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := io.Copy(file, bytes.NewReader(input.File.Content)); err != nil {
+	if _, err := io.Copy(f, bytes.NewReader(file.Content)); err != nil {
 		return nil, err
 	}
 
 	w.Close()
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.url, "/")+"/v1/convert/file/async", &data)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.url, "/")+"/v1/convert/file/async", &body)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := c.client.Do(req)
@@ -136,7 +126,7 @@ func (c *Client) awaitTask(ctx context.Context, taskID string) error {
 	}
 }
 
-func (c *Client) readDocument(ctx context.Context, taskID string) (*provider.File, error) {
+func (c *Client) readDocument(ctx context.Context, taskID string) (*extractor.Document, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(c.url, "/")+"/v1/result/"+taskID, nil)
 
 	resp, err := c.client.Do(req)
@@ -157,60 +147,44 @@ func (c *Client) readDocument(ctx context.Context, taskID string) (*provider.Fil
 		return nil, errors.New("task not successful")
 	}
 
-	if task.Document.Text != "" {
-		return &provider.File{
-			Name: task.Document.Filename,
-
-			Content:     []byte(task.Document.Text),
-			ContentType: "text/plain",
-		}, nil
-	}
+	var text string
 
 	if task.Document.Html != "" {
-		return &provider.File{
-			Name: task.Document.Filename,
-
-			Content:     []byte(task.Document.Html),
-			ContentType: "text/html",
-		}, nil
-	}
-
-	if task.Document.Markdown != "" {
-		return &provider.File{
-			Name: task.Document.Filename,
-
-			Content:     []byte(task.Document.Markdown),
-			ContentType: "text/markdown",
-		}, nil
+		text = task.Document.Html
 	}
 
 	if task.Document.Json != "" {
-		return &provider.File{
-			Name: task.Document.Filename,
-
-			Content:     []byte(task.Document.Json),
-			ContentType: "application/json",
-		}, nil
+		text = task.Document.Json
 	}
 
-	return nil, errors.New("no content")
+	if task.Document.Text != "" {
+		text = task.Document.Text
+	}
+
+	if task.Document.Markdown != "" {
+		text = task.Document.Markdown
+	}
+
+	if text == "" {
+		return nil, errors.New("no document content")
+	}
+
+	return &extractor.Document{
+		Text: text,
+	}, nil
 }
 
-func isSupported(input extractor.Input) bool {
-	if input.File == nil {
-		return false
-	}
-
-	if input.File.Name != "" {
-		ext := strings.ToLower(path.Ext(input.File.Name))
+func isSupported(file extractor.File) bool {
+	if file.Name != "" {
+		ext := strings.ToLower(path.Ext(file.Name))
 
 		if slices.Contains(SupportedExtensions, ext) {
 			return true
 		}
 	}
 
-	if input.File.ContentType != "" {
-		if slices.Contains(SupportedMimeTypes, input.File.ContentType) {
+	if file.ContentType != "" {
+		if slices.Contains(SupportedMimeTypes, file.ContentType) {
 			return true
 		}
 	}

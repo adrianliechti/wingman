@@ -8,7 +8,6 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/kreuzberg"
-	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -44,17 +43,15 @@ func TestExtract(t *testing.T) {
 	data, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	input := extractor.Input{
-		File: &provider.File{
-			Name: "acrobat_reference.pdf",
+	input := extractor.File{
+		Name: "acrobat_reference.pdf",
 
-			Content:     data,
-			ContentType: "application/pdf",
-		},
+		Content:     data,
+		ContentType: "application/pdf",
 	}
 
 	result, err := c.Extract(ctx, input, nil)
 	require.NoError(t, err)
 
-	require.NotEmpty(t, result.Content)
+	require.NotEmpty(t, result.Text)
 }

@@ -8,53 +8,35 @@ import (
 )
 
 type Provider interface {
-	Extract(ctx context.Context, input Input, options *ExtractOptions) (*provider.File, error)
+	Extract(ctx context.Context, input File, options *ExtractOptions) (*Document, error)
 }
 
 var (
 	ErrUnsupported = errors.New("unsupported type")
 )
 
-type Format string
-
-const (
-	FormatText  Format = "text"
-	FormatImage Format = "image"
-	FormatPDF   Format = "pdf"
-)
-
-type ExtractOptions struct {
-	Format *Format
-}
-
 type File = provider.File
 
-type Input struct {
-	URL string
-
-	File *provider.File
+type ExtractOptions struct {
 }
 
 type Document struct {
-	Text string `json:"text"`
+	Text string
 
-	Pages  []Page  `json:"pages"`
-	Blocks []Block `json:"blocks"`
+	Pages  []Page
+	Blocks []Block
 }
 
 type Page struct {
-	Index int `json:"index"`
+	Page int
 
-	Width  int `json:"width"`
-	Height int `json:"height"`
+	Width  int
+	Height int
 }
 
 type Block struct {
-	Page int `json:"page,omitempty"`
+	Page int
+	Text string
 
-	Text string `json:"text,omitempty"`
-
-	Box [4]int `json:"box,omitempty"` // [x1, y1, x2, y2]
-
-	Confidence float64 `json:"confidence,omitempty"`
+	Polygon [][2]int // [[x1, y1], [x2, y2], [x3, y3], ...]
 }

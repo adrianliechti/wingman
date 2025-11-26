@@ -40,17 +40,13 @@ func (c *Client) Translate(ctx context.Context, input translator.Input, options 
 			return nil, errors.New("no extractor configured")
 		}
 
-		input := extractor.Input{
-			File: input.File,
-		}
-
-		result, err := c.extractor.Extract(ctx, input, nil)
+		result, err := c.extractor.Extract(ctx, *input.File, nil)
 
 		if err != nil {
 			return nil, err
 		}
 
-		text = string(result.Content)
+		text = string(result.Text)
 	}
 
 	messages := []provider.Message{

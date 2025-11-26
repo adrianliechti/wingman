@@ -1,9 +1,10 @@
 package api
 
 type Result struct {
-	Index    int     `json:"index,omitempty"`
-	Score    float64 `json:"score,omitempty"`
-	Document `json:",inline"`
+	Index int `json:"index,omitempty"`
+
+	Score   float64 `json:"score,omitempty"`
+	Segment `json:",inline"`
 }
 
 type Segment struct {
@@ -13,15 +14,20 @@ type Segment struct {
 type Document struct {
 	Text string `json:"text,omitempty"`
 
+	Pages  []Page  `json:"pages,omitempty"`
 	Blocks []Block `json:"blocks,omitempty"`
 }
 
-type Block struct {
-	Page int `json:"page,omitempty"`
+type Page struct {
+	Page int `json:"page"`
 
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type Block struct {
+	Page int    `json:"page,omitempty"`
 	Text string `json:"text,omitempty"`
 
-	Box [4]int `json:"box,omitempty"` // [x1, y1, x2, y2]
-
-	Confidence float64 `json:"confidence,omitempty"`
+	Polygon [][2]int `json:"polygon,omitempty"` // [[x1, y1], [x2, y2], [x3, y3], ...]
 }

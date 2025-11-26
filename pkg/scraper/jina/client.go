@@ -8,11 +8,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 )
 
-var _ extractor.Provider = &Client{}
+var _ scraper.Provider = &Client{}
 
 type Client struct {
 	client *http.Client
@@ -39,44 +38,18 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Scrape(ctx context.Context, url string, options *scraper.ScrapeOptions) (*scraper.Document, error) {
 	if options == nil {
-		options = new(extractor.ExtractOptions)
-	}
-
-	if input.URL == "" {
-		return nil, extractor.ErrUnsupported
+		options = new(scraper.ScrapeOptions)
 	}
 
 	body := map[string]any{
-		"url": input.URL,
-	}
-
-	format := "text"
-	contentType := "text/plain"
-
-	if options.Format != nil {
-		switch *options.Format {
-		case extractor.FormatText:
-			format = "text"
-			contentType = "text/plain"
-
-		case extractor.FormatImage:
-			format = "pageshot"
-			contentType = "image/png"
-
-		case extractor.FormatPDF:
-			format = "pdf"
-			contentType = "application/pdf"
-
-		default:
-			return nil, extractor.ErrUnsupported
-		}
+		"url": url,
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", c.url, jsonReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Return-Format", format)
+	req.Header.Set("X-Return-Format", "text")
 
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -100,9 +73,8 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 		return nil, err
 	}
 
-	return &provider.File{
-		Content:     data,
-		ContentType: contentType,
+	return &scraper.Document{
+		Text: string(data),
 	}, nil
 }
 
