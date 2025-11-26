@@ -34,3 +34,27 @@ type Input struct {
 
 	File *provider.File
 }
+
+type Document struct {
+	Text string `json:"text"`
+
+	Pages  []Page  `json:"pages"`
+	Blocks []Block `json:"blocks"`
+}
+
+type Page struct {
+	Index int `json:"index"`
+
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type Block struct {
+	Page int `json:"page,omitempty"`
+
+	Text string `json:"text,omitempty"`
+
+	Box [4]int `json:"box,omitempty"` // [x1, y1, x2, y2]
+
+	Confidence float64 `json:"confidence,omitempty"`
+}

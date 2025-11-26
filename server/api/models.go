@@ -13,5 +13,15 @@ type Segment struct {
 type Document struct {
 	Text string `json:"text,omitempty"`
 
-	Segments []Segment `json:"segments,omitempty"`
+	Blocks []Block `json:"blocks,omitempty"`
+}
+
+type Block struct {
+	Page int `json:"page,omitempty"`
+
+	Text string `json:"text,omitempty"`
+
+	Box [4]int `json:"box,omitempty"` // [x1, y1, x2, y2]
+
+	Confidence float64 `json:"confidence,omitempty"`
 }
