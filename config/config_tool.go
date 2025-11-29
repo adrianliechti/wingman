@@ -4,17 +4,18 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/tool/custom"
-	"github.com/adrianliechti/wingman/pkg/tool/extract"
 	"github.com/adrianliechti/wingman/pkg/tool/mcp"
 	"github.com/adrianliechti/wingman/pkg/tool/research"
+	"github.com/adrianliechti/wingman/pkg/tool/scrape"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
 	"github.com/adrianliechti/wingman/pkg/tool/translate"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/researcher"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/translator"
 
@@ -60,12 +61,12 @@ type toolConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Model    string `yaml:"model"`
-	Provider string `yaml:"provider"`
+	Model string `yaml:"model"`
 
 	Extractor  string `yaml:"extractor"`
 	Translator string `yaml:"translator"`
 
+	Scraper    string `yaml:"scraper"`
 	Searcher   string `yaml:"searcher"`
 	Researcher string `yaml:"researcher"`
 }
@@ -77,6 +78,7 @@ type toolContext struct {
 	Renderer    provider.Renderer
 	Synthesizer provider.Synthesizer
 
+	Scraper    scraper.Provider
 	Searcher   searcher.Provider
 	Researcher researcher.Provider
 }
@@ -107,14 +109,6 @@ func (cfg *Config) registerTools(f *configFile) error {
 			context.Translator = p
 		}
 
-		if p, err := cfg.Extractor(config.Provider); err == nil {
-			context.Extractor = p
-		}
-
-		if p, err := cfg.Translator(config.Provider); err == nil {
-			context.Translator = p
-		}
-
 		if p, err := cfg.Renderer(config.Model); err == nil {
 			context.Renderer = p
 		}
@@ -123,11 +117,15 @@ func (cfg *Config) registerTools(f *configFile) error {
 			context.Synthesizer = p
 		}
 
-		if p, err := cfg.Searcher(config.Model); err == nil {
+		if p, err := cfg.Scraper(config.Scraper); err == nil {
+			context.Scraper = p
+		}
+
+		if p, err := cfg.Searcher(config.Searcher); err == nil {
 			context.Searcher = p
 		}
 
-		if p, err := cfg.Researcher(config.Model); err == nil {
+		if p, err := cfg.Researcher(config.Researcher); err == nil {
 			context.Researcher = p
 		}
 
@@ -150,17 +148,17 @@ func (cfg *Config) registerTools(f *configFile) error {
 func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
 
-	case "extractor", "crawler":
-		return extractTool(cfg, context)
+	case "scraper", "crawler":
+		return scraperTool(cfg, context)
 
 	case "search":
-		return searchTool(cfg, context)
+		return searcherTool(cfg, context)
 
 	case "research":
-		return researchTool(cfg, context)
+		return researcherTool(cfg, context)
 
 	case "translator":
-		return translateTool(cfg, context)
+		return translatorTool(cfg, context)
 
 	case "mcp":
 		return mcpTool(cfg, context)
@@ -173,25 +171,25 @@ func createTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	}
 }
 
-func extractTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	var options []extract.Option
+func scraperTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+	var options []scrape.Option
 
-	return extract.New(context.Extractor, options...)
+	return scrape.New(context.Scraper, options...)
 }
 
-func searchTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+func searcherTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []search.Option
 
 	return search.New(context.Searcher, options...)
 }
 
-func researchTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+func researcherTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []research.Option
 
 	return research.New(context.Researcher, options...)
 }
 
-func translateTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
+func translatorTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 	var options []translate.Option
 
 	return translate.New(context.Translator, options...)

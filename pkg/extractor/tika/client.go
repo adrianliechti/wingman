@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/text"
 )
 
@@ -43,22 +42,10 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
-
-	if input.File == nil {
-		return nil, extractor.ErrUnsupported
-	}
-
-	if options.Format != nil {
-		if *options.Format != extractor.FormatText {
-			return nil, extractor.ErrUnsupported
-		}
-	}
-
-	file := *input.File
 
 	if !isSupported(file) {
 		return nil, extractor.ErrUnsupported
@@ -87,13 +74,12 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 
 	text := text.Normalize(response.Content)
 
-	return &provider.File{
-		Content:     []byte(text),
-		ContentType: "text/plain",
+	return &extractor.Document{
+		Text: text,
 	}, nil
 }
 
-func isSupported(file provider.File) bool {
+func isSupported(file extractor.File) bool {
 	if file.Name != "" {
 		ext := strings.ToLower(path.Ext(file.Name))
 

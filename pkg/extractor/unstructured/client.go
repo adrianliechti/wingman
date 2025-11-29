@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 var _ extractor.Provider = &Client{}
@@ -47,38 +46,23 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
-
-	if input.File == nil {
-		return nil, extractor.ErrUnsupported
-	}
-
-	if options.Format != nil {
-		if *options.Format != extractor.FormatText {
-			return nil, extractor.ErrUnsupported
-		}
-	}
-
-	file := *input.File
 
 	if !isSupported(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
+	var body bytes.Buffer
+
+	w := multipart.NewWriter(&body)
 
 	w.WriteField("strategy", string(c.strategy))
 	w.WriteField("include_page_breaks", "true")
 
-	f, err := w.CreateFormFile("files", file.Name)
-
-	if err != nil {
-		return nil, err
-	}
+	f, _ := w.CreateFormFile("files", file.Name)
 
 	if _, err := f.Write(file.Content); err != nil {
 		return nil, err
@@ -86,7 +70,7 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 
 	w.Close()
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", c.url, &b)
+	req, _ := http.NewRequestWithContext(ctx, "POST", c.url, &body)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := c.client.Do(req)
@@ -116,13 +100,12 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 
 	text := strings.TrimSpace(builder.String())
 
-	return &provider.File{
-		Content:     []byte(text),
-		ContentType: "text/plain",
+	return &extractor.Document{
+		Text: text,
 	}, nil
 }
 
-func isSupported(file provider.File) bool {
+func isSupported(file extractor.File) bool {
 	if file.Name != "" {
 		ext := strings.ToLower(path.Ext(file.Name))
 

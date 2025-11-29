@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 var _ extractor.Provider = &Client{}
@@ -44,25 +43,19 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(input) {
+	if !isSupported(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
 	//model := "prebuilt-read"
 	model := "prebuilt-layout"
 
-	if options.Format != nil {
-		if *options.Format != extractor.FormatText {
-			return nil, extractor.ErrUnsupported
-		}
-	}
-
-	content := bytes.NewReader(input.File.Content)
+	content := bytes.NewReader(file.Content)
 
 	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/documentintelligence/documentModels/" + model + ":analyze")
 
@@ -125,35 +118,72 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 			return nil, errors.New("operation " + string(operation.Status))
 		}
 
-		text := strings.TrimSpace(operation.Result.Content)
+		result := &extractor.Document{
+			Text: strings.TrimSpace(operation.Result.Content),
 
-		return &provider.File{
-			Content:     []byte(text),
-			ContentType: "text/plain",
-		}, nil
+			Pages:  []extractor.Page{},
+			Blocks: []extractor.Block{},
+		}
+
+		for _, page := range operation.Result.Pages {
+			result.Pages = append(result.Pages, extractor.Page{
+				Page: page.PageNumber,
+
+				Width:  int(page.Width),
+				Height: int(page.Height),
+			})
+
+			for _, word := range page.Words {
+				block := extractor.Block{
+					Page: page.PageNumber,
+
+					Text: word.Content,
+
+					Polygon: convertPolygon(word.Polygon),
+					//Confidence: word.Confidence,
+				}
+
+				result.Blocks = append(result.Blocks, block)
+			}
+		}
+
+		return result, nil
 	}
 }
 
-func isSupported(input extractor.Input) bool {
-	if input.File == nil {
-		return false
-	}
-
-	if input.File.Name != "" {
-		ext := strings.ToLower(path.Ext(input.File.Name))
+func isSupported(file extractor.File) bool {
+	if file.Name != "" {
+		ext := strings.ToLower(path.Ext(file.Name))
 
 		if slices.Contains(SupportedExtensions, ext) {
 			return true
 		}
 	}
 
-	if input.File.ContentType != "" {
-		if slices.Contains(SupportedMimeTypes, input.File.ContentType) {
+	if file.ContentType != "" {
+		if slices.Contains(SupportedMimeTypes, file.ContentType) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func convertPolygon(polygon []float64) [][2]int {
+	if len(polygon)%2 != 0 {
+		return nil
+	}
+
+	result := make([][2]int, 0, len(polygon)/2)
+
+	for i := 0; i < len(polygon); i += 2 {
+		result = append(result, [2]int{
+			int(polygon[i]),
+			int(polygon[i+1]),
+		})
+	}
+
+	return result
 }
 
 func convertError(resp *http.Response) error {

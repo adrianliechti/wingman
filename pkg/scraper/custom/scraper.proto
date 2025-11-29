@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option go_package = "github.com/adrianliechti/wingman/pkg/scraper/custom;custom";
+
+package scraper;
+
+service Scraper {
+  rpc Scrape (ScrapeRequest) returns (Document) {}
+}
+
+message ScrapeRequest {
+  string url = 1;
+}
+
+message Document {
+  string text = 1;
+}

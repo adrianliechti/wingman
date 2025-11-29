@@ -4,8 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/extractor/jina"
+	"github.com/adrianliechti/wingman/pkg/scraper/jina"
 
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -33,12 +32,8 @@ func TestExtract(t *testing.T) {
 	c, err := jina.New("http://" + url)
 	require.NoError(t, err)
 
-	input := extractor.Input{
-		URL: "https://example.org",
-	}
-
-	result, err := c.Extract(ctx, input, nil)
+	result, err := c.Scrape(ctx, "https://example.org", nil)
 	require.NoError(t, err)
 
-	require.NotEmpty(t, result.Content)
+	require.NotEmpty(t, result.Text)
 }

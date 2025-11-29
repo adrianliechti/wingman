@@ -1,30 +1,30 @@
-package extract
+package scrape
 
 import (
 	"context"
 	"errors"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
 var _ tool.Provider = (*Client)(nil)
 
 type Client struct {
-	extractor extractor.Provider
+	scraper scraper.Provider
 }
 
-func New(extractor extractor.Provider, options ...Option) (*Client, error) {
+func New(scraper scraper.Provider, options ...Option) (*Client, error) {
 	c := &Client{
-		extractor: extractor,
+		scraper: scraper,
 	}
 
 	for _, option := range options {
 		option(c)
 	}
 
-	if c.extractor == nil {
-		return nil, errors.New("missing extractor provider")
+	if c.scraper == nil {
+		return nil, errors.New("missing scraper provider")
 	}
 
 	return c, nil
@@ -63,17 +63,13 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, errors.New("missing url parameter")
 	}
 
-	input := extractor.Input{
-		URL: url,
-	}
+	options := &scraper.ScrapeOptions{}
 
-	options := &extractor.ExtractOptions{}
-
-	document, err := c.extractor.Extract(ctx, input, options)
+	document, err := c.scraper.Scrape(ctx, url, options)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return string(document.Content), nil
+	return string(document.Text), nil
 }

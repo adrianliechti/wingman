@@ -5,19 +5,19 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
-	_ extractor.Provider = (*Client)(nil)
+	_ scraper.Provider = (*Client)(nil)
 )
 
 type Client struct {
 	url    string
-	client ExtractorClient
+	client ScraperClient
 }
 
 func New(url string, options ...Option) (*Client, error) {
@@ -42,32 +42,27 @@ func New(url string, options ...Option) (*Client, error) {
 		return nil, err
 	}
 
-	c.client = NewExtractorClient(client)
+	c.client = NewScraperClient(client)
 
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (c *Client) Scrape(ctx context.Context, url string, options *scraper.ScrapeOptions) (*scraper.Document, error) {
 	if options == nil {
-		options = new(extractor.ExtractOptions)
+		options = new(scraper.ScrapeOptions)
 	}
 
-	req := &ExtractRequest{
-		File: &File{
-			Name: file.Name,
-
-			Content:     file.Content,
-			ContentType: file.ContentType,
-		},
+	req := &ScrapeRequest{
+		Url: url,
 	}
 
-	resp, err := c.client.Extract(ctx, req)
+	resp, err := c.client.Scrape(ctx, req)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &extractor.Document{
+	return &scraper.Document{
 		Text: resp.Text,
 	}, nil
 }

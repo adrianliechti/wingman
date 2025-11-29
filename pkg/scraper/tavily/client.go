@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 )
 
-var _ extractor.Provider = &Client{}
+var _ scraper.Provider = &Client{}
 
 type Client struct {
 	token  string
@@ -35,30 +33,18 @@ func New(token string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Scrape(ctx context.Context, url string, options *scraper.ScrapeOptions) (*scraper.Document, error) {
 	if options == nil {
-		options = new(extractor.ExtractOptions)
+		options = new(scraper.ScrapeOptions)
 	}
-
-	if input.URL == "" {
-		return nil, extractor.ErrUnsupported
-	}
-
-	if options.Format != nil {
-		if *options.Format != extractor.FormatText {
-			return nil, extractor.ErrUnsupported
-		}
-	}
-
-	u, _ := url.Parse("https://api.tavily.com/extract")
 
 	body := map[string]any{
 		"api_key":       c.token,
-		"urls":          input.URL,
+		"urls":          url,
 		"extract_depth": "advanced",
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", u.String(), jsonReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", "https://api.tavily.com/extract", jsonReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -83,9 +69,8 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 
 	text := data.Results[0].Content
 
-	result := &provider.File{
-		Content:     []byte(text),
-		ContentType: "text/plain",
+	result := &scraper.Document{
+		Text: text,
 	}
 
 	return result, nil
