@@ -105,6 +105,11 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 			return nil, convertError(resp)
 		}
 
+		// data, _ := io.ReadAll(resp.Body)
+		// resp.Body = io.NopCloser(bytes.NewReader(data))
+
+		// println(string(data))
+
 		if err := json.NewDecoder(resp.Body).Decode(&operation); err != nil {
 			return nil, err
 		}
@@ -129,8 +134,9 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 			result.Pages = append(result.Pages, extractor.Page{
 				Page: page.PageNumber,
 
-				Width:  int(page.Width),
-				Height: int(page.Height),
+				Unit:   page.Unit,
+				Width:  page.Width,
+				Height: page.Height,
 			})
 
 			for _, word := range page.Words {
@@ -169,17 +175,17 @@ func isSupported(file extractor.File) bool {
 	return false
 }
 
-func convertPolygon(polygon []float64) [][2]int {
+func convertPolygon(polygon []float64) [][2]float64 {
 	if len(polygon)%2 != 0 {
 		return nil
 	}
 
-	result := make([][2]int, 0, len(polygon)/2)
+	result := make([][2]float64, 0, len(polygon)/2)
 
 	for i := 0; i < len(polygon); i += 2 {
-		result = append(result, [2]int{
-			int(polygon[i]),
-			int(polygon[i+1]),
+		result = append(result, [2]float64{
+			polygon[i],
+			polygon[i+1],
 		})
 	}
 

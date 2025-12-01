@@ -87,6 +87,7 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 				document.Pages = append(document.Pages, Page{
 					Page: p.Page,
 
+					Unit:   p.Unit,
 					Width:  p.Width,
 					Height: p.Height,
 				})

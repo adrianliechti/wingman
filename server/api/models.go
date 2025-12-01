@@ -19,15 +19,16 @@ type Document struct {
 }
 
 type Page struct {
-	Page int `json:"page"`
+	Page int `json:"page,omitempty"`
 
-	Width  int `json:"width"`
-	Height int `json:"height"`
+	Unit   string  `json:"unit,omitempty"`
+	Width  float64 `json:"width,omitempty"`
+	Height float64 `json:"height,omitempty"`
 }
 
 type Block struct {
 	Page int    `json:"page,omitempty"`
 	Text string `json:"text,omitempty"`
 
-	Polygon [][2]int `json:"polygon,omitempty"` // [[x1, y1], [x2, y2], [x3, y3], ...]
+	Polygon [][2]float64 `json:"polygon,omitempty"` // [[x1, y1], [x2, y2], [x3, y3], ...]
 }
