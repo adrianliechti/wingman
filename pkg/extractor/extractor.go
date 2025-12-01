@@ -30,13 +30,14 @@ type Document struct {
 type Page struct {
 	Page int
 
-	Width  int
-	Height int
+	Unit   string
+	Width  float64
+	Height float64
 }
 
 type Block struct {
 	Page int
 	Text string
 
-	Polygon [][2]int // [[x1, y1], [x2, y2], [x3, y3], ...]
+	Polygon [][2]float64 // [[x1, y1], [x2, y2], [x3, y3], ...]
 }
