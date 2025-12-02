@@ -35,9 +35,20 @@ type Page struct {
 	Height float64
 }
 
+type BlockState string
+
+const (
+	BlockTypeNone       BlockState = ""
+	BlockStateChecked   BlockState = "checked"
+	BlockStateUnchecked BlockState = "unchecked"
+)
+
 type Block struct {
 	Page int
-	Text string
 
+	Text  string
+	State BlockState
+
+	Score   float64
 	Polygon [][2]float64 // [[x1, y1], [x2, y2], [x3, y3], ...]
 }

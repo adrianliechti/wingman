@@ -96,8 +96,11 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			for _, b := range result.Blocks {
 				document.Blocks = append(document.Blocks, Block{
 					Page: b.Page,
-					Text: b.Text,
 
+					Text:  b.Text,
+					State: BlockState(b.State),
+
+					Score:   b.Score,
 					Polygon: b.Polygon,
 				})
 			}

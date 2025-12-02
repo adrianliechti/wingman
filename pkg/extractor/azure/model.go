@@ -24,27 +24,34 @@ type AnalyzeResult struct {
 type Page struct {
 	PageNumber int `json:"pageNumber"`
 	//Angle      float64 `json:"angle"`
+
+	Unit   string  `json:"unit"`
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
-	Unit   string  `json:"unit"`
-	Words  []Word  `json:"words"`
-	//Lines      []Line  `json:"lines"`
+
+	Words          []Word          `json:"words"`
+	SelectionMarks []SelectionMark `json:"selectionMarks"`
 }
 
 type Word struct {
-	Content string    `json:"content"`
+	Content string `json:"content"`
+
+	Span    Span      `json:"span"`
 	Polygon []float64 `json:"polygon"`
-	//Confidence float64   `json:"confidence"`
-	//Span       Span      `json:"span"`
+
+	Confidence float64 `json:"confidence"`
 }
 
-// type Line struct {
-// 	Content string    `json:"content"`
-// 	Polygon []float64 `json:"polygon"`
-// 	Spans   []Span    `json:"spans"`
-// }
+type SelectionMark struct {
+	State string `json:"state"`
 
-// type Span struct {
-// 	Offset int `json:"offset"`
-// 	Length int `json:"length"`
-// }
+	Span    Span      `json:"span"`
+	Polygon []float64 `json:"polygon"`
+
+	Confidence float64 `json:"confidence"`
+}
+
+type Span struct {
+	Offset int `json:"offset"`
+	Length int `json:"length"`
+}

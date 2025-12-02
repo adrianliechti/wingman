@@ -141,12 +141,39 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 			for _, word := range page.Words {
 				block := extractor.Block{
-					Page: page.PageNumber,
-
 					Text: word.Content,
 
+					Page: page.PageNumber,
+
+					Score:   word.Confidence,
 					Polygon: convertPolygon(word.Polygon),
-					//Confidence: word.Confidence,
+				}
+
+				result.Blocks = append(result.Blocks, block)
+			}
+
+			for _, selection := range page.SelectionMarks {
+				var state extractor.BlockState
+
+				if strings.EqualFold(selection.State, "selected") {
+					state = extractor.BlockStateChecked
+				}
+
+				if strings.EqualFold(selection.State, "unselected") {
+					state = extractor.BlockStateUnchecked
+				}
+
+				if state == "" {
+					continue
+				}
+
+				block := extractor.Block{
+					Page: page.PageNumber,
+
+					State: state,
+
+					Score:   selection.Confidence,
+					Polygon: convertPolygon(selection.Polygon),
 				}
 
 				result.Blocks = append(result.Blocks, block)

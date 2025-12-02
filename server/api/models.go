@@ -26,9 +26,20 @@ type Page struct {
 	Height float64 `json:"height,omitempty"`
 }
 
-type Block struct {
-	Page int    `json:"page,omitempty"`
-	Text string `json:"text,omitempty"`
+type BlockState string
 
+const (
+	BlockTypeNone       BlockState = ""
+	BlockStateChecked   BlockState = "checked"
+	BlockStateUnchecked BlockState = "unchecked"
+)
+
+type Block struct {
+	Page int `json:"page,omitempty"`
+
+	Text  string     `json:"text,omitempty"`
+	State BlockState `json:"state,omitempty"`
+
+	Score   float64      `json:"score,omitempty"`
 	Polygon [][2]float64 `json:"polygon,omitempty"` // [[x1, y1], [x2, y2], [x3, y3], ...]
 }
