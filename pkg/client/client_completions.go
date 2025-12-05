@@ -27,6 +27,8 @@ type CompletionReasoningEffort = provider.Effort
 type CompleteOptions = provider.CompleteOptions
 type CompleteStreamHandler = provider.StreamHandler
 
+type Content = provider.Content
+
 type Tool = provider.Tool
 type ToolCall = provider.ToolCall
 type ToolResult = provider.ToolResult

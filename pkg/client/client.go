@@ -14,6 +14,8 @@ type Client struct {
 	Transcriptions TranscriptionService
 	Renderings     RenderingService
 
+	Searches SearchService
+
 	Segments    SegmentService
 	Extractions ExtractionService
 
@@ -31,10 +33,13 @@ func New(url string, opts ...RequestOption) *Client {
 
 		Syntheses:      NewSynthesisService(opts...),
 		Transcriptions: NewTranscriptionService(opts...),
-		Renderings:     NewRenderingService(opts...),
 
-		Segments:    NewSegmentService(opts...),
+		Renderings:  NewRenderingService(opts...),
 		Extractions: NewExtractionService(opts...),
+
+		Searches: NewSearchService(opts...),
+
+		Segments: NewSegmentService(opts...),
 
 		Summaries: NewSummaryService(opts...),
 	}
