@@ -24,6 +24,7 @@ var ReasoningModels = []string{
 	"gpt-5.1-nano",
 
 	"gpt-5.1-codex",
+	"gpt-5.1-codex-max",
 	"gpt-5.1-codex-mini",
 
 	// GPT 5 Family
