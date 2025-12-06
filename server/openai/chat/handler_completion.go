@@ -157,7 +157,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 						}
 
 						call := ToolCall{
-							ID:    c.ID,
+							ID:    completionCall,
 							Index: completionCallIndex[completionCall],
 
 							Type:     c.Type,
