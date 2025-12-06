@@ -149,7 +149,10 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 					for i, c := range calls {
 						if c.ID != "" {
 							completionCall = c.ID
-							completionCallIndex[completionCall] = len(completionCallIndex)
+
+							if _, found := completionCallIndex[completionCall]; !found {
+								completionCallIndex[completionCall] = len(completionCallIndex)
+							}
 						}
 
 						if completionCall == "" {
@@ -157,8 +160,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 						}
 
 						call := ToolCall{
-							ID:    c.ID,
-							Index: len(completionCallIndex) - 1,
+							ID:    completionCall,
+							Index: completionCallIndex[completionCall],
 
 							Type:     c.Type,
 							Function: c.Function,
@@ -520,14 +523,14 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 func oaiToolCalls(content []provider.Content) []ToolCall {
 	result := make([]ToolCall, 0)
 
-	for i, c := range content {
+	for _, c := range content {
 		if c.ToolCall == nil {
 			continue
 		}
 
 		call := ToolCall{
 			ID:    c.ToolCall.ID,
-			Index: i,
+			Index: len(result),
 
 			Type: ToolTypeFunction,
 
