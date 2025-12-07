@@ -247,6 +247,10 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		Truncation: responses.ResponseNewParamsTruncationAuto,
 	}
 
+	if slices.Contains(CodingModels, r.model) {
+		req.Truncation = ""
+	}
+
 	switch options.Effort {
 	case provider.EffortMinimal:
 		req.Reasoning.Effort = responses.ReasoningEffortMinimal
