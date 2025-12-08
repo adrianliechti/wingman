@@ -2,6 +2,8 @@ package otel
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -9,11 +11,19 @@ import (
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 )
 
 func setupTracer(ctx context.Context, resource *sdkresource.Resource) error {
-	exporter, err := otlptracehttp.New(ctx)
+	var err error
+	var exporter sdktrace.SpanExporter
+
+	if strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")) == "grpc" || strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")) == "grpc" {
+		exporter, err = otlptracegrpc.New(ctx)
+	} else {
+		exporter, err = otlptracehttp.New(ctx)
+	}
 
 	if err != nil {
 		return err

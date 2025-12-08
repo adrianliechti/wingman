@@ -3,6 +3,8 @@ package otel
 import (
 	"context"
 	"log/slog"
+	"os"
+	"strings"
 
 	"go.opentelemetry.io/otel/log/global"
 
@@ -10,11 +12,19 @@ import (
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 )
 
 func setupLogger(ctx context.Context, resource *sdkresource.Resource) error {
-	exporter, err := otlploghttp.New(ctx)
+	var err error
+	var exporter sdklog.Exporter
+
+	if strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")) == "grpc" || strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL")) == "grpc" {
+		exporter, err = otlploggrpc.New(ctx)
+	} else {
+		exporter, err = otlploghttp.New(ctx)
+	}
 
 	if err != nil {
 		return err
