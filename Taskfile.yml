@@ -24,3 +24,7 @@ tasks:
   run:
     cmds:
       - docker compose up --remove-orphans --force-recreate
+  
+  lgtm:
+    cmds:
+      - docker run -it --rm -p 3000:3000 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm

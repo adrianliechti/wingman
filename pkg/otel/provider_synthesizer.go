@@ -2,12 +2,10 @@ package otel
 
 import (
 	"context"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 type Synthesizer interface {
@@ -16,9 +14,6 @@ type Synthesizer interface {
 }
 
 type observableSynthesizer struct {
-	name    string
-	library string
-
 	model    string
 	provider string
 
@@ -26,13 +21,8 @@ type observableSynthesizer struct {
 }
 
 func NewSynthesizer(provider, model string, p provider.Synthesizer) Synthesizer {
-	library := strings.ToLower(provider)
-
 	return &observableSynthesizer{
 		synthesizer: p,
-
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-synthesizer") + "-synthesizer",
-		library: library,
 
 		model:    model,
 		provider: provider,
@@ -43,16 +33,10 @@ func (p *observableSynthesizer) otelSetup() {
 }
 
 func (p *observableSynthesizer) Synthesize(ctx context.Context, content string, options *provider.SynthesizeOptions) (*provider.Synthesis, error) {
-	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "synthesize "+p.model)
 	defer span.End()
 
 	result, err := p.synthesizer.Synthesize(ctx, content, options)
-
-	meterRequest(ctx, p.library, p.provider, "synthesize", p.model)
-
-	if EnableDebug {
-		span.SetAttributes(attribute.String("input", content))
-	}
 
 	return result, err
 }

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
 )
 
@@ -45,7 +44,7 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*provider.File, error) {
+func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	if options == nil {
 		options = new(translator.TranslateOptions)
 	}
@@ -61,7 +60,7 @@ func (c *Client) Translate(ctx context.Context, input translator.Input, options 
 	return c.translateText(ctx, input.Text, options.Language)
 }
 
-func (c *Client) translateText(ctx context.Context, input, language string) (*provider.File, error) {
+func (c *Client) translateText(ctx context.Context, input, language string) (*translator.File, error) {
 	type bodyType struct {
 		Text       []string `json:"text"`
 		TargetLang string   `json:"target_lang"`
@@ -109,13 +108,13 @@ func (c *Client) translateText(ctx context.Context, input, language string) (*pr
 		return nil, errors.New("unable to translate content")
 	}
 
-	return &provider.File{
+	return &translator.File{
 		Content:     []byte(result.Translations[0].Text),
 		ContentType: "text/plain",
 	}, nil
 }
 
-func (c *Client) translateFile(ctx context.Context, input *provider.File, language string) (*provider.File, error) {
+func (c *Client) translateFile(ctx context.Context, input *translator.File, language string) (*translator.File, error) {
 	id, key, err := c.uploadDocument(ctx, input, language)
 
 	if err != nil {
@@ -129,7 +128,7 @@ func (c *Client) translateFile(ctx context.Context, input *provider.File, langua
 	return c.downloadDocument(ctx, id, key)
 }
 
-func (c *Client) uploadDocument(ctx context.Context, input *provider.File, language string) (string, string, error) {
+func (c *Client) uploadDocument(ctx context.Context, input *translator.File, language string) (string, string, error) {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
@@ -249,7 +248,7 @@ func (c *Client) checkDocument(ctx context.Context, documentID, documentKey stri
 	return false, nil
 }
 
-func (c *Client) downloadDocument(ctx context.Context, documentID, documentKey string) (*provider.File, error) {
+func (c *Client) downloadDocument(ctx context.Context, documentID, documentKey string) (*translator.File, error) {
 	type bodyType struct {
 		DocumentKey string `json:"document_key"`
 	}
@@ -281,7 +280,7 @@ func (c *Client) downloadDocument(ctx context.Context, documentID, documentKey s
 		return nil, err
 	}
 
-	return &provider.File{
+	return &translator.File{
 		Content:     content,
 		ContentType: resp.Header.Get("Content-Type"),
 	}, nil

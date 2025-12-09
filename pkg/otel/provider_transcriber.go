@@ -2,7 +2,6 @@ package otel
 
 import (
 	"context"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -15,9 +14,6 @@ type Transcriber interface {
 }
 
 type observableTranscriber struct {
-	name    string
-	library string
-
 	model    string
 	provider string
 
@@ -25,13 +21,8 @@ type observableTranscriber struct {
 }
 
 func NewTranscriber(provider, model string, p provider.Transcriber) Transcriber {
-	library := strings.ToLower(provider)
-
 	return &observableTranscriber{
 		transcriber: p,
-
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-transcriber") + "-transcriber",
-		library: library,
 
 		model:    model,
 		provider: provider,
@@ -42,12 +33,10 @@ func (p *observableTranscriber) otelSetup() {
 }
 
 func (p *observableTranscriber) Transcribe(ctx context.Context, input provider.File, options *provider.TranscribeOptions) (*provider.Transcription, error) {
-	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "transcribe "+p.model)
 	defer span.End()
 
 	result, err := p.transcriber.Transcribe(ctx, input, options)
-
-	meterRequest(ctx, p.library, p.provider, "transcribe", p.model)
 
 	return result, err
 }

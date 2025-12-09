@@ -8,6 +8,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
+type File = provider.File
 type Tool = provider.Tool
 
 var (
@@ -23,18 +24,18 @@ var (
 	KeyToolFiles = "tool_files"
 )
 
-func WithFiles(ctx context.Context, files []provider.File) context.Context {
+func WithFiles(ctx context.Context, files []File) context.Context {
 	return context.WithValue(ctx, KeyToolFiles, files)
 }
 
-func FilesFromContext(ctx context.Context) ([]provider.File, bool) {
+func FilesFromContext(ctx context.Context) ([]File, bool) {
 	val := ctx.Value(KeyToolFiles)
 
 	if val == nil {
 		return nil, false
 	}
 
-	files, ok := val.([]provider.File)
+	files, ok := val.([]File)
 	return files, ok
 }
 

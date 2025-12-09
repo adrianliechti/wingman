@@ -2,9 +2,9 @@ package otel
 
 import (
 	"context"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+
 	"go.opentelemetry.io/otel"
 )
 
@@ -14,23 +14,17 @@ type Extractor interface {
 }
 
 type observableExtractor struct {
-	name    string
-	library string
-
+	model    string
 	provider string
 
 	extractor extractor.Provider
 }
 
-func NewExtractor(provider string, p extractor.Provider) Extractor {
-	library := strings.ToLower(provider)
-
+func NewExtractor(provider, model string, p extractor.Provider) Extractor {
 	return &observableExtractor{
 		extractor: p,
 
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-extractor") + "-extractor",
-		library: library,
-
+		model:    model,
 		provider: provider,
 	}
 }
@@ -39,7 +33,7 @@ func (p *observableExtractor) otelSetup() {
 }
 
 func (p *observableExtractor) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
-	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "extract "+p.model)
 	defer span.End()
 
 	result, err := p.extractor.Extract(ctx, file, options)
