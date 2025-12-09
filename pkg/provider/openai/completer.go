@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"slices"
 	"strings"
 
@@ -289,17 +288,32 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 						part := openai.ImageContentPart(image)
 						parts = append(parts, part)
 
-					case "application/pdf":
+					case "audio/mpeg", "audio/wav":
+						format := strings.TrimPrefix(mime, "audio/")
+
+						if mime == "audio/mpeg" {
+							mime = "mp3"
+						}
+
+						audio := openai.ChatCompletionContentPartInputAudioInputAudioParam{
+							Data:   content,
+							Format: format,
+						}
+
+						part := openai.InputAudioContentPart(audio)
+						parts = append(parts, part)
+
+					default:
 						file := openai.ChatCompletionContentPartFileFileParam{
-							Filename: openai.String(c.File.Name),
-							FileData: openai.String("data:" + mime + ";base64," + content),
+							FileData: openai.String(content),
+						}
+
+						if c.File.Name != "" {
+							file.Filename = openai.String(c.File.Name)
 						}
 
 						part := openai.FileContentPart(file)
 						parts = append(parts, part)
-
-					default:
-						return nil, errors.New("unsupported content type")
 					}
 				}
 

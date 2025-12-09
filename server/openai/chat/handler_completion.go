@@ -139,10 +139,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if completion.Message != nil {
-				message := &ChatCompletionMessage{}
-
-				if content := completion.Message.Text(); content != "" {
-					message.Content = &content
+				message := &ChatCompletionMessage{
+					Content: oaiContents(completion.Message.Content),
 				}
 
 				if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
@@ -274,15 +272,13 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if completion.Message != nil {
+			reason := FinishReasonStop
+
 			message := &ChatCompletionMessage{
 				Role: role,
-			}
 
-			if content := completion.Message.Text(); content != "" {
-				message.Content = &content
+				Content: oaiContents(completion.Message.Content),
 			}
-
-			reason := FinishReasonStop
 
 			if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
 				reason = FinishReasonToolCalls
@@ -335,81 +331,81 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 
 		var content []provider.Content
 
-		if len(m.Contents) == 0 {
-			if m.ToolCallID != "" {
-				result := provider.ToolResult{
-					ID: m.ToolCallID,
+		if m.ToolCallID == "" {
+			for _, c := range m.Content {
+				if c.Type == MessageContentTypeText {
+					content = append(content, provider.TextContent(c.Text))
 				}
 
-				if m.Content != nil {
-					result.Data = *m.Content
+				if c.Type == MessageContentTypeFile && c.File != nil {
+					file, err := toFile(c.File.Data)
+
+					if err != nil {
+						return nil, err
+					}
+
+					if c.File.Name != "" {
+						file.Name = c.File.Name
+					}
+
+					content = append(content, provider.FileContent(file))
 				}
 
-				content = append(content, provider.ToolResultContent(result))
-			} else if m.Content != nil {
-				content = append(content, provider.TextContent(*m.Content))
+				if c.Type == MessageContentTypeImage && c.Image != nil {
+					file, err := toFile(c.Image.URL)
+
+					if err != nil {
+						return nil, err
+					}
+
+					content = append(content, provider.FileContent(file))
+				}
+
+				if c.Type == MessageContentTypeAudio && c.Audio != nil {
+					data, err := base64.StdEncoding.DecodeString(c.Audio.Data)
+
+					if err != nil {
+						return nil, err
+					}
+
+					file := &provider.File{
+						Content: data,
+					}
+
+					if c.Audio.Format != "" {
+						file.Name = uuid.NewString() + c.Audio.Format
+					}
+
+					content = append(content, provider.FileContent(file))
+				}
 			}
-		}
 
-		for _, c := range m.Contents {
-			if c.Type == MessageContentTypeText {
-				content = append(content, provider.TextContent(c.Text))
+			for _, c := range m.ToolCalls {
+				if c.Type == ToolTypeFunction && c.Function != nil {
+					call := provider.ToolCall{
+						ID: c.ID,
+
+						Name:      c.Function.Name,
+						Arguments: c.Function.Arguments,
+					}
+
+					content = append(content, provider.ToolCallContent(call))
+				}
+			}
+		} else {
+			result := provider.ToolResult{
+				ID: m.ToolCallID,
 			}
 
-			if c.Type == MessageContentTypeFile && c.File != nil {
-				file, err := toFile(c.File.Data)
-
-				if err != nil {
-					return nil, err
+			for _, c := range m.Content {
+				if result.Data == "" {
+					break
 				}
 
-				if c.File.Name != "" {
-					file.Name = c.File.Name
-				}
-
-				content = append(content, provider.FileContent(file))
+				result.Data = c.Text
 			}
 
-			if c.Type == MessageContentTypeImage && c.Image != nil {
-				file, err := toFile(c.Image.URL)
-
-				if err != nil {
-					return nil, err
-				}
-
-				content = append(content, provider.FileContent(file))
-			}
-
-			if c.Type == MessageContentTypeAudio && c.Audio != nil {
-				data, err := base64.StdEncoding.DecodeString(c.Audio.Data)
-
-				if err != nil {
-					return nil, err
-				}
-
-				file := &provider.File{
-					Content: data,
-				}
-
-				if c.Audio.Format != "" {
-					file.Name = uuid.NewString() + c.Audio.Format
-				}
-
-				content = append(content, provider.FileContent(file))
-			}
-		}
-
-		for _, c := range m.ToolCalls {
-			if c.Type == ToolTypeFunction && c.Function != nil {
-				call := provider.ToolCall{
-					ID: c.ID,
-
-					Name:      c.Function.Name,
-					Arguments: c.Function.Arguments,
-				}
-
-				content = append(content, provider.ToolCallContent(call))
-			}
+			content = append(content, provider.ToolResultContent(result))
 		}
 
 		result = append(result, provider.Message{
@@ -520,6 +516,64 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 	return result, nil
 }
 
+func oaiContents(content []provider.Content) []MessageContent {
+	result := make([]MessageContent, 0)
+
+	for _, c := range content {
+		if c.Text != "" {
+			result = append(result, MessageContent{
+				Type: MessageContentTypeText,
+				Text: c.Text,
+			})
+		}
+
+		if c.File != nil {
+			mime := c.File.ContentType
+			content := base64.StdEncoding.EncodeToString(c.File.Content)
+
+			if strings.HasPrefix(mime, "image/") {
+				result = append(result, MessageContent{
+					Type: MessageContentTypeImage,
+
+					Image: &MessageContentImage{
+						URL: "data:" + mime + ";base64," + content,
+					},
+				})
+			} else if strings.HasPrefix(mime, "audio/") {
+				format := strings.TrimPrefix(mime, "audio/")
+
+				if format == "audio/mpeg" {
+					format = "mp3"
+				}
+
+				result = append(result, MessageContent{
+					Type: MessageContentTypeAudio,
+
+					Audio: &MessageContentAudio{
+						Data:   "data:" + mime + ";base64," + content,
+						Format: format,
+					},
+				})
+			} else {
+				result = append(result, MessageContent{
+					Type: MessageContentTypeFile,
+
+					File: &MessageContentFile{
+						Name: c.File.Name,
+						Data: "data:" + mime + ";base64," + content,
+					},
+				})
+			}
+		}
+	}
+
+	if len(content) == 0 {
+		return nil
+	}
+
+	return result
+}
+
 func oaiToolCalls(content []provider.Content) []ToolCall {
 	result := make([]ToolCall, 0)
 
@@ -541,6 +595,10 @@ func oaiToolCalls(content []provider.Content) []ToolCall {
 		}
 
 		result = append(result, call)
+	}
+
+	if len(result) == 0 {
+		return nil
 	}
 
 	return result
