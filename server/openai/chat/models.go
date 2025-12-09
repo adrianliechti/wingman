@@ -2,7 +2,6 @@ package chat
 
 import (
 	"encoding/json"
-	"errors"
 )
 
 type MessageRole string
@@ -136,9 +135,7 @@ type ChatCompletionChoice struct {
 type ChatCompletionMessage struct {
 	Role MessageRole `json:"role,omitempty"`
 
-	Content *string `json:"content,omitempty"`
-
-	Contents []MessageContent `json:"-"`
+	Content []MessageContent `json:"content"`
 
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
@@ -178,36 +175,37 @@ type MessageContentAudio struct {
 }
 
 func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
-	if m.Content != nil && m.Contents != nil {
-		return nil, errors.New("cannot have both content and contents")
-	}
-
-	if len(m.Contents) > 0 {
-		type2 := struct {
+	if len(m.Content) == 1 && m.Content[0].Type == MessageContentTypeText {
+		type Message struct {
 			Role MessageRole `json:"role,omitempty"`
 
-			Content *string `json:"-"`
-
-			Contents []MessageContent `json:"content,omitempty"`
+			Content string `json:"content,omitempty"`
 
 			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 			ToolCallID string     `json:"tool_call_id,omitempty"`
-		}(*m)
+		}
 
-		return json.Marshal(type2)
+		val := &Message{
+			Role: m.Role,
+
+			Content: m.Content[0].Text,
+
+			ToolCalls:  m.ToolCalls,
+			ToolCallID: m.ToolCallID,
+		}
+
+		return json.Marshal(val)
 	} else {
-		type1 := struct {
+		val := struct {
 			Role MessageRole `json:"role,omitempty"`
 
-			Content *string `json:"content,omitempty"`
-
-			Contents []MessageContent `json:"-"`
+			Content []MessageContent `json:"content,omitempty"`
 
 			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 			ToolCallID string     `json:"tool_call_id,omitempty"`
 		}(*m)
 
-		return json.Marshal(type1)
+		return json.Marshal(val)
 	}
 }
 
@@ -215,25 +213,34 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 	type1 := struct {
 		Role MessageRole `json:"role,omitempty"`
 
-		Content *string `json:"content"`
-
-		Contents []MessageContent
+		Content string `json:"content"`
 
 		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 		ToolCallID string     `json:"tool_call_id,omitempty"`
 	}{}
 
 	if err := json.Unmarshal(data, &type1); err == nil {
-		*m = ChatCompletionMessage(type1)
+		*m = ChatCompletionMessage{
+			Role: type1.Role,
+
+			Content: []MessageContent{
+				{
+					Type: MessageContentTypeText,
+					Text: type1.Content,
+				},
+			},
+
+			ToolCalls:  type1.ToolCalls,
+			ToolCallID: type1.ToolCallID,
+		}
+
 		return nil
 	}
 
 	type2 := struct {
 		Role MessageRole `json:"role,omitempty"`
 
-		Content *string
-
-		Contents []MessageContent `json:"content"`
+		Content []MessageContent `json:"content"`
 
 		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 		ToolCallID string     `json:"tool_call_id,omitempty"`

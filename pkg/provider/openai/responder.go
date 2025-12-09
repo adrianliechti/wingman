@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -355,7 +354,11 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 					mime := c.File.ContentType
 					content := base64.StdEncoding.EncodeToString(c.File.Content)
 
-					switch c.File.ContentType {
+					if mime == "" {
+						mime = "application/octet-stream"
+					}
+
+					switch mime {
 					case "image/png", "image/jpeg", "image/webp", "image/gif":
 						url := "data:" + mime + ";base64," + content
 
@@ -365,7 +368,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 							},
 						})
 
-					case "application/pdf":
+					default:
 						url := "data:" + mime + ";base64," + content
 
 						message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
@@ -373,9 +376,6 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 								FileURL: openai.String(url),
 							},
 						})
-
-					default:
-						return responses.ResponseNewParamsInputUnion{}, errors.New("unsupported content type")
 					}
 				}
 
