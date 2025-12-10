@@ -1,7 +1,6 @@
 package config
 
 import (
-	"crypto/tls"
 	"net/http"
 	"net/url"
 )
@@ -23,10 +22,6 @@ func (cfg *proxyConfig) proxyTransport() (*http.Transport, error) {
 
 	return &http.Transport{
 		Proxy: http.ProxyURL(url),
-
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
 	}, nil
 }
 

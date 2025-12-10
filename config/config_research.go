@@ -11,6 +11,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/researcher/exa"
 	"github.com/adrianliechti/wingman/pkg/researcher/openai"
 	"github.com/adrianliechti/wingman/pkg/researcher/perplexity"
+	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterResearcher(id string, p researcher.Provider) {
@@ -43,10 +44,13 @@ type researcherConfig struct {
 
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
+
+	Limit *int `yaml:"limit"`
 }
 
 type researcherContext struct {
-	Client *http.Client
+	Client  *http.Client
+	Limiter *rate.Limiter
 }
 
 func (cfg *Config) registerResearchers(f *configFile) error {
@@ -65,7 +69,9 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 			continue
 		}
 
-		context := researcherContext{}
+		context := researcherContext{
+			Limiter: createLimiter(config.Limit),
+		}
 
 		if config.Proxy != nil {
 			client, err := config.Proxy.proxyClient()

@@ -1,10 +1,8 @@
 package config
 
 import (
-	"crypto/tls"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/limiter"
@@ -52,6 +50,7 @@ type scraperConfig struct {
 }
 
 type scraperContext struct {
+	Client  *http.Client
 	Limiter *rate.Limiter
 }
 
@@ -73,6 +72,16 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 
 		context := scraperContext{
 			Limiter: createLimiter(config.Limit),
+		}
+
+		if config.Proxy != nil {
+			client, err := config.Proxy.proxyClient()
+
+			if err != nil {
+				return err
+			}
+
+			context.Client = client
 		}
 
 		scraper, err := createScraper(config, context)
@@ -99,63 +108,57 @@ func createScraper(cfg scraperConfig, context scraperContext) (scraper.Provider,
 	switch strings.ToLower(cfg.Type) {
 
 	case "exa":
-		return exaScraper(cfg)
+		return exaScraper(cfg, context)
 
 	case "jina":
-		return jinaScraper(cfg)
+		return jinaScraper(cfg, context)
 
 	case "tavily":
-		return tavilyScraper(cfg)
+		return tavilyScraper(cfg, context)
 
 	case "custom", "wingman-scraper":
-		return customScraper(cfg)
+		return customScraper(cfg, context)
 
 	default:
 		return nil, errors.New("invalid scraper type: " + cfg.Type)
 	}
 }
 
-func exaScraper(cfg scraperConfig) (scraper.Provider, error) {
+func exaScraper(cfg scraperConfig, context scraperContext) (scraper.Provider, error) {
 	var options []exa.Option
 
-	if cfg.Proxy != nil && cfg.Proxy.URL != "" {
-		proxyURL, err := url.Parse(cfg.Proxy.URL)
-
-		if err != nil {
-			return nil, err
-		}
-
-		client := &http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-
-		options = append(options, exa.WithClient(client))
+	if context.Client != nil {
+		options = append(options, exa.WithClient(context.Client))
 	}
 
 	return exa.New(cfg.Token, options...)
 }
 
-func jinaScraper(cfg scraperConfig) (scraper.Provider, error) {
+func jinaScraper(cfg scraperConfig, context scraperContext) (scraper.Provider, error) {
 	var options []jina.Option
 
 	if cfg.Token != "" {
 		options = append(options, jina.WithToken(cfg.Token))
 	}
 
+	if context.Client != nil {
+		options = append(options, jina.WithClient(context.Client))
+	}
+
 	return jina.New(cfg.URL, options...)
 }
 
-func tavilyScraper(cfg scraperConfig) (scraper.Provider, error) {
-	return tavily.New(cfg.Token)
+func tavilyScraper(cfg scraperConfig, context scraperContext) (scraper.Provider, error) {
+	var options []tavily.Option
+
+	if context.Client != nil {
+		options = append(options, tavily.WithClient(context.Client))
+	}
+
+	return tavily.New(cfg.Token, options...)
 }
 
-func customScraper(cfg scraperConfig) (scraper.Provider, error) {
+func customScraper(cfg scraperConfig, context scraperContext) (scraper.Provider, error) {
 	var options []custom.Option
 
 	return custom.New(cfg.URL, options...)
