@@ -28,10 +28,12 @@ var CodingModels = []string{
 }
 
 var ReasoningModels = []string{
+	// GPT 5.2 Family
+	"gpt-5.2",
+	"gpt-5.2-pro",
+
 	// GPT 5.1 Family
 	"gpt-5.1",
-	"gpt-5.1-mini",
-	"gpt-5.1-nano",
 
 	"gpt-5.1-codex",
 	"gpt-5.1-codex-max",
