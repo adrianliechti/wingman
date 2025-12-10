@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/limiter"
-	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/template"
 
@@ -15,8 +13,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/chain/agent"
 
 	"github.com/adrianliechti/wingman/pkg/tool"
-
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterChain(id string, p chain.Provider) {
@@ -39,8 +35,6 @@ type chainConfig struct {
 
 	Tools []string `yaml:"tools"`
 
-	Limit *int `yaml:"limit"`
-
 	Effort    string `yaml:"effort"`
 	Verbosity string `yaml:"verbosity"`
 
@@ -60,8 +54,6 @@ type chainContext struct {
 
 	Effort    provider.Effort
 	Verbosity provider.Verbosity
-
-	Limiter *rate.Limiter
 }
 
 func (cfg *Config) registerChains(f *configFile) error {
@@ -89,8 +81,6 @@ func (cfg *Config) registerChains(f *configFile) error {
 
 			Effort:    provider.Effort(config.Effort),
 			Verbosity: provider.Verbosity(config.Verbosity),
-
-			Limiter: createLimiter(config.Limit),
 		}
 
 		if config.Model != "" {
@@ -137,14 +127,6 @@ func (cfg *Config) registerChains(f *configFile) error {
 
 		if err != nil {
 			return err
-		}
-
-		if _, ok := chain.(limiter.Completer); !ok {
-			chain = limiter.NewCompleter(context.Limiter, chain)
-		}
-
-		if _, ok := chain.(otel.Completer); !ok {
-			chain = otel.NewCompleter(config.Type, id, chain)
 		}
 
 		cfg.RegisterChain(id, chain)
