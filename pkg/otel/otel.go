@@ -14,10 +14,12 @@ func Setup(serviceName, serviceVersion string) error {
 
 	ctx := context.Background()
 
-	resource, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
+	resource, err := resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithHost(),
+		resource.WithProcess(),
+		resource.WithTelemetrySDK(),
+		resource.WithAttributes(
 			semconv.ServiceName(serviceName),
 			semconv.ServiceVersion(serviceVersion),
 		),

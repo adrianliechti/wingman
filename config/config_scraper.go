@@ -86,7 +86,7 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 		}
 
 		if _, ok := scraper.(otel.Scraper); !ok {
-			scraper = otel.NewScraper(id, scraper)
+			scraper = otel.NewScraper(id, "", scraper)
 		}
 
 		cfg.RegisterScraper(id, scraper)

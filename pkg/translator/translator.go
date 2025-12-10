@@ -8,12 +8,14 @@ import (
 )
 
 type Provider interface {
-	Translate(ctx context.Context, input Input, options *TranslateOptions) (*provider.File, error)
+	Translate(ctx context.Context, input Input, options *TranslateOptions) (*File, error)
 }
 
 var (
 	ErrUnsupported = errors.New("unsupported type")
 )
+
+type File = provider.File
 
 type TranslateOptions struct {
 	Language string
@@ -22,5 +24,5 @@ type TranslateOptions struct {
 type Input struct {
 	Text string
 
-	File *provider.File
+	File *File
 }

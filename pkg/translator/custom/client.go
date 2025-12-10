@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
 
 	"google.golang.org/grpc"
@@ -48,7 +47,7 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*provider.File, error) {
+func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	if options == nil {
 		options = new(translator.TranslateOptions)
 	}
@@ -76,7 +75,7 @@ func (c *Client) Translate(ctx context.Context, input translator.Input, options 
 		return nil, err
 	}
 
-	return &provider.File{
+	return &translator.File{
 		Content:     resp.Content,
 		ContentType: resp.ContentType,
 	}, nil

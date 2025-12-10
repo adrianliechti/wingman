@@ -90,7 +90,7 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 		}
 
 		if _, ok := extractor.(otel.Extractor); !ok {
-			extractor = otel.NewExtractor(id, extractor)
+			extractor = otel.NewExtractor(id, "", extractor)
 		}
 
 		extractors = append(extractors, extractor)

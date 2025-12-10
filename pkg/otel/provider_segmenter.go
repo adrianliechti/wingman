@@ -2,9 +2,9 @@ package otel
 
 import (
 	"context"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/segmenter"
+
 	"go.opentelemetry.io/otel"
 )
 
@@ -14,23 +14,17 @@ type Segmenter interface {
 }
 
 type observableSegmenter struct {
-	name    string
-	library string
-
+	model    string
 	provider string
 
 	segmenter segmenter.Provider
 }
 
 func NewSegmenter(provider string, p segmenter.Provider) Segmenter {
-	library := strings.ToLower(provider)
-
 	return &observableSegmenter{
 		segmenter: p,
 
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-segmenter") + "-segmenter",
-		library: library,
-
+		model:    "default",
 		provider: provider,
 	}
 }
@@ -39,7 +33,7 @@ func (p *observableSegmenter) otelSetup() {
 }
 
 func (p *observableSegmenter) Segment(ctx context.Context, input string, options *segmenter.SegmentOptions) ([]segmenter.Segment, error) {
-	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "segment "+p.model)
 	defer span.End()
 
 	result, err := p.segmenter.Segment(ctx, input, options)

@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
 )
 
@@ -44,7 +43,7 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*provider.File, error) {
+func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	if options == nil {
 		options = new(translator.TranslateOptions)
 	}
@@ -60,7 +59,7 @@ func (c *Client) Translate(ctx context.Context, input translator.Input, options 
 	return c.translateText(ctx, input.Text, options.Language)
 }
 
-func (c *Client) translateText(ctx context.Context, input, language string) (*provider.File, error) {
+func (c *Client) translateText(ctx context.Context, input, language string) (*translator.File, error) {
 	type bodyType struct {
 		Text string `json:"Text"`
 	}
@@ -124,13 +123,13 @@ func (c *Client) translateText(ctx context.Context, input, language string) (*pr
 		return nil, errors.New("unable to translate content")
 	}
 
-	return &provider.File{
+	return &translator.File{
 		Content:     []byte(result[0].Translations[0].Text),
 		ContentType: "text/plain",
 	}, nil
 }
 
-func (c *Client) translateFile(ctx context.Context, input *provider.File, language string) (*provider.File, error) {
+func (c *Client) translateFile(ctx context.Context, input *translator.File, language string) (*translator.File, error) {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 
@@ -183,7 +182,7 @@ func (c *Client) translateFile(ctx context.Context, input *provider.File, langua
 		return nil, err
 	}
 
-	return &provider.File{
+	return &translator.File{
 		Name:        input.Name,
 		Content:     data,
 		ContentType: input.ContentType,

@@ -139,12 +139,12 @@ func (cfg *Config) registerChains(f *configFile) error {
 			return err
 		}
 
-		if _, ok := chain.(limiter.Chain); !ok {
-			chain = limiter.NewChain(context.Limiter, chain)
+		if _, ok := chain.(limiter.Completer); !ok {
+			chain = limiter.NewCompleter(context.Limiter, chain)
 		}
 
-		if _, ok := chain.(otel.Chain); !ok {
-			chain = otel.NewChain(config.Type, id, chain)
+		if _, ok := chain.(otel.Completer); !ok {
+			chain = otel.NewCompleter(config.Type, id, chain)
 		}
 
 		cfg.RegisterChain(id, chain)

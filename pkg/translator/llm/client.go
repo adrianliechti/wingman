@@ -23,7 +23,7 @@ func New(completer provider.Completer, extractor extractor.Provider) (*Client, e
 	return c, nil
 }
 
-func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*provider.File, error) {
+func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	if options == nil {
 		options = new(translator.TranslateOptions)
 	}
@@ -60,7 +60,7 @@ func (c *Client) Translate(ctx context.Context, input translator.Input, options 
 		return nil, err
 	}
 
-	return &provider.File{
+	return &translator.File{
 		Content:     []byte(completion.Message.Text()),
 		ContentType: "text/plain",
 	}, nil
