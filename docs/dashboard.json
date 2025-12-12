@@ -72,9 +72,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(gen_ai_client_token_usage_sum{gen_ai_token_type=\"input\"}[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Input Tokens",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -132,9 +132,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(gen_ai_client_token_usage_sum{gen_ai_token_type=\"output\"}[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Output Tokens",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -192,9 +192,9 @@
           },
           "editorMode": "code",
           "expr": "sum(rate(gen_ai_client_operation_duration_seconds_sum[$__rate_interval])) / sum(rate(gen_ai_client_operation_duration_seconds_count[$__rate_interval]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Avg Duration",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -252,9 +252,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(gen_ai_client_operation_duration_seconds_count[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Requests",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -314,9 +314,9 @@
           },
           "editorMode": "code",
           "expr": "sum by(gen_ai_response_model) (increase(gen_ai_client_token_usage_sum[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{gen_ai_response_model}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -376,9 +376,9 @@
           },
           "editorMode": "code",
           "expr": "sum by(gen_ai_provider_name) (increase(gen_ai_client_token_usage_sum[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{gen_ai_provider_name}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -438,9 +438,9 @@
           },
           "editorMode": "code",
           "expr": "sum by(gen_ai_operation_name) (increase(gen_ai_client_operation_duration_seconds_count[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{gen_ai_operation_name}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1044,9 +1044,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(http_server_request_duration_seconds_count[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Requests",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1104,9 +1104,9 @@
           },
           "editorMode": "code",
           "expr": "sum(rate(http_server_request_duration_seconds_sum[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count[$__rate_interval]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Avg Duration",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1168,9 +1168,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"4..\"}[$__range])) or vector(0)",
-          "instant": false,
+          "instant": true,
           "legendFormat": "4xx Errors",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1232,9 +1232,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[$__range])) or vector(0)",
-          "instant": false,
+          "instant": true,
           "legendFormat": "5xx Errors",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1673,9 +1673,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(http_client_request_duration_seconds_count[$__range]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Requests",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1733,9 +1733,9 @@
           },
           "editorMode": "code",
           "expr": "sum(rate(http_client_request_duration_seconds_sum[$__rate_interval])) / sum(rate(http_client_request_duration_seconds_count[$__rate_interval]))",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Avg Duration",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1797,9 +1797,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(http_client_request_duration_seconds_count{http_response_status_code=~\"4..\"}[$__range])) or vector(0)",
-          "instant": false,
+          "instant": true,
           "legendFormat": "4xx Errors",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1861,9 +1861,9 @@
           },
           "editorMode": "code",
           "expr": "sum(increase(http_client_request_duration_seconds_count{http_response_status_code=~\"5..\"}[$__range])) or vector(0)",
-          "instant": false,
+          "instant": true,
           "legendFormat": "5xx Errors",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
