@@ -54,6 +54,9 @@ type researcherConfig struct {
 	Scraper  string `yaml:"scraper"`
 	Searcher string `yaml:"searcher"`
 
+	Effort    string `yaml:"effort"`
+	Verbosity string `yaml:"verbosity"`
+
 	Limit *int `yaml:"limit"`
 }
 
@@ -62,8 +65,11 @@ type researcherContext struct {
 
 	Completer provider.Completer
 
-	Searcher searcher.Provider
 	Scraper  scraper.Provider
+	Searcher searcher.Provider
+
+	Effort    provider.Effort
+	Verbosity provider.Verbosity
 
 	Limiter *rate.Limiter
 }
@@ -85,6 +91,9 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 		}
 
 		context := researcherContext{
+			Effort:    provider.Effort(config.Effort),
+			Verbosity: provider.Verbosity(config.Verbosity),
+
 			Limiter: createLimiter(config.Limit),
 		}
 
@@ -177,7 +186,21 @@ func exaResearcher(cfg researcherConfig, context researcherContext) (researcher.
 }
 
 func llmResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {
-	return llm.New(context.Completer, context.Searcher, context.Scraper)
+	var options []llm.Option
+
+	if context.Scraper != nil {
+		options = append(options, llm.WithScraper(context.Scraper))
+	}
+
+	if context.Effort != "" {
+		options = append(options, llm.WithEffort(context.Effort))
+	}
+
+	if context.Verbosity != "" {
+		options = append(options, llm.WithVerbosity(context.Verbosity))
+	}
+
+	return llm.New(context.Completer, context.Searcher, options...)
 }
 
 func openaiResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {

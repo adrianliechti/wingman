@@ -12,11 +12,15 @@ var _ tool.Provider = (*Client)(nil)
 
 type Client struct {
 	provider searcher.Provider
+
+	limit int
 }
 
 func New(provider searcher.Provider, options ...Option) (*Client, error) {
 	c := &Client{
 		provider: provider,
+
+		limit: 5,
 	}
 
 	for _, option := range options {
@@ -67,7 +71,9 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, errors.New("missing query parameter")
 	}
 
-	options := &searcher.SearchOptions{}
+	options := &searcher.SearchOptions{
+		Limit: &c.limit,
+	}
 
 	if domains, ok := parameters["domains"].([]any); ok {
 		for _, d := range domains {

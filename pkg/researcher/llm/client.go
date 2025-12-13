@@ -30,26 +30,36 @@ type Client struct {
 	searcher searcher.Provider
 	scraper  scraper.Provider
 
+	effort    provider.Effort
+	verbosity provider.Verbosity
+
 	prompt *template.Template
 }
 
-func New(completer provider.Completer, searcher searcher.Provider, scraper scraper.Provider) (*Client, error) {
+func New(completer provider.Completer, searcher searcher.Provider, options ...Option) (*Client, error) {
 	prompt, err := template.NewTemplate(agent)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &Client{
+	c := &Client{
 		completer: completer,
 		searcher:  searcher,
-		scraper:   scraper,
+
+		effort:    provider.EffortMinimal,
+		verbosity: provider.VerbosityMedium,
 
 		prompt: prompt,
-	}, nil
+	}
+
+	for _, option := range options {
+		option(c)
+	}
+
+	return c, nil
 }
 
-// Research implements the main agent loop for deep research
 func (c *Client) Research(ctx context.Context, instructions string, options *researcher.ResearchOptions) (*researcher.Result, error) {
 	if options == nil {
 		options = &researcher.ResearchOptions{}
@@ -92,7 +102,9 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 	}
 
 	completeOptions := &provider.CompleteOptions{
-		Tools: slices.Collect(maps.Values(toolDefs)),
+		Tools:     slices.Collect(maps.Values(toolDefs)),
+		Effort:    c.effort,
+		Verbosity: c.verbosity,
 	}
 
 	for {
@@ -114,36 +126,38 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 			return &researcher.Result{Content: completion.Message.Text()}, nil
 		}
 
-		for _, c := range calls {
-			t, found := tools[c.Name]
+		for _, tc := range calls {
+			t, found := tools[tc.Name]
 
 			if !found {
-				messages = append(messages, provider.ToolMessage(c.ID, "Error: unknown tool"))
+				messages = append(messages, provider.ToolMessage(tc.ID, "Error: unknown tool"))
 				continue
 			}
 
 			var params map[string]any
 
-			if err := json.Unmarshal([]byte(c.Arguments), &params); err != nil {
-				messages = append(messages, provider.ToolMessage(c.ID, "Error: invalid arguments"))
+			if err := json.Unmarshal([]byte(tc.Arguments), &params); err != nil {
+				messages = append(messages, provider.ToolMessage(tc.ID, "Error: invalid arguments"))
 				continue
 			}
 
-			result, err := t.Execute(ctx, c.Name, params)
+			println("Execute", tc.Name, tc.Arguments)
+
+			result, err := t.Execute(ctx, tc.Name, params)
 
 			if err != nil {
-				messages = append(messages, provider.ToolMessage(c.ID, "Error: "+err.Error()))
+				messages = append(messages, provider.ToolMessage(tc.ID, "Error: "+err.Error()))
 				continue
 			}
 
 			data, err := json.Marshal(result)
 
 			if err != nil {
-				messages = append(messages, provider.ToolMessage(c.ID, "Error: "+err.Error()))
+				messages = append(messages, provider.ToolMessage(tc.ID, "Error: "+err.Error()))
 				continue
 			}
 
-			messages = append(messages, provider.ToolMessage(c.ID, string(data)))
+			messages = append(messages, provider.ToolMessage(tc.ID, string(data)))
 		}
 	}
 }
