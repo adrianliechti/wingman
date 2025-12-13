@@ -8,27 +8,47 @@ import (
 )
 
 type Provider interface {
-	Extract(ctx context.Context, input Input, options *ExtractOptions) (*provider.File, error)
+	Extract(ctx context.Context, input File, options *ExtractOptions) (*Document, error)
 }
 
 var (
 	ErrUnsupported = errors.New("unsupported type")
 )
 
-type Format string
-
-const (
-	FormatText  Format = "text"
-	FormatImage Format = "image"
-	FormatPDF   Format = "pdf"
-)
+type File = provider.File
 
 type ExtractOptions struct {
-	Format *Format
 }
 
-type Input struct {
-	URL string
+type Document struct {
+	Text string
 
-	File *provider.File
+	Pages  []Page
+	Blocks []Block
+}
+
+type Page struct {
+	Page int
+
+	Unit   string
+	Width  float64
+	Height float64
+}
+
+type BlockState string
+
+const (
+	BlockTypeNone       BlockState = ""
+	BlockStateChecked   BlockState = "checked"
+	BlockStateUnchecked BlockState = "unchecked"
+)
+
+type Block struct {
+	Page int
+
+	Text  string
+	State BlockState
+
+	Score   float64
+	Polygon [][2]float64 // [[x1, y1], [x2, y2], [x3, y3], ...]
 }

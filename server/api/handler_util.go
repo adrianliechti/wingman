@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -46,14 +45,6 @@ func valueInput(r *http.Request) string {
 	}
 
 	if val := r.FormValue("instructions"); val != "" {
-		return val
-	}
-
-	return ""
-}
-
-func valueFormat(r *http.Request) string {
-	if val := r.FormValue("format"); val != "" {
 		return val
 	}
 
@@ -98,48 +89,41 @@ func (h *Handler) readText(r *http.Request) (string, error) {
 		return val, nil
 	}
 
-	file, err := h.readContent(r)
+	if url := valueURL(r); url != "" {
+		p, err := h.Scraper("")
+
+		if err != nil {
+			return "", err
+		}
+
+		result, err := p.Scrape(r.Context(), url, nil)
+
+		if err != nil {
+			return "", err
+		}
+
+		return result.Text, nil
+	}
+
+	file, err := readFile(r)
 
 	if err != nil {
 		return "", err
 	}
 
-	return string(file.Content), nil
-}
-
-func (h *Handler) readContent(r *http.Request) (*provider.File, error) {
-	input := extractor.Input{}
-
-	if url := valueURL(r); url != "" {
-		input.URL = url
-	} else {
-		file, err := readFile(r)
-
-		if err != nil {
-			return nil, err
-		}
-
-		input.File = file
-	}
-
-	e, err := h.Extractor("")
+	p, err := h.Extractor("")
 
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	document, err := e.Extract(r.Context(), input, nil)
+	result, err := p.Extract(r.Context(), *file, nil)
 
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return &provider.File{
-		Name: "file.txt",
-
-		Content:     []byte(document.Content),
-		ContentType: document.ContentType,
-	}, nil
+	return result.Text, nil
 }
 
 func readFile(r *http.Request) (*provider.File, error) {

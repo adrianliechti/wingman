@@ -8,7 +8,7 @@ import (
 	"unicode"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/text"
 )
 
 var _ extractor.Provider = &Extractor{}
@@ -20,40 +20,23 @@ func New() (*Extractor, error) {
 	return &Extractor{}, nil
 }
 
-func (e *Extractor) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (e *Extractor) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
-
-	if input.File == nil {
-		return nil, extractor.ErrUnsupported
-	}
-
-	if options.Format != nil {
-		if *options.Format != extractor.FormatText {
-			return nil, extractor.ErrUnsupported
-		}
-	}
-
-	file := *input.File
 
 	if !detectText(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
-	mime := file.ContentType
+	text := text.Normalize(string(file.Content))
 
-	if mime == "" {
-		mime = "text/plain"
-	}
-
-	return &provider.File{
-		Content:     file.Content,
-		ContentType: mime,
+	return &extractor.Document{
+		Text: text,
 	}, nil
 }
 
-func detectText(input provider.File) bool {
+func detectText(input extractor.File) bool {
 	if isSupported(input) {
 		return true
 	}
@@ -73,7 +56,7 @@ func detectText(input provider.File) bool {
 	return printableCount > (len(input.Content) * 90 / 100)
 }
 
-func isSupported(file provider.File) bool {
+func isSupported(file extractor.File) bool {
 	if file.Name != "" {
 		ext := strings.ToLower(path.Ext(file.Name))
 

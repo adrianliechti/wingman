@@ -1,20 +1,15 @@
 package config
 
 import (
-	"crypto/tls"
 	"errors"
-	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/azure"
 	"github.com/adrianliechti/wingman/pkg/extractor/custom"
 	"github.com/adrianliechti/wingman/pkg/extractor/docling"
-	"github.com/adrianliechti/wingman/pkg/extractor/exa"
-	"github.com/adrianliechti/wingman/pkg/extractor/jina"
+	"github.com/adrianliechti/wingman/pkg/extractor/kreuzberg"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
-	"github.com/adrianliechti/wingman/pkg/extractor/tavily"
 	"github.com/adrianliechti/wingman/pkg/extractor/text"
 	"github.com/adrianliechti/wingman/pkg/extractor/tika"
 	"github.com/adrianliechti/wingman/pkg/extractor/unstructured"
@@ -95,7 +90,7 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 		}
 
 		if _, ok := extractor.(otel.Extractor); !ok {
-			extractor = otel.NewExtractor(id, extractor)
+			extractor = otel.NewExtractor(id, "", extractor)
 		}
 
 		extractors = append(extractors, extractor)
@@ -116,14 +111,8 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "docling":
 		return doclingExtractor(cfg)
 
-	case "exa":
-		return exaExtractor(cfg)
-
-	case "jina":
-		return jinaExtractor(cfg)
-
-	case "tavily":
-		return tavilyExtractor(cfg)
+	case "kreuzberg":
+		return kreuzbergExtractor(cfg)
 
 	case "text":
 		return textExtractor(cfg)
@@ -162,48 +151,18 @@ func doclingExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	return docling.New(cfg.URL, options...)
 }
 
-func exaExtractor(cfg extractorConfig) (extractor.Provider, error) {
-	var options []exa.Option
-
-	if cfg.Proxy != nil && cfg.Proxy.URL != "" {
-		proxyURL, err := url.Parse(cfg.Proxy.URL)
-
-		if err != nil {
-			return nil, err
-		}
-
-		client := &http.Client{
-			Transport: &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-
-		options = append(options, exa.WithClient(client))
-	}
-
-	return exa.New(cfg.Token, options...)
-}
-
-func jinaExtractor(cfg extractorConfig) (extractor.Provider, error) {
-	var options []jina.Option
+func kreuzbergExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	var options []kreuzberg.Option
 
 	if cfg.Token != "" {
-		options = append(options, jina.WithToken(cfg.Token))
+		options = append(options, kreuzberg.WithToken(cfg.Token))
 	}
 
-	return jina.New(cfg.URL, options...)
+	return kreuzberg.New(cfg.URL, options...)
 }
 
 func textExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	return text.New()
-}
-
-func tavilyExtractor(cfg extractorConfig) (extractor.Provider, error) {
-	return tavily.New(cfg.Token)
 }
 
 func tikaExtractor(cfg extractorConfig) (extractor.Provider, error) {

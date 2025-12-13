@@ -8,11 +8,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 )
 
-var _ extractor.Provider = &Client{}
+var _ scraper.Provider = &Client{}
 
 type Client struct {
 	token  string
@@ -36,25 +35,15 @@ func New(token string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Scrape(ctx context.Context, url string, options *scraper.ScrapeOptions) (*scraper.Document, error) {
 	if options == nil {
-		options = new(extractor.ExtractOptions)
-	}
-
-	if input.URL == "" {
-		return nil, extractor.ErrUnsupported
-	}
-
-	if options.Format != nil {
-		if *options.Format != extractor.FormatText {
-			return nil, extractor.ErrUnsupported
-		}
+		options = new(scraper.ScrapeOptions)
 	}
 
 	body, _ := json.Marshal(&ContentsRequest{
-		URLs: []string{input.URL},
+		URLs: []string{url},
 
-		Text:     true,
+		Text: true,
 
 		LiveCrawl: LiveCrawlPreferred,
 	})
@@ -82,11 +71,10 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 		return nil, err
 	}
 
-	content := data.Results[0].Text
+	text := data.Results[0].Text
 
-	result := &provider.File{
-		Content:     []byte(content),
-		ContentType: "text/plain",
+	result := &scraper.Document{
+		Text: text,
 	}
 
 	return result, nil

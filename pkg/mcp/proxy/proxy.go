@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"crypto/tls"
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
@@ -18,14 +17,17 @@ type Server struct {
 	rt http.RoundTripper
 }
 
-func New(url string) (*Server, error) {
+func New(url string, headers map[string]string) (*Server, error) {
 	u, err := neturl.Parse(url)
 
 	if err != nil {
 		return nil, err
 	}
 
-	rt := &rt{}
+	rt := &rt{
+		headers:   headers,
+		transport: http.DefaultTransport,
+	}
 
 	s := &Server{
 		url: u,
@@ -59,7 +61,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type rt struct {
-	headers map[string]string
+	headers   map[string]string
+	transport http.RoundTripper
 }
 
 func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -71,11 +74,5 @@ func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Header.Set(key, value)
 	}
 
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-
-	tr.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true, // TODO: make configurable
-	}
-
-	return tr.RoundTrip(req)
+	return rt.transport.RoundTrip(req)
 }

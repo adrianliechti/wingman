@@ -2,12 +2,12 @@ package otel
 
 import (
 	"context"
-	"strings"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/semconv/v1.38.0/genaiconv"
 )
 
 type Renderer interface {
@@ -16,26 +16,26 @@ type Renderer interface {
 }
 
 type observableRenderer struct {
-	name    string
-	library string
-
 	model    string
 	provider string
 
 	renderer provider.Renderer
+
+	operationDurationMetric genaiconv.ClientOperationDuration
 }
 
 func NewRenderer(provider, model string, p provider.Renderer) Renderer {
-	library := strings.ToLower(provider)
+	meter := otel.Meter(instrumentationName)
+
+	operationDurationMetric, _ := genaiconv.NewClientOperationDuration(meter)
 
 	return &observableRenderer{
 		renderer: p,
 
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-renderer") + "-renderer",
-		library: library,
-
 		model:    model,
 		provider: provider,
+
+		operationDurationMetric: operationDurationMetric,
 	}
 }
 
@@ -43,15 +43,29 @@ func (p *observableRenderer) otelSetup() {
 }
 
 func (p *observableRenderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Rendering, error) {
-	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "render "+p.model)
 	defer span.End()
+
+	timestamp := time.Now()
 
 	result, err := p.renderer.Render(ctx, input, options)
 
-	meterRequest(ctx, p.library, p.provider, "render", p.model)
+	if result != nil {
+		duration := time.Since(timestamp).Seconds()
 
-	if EnableDebug {
-		span.SetAttributes(attribute.String("input", input))
+		providerName := genaiconv.ProviderNameAttr(p.provider)
+		providerModel := p.model
+
+		if result.Model != "" {
+			providerModel = result.Model
+		}
+
+		p.operationDurationMetric.Record(ctx, duration,
+			genaiconv.OperationNameGenerateContent,
+			providerName,
+			p.operationDurationMetric.AttrRequestModel(p.model),
+			p.operationDurationMetric.AttrResponseModel(providerModel),
+		)
 	}
 
 	return result, err

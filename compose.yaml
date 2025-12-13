@@ -15,10 +15,13 @@ services:
     environment:
       - WINGMAN_URL=http://platform:8080
       - INTERNET_ENABLED=true
+      - WORKFLOW_ENABLED=true
       - ARTIFACTS_ENABLED=true
       - REPOSITORY_ENABLED=true
       - REPOSITORY_EMBEDDER=qwen3-embedding
       - REPOSITORY_CONTEXT_PAGES=4
+      - INTERPRETER_ENABLED=true
+      
 
     configs:
       - source: models
@@ -37,9 +40,6 @@ services:
   
   extractor:
     image: ghcr.io/adrianliechti/wingman-extractor
-  
-  segmenter:
-    image: ghcr.io/adrianliechti/wingman-segmenter
 
 models:
   llm:
@@ -82,7 +82,7 @@ configs:
             qwen3-embedding:
               id: $${EMBEDDING_MODEL}
       
-      retrievers:
+      searchers:
         web:
           type: duckduckgo
       
@@ -96,8 +96,7 @@ configs:
       
       segmenters:
         default:
-          type: wingman-segmenter
-          url: grpc://segmenter:50051
+          type: text
       
       translators:
         default:

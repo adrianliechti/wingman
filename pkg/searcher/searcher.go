@@ -9,7 +9,8 @@ type Provider interface {
 }
 
 type SearchOptions struct {
-	Limit *int
+	Limit   *int
+	Domains []string
 }
 
 type Result struct {

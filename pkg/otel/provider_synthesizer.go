@@ -2,12 +2,12 @@ package otel
 
 import (
 	"context"
-	"strings"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/semconv/v1.38.0/genaiconv"
 )
 
 type Synthesizer interface {
@@ -16,26 +16,26 @@ type Synthesizer interface {
 }
 
 type observableSynthesizer struct {
-	name    string
-	library string
-
 	model    string
 	provider string
 
 	synthesizer provider.Synthesizer
+
+	operationDurationMetric genaiconv.ClientOperationDuration
 }
 
 func NewSynthesizer(provider, model string, p provider.Synthesizer) Synthesizer {
-	library := strings.ToLower(provider)
+	meter := otel.Meter(instrumentationName)
+
+	operationDurationMetric, _ := genaiconv.NewClientOperationDuration(meter)
 
 	return &observableSynthesizer{
 		synthesizer: p,
 
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-synthesizer") + "-synthesizer",
-		library: library,
-
 		model:    model,
 		provider: provider,
+
+		operationDurationMetric: operationDurationMetric,
 	}
 }
 
@@ -43,15 +43,29 @@ func (p *observableSynthesizer) otelSetup() {
 }
 
 func (p *observableSynthesizer) Synthesize(ctx context.Context, content string, options *provider.SynthesizeOptions) (*provider.Synthesis, error) {
-	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "synthesize "+p.model)
 	defer span.End()
+
+	timestamp := time.Now()
 
 	result, err := p.synthesizer.Synthesize(ctx, content, options)
 
-	meterRequest(ctx, p.library, p.provider, "synthesize", p.model)
+	if result != nil {
+		duration := time.Since(timestamp).Seconds()
 
-	if EnableDebug {
-		span.SetAttributes(attribute.String("input", content))
+		providerName := genaiconv.ProviderNameAttr(p.provider)
+		providerModel := p.model
+
+		if result.Model != "" {
+			providerModel = result.Model
+		}
+
+		p.operationDurationMetric.Record(ctx, duration,
+			genaiconv.OperationNameGenerateContent,
+			providerName,
+			p.operationDurationMetric.AttrRequestModel(p.model),
+			p.operationDurationMetric.AttrResponseModel(providerModel),
+		)
 	}
 
 	return result, err

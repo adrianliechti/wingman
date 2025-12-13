@@ -63,7 +63,7 @@ func (h *Handler) handleRerank(w http.ResponseWriter, r *http.Request) {
 			Index: index,
 			Score: r.Score,
 
-			Document: Document{
+			Segment: Segment{
 				Text: r.Text,
 			},
 		}

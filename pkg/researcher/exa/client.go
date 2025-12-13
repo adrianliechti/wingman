@@ -45,9 +45,11 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 		options = new(researcher.ResearchOptions)
 	}
 
+	model := ResearchModelStandard
+
 	task, err := c.CreateTask(ctx, CreateTaskRequest{
 		Instructions: instructions,
-		Model:        ResearchModelStandard,
+		Model:        model,
 	})
 
 	if err != nil {

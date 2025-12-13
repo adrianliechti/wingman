@@ -12,11 +12,15 @@ var _ tool.Provider = (*Client)(nil)
 
 type Client struct {
 	provider searcher.Provider
+
+	limit int
 }
 
 func New(provider searcher.Provider, options ...Option) (*Client, error) {
 	c := &Client{
 		provider: provider,
+
+		limit: 5,
 	}
 
 	for _, option := range options {
@@ -38,7 +42,15 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 				"properties": map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "the text to search online for",
+						"description": "the text to search online for. search operator filters like site: are not supported",
+					},
+
+					"domains": map[string]any{
+						"type":        "array",
+						"description": "optional list of website domains to restrict the search to (e.g. wikipedia.org, github.com)",
+						"items": map[string]any{
+							"type": "string",
+						},
 					},
 				},
 
@@ -59,7 +71,17 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, errors.New("missing query parameter")
 	}
 
-	options := &searcher.SearchOptions{}
+	options := &searcher.SearchOptions{
+		Limit: &c.limit,
+	}
+
+	if domains, ok := parameters["domains"].([]any); ok {
+		for _, d := range domains {
+			if domain, ok := d.(string); ok {
+				options.Domains = append(options.Domains, domain)
+			}
+		}
+	}
 
 	data, err := c.provider.Search(ctx, query, options)
 

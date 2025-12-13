@@ -116,5 +116,5 @@ func serverMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {
 }
 
 func proxyMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {
-	return proxy.New(cfg.URL)
+	return proxy.New(cfg.URL, cfg.Vars)
 }

@@ -1,3 +1,3 @@
-package extract
+package scrape
 
 type Option func(*Client)

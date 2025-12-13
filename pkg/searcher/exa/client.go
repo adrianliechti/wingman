@@ -43,6 +43,10 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 	body, _ := json.Marshal(&SearchRequest{
 		Query: query,
 
+		NumResults: options.Limit,
+
+		IncludeDomains: options.Domains,
+
 		Contents: SearchContents{
 			Text:      true,
 			LiveCrawl: LiveCrawlPreferred,

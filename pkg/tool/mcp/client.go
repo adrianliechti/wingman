@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"crypto/tls"
 	"log"
 	"net/http"
 	"strings"
@@ -22,7 +21,8 @@ type Client struct {
 func New(url string, headers map[string]string) (*Client, error) {
 	hc := &http.Client{
 		Transport: &rt{
-			headers: headers,
+			headers:   headers,
+			transport: http.DefaultTransport,
 		},
 	}
 
@@ -119,7 +119,8 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 }
 
 type rt struct {
-	headers map[string]string
+	headers   map[string]string
+	transport http.RoundTripper
 }
 
 func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -131,11 +132,5 @@ func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Header.Set(key, value)
 	}
 
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-
-	tr.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true, // TODO: make configurable
-	}
-
-	return tr.RoundTrip(req)
+	return rt.transport.RoundTrip(req)
 }

@@ -2,10 +2,11 @@ package google
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 
-	"github.com/google/uuid"
 	"google.golang.org/genai"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -67,7 +68,7 @@ func (c *Completer) complete(ctx context.Context, client *genai.Client, contents
 	candidate := resp.Candidates[0]
 
 	return &provider.Completion{
-		ID:    uuid.New().String(),
+		ID:    resp.ResponseID,
 		Model: c.model,
 
 		Message: &provider.Message{
@@ -90,7 +91,7 @@ func (c *Completer) completeStream(ctx context.Context, client *genai.Client, co
 		}
 
 		delta := provider.Completion{
-			ID: uuid.New().String(),
+			ID: resp.ResponseID,
 
 			Message: &provider.Message{
 				Role: provider.MessageRoleAssistant,
@@ -180,7 +181,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 
 		for _, c := range message.Content {
 			if c.Text != "" {
-				content.Parts = append(content.Parts, genai.NewPartFromText(c.Text))
+				part := genai.NewPartFromText(c.Text)
+				content.Parts = append(content.Parts, part)
 			}
 
 			if c.File != nil {
@@ -208,7 +210,12 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 					parameters = map[string]any{"data": val}
 				}
 
-				part := genai.NewPartFromFunctionResponse(c.ToolResult.ID, parameters)
+				id, name, signature := parseToolID(c.ToolResult.ID)
+
+				part := genai.NewPartFromFunctionResponse(name, parameters)
+				part.FunctionResponse.ID = id
+				part.ThoughtSignature = signature
+
 				content.Parts = append(content.Parts, part)
 			}
 		}
@@ -226,7 +233,12 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 				var data map[string]any
 				json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
 
-				part := genai.NewPartFromFunctionCall(c.ToolCall.Name, data)
+				id, name, signature := parseToolID(c.ToolCall.ID)
+
+				part := genai.NewPartFromFunctionCall(name, data)
+				part.FunctionCall.ID = id
+				part.ThoughtSignature = signature
+
 				content.Parts = append(content.Parts, part)
 			}
 		}
@@ -300,7 +312,7 @@ func toContent(content *genai.Content) []provider.Content {
 			data, _ := json.Marshal(p.FunctionCall.Args)
 
 			call := provider.ToolCall{
-				ID: uuid.NewString(),
+				ID: formatToolID(p.FunctionCall.ID, p.FunctionCall.Name, p.ThoughtSignature),
 
 				Name:      p.FunctionCall.Name,
 				Arguments: string(data),
@@ -322,4 +334,26 @@ func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *pr
 		InputTokens:  int(metadata.PromptTokenCount),
 		OutputTokens: int(metadata.CandidatesTokenCount),
 	}
+}
+
+func formatToolID(id, name string, signature []byte) string {
+	return strings.Join([]string{id, name, base64.StdEncoding.EncodeToString(signature)}, "::")
+}
+
+func parseToolID(s string) (id, name string, signature []byte) {
+	parts := strings.Split(s, "::")
+
+	if len(parts) > 0 {
+		id = parts[0]
+	}
+
+	if len(parts) > 1 {
+		name = parts[1]
+	}
+
+	if len(parts) > 2 {
+		signature, _ = base64.StdEncoding.DecodeString(parts[2])
+	}
+
+	return
 }

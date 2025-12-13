@@ -31,7 +31,39 @@ func (p *Provider) Segment(ctx context.Context, input string, options *segmenter
 		options = new(segmenter.SegmentOptions)
 	}
 
-	splitter := text.NewSplitter()
+	splitter := p.createSplitter(options)
+
+	segments := []segmenter.Segment{}
+
+	for _, chunk := range splitter.Split(input) {
+		segments = append(segments, segmenter.Segment{
+			Text: chunk,
+		})
+	}
+
+	return segments, nil
+}
+
+func (p *Provider) createSplitter(options *segmenter.SegmentOptions) text.Splitter {
+	// If we have language-specific separators for this file type, use TextSplitter with custom separators
+	// This is especially useful for code files where we want to split at meaningful boundaries
+	if separators := getSeparators(options.FileName); len(separators) > 0 {
+		splitter := text.NewTextSplitter()
+		splitter.Separators = separators
+
+		if options.SegmentLength != nil {
+			splitter.ChunkSize = *options.SegmentLength
+		}
+
+		if options.SegmentOverlap != nil {
+			splitter.ChunkOverlap = *options.SegmentOverlap
+		}
+
+		return &splitter
+	}
+
+	// Otherwise use AutoSplitter which detects markdown vs plain text
+	splitter := text.NewAutoSplitter()
 
 	if options.SegmentLength != nil {
 		splitter.ChunkSize = *options.SegmentLength
@@ -41,24 +73,10 @@ func (p *Provider) Segment(ctx context.Context, input string, options *segmenter
 		splitter.ChunkOverlap = *options.SegmentOverlap
 	}
 
-	if sep := getSeperators(options.FileName); len(sep) > 0 {
-		splitter.Separators = sep
-	}
-
-	var segments []segmenter.Segment
-
-	for _, chunk := range splitter.Split(input) {
-		segment := segmenter.Segment{
-			Text: chunk,
-		}
-
-		segments = append(segments, segment)
-	}
-
-	return segments, nil
+	return &splitter
 }
 
-func getSeperators(name string) []string {
+func getSeparators(name string) []string {
 	switch strings.ToLower(path.Ext(name)) {
 	case ".cs":
 		return languageCSharp

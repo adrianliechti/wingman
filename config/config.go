@@ -10,6 +10,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/mcp"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
+	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 	"github.com/adrianliechti/wingman/pkg/summarizer"
@@ -39,6 +40,7 @@ type Config struct {
 	summarizer map[string]summarizer.Provider
 	translator map[string]translator.Provider
 
+	scraper    map[string]scraper.Provider
 	searcher   map[string]searcher.Provider
 	researcher map[string]researcher.Provider
 
@@ -68,6 +70,10 @@ func Parse(path string) (*Config, error) {
 	}
 
 	if err := c.registerExtractors(file); err != nil {
+		return nil, err
+	}
+
+	if err := c.registerScrapers(file); err != nil {
 		return nil, err
 	}
 
@@ -120,6 +126,7 @@ type configFile struct {
 	Summarizers yaml.Node `yaml:"summarizers"`
 	Translators yaml.Node `yaml:"translators"`
 
+	Scrapers    yaml.Node `yaml:"scrapers"`
 	Searchers   yaml.Node `yaml:"searchers"`
 	Researchers yaml.Node `yaml:"researchers"`
 

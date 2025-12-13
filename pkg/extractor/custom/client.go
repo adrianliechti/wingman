@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -48,44 +47,18 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Extract(ctx context.Context, input extractor.Input, options *extractor.ExtractOptions) (*provider.File, error) {
+func (c *Client) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}
 
-	format := Format_FORMAT_TEXT
-
-	if options.Format != nil {
-		switch *options.Format {
-		case extractor.FormatText:
-			format = Format_FORMAT_TEXT
-
-		case extractor.FormatImage:
-			format = Format_FORMAT_IMAGE
-
-		case extractor.FormatPDF:
-			format = Format_FORMAT_PDF
-
-		default:
-			return nil, extractor.ErrUnsupported
-		}
-	}
-
 	req := &ExtractRequest{
-		Format: format.Enum(),
-	}
+		File: &File{
+			Name: file.Name,
 
-	if input.URL != "" {
-		req.Url = &input.URL
-	}
-
-	if input.File != nil {
-		req.File = &File{
-			Name: input.File.Name,
-
-			Content:     input.File.Content,
-			ContentType: input.File.ContentType,
-		}
+			Content:     file.Content,
+			ContentType: file.ContentType,
+		},
 	}
 
 	resp, err := c.client.Extract(ctx, req)
@@ -94,8 +67,7 @@ func (c *Client) Extract(ctx context.Context, input extractor.Input, options *ex
 		return nil, err
 	}
 
-	return &provider.File{
-		Content:     resp.Content,
-		ContentType: resp.ContentType,
+	return &extractor.Document{
+		Text: resp.Text,
 	}, nil
 }

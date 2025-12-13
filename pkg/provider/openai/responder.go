@@ -178,24 +178,6 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 				return nil, err
 			}
 		case responses.ResponseFunctionCallArgumentsDoneEvent:
-			delta := provider.Completion{
-				ID:    data.Response.ID,
-				Model: data.Response.Model,
-
-				Message: &provider.Message{
-					Role: provider.MessageRoleAssistant,
-
-					Content: []provider.Content{
-						provider.ToolCallContent(provider.ToolCall{}),
-					},
-				},
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
 		case responses.ResponseContentPartDoneEvent:
 		case responses.ResponseOutputItemDoneEvent:
 		case responses.ResponseCompletedEvent:
@@ -263,6 +245,10 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		Tools: tools,
 
 		Truncation: responses.ResponseNewParamsTruncationAuto,
+	}
+
+	if slices.Contains(CodingModels, r.model) {
+		req.Truncation = ""
 	}
 
 	switch options.Effort {

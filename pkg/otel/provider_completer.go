@@ -2,12 +2,12 @@ package otel
 
 import (
 	"context"
-	"strings"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/semconv/v1.38.0/genaiconv"
 )
 
 type Completer interface {
@@ -16,26 +16,29 @@ type Completer interface {
 }
 
 type observableCompleter struct {
-	name    string
-	library string
-
 	model    string
 	provider string
 
 	completer provider.Completer
+
+	tokenUsageMetric        genaiconv.ClientTokenUsage
+	operationDurationMetric genaiconv.ClientOperationDuration
 }
 
 func NewCompleter(provider, model string, p provider.Completer) Completer {
-	library := strings.ToLower(provider)
+	meter := otel.Meter(instrumentationName)
+
+	tokenUsageMetric, _ := genaiconv.NewClientTokenUsage(meter)
+	operationDurationMetric, _ := genaiconv.NewClientOperationDuration(meter)
 
 	return &observableCompleter{
 		completer: p,
 
-		name:    strings.TrimSuffix(strings.ToLower(provider), "-completer") + "-completer",
-		library: library,
-
 		model:    model,
 		provider: provider,
+
+		tokenUsageMetric:        tokenUsageMetric,
+		operationDurationMetric: operationDurationMetric,
 	}
 }
 
@@ -43,35 +46,50 @@ func (p *observableCompleter) otelSetup() {
 }
 
 func (p *observableCompleter) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	ctx, span := otel.Tracer(p.library).Start(ctx, p.name)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "chat "+p.model)
 	defer span.End()
+
+	timestamp := time.Now()
 
 	result, err := p.completer.Complete(ctx, messages, options)
 
-	meterRequest(ctx, p.library, p.provider, "complete", p.model)
-
-	if EnableDebug {
-		if len(messages) > 0 {
-			input := messages[len(messages)-1].Text()
-
-			if input != "" {
-				span.SetAttributes(attribute.String("input", input))
-			}
-		}
-
-		if result != nil {
-			output := result.Message.Text()
-
-			if output != "" {
-				span.SetAttributes(attribute.String("output", output))
-			}
-		}
-	}
-
 	if result != nil {
+		duration := time.Since(timestamp).Seconds()
+
+		providerName := genaiconv.ProviderNameAttr(p.provider)
+		providerModel := p.model
+
+		if result.Model != "" {
+			providerModel = result.Model
+		}
+
+		p.operationDurationMetric.Record(ctx, duration,
+			genaiconv.OperationNameChat,
+			providerName,
+			p.operationDurationMetric.AttrRequestModel(p.model),
+			p.operationDurationMetric.AttrResponseModel(providerModel),
+		)
+
 		if result.Usage != nil {
-			tokens := int64(result.Usage.InputTokens) + int64(result.Usage.OutputTokens)
-			meterTokens(ctx, p.library, p.provider, "complete", p.model, tokens)
+			if result.Usage.InputTokens > 0 {
+				p.tokenUsageMetric.Record(ctx, int64(result.Usage.InputTokens),
+					genaiconv.OperationNameChat,
+					providerName,
+					genaiconv.TokenTypeInput,
+					p.tokenUsageMetric.AttrRequestModel(p.model),
+					p.tokenUsageMetric.AttrResponseModel(providerModel),
+				)
+			}
+
+			if result.Usage.OutputTokens > 0 {
+				p.tokenUsageMetric.Record(ctx, int64(result.Usage.OutputTokens),
+					genaiconv.OperationNameChat,
+					providerName,
+					genaiconv.TokenTypeOutput,
+					p.tokenUsageMetric.AttrRequestModel(p.model),
+					p.tokenUsageMetric.AttrResponseModel(providerModel),
+				)
+			}
 		}
 	}
 

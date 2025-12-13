@@ -133,7 +133,7 @@ func DetectModelType(id string) ModelType {
 		"dall-e",
 		"flux",
 		"gpt-image",
-		"imagen",
+		"image",
 	}
 
 	synthesizers := []string{
