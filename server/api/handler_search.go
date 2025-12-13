@@ -25,6 +25,10 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	options := &searcher.SearchOptions{}
 
+	if values, ok := r.Form["domain"]; ok && len(values) > 0 {
+		options.Domains = append(options.Domains, values...)
+	}
+
 	results, err := p.Search(r.Context(), query, options)
 
 	if err != nil {
