@@ -5,12 +5,16 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/researcher/anthropic"
 	"github.com/adrianliechti/wingman/pkg/researcher/custom"
 	"github.com/adrianliechti/wingman/pkg/researcher/exa"
+	"github.com/adrianliechti/wingman/pkg/researcher/llm"
 	"github.com/adrianliechti/wingman/pkg/researcher/openai"
 	"github.com/adrianliechti/wingman/pkg/researcher/perplexity"
+	"github.com/adrianliechti/wingman/pkg/scraper"
+	"github.com/adrianliechti/wingman/pkg/searcher"
 	"golang.org/x/time/rate"
 )
 
@@ -42,14 +46,25 @@ type researcherConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
+	Model string `yaml:"model"`
+
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
+
+	Scraper  string `yaml:"scraper"`
+	Searcher string `yaml:"searcher"`
 
 	Limit *int `yaml:"limit"`
 }
 
 type researcherContext struct {
-	Client  *http.Client
+	Client *http.Client
+
+	Completer provider.Completer
+
+	Searcher searcher.Provider
+	Scraper  scraper.Provider
+
 	Limiter *rate.Limiter
 }
 
@@ -71,6 +86,22 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 
 		context := researcherContext{
 			Limiter: createLimiter(config.Limit),
+		}
+
+		if p, err := cfg.Completer(config.Model); err == nil {
+			context.Completer = p
+		}
+
+		if config.Scraper != "" {
+			if p, err := cfg.Scraper(config.Scraper); err == nil {
+				context.Scraper = p
+			}
+		}
+
+		if config.Searcher != "" {
+			if p, err := cfg.Searcher(config.Searcher); err == nil {
+				context.Searcher = p
+			}
 		}
 
 		if config.Proxy != nil {
@@ -108,6 +139,9 @@ func createResearcher(cfg researcherConfig, context researcherContext) (research
 	case "exa":
 		return exaResearcher(cfg, context)
 
+	case "llm":
+		return llmResearcher(cfg, context)
+
 	case "openai":
 		return openaiResearcher(cfg, context)
 
@@ -140,6 +174,10 @@ func exaResearcher(cfg researcherConfig, context researcherContext) (researcher.
 	}
 
 	return exa.New(cfg.Token, options...)
+}
+
+func llmResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {
+	return llm.New(context.Completer, context.Searcher, context.Scraper)
 }
 
 func openaiResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {
