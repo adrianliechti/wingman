@@ -129,8 +129,6 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 				continue
 			}
 
-			println("Executing", c.Name, c.Arguments)
-
 			result, err := t.Execute(ctx, c.Name, params)
 
 			if err != nil {
