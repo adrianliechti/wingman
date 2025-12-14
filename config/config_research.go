@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/researcher/anthropic"
@@ -129,9 +130,9 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 			return err
 		}
 
-		// if _, ok := index.(otel.Retriever); !ok {
-		// 	index = otel.NewRetriever(config.Type, id, index)
-		// }
+		if _, ok := index.(otel.Researcher); !ok {
+			index = otel.NewResearcher(config.Type, id, index)
+		}
 
 		cfg.RegisterResearcher(id, index)
 	}

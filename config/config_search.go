@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/searcher/custom"
 	"github.com/adrianliechti/wingman/pkg/searcher/duckduckgo"
@@ -88,9 +89,9 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 			return err
 		}
 
-		// if _, ok := index.(otel.Retriever); !ok {
-		// 	index = otel.NewRetriever(config.Type, id, index)
-		// }
+		if _, ok := index.(otel.Searcher); !ok {
+			index = otel.NewSearcher(config.Type, id, index)
+		}
 
 		cfg.RegisterSearcher(id, index)
 	}
