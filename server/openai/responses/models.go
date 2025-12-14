@@ -20,14 +20,50 @@ type ResponsesRequest struct {
 
 	Text *TextConfig `json:"text,omitempty"`
 
+	MaxOutputTokens *int     `json:"max_output_tokens,omitempty"`
+	Temperature     *float32 `json:"temperature,omitempty"`
+
+	Reasoning *ReasoningConfig `json:"reasoning,omitempty"`
+
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
+
 	//ToolChoice        any  `json:"tool_choice,omitempty"`
 	//ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
 }
 
+// ReasoningConfig contains configuration options for reasoning models
+type ReasoningConfig struct {
+	Effort *ReasoningEffort `json:"effort,omitempty"`
+}
+
+type ReasoningEffort string
+
+var (
+	ReasoningEffortNone    ReasoningEffort = "none"
+	ReasoningEffortMinimal ReasoningEffort = "minimal"
+	ReasoningEffortLow     ReasoningEffort = "low"
+	ReasoningEffortMedium  ReasoningEffort = "medium"
+	ReasoningEffortHigh    ReasoningEffort = "high"
+	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
+)
+
+type StreamOptions struct {
+	IncludeUsage *bool `json:"include_usage"`
+}
+
 // TextConfig represents configuration options for text responses
 type TextConfig struct {
-	Format *TextFormat `json:"format,omitempty"`
+	Format    *TextFormat `json:"format,omitempty"`
+	Verbosity *Verbosity  `json:"verbosity,omitempty"`
 }
+
+type Verbosity string
+
+var (
+	VerbosityLow    Verbosity = "low"
+	VerbosityMedium Verbosity = "medium"
+	VerbosityHigh   Verbosity = "high"
+)
 
 // TextFormat represents the format configuration for text output
 type TextFormat struct {
@@ -339,7 +375,16 @@ type Response struct {
 
 	Output []ResponseOutput `json:"output"`
 
+	Usage *Usage `json:"usage,omitempty"`
+
 	Error *ResponseError `json:"error,omitempty"`
+}
+
+// Usage contains token usage information
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
 }
 
 // ResponseError contains error details when a response fails

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/tool"
+
 	"github.com/google/uuid"
 )
 
@@ -46,25 +48,56 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	options := &provider.CompleteOptions{
-		//Stop:  stops,
 		Tools: tools,
 
-		//MaxTokens:   req.MaxTokens,
-		//Temperature: req.Temperature,
+		MaxTokens:   req.MaxOutputTokens,
+		Temperature: req.Temperature,
+	}
+
+	if req.Reasoning != nil && req.Reasoning.Effort != nil {
+		switch *req.Reasoning.Effort {
+		case ReasoningEffortMinimal:
+			options.Effort = provider.EffortMinimal
+
+		case ReasoningEffortLow:
+			options.Effort = provider.EffortLow
+
+		case ReasoningEffortMedium:
+			options.Effort = provider.EffortMedium
+
+		case ReasoningEffortHigh, ReasoningEffortXHigh:
+			options.Effort = provider.EffortHigh
+		}
 	}
 
 	// Handle structured output configuration
-	if req.Text != nil && req.Text.Format != nil {
-		if req.Text.Format.Type == "json_object" || req.Text.Format.Type == "json_schema" {
-			options.Format = provider.CompletionFormatJSON
+	if req.Text != nil {
+		if req.Text.Format != nil {
+			if req.Text.Format.Type == "json_object" || req.Text.Format.Type == "json_schema" {
+				options.Format = provider.CompletionFormatJSON
+			}
+
+			if req.Text.Format.Type == "json_schema" && req.Text.Format.Schema != nil {
+				options.Schema = &provider.Schema{
+					Name:        req.Text.Format.Name,
+					Description: req.Text.Format.Description,
+
+					Schema: req.Text.Format.Schema,
+					Strict: req.Text.Format.Strict,
+				}
+			}
 		}
 
-		if req.Text.Format.Type == "json_schema" && req.Text.Format.Schema != nil {
-			options.Schema = &provider.Schema{
-				Name:        req.Text.Format.Name,
-				Description: req.Text.Format.Description,
-				Strict:      req.Text.Format.Strict,
-				Schema:      req.Text.Format.Schema,
+		if req.Text.Verbosity != nil {
+			switch *req.Text.Verbosity {
+			case VerbosityLow:
+				options.Verbosity = provider.VerbosityLow
+
+			case VerbosityMedium:
+				options.Verbosity = provider.VerbosityMedium
+
+			case VerbosityHigh:
+				options.Verbosity = provider.VerbosityHigh
 			}
 		}
 	}
@@ -74,9 +107,11 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
+		createdAt := time.Now().Unix()
+
 		responseID := "resp_" + uuid.NewString()
 		messageID := "msg_" + uuid.NewString()
-		createdAt := time.Now().Unix()
+
 		seqNum := 0
 
 		// Helper to get sequence number and increment
@@ -249,8 +284,6 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 					model = event.Completion.Model
 				}
 
-				// Build output array based on what was actually in the completion
-				// Initialize to empty slice (not nil) to ensure JSON encodes as [] not null
 				output := []ResponseOutput{}
 
 				if event.Completion != nil && event.Completion.Message != nil {
@@ -289,17 +322,28 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
+				response := &Response{
+					ID:        responseID,
+					Object:    "response",
+					CreatedAt: createdAt,
+					Status:    "completed",
+					Model:     model,
+					Output:    output,
+				}
+
+				// Add usage statistics if requested and available
+				if streamUsage(req) && event.Completion != nil && event.Completion.Usage != nil {
+					response.Usage = &Usage{
+						InputTokens:  event.Completion.Usage.InputTokens,
+						OutputTokens: event.Completion.Usage.OutputTokens,
+						TotalTokens:  event.Completion.Usage.InputTokens + event.Completion.Usage.OutputTokens,
+					}
+				}
+
 				return writeEvent(w, "response.completed", ResponseCompletedEvent{
 					Type:           "response.completed",
 					SequenceNumber: nextSeq(),
-					Response: &Response{
-						ID:        responseID,
-						Object:    "response",
-						CreatedAt: createdAt,
-						Status:    "completed",
-						Model:     model,
-						Output:    output,
-					},
+					Response:       response,
 				})
 			}
 
@@ -378,34 +422,71 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if completion.Message != nil {
-			output := ResponseOutput{
-				Type: ResponseOutputTypeMessage,
-
-				OutputMessage: &OutputMessage{
-					Role: "assistant",
-
-					Status: "completed",
-
-					Contents: []OutputContent{
-						{
-							Type: "output_text",
-							Text: completion.Message.Text(),
-						},
+			// Add function call outputs first
+			for _, call := range completion.Message.ToolCalls() {
+				result.Output = append(result.Output, ResponseOutput{
+					Type: ResponseOutputTypeFunctionCall,
+					FunctionCallOutputItem: &FunctionCallOutputItem{
+						ID:        call.ID,
+						Type:      "function_call",
+						Status:    "completed",
+						Name:      call.Name,
+						CallID:    call.ID,
+						Arguments: call.Arguments,
 					},
-				},
+				})
 			}
 
-			result.Output = append(result.Output, output)
+			// Add message output if there's text content
+			if text := completion.Message.Text(); text != "" {
+				output := ResponseOutput{
+					Type: ResponseOutputTypeMessage,
+
+					OutputMessage: &OutputMessage{
+						Role: "assistant",
+
+						Status: "completed",
+
+						Contents: []OutputContent{
+							{
+								Type: "output_text",
+								Text: text,
+							},
+						},
+					},
+				}
+
+				result.Output = append(result.Output, output)
+			}
+		}
+
+		if completion.Usage != nil {
+			result.Usage = &Usage{
+				InputTokens:  completion.Usage.InputTokens,
+				OutputTokens: completion.Usage.OutputTokens,
+				TotalTokens:  completion.Usage.InputTokens + completion.Usage.OutputTokens,
+			}
 		}
 
 		writeJson(w, result)
 	}
 }
 
+func streamUsage(req ResponsesRequest) bool {
+	if req.StreamOptions == nil {
+		return false
+	}
+
+	if req.StreamOptions.IncludeUsage == nil {
+		return false
+	}
+
+	return *req.StreamOptions.IncludeUsage
+}
+
 func toMessages(items []InputItem, instructions string) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
-	// Add instructions as system message if provided
 	if instructions != "" {
 		result = append(result, provider.Message{
 			Role:    provider.MessageRoleSystem,
@@ -422,6 +503,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			if item.InputMessage == nil {
 				continue
 			}
+
 			m := item.InputMessage
 			var content []provider.Content
 
@@ -432,18 +514,20 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 				if c.Type == InputContentImage && c.ImageURL != "" {
 					file, err := toFile(c.ImageURL)
+
 					if err != nil {
 						return nil, err
 					}
+
 					content = append(content, provider.FileContent(file))
 				}
 			}
 
-			// Add any pending tool calls to the assistant message
 			if m.Role == MessageRoleAssistant && len(pendingToolCalls) > 0 {
-				for _, tc := range pendingToolCalls {
-					content = append(content, provider.ToolCallContent(tc))
+				for _, call := range pendingToolCalls {
+					content = append(content, provider.ToolCallContent(call))
 				}
+
 				pendingToolCalls = nil
 			}
 
@@ -455,24 +539,21 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			}
 
 		case InputItemTypeReasoning:
-			// Skip reasoning items - they are internal to the model
 			continue
 
 		case InputItemTypeFunctionCall:
 			if item.InputFunctionCall == nil {
 				continue
 			}
-			fc := item.InputFunctionCall
 
-			// Collect function calls to be added to the next assistant message
-			// or create a standalone assistant message with the tool call
+			call := item.InputFunctionCall
+
 			toolCall := provider.ToolCall{
-				ID:        fc.CallID,
-				Name:      fc.Name,
-				Arguments: fc.Arguments,
+				ID:        call.CallID,
+				Name:      call.Name,
+				Arguments: call.Arguments,
 			}
 
-			// Add as assistant message with tool call
 			result = append(result, provider.Message{
 				Role: provider.MessageRoleAssistant,
 				Content: []provider.Content{
@@ -484,15 +565,15 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			if item.InputFunctionCallOutput == nil {
 				continue
 			}
-			fco := item.InputFunctionCallOutput
 
-			// Add as user message with tool result
+			output := item.InputFunctionCallOutput
+
 			result = append(result, provider.Message{
 				Role: provider.MessageRoleUser,
 				Content: []provider.Content{
 					provider.ToolResultContent(provider.ToolResult{
-						ID:   fco.CallID,
-						Data: fco.Output,
+						ID:   output.CallID,
+						Data: output.Output,
 					}),
 				},
 			})
@@ -517,7 +598,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 				Name:        t.Name,
 				Description: t.Description,
 				Strict:      t.Strict,
-				Parameters:  t.Parameters,
+				Parameters:  tool.NormalizeSchema(t.Parameters),
 			}
 			result = append(result, tool)
 		}
