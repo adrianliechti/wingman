@@ -37,7 +37,7 @@ func writeError(w http.ResponseWriter, code int, err error) {
 	shared.WriteError(w, code, err)
 }
 
-func writeEvent(w http.ResponseWriter, v any) error {
+func writeEvent(w http.ResponseWriter, eventType string, v any) error {
 	rc := http.NewResponseController(w)
 
 	var data bytes.Buffer
@@ -48,7 +48,7 @@ func writeEvent(w http.ResponseWriter, v any) error {
 
 	event := strings.TrimSpace(data.String())
 
-	if _, err := fmt.Fprintf(w, "data: %s\n\n", event); err != nil {
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, event); err != nil {
 		return err
 	}
 

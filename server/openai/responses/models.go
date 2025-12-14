@@ -207,3 +207,133 @@ type OutputContent struct {
 	Type string `json:"type,omitempty"`
 	Text string `json:"text,omitempty"`
 }
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/created
+type ResponseCreatedEvent struct {
+	Type           string    `json:"type"` // response.created
+	SequenceNumber int       `json:"sequence_number"`
+	Response       *Response `json:"response"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/in_progress
+type ResponseInProgressEvent struct {
+	Type           string    `json:"type"` // response.in_progress
+	SequenceNumber int       `json:"sequence_number"`
+	Response       *Response `json:"response"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/completed
+type ResponseCompletedEvent struct {
+	Type           string    `json:"type"` // response.completed
+	SequenceNumber int       `json:"sequence_number"`
+	Response       *Response `json:"response"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/output_item/added
+type OutputItemAddedEvent struct {
+	Type           string      `json:"type"` // response.output_item.added
+	SequenceNumber int         `json:"sequence_number"`
+	OutputIndex    int         `json:"output_index"`
+	Item           *OutputItem `json:"item"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/output_item/done
+type OutputItemDoneEvent struct {
+	Type           string      `json:"type"` // response.output_item.done
+	SequenceNumber int         `json:"sequence_number"`
+	OutputIndex    int         `json:"output_index"`
+	Item           *OutputItem `json:"item"`
+}
+
+type OutputItem struct {
+	ID      string          `json:"id"`
+	Type    string          `json:"type"` // message
+	Status  string          `json:"status"`
+	Content []OutputContent `json:"content"`
+	Role    MessageRole     `json:"role,omitempty"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/content_part/added
+type ContentPartAddedEvent struct {
+	Type           string         `json:"type"` // response.content_part.added
+	SequenceNumber int            `json:"sequence_number"`
+	ItemID         string         `json:"item_id"`
+	OutputIndex    int            `json:"output_index"`
+	ContentIndex   int            `json:"content_index"`
+	Part           *OutputContent `json:"part"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/content_part/done
+type ContentPartDoneEvent struct {
+	Type           string         `json:"type"` // response.content_part.done
+	SequenceNumber int            `json:"sequence_number"`
+	ItemID         string         `json:"item_id"`
+	OutputIndex    int            `json:"output_index"`
+	ContentIndex   int            `json:"content_index"`
+	Part           *OutputContent `json:"part"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/output_text/delta
+type OutputTextDeltaEvent struct {
+	Type           string `json:"type"` // response.output_text.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Delta          string `json:"delta"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/output_text/done
+type OutputTextDoneEvent struct {
+	Type           string `json:"type"` // response.output_text.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Text           string `json:"text"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/function_call_arguments/delta
+type FunctionCallArgumentsDeltaEvent struct {
+	Type           string `json:"type"` // response.function_call_arguments.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	Delta          string `json:"delta"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/function_call_arguments/done
+type FunctionCallArgumentsDoneEvent struct {
+	Type           string `json:"type"` // response.function_call_arguments.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	Name           string `json:"name"`
+	Arguments      string `json:"arguments"`
+}
+
+// FunctionCallOutputItem represents a function call output item
+type FunctionCallOutputItem struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"` // function_call
+	Status    string `json:"status"`
+	Name      string `json:"name"`
+	CallID    string `json:"call_id"`
+	Arguments string `json:"arguments"`
+}
+
+// FunctionCallOutputItemAddedEvent is emitted when a function call output item is added
+type FunctionCallOutputItemAddedEvent struct {
+	Type           string                  `json:"type"` // response.output_item.added
+	SequenceNumber int                     `json:"sequence_number"`
+	OutputIndex    int                     `json:"output_index"`
+	Item           *FunctionCallOutputItem `json:"item"`
+}
+
+// FunctionCallOutputItemDoneEvent is emitted when a function call output item is done
+type FunctionCallOutputItemDoneEvent struct {
+	Type           string                  `json:"type"` // response.output_item.done
+	SequenceNumber int                     `json:"sequence_number"`
+	OutputIndex    int                     `json:"output_index"`
+	Item           *FunctionCallOutputItem `json:"item"`
+}

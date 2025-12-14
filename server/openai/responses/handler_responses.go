@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -46,7 +47,238 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Stream {
-		writeError(w, http.StatusNotImplemented, fmt.Errorf("streaming not implemented"))
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		responseID := "resp_" + uuid.NewString()
+		messageID := "msg_" + uuid.NewString()
+		createdAt := time.Now().Unix()
+		seqNum := 0
+
+		// Helper to get sequence number and increment
+		nextSeq := func() int {
+			n := seqNum
+			seqNum++
+			return n
+		}
+
+		// Create initial response template
+		createResponse := func(status string, output []ResponseOutput) *Response {
+			return &Response{
+				ID:        responseID,
+				Object:    "response",
+				CreatedAt: createdAt,
+				Status:    status,
+				Model:     req.Model,
+				Output:    output,
+			}
+		}
+
+		// Create streaming accumulator with event handler
+		accumulator := NewStreamingAccumulator(func(event StreamEvent) error {
+			switch event.Type {
+			case StreamEventResponseCreated:
+				return writeEvent(w, "response.created", ResponseCreatedEvent{
+					Type:           "response.created",
+					SequenceNumber: nextSeq(),
+					Response:       createResponse("in_progress", []ResponseOutput{}),
+				})
+
+			case StreamEventResponseInProgress:
+				return writeEvent(w, "response.in_progress", ResponseInProgressEvent{
+					Type:           "response.in_progress",
+					SequenceNumber: nextSeq(),
+					Response:       createResponse("in_progress", []ResponseOutput{}),
+				})
+
+			case StreamEventOutputItemAdded:
+				return writeEvent(w, "response.output_item.added", OutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    0,
+					Item: &OutputItem{
+						ID:      messageID,
+						Type:    "message",
+						Status:  "in_progress",
+						Content: []OutputContent{},
+						Role:    MessageRoleAssistant,
+					},
+				})
+
+			case StreamEventContentPartAdded:
+				return writeEvent(w, "response.content_part.added", ContentPartAddedEvent{
+					Type:           "response.content_part.added",
+					SequenceNumber: nextSeq(),
+					ItemID:         messageID,
+					OutputIndex:    0,
+					ContentIndex:   0,
+					Part: &OutputContent{
+						Type: "output_text",
+						Text: "",
+					},
+				})
+
+			case StreamEventTextDelta:
+				return writeEvent(w, "response.output_text.delta", OutputTextDeltaEvent{
+					Type:           "response.output_text.delta",
+					SequenceNumber: nextSeq(),
+					ItemID:         messageID,
+					OutputIndex:    0,
+					ContentIndex:   0,
+					Delta:          event.Delta,
+				})
+
+			case StreamEventTextDone:
+				return writeEvent(w, "response.output_text.done", OutputTextDoneEvent{
+					Type:           "response.output_text.done",
+					SequenceNumber: nextSeq(),
+					ItemID:         messageID,
+					OutputIndex:    0,
+					ContentIndex:   0,
+					Text:           event.Text,
+				})
+
+			case StreamEventContentPartDone:
+				return writeEvent(w, "response.content_part.done", ContentPartDoneEvent{
+					Type:           "response.content_part.done",
+					SequenceNumber: nextSeq(),
+					ItemID:         messageID,
+					OutputIndex:    0,
+					ContentIndex:   0,
+					Part: &OutputContent{
+						Type: "output_text",
+						Text: event.Text,
+					},
+				})
+
+			case StreamEventFunctionCallAdded:
+				return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &FunctionCallOutputItem{
+						ID:        event.ToolCallID,
+						Type:      "function_call",
+						Status:    "in_progress",
+						CallID:    event.ToolCallID,
+						Name:      event.ToolCallName,
+						Arguments: "",
+					},
+				})
+
+			case StreamEventFunctionCallArgumentsDelta:
+				return writeEvent(w, "response.function_call_arguments.delta", FunctionCallArgumentsDeltaEvent{
+					Type:           "response.function_call_arguments.delta",
+					SequenceNumber: nextSeq(),
+					ItemID:         event.ToolCallID,
+					OutputIndex:    event.OutputIndex,
+					Delta:          event.Delta,
+				})
+
+			case StreamEventFunctionCallArgumentsDone:
+				return writeEvent(w, "response.function_call_arguments.done", FunctionCallArgumentsDoneEvent{
+					Type:           "response.function_call_arguments.done",
+					SequenceNumber: nextSeq(),
+					ItemID:         event.ToolCallID,
+					OutputIndex:    event.OutputIndex,
+					Arguments:      event.Arguments,
+				})
+
+			case StreamEventFunctionCallDone:
+				return writeEvent(w, "response.output_item.done", FunctionCallOutputItemDoneEvent{
+					Type:           "response.output_item.done",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &FunctionCallOutputItem{
+						ID:        event.ToolCallID,
+						Type:      "function_call",
+						Status:    "completed",
+						CallID:    event.ToolCallID,
+						Name:      event.ToolCallName,
+						Arguments: event.Arguments,
+					},
+				})
+
+			case StreamEventOutputItemDone:
+				return writeEvent(w, "response.output_item.done", OutputItemDoneEvent{
+					Type:           "response.output_item.done",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    0,
+					Item: &OutputItem{
+						ID:     messageID,
+						Type:   "message",
+						Status: "completed",
+						Content: []OutputContent{
+							{
+								Type: "output_text",
+								Text: event.Completion.Message.Text(),
+							},
+						},
+						Role: MessageRoleAssistant,
+					},
+				})
+
+			case StreamEventResponseCompleted:
+				finalText := ""
+				if event.Completion != nil && event.Completion.Message != nil {
+					finalText = event.Completion.Message.Text()
+				}
+
+				model := req.Model
+				if event.Completion != nil && event.Completion.Model != "" {
+					model = event.Completion.Model
+				}
+
+				return writeEvent(w, "response.completed", ResponseCompletedEvent{
+					Type:           "response.completed",
+					SequenceNumber: nextSeq(),
+					Response: &Response{
+						ID:        responseID,
+						Object:    "response",
+						CreatedAt: createdAt,
+						Status:    "completed",
+						Model:     model,
+						Output: []ResponseOutput{
+							{
+								Type: ResponseOutputTypeMessage,
+								OutputMessage: &OutputMessage{
+									ID:     messageID,
+									Role:   MessageRoleAssistant,
+									Status: "completed",
+									Contents: []OutputContent{
+										{
+											Type: "output_text",
+											Text: finalText,
+										},
+									},
+								},
+							},
+						},
+					},
+				})
+			}
+
+			return nil
+		})
+
+		// Set up stream handler to feed into accumulator
+		options.Stream = func(ctx context.Context, completion provider.Completion) error {
+			return accumulator.Add(completion)
+		}
+
+		_, err = completer.Complete(r.Context(), messages, options)
+
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		// Emit final events
+		if err := accumulator.Complete(); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 	} else {
 		completion, err := completer.Complete(r.Context(), messages, options)
 
