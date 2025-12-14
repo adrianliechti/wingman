@@ -53,6 +53,22 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		//Temperature: req.Temperature,
 	}
 
+	// Handle structured output configuration
+	if req.Text != nil && req.Text.Format != nil {
+		if req.Text.Format.Type == "json_object" || req.Text.Format.Type == "json_schema" {
+			options.Format = provider.CompletionFormatJSON
+		}
+
+		if req.Text.Format.Type == "json_schema" && req.Text.Format.Schema != nil {
+			options.Schema = &provider.Schema{
+				Name:        req.Text.Format.Name,
+				Description: req.Text.Format.Description,
+				Strict:      req.Text.Format.Strict,
+				Schema:      req.Text.Format.Schema,
+			}
+		}
+	}
+
 	if req.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -188,6 +204,7 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 					Type:           "response.function_call_arguments.done",
 					SequenceNumber: nextSeq(),
 					ItemID:         event.ToolCallID,
+					Name:           event.ToolCallName,
 					OutputIndex:    event.OutputIndex,
 					Arguments:      event.Arguments,
 				})
@@ -227,14 +244,49 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 				})
 
 			case StreamEventResponseCompleted:
-				finalText := ""
-				if event.Completion != nil && event.Completion.Message != nil {
-					finalText = event.Completion.Message.Text()
-				}
-
 				model := req.Model
 				if event.Completion != nil && event.Completion.Model != "" {
 					model = event.Completion.Model
+				}
+
+				// Build output array based on what was actually in the completion
+				// Initialize to empty slice (not nil) to ensure JSON encodes as [] not null
+				output := []ResponseOutput{}
+
+				if event.Completion != nil && event.Completion.Message != nil {
+					// Add function call outputs first (they appear before messages)
+					for _, call := range event.Completion.Message.ToolCalls() {
+						output = append(output, ResponseOutput{
+							Type: ResponseOutputTypeFunctionCall,
+							FunctionCallOutputItem: &FunctionCallOutputItem{
+								ID:        call.ID,
+								Type:      "function_call",
+								Status:    "completed",
+								Name:      call.Name,
+								CallID:    call.ID,
+								Arguments: call.Arguments,
+							},
+						})
+					}
+
+					// Add message output if there's text content
+					text := event.Completion.Message.Text()
+					if text != "" {
+						output = append(output, ResponseOutput{
+							Type: ResponseOutputTypeMessage,
+							OutputMessage: &OutputMessage{
+								ID:     messageID,
+								Role:   MessageRoleAssistant,
+								Status: "completed",
+								Contents: []OutputContent{
+									{
+										Type: "output_text",
+										Text: text,
+									},
+								},
+							},
+						})
+					}
 				}
 
 				return writeEvent(w, "response.completed", ResponseCompletedEvent{
@@ -246,22 +298,7 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 						CreatedAt: createdAt,
 						Status:    "completed",
 						Model:     model,
-						Output: []ResponseOutput{
-							{
-								Type: ResponseOutputTypeMessage,
-								OutputMessage: &OutputMessage{
-									ID:     messageID,
-									Role:   MessageRoleAssistant,
-									Status: "completed",
-									Contents: []OutputContent{
-										{
-											Type: "output_text",
-											Text: finalText,
-										},
-									},
-								},
-							},
-						},
+						Output:    output,
 					},
 				})
 			}

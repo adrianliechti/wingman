@@ -18,8 +18,26 @@ type ResponsesRequest struct {
 
 	Tools []Tool `json:"tools,omitempty"`
 
+	Text *TextConfig `json:"text,omitempty"`
+
 	//ToolChoice        any  `json:"tool_choice,omitempty"`
 	//ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
+}
+
+// TextConfig represents configuration options for text responses
+type TextConfig struct {
+	Format *TextFormat `json:"format,omitempty"`
+}
+
+// TextFormat represents the format configuration for text output
+type TextFormat struct {
+	Type string `json:"type,omitempty"` // "text", "json_object", or "json_schema"
+
+	// For json_schema type
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Schema      map[string]any `json:"schema,omitempty"`
+	Strict      *bool          `json:"strict,omitempty"`
 }
 
 // ToolType represents the type of tool
@@ -334,12 +352,14 @@ type ResponseOutput struct {
 	Type ResponseOutputType `json:"type,omitempty"`
 
 	*OutputMessage
+	*FunctionCallOutputItem
 }
 
 type ResponseOutputType string
 
 var (
-	ResponseOutputTypeMessage ResponseOutputType = "message"
+	ResponseOutputTypeMessage      ResponseOutputType = "message"
+	ResponseOutputTypeFunctionCall ResponseOutputType = "function_call"
 )
 
 type OutputMessage struct {
@@ -463,8 +483,8 @@ type FunctionCallArgumentsDoneEvent struct {
 	Type           string `json:"type"` // response.function_call_arguments.done
 	SequenceNumber int    `json:"sequence_number"`
 	ItemID         string `json:"item_id"`
-	OutputIndex    int    `json:"output_index"`
 	Name           string `json:"name"`
+	OutputIndex    int    `json:"output_index"`
 	Arguments      string `json:"arguments"`
 }
 

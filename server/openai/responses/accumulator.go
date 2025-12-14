@@ -56,12 +56,15 @@ type StreamingAccumulator struct {
 
 	// Track state for event emission
 	started        bool
-	hasOutputItem  bool
-	hasContentPart bool
+	hasOutputItem  bool // True if we emitted output_item.added for message
+	hasContentPart bool // True if we have actual text content
+	hasTextContent bool // True if we received any text delta
 
 	// Track tool calls - map from tool call ID to output index
 	toolCallIndices map[string]int
 	toolCallStarted map[string]bool
+	lastToolCallID  string // Track the last tool call ID for chunks without ID
+	nextOutputIndex int    // Next available output index
 }
 
 // NewStreamingAccumulator creates a new StreamingAccumulator with an event handler
@@ -70,6 +73,7 @@ func NewStreamingAccumulator(handler StreamEventHandler) *StreamingAccumulator {
 		handler:         handler,
 		toolCallIndices: make(map[string]int),
 		toolCallStarted: make(map[string]bool),
+		nextOutputIndex: 0,
 	}
 }
 
@@ -96,20 +100,21 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 	// Check for message content
 	if c.Message != nil {
-		// Emit output_item.added on first message
-		if !s.hasOutputItem {
-			s.hasOutputItem = true
-
-			if err := s.emitEvent(StreamEvent{
-				Type: StreamEventOutputItemAdded,
-			}); err != nil {
-				return err
-			}
-		}
-
 		// Process text content
 		for _, content := range c.Message.Content {
 			if content.Text != "" {
+				// Emit output_item.added on first text (message container)
+				if !s.hasOutputItem {
+					s.hasOutputItem = true
+					s.nextOutputIndex = 1 // Message takes index 0, next tool call starts at 1
+
+					if err := s.emitEvent(StreamEvent{
+						Type: StreamEventOutputItemAdded,
+					}); err != nil {
+						return err
+					}
+				}
+
 				// Emit content_part.added on first text
 				if !s.hasContentPart {
 					s.hasContentPart = true
@@ -120,6 +125,8 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						return err
 					}
 				}
+
+				s.hasTextContent = true
 
 				// Emit text delta
 				if err := s.emitEvent(StreamEvent{
@@ -137,22 +144,20 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				// If we have an ID, this is a new tool call
 				if toolCall.ID != "" {
 					if _, exists := s.toolCallIndices[toolCall.ID]; !exists {
-						// Assign output index (starts at 1 if we have text content at 0)
-						outputIndex := len(s.toolCallIndices)
-						if s.hasContentPart {
-							outputIndex++
-						}
+						// Assign output index
+						outputIndex := s.nextOutputIndex
 						s.toolCallIndices[toolCall.ID] = outputIndex
+						s.nextOutputIndex++
+						s.lastToolCallID = toolCall.ID
 					}
 				}
 
 				// Find the current tool call ID (either from this chunk or the last one)
 				currentToolCallID := toolCall.ID
 				if currentToolCallID == "" {
-					// Use the last tool call ID
-					for id := range s.toolCallIndices {
-						currentToolCallID = id
-					}
+					currentToolCallID = s.lastToolCallID
+				} else {
+					s.lastToolCallID = toolCall.ID
 				}
 
 				if currentToolCallID != "" {
@@ -203,8 +208,9 @@ func (s *StreamingAccumulator) Complete() error {
 		fullText = result.Message.Text()
 	}
 
-	// text.done
-	if s.hasContentPart {
+	// Only emit text/content done events if we actually had text content
+	if s.hasTextContent {
+		// text.done
 		if err := s.emitEvent(StreamEvent{
 			Type:       StreamEventTextDone,
 			Text:       fullText,
@@ -212,10 +218,8 @@ func (s *StreamingAccumulator) Complete() error {
 		}); err != nil {
 			return err
 		}
-	}
 
-	// content_part.done
-	if s.hasContentPart {
+		// content_part.done
 		if err := s.emitEvent(StreamEvent{
 			Type:       StreamEventContentPartDone,
 			Text:       fullText,
@@ -223,10 +227,8 @@ func (s *StreamingAccumulator) Complete() error {
 		}); err != nil {
 			return err
 		}
-	}
 
-	// output_item.done
-	if s.hasOutputItem {
+		// output_item.done for message
 		if err := s.emitEvent(StreamEvent{
 			Type:       StreamEventOutputItemDone,
 			Completion: result,
