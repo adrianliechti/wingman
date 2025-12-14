@@ -108,7 +108,8 @@ type CompletionAccumulator struct {
 
 	content strings.Builder
 
-	toolCalls []ToolCall
+	toolCalls      []ToolCall
+	lastToolCallID string
 
 	usage *Usage
 }
@@ -133,19 +134,50 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			}
 
 			if c.ToolCall != nil {
+				// Only create a new tool call if we have an ID and haven't seen it before
 				if c.ToolCall.ID != "" {
-					a.toolCalls = append(a.toolCalls, ToolCall{
-						ID: c.ToolCall.ID,
-					})
+					found := false
+					for i := range a.toolCalls {
+						if a.toolCalls[i].ID == c.ToolCall.ID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						a.toolCalls = append(a.toolCalls, ToolCall{
+							ID: c.ToolCall.ID,
+						})
+					}
+					a.lastToolCallID = c.ToolCall.ID
 				}
 
 				if len(a.toolCalls) == 0 {
-					// TODO: Error Handling
 					continue
 				}
 
-				a.toolCalls[len(a.toolCalls)-1].Name += c.ToolCall.Name
-				a.toolCalls[len(a.toolCalls)-1].Arguments += c.ToolCall.Arguments
+				toolCallIndex := -1
+				targetID := c.ToolCall.ID
+
+				if targetID == "" {
+					targetID = a.lastToolCallID
+				}
+
+				for i := range a.toolCalls {
+					if a.toolCalls[i].ID == targetID {
+						toolCallIndex = i
+						break
+					}
+				}
+
+				if toolCallIndex == -1 {
+					continue
+				}
+
+				if c.ToolCall.Name != "" {
+					a.toolCalls[toolCallIndex].Name = c.ToolCall.Name
+				}
+
+				a.toolCalls[toolCallIndex].Arguments += c.ToolCall.Arguments
 			}
 		}
 	}
@@ -155,8 +187,12 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			a.usage = &Usage{}
 		}
 
-		a.usage.InputTokens += c.Usage.InputTokens
-		a.usage.OutputTokens += c.Usage.OutputTokens
+		if c.Usage.InputTokens > a.usage.InputTokens {
+			a.usage.InputTokens = c.Usage.InputTokens
+		}
+		if c.Usage.OutputTokens > a.usage.OutputTokens {
+			a.usage.OutputTokens = c.Usage.OutputTokens
+		}
 	}
 }
 

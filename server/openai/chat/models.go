@@ -47,8 +47,8 @@ type ChatCompletionRequest struct {
 	Stop   any    `json:"stop,omitempty"`
 	Tools  []Tool `json:"tools,omitempty"`
 
-	MaxTokens   *int     `json:"max_tokens,omitempty"`
-	Temperature *float32 `json:"temperature,omitempty"`
+	Temperature         *float32 `json:"temperature,omitempty"`
+	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
 
 	ResponseFormat *ChatCompletionResponseFormat `json:"response_format,omitempty"`
 
