@@ -31,7 +31,14 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	messages, err := toMessages(req.Input.Messages)
+	messages, err := toMessages(req.Input.Items, req.Instructions)
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	tools, err := toTools(req.Tools)
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -40,7 +47,7 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 
 	options := &provider.CompleteOptions{
 		//Stop:  stops,
-		//Tools: tools,
+		Tools: tools,
 
 		//MaxTokens:   req.MaxTokens,
 		//Temperature: req.Temperature,
@@ -270,13 +277,43 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		_, err = completer.Complete(r.Context(), messages, options)
 
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			writeEvent(w, "response.failed", ResponseFailedEvent{
+				Type:           "response.failed",
+				SequenceNumber: nextSeq(),
+				Response: &Response{
+					ID:        responseID,
+					Object:    "response",
+					CreatedAt: createdAt,
+					Status:    "failed",
+					Model:     req.Model,
+					Output:    []ResponseOutput{},
+					Error: &ResponseError{
+						Code:    "server_error",
+						Message: err.Error(),
+					},
+				},
+			})
 			return
 		}
 
 		// Emit final events
 		if err := accumulator.Complete(); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeEvent(w, "response.failed", ResponseFailedEvent{
+				Type:           "response.failed",
+				SequenceNumber: nextSeq(),
+				Response: &Response{
+					ID:        responseID,
+					Object:    "response",
+					CreatedAt: createdAt,
+					Status:    "failed",
+					Model:     req.Model,
+					Output:    []ResponseOutput{},
+					Error: &ResponseError{
+						Code:    "server_error",
+						Message: err.Error(),
+					},
+				},
+			})
 			return
 		}
 	} else {
@@ -328,77 +365,127 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func toMessages(s []InputMessage) ([]provider.Message, error) {
+func toMessages(items []InputItem, instructions string) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
-	for _, m := range s {
-		var content []provider.Content
+	// Add instructions as system message if provided
+	if instructions != "" {
+		result = append(result, provider.Message{
+			Role:    provider.MessageRoleSystem,
+			Content: []provider.Content{provider.TextContent(instructions)},
+		})
+	}
 
-		for _, c := range m.Content {
-			if c.Type == InputContentText {
-				content = append(content, provider.TextContent(c.Text))
+	// Track pending tool calls to merge with their results
+	var pendingToolCalls []provider.ToolCall
+
+	for _, item := range items {
+		switch item.Type {
+		case InputItemTypeMessage:
+			if item.InputMessage == nil {
+				continue
 			}
+			m := item.InputMessage
+			var content []provider.Content
 
-			// if c.Type == InputContentFile && c.File != nil {
-			// 	file, err := toFile(c.File.Data)
-
-			// 	if err != nil {
-			// 		return nil, err
-			// 	}
-
-			// 	if c.File.Name != "" {
-			// 		file.Name = c.File.Name
-			// 	}
-
-			// 	content = append(content, provider.FileContent(file))
-			// }
-
-			if c.Type == InputContentImage && c.ImageURL != "" {
-				file, err := toFile(c.ImageURL)
-
-				if err != nil {
-					return nil, err
+			for _, c := range m.Content {
+				if c.Type == InputContentText {
+					content = append(content, provider.TextContent(c.Text))
 				}
 
-				content = append(content, provider.FileContent(file))
+				if c.Type == InputContentImage && c.ImageURL != "" {
+					file, err := toFile(c.ImageURL)
+					if err != nil {
+						return nil, err
+					}
+					content = append(content, provider.FileContent(file))
+				}
 			}
 
-			// if c.Type == MessageContentTypeAudio && c.Audio != nil {
-			// 	data, err := base64.StdEncoding.DecodeString(c.Audio.Data)
+			// Add any pending tool calls to the assistant message
+			if m.Role == MessageRoleAssistant && len(pendingToolCalls) > 0 {
+				for _, tc := range pendingToolCalls {
+					content = append(content, provider.ToolCallContent(tc))
+				}
+				pendingToolCalls = nil
+			}
 
-			// 	if err != nil {
-			// 		return nil, err
-			// 	}
+			if len(content) > 0 {
+				result = append(result, provider.Message{
+					Role:    toMessageRole(m.Role),
+					Content: content,
+				})
+			}
 
-			// 	file := &provider.File{
-			// 		Content: data,
-			// 	}
+		case InputItemTypeReasoning:
+			// Skip reasoning items - they are internal to the model
+			continue
 
-			// 	if c.Audio.Format != "" {
-			// 		file.Name = uuid.NewString() + c.Audio.Format
-			// 	}
+		case InputItemTypeFunctionCall:
+			if item.InputFunctionCall == nil {
+				continue
+			}
+			fc := item.InputFunctionCall
 
-			// 	content = append(content, provider.FileContent(file))
-			// }
+			// Collect function calls to be added to the next assistant message
+			// or create a standalone assistant message with the tool call
+			toolCall := provider.ToolCall{
+				ID:        fc.CallID,
+				Name:      fc.Name,
+				Arguments: fc.Arguments,
+			}
+
+			// Add as assistant message with tool call
+			result = append(result, provider.Message{
+				Role: provider.MessageRoleAssistant,
+				Content: []provider.Content{
+					provider.ToolCallContent(toolCall),
+				},
+			})
+
+		case InputItemTypeFunctionCallOutput:
+			if item.InputFunctionCallOutput == nil {
+				continue
+			}
+			fco := item.InputFunctionCallOutput
+
+			// Add as user message with tool result
+			result = append(result, provider.Message{
+				Role: provider.MessageRoleUser,
+				Content: []provider.Content{
+					provider.ToolResultContent(provider.ToolResult{
+						ID:   fco.CallID,
+						Data: fco.Output,
+					}),
+				},
+			})
 		}
+	}
 
-		// for _, c := range m.ToolCalls {
-		// 	if c.Type == ToolTypeFunction && c.Function != nil {
-		// 		call := provider.ToolCall{
-		// 			ID: c.ID,
+	return result, nil
+}
 
-		// 			Name:      c.Function.Name,
-		// 			Arguments: c.Function.Arguments,
-		// 		}
+func toTools(tools []Tool) ([]provider.Tool, error) {
+	if len(tools) == 0 {
+		return nil, nil
+	}
 
-		// 		content = append(content, provider.ToolCallContent(call))
-		// 	}
-		// }
+	result := make([]provider.Tool, 0, len(tools))
 
-		result = append(result, provider.Message{
-			Role:    toMessageRole(m.Role),
-			Content: content,
-		})
+	for _, t := range tools {
+		// Only support function tools for now
+		// Custom tools (like apply_patch) require special handling by the model
+		if t.Type == ToolTypeFunction {
+			tool := provider.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				Strict:      t.Strict,
+				Parameters:  t.Parameters,
+			}
+			result = append(result, tool)
+		}
+		// Note: Custom tools with grammar format are passed through to the model
+		// but may require special handling in the completer
 	}
 
 	return result, nil

@@ -15,40 +15,181 @@ type ResponsesRequest struct {
 	Instructions string `json:"instructions,omitempty"`
 
 	Input ResponsesInput `json:"input"`
+
+	Tools []Tool `json:"tools,omitempty"`
+
+	//ToolChoice        any  `json:"tool_choice,omitempty"`
+	//ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
 }
 
+// ToolType represents the type of tool
+type ToolType string
+
+const (
+	ToolTypeFunction ToolType = "function"
+	ToolTypeCustom   ToolType = "custom"
+)
+
+// Tool represents a tool in the request
+type Tool struct {
+	Type ToolType `json:"type"`
+
+	// For function tools
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Strict      *bool          `json:"strict,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+
+	// For custom tools (like apply_patch)
+	Format *CustomToolFormat `json:"format,omitempty"`
+}
+
+// CustomToolFormat describes the format for custom tools
+type CustomToolFormat struct {
+	Type       string `json:"type,omitempty"`       // "grammar"
+	Syntax     string `json:"syntax,omitempty"`     // "lark"
+	Definition string `json:"definition,omitempty"` // the grammar definition
+}
+
+// InputItemType represents the type of input item
+type InputItemType string
+
+const (
+	InputItemTypeMessage            InputItemType = "message"
+	InputItemTypeReasoning          InputItemType = "reasoning"
+	InputItemTypeFunctionCall       InputItemType = "function_call"
+	InputItemTypeFunctionCallOutput InputItemType = "function_call_output"
+)
+
 type ResponsesInput struct {
-	Messages []InputMessage `json:"-"`
+	Items []InputItem `json:"-"`
+}
+
+// InputItem represents a single item in the input array
+type InputItem struct {
+	Type InputItemType `json:"type,omitempty"`
+
+	// For message type
+	*InputMessage
+
+	// For reasoning type
+	*InputReasoning
+
+	// For function_call type
+	*InputFunctionCall
+
+	// For function_call_output type
+	*InputFunctionCallOutput
+}
+
+// InputReasoning represents a reasoning item in the input
+type InputReasoning struct {
+	ID               string                 `json:"id,omitempty"`
+	Summary          []ReasoningSummaryPart `json:"summary,omitempty"`
+	Content          json.RawMessage        `json:"content,omitempty"`           // Can be null
+	EncryptedContent string                 `json:"encrypted_content,omitempty"` // Base64 encoded
+}
+
+// ReasoningSummaryPart represents a part of the reasoning summary
+type ReasoningSummaryPart struct {
+	Type string `json:"type,omitempty"` // "summary_text"
+	Text string `json:"text,omitempty"`
+}
+
+// InputFunctionCall represents a function call in the input
+type InputFunctionCall struct {
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Status    string `json:"status,omitempty"` // "in_progress", "completed"
+}
+
+// InputFunctionCallOutput represents a function call output in the input
+type InputFunctionCallOutput struct {
+	CallID string `json:"call_id,omitempty"`
+	Output string `json:"output,omitempty"`
 }
 
 func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
+	// Try string input first
 	var stringInput string
-
 	if err := json.Unmarshal(data, &stringInput); err == nil {
-		ri.Messages = []InputMessage{
+		ri.Items = []InputItem{
 			{
-				Role: MessageRoleUser,
-				Content: []InputContent{
-					{
-						Type: InputContentText,
-						Text: stringInput,
+				Type: InputItemTypeMessage,
+				InputMessage: &InputMessage{
+					Role: MessageRoleUser,
+					Content: []InputContent{
+						{
+							Type: InputContentText,
+							Text: stringInput,
+						},
 					},
 				},
 			},
 		}
-
 		return nil
 	}
 
-	var messages []InputMessage
-
-	if err := json.Unmarshal(data, &messages); err == nil {
-		ri.Messages = messages
-
-		return nil
+	// Try array of input items
+	var rawItems []json.RawMessage
+	if err := json.Unmarshal(data, &rawItems); err != nil {
+		return errors.New("failed to unmarshal ResponsesInput")
 	}
 
-	return errors.New("failed to unmarshal ResponsesInput")
+	ri.Items = make([]InputItem, 0, len(rawItems))
+
+	for _, raw := range rawItems {
+		// First, determine the type
+		var typeWrapper struct {
+			Type InputItemType `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &typeWrapper); err != nil {
+			return err
+		}
+
+		item := InputItem{Type: typeWrapper.Type}
+
+		switch typeWrapper.Type {
+		case InputItemTypeMessage, "":
+			// Default to message type for backwards compatibility
+			var msg InputMessage
+			if err := json.Unmarshal(raw, &msg); err != nil {
+				return err
+			}
+			item.Type = InputItemTypeMessage
+			item.InputMessage = &msg
+
+		case InputItemTypeReasoning:
+			var reasoning InputReasoning
+			if err := json.Unmarshal(raw, &reasoning); err != nil {
+				return err
+			}
+			item.InputReasoning = &reasoning
+
+		case InputItemTypeFunctionCall:
+			var fc InputFunctionCall
+			if err := json.Unmarshal(raw, &fc); err != nil {
+				return err
+			}
+			item.InputFunctionCall = &fc
+
+		case InputItemTypeFunctionCallOutput:
+			var fco InputFunctionCallOutput
+			if err := json.Unmarshal(raw, &fco); err != nil {
+				return err
+			}
+			item.InputFunctionCallOutput = &fco
+
+		default:
+			return fmt.Errorf("unknown input item type: %s", typeWrapper.Type)
+		}
+
+		ri.Items = append(ri.Items, item)
+	}
+
+	return nil
 }
 
 type MessageRole string
@@ -176,9 +317,17 @@ type Response struct {
 
 	Model string `json:"model,omitempty"`
 
-	Status string `json:"status,omitempty"` // completed
+	Status string `json:"status,omitempty"` // completed, failed, in_progress, incomplete
 
-	Output []ResponseOutput `json:"output,omitempty"`
+	Output []ResponseOutput `json:"output"`
+
+	Error *ResponseError `json:"error,omitempty"`
+}
+
+// ResponseError contains error details when a response fails
+type ResponseError struct {
+	Code    string `json:"code"`    // e.g., "server_error", "rate_limit_exceeded"
+	Message string `json:"message"` // Human-readable error message
 }
 
 type ResponseOutput struct {
@@ -225,6 +374,13 @@ type ResponseInProgressEvent struct {
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/completed
 type ResponseCompletedEvent struct {
 	Type           string    `json:"type"` // response.completed
+	SequenceNumber int       `json:"sequence_number"`
+	Response       *Response `json:"response"`
+}
+
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/failed
+type ResponseFailedEvent struct {
+	Type           string    `json:"type"` // response.failed
 	SequenceNumber int       `json:"sequence_number"`
 	Response       *Response `json:"response"`
 }
