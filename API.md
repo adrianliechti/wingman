@@ -8,21 +8,36 @@ OpenAI-compatible endpoints. See [OpenAI API Reference](https://platform.openai.
 
 List available models.
 
-## Chat Completions
+## Responses
 
-**Endpoint:** `POST /v1/chat/completions`
+**Endpoint:** `POST /v1/responses`
 
 | Parameter           | Type         | Description                                         |
 |---------------------|--------------|-----------------------------------------------------|
 | `model`             | String       | Model ID                                            |
-| `messages`          | Array        | Conversation messages                               |
+| `input`             | String/Array | Input text or conversation messages                 |
 | `stream`            | Boolean      | Enable streaming                                    |
 | `temperature`       | Float        | Sampling temperature                                |
-| `max_tokens`        | Integer      | Maximum tokens to generate                          |
-| `stop`              | String/Array | Stop sequences                                      |
+| `max_output_tokens` | Integer      | Maximum tokens to generate                          |
 | `tools`             | Array        | Available tools/functions                           |
-| `response_format`   | Object       | Response format (text, json_object, json_schema)    |
-| `reasoning_effort`  | String       | Reasoning effort (low, medium, high)                |
+| `instructions`      | String       | System instructions                                 |
+| `reasoning`         | Object       | Reasoning configuration                             |
+
+## Chat Completions
+
+**Endpoint:** `POST /v1/chat/completions`
+
+| Parameter                | Type         | Description                                         |
+|--------------------------|--------------|-----------------------------------------------------|
+| `model`                  | String       | Model ID                                            |
+| `messages`               | Array        | Conversation messages                               |
+| `stream`                 | Boolean      | Enable streaming                                    |
+| `temperature`            | Float        | Sampling temperature                                |
+| `max_completion_tokens`  | Integer      | Maximum tokens to generate                          |
+| `stop`                   | String/Array | Stop sequences                                      |
+| `tools`                  | Array        | Available tools/functions                           |
+| `response_format`        | Object       | Response format (text, json_object, json_schema)    |
+| `reasoning_effort`       | String       | Reasoning effort (low, medium, high)                |
 
 ## Embeddings
 
