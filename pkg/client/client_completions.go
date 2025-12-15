@@ -25,7 +25,6 @@ type CompletionFormat = provider.CompletionFormat
 type CompletionReasoningEffort = provider.Effort
 
 type CompleteOptions = provider.CompleteOptions
-type CompleteStreamHandler = provider.StreamHandler
 
 type Content = provider.Content
 
@@ -78,5 +77,15 @@ func (r *CompletionService) New(ctx context.Context, input CompletionRequest, op
 		return nil, err
 	}
 
-	return p.Complete(ctx, input.Messages, &input.CompleteOptions)
+	acc := provider.CompletionAccumulator{}
+
+	for completion, err := range p.Complete(ctx, input.Messages, &input.CompleteOptions) {
+		if err != nil {
+			return nil, err
+		}
+
+		acc.Add(*completion)
+	}
+
+	return acc.Result(), nil
 }

@@ -2,11 +2,12 @@ package provider
 
 import (
 	"context"
+	"iter"
 	"strings"
 )
 
 type Completer interface {
-	Complete(ctx context.Context, messages []Message, options *CompleteOptions) (*Completion, error)
+	Complete(ctx context.Context, messages []Message, options *CompleteOptions) iter.Seq2[*Completion, error]
 }
 
 type Message struct {
@@ -268,11 +269,7 @@ type ToolCall struct {
 	Arguments string
 }
 
-type StreamHandler = func(ctx context.Context, completion Completion) error
-
 type CompleteOptions struct {
-	Stream StreamHandler
-
 	Effort    Effort
 	Verbosity Verbosity
 

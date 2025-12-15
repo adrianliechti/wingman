@@ -29,27 +29,38 @@ func (a *Adapter) Summarize(ctx context.Context, content string, options *summar
 	var segments []string
 
 	for _, part := range splitter.Split(content) {
-		completion, err := a.completer.Complete(ctx, []provider.Message{
-			provider.UserMessage("Write a concise summary of the following: \n" + part),
-		}, nil)
+		acc := provider.CompletionAccumulator{}
 
+		for completion, err := range a.completer.Complete(ctx, []provider.Message{
+			provider.UserMessage("Write a concise summary of the following: \n" + part),
+		}, nil) {
+			if err != nil {
+				return nil, err
+			}
+
+			acc.Add(*completion)
+		}
+
+		result := acc.Result()
+		segments = append(segments, result.Message.Text())
+	}
+
+	acc := provider.CompletionAccumulator{}
+
+	for completion, err := range a.completer.Complete(ctx, []provider.Message{
+		provider.UserMessage("Distill the following parts into a consolidated summary: \n" + strings.Join(segments, "\n\n")),
+	}, nil) {
 		if err != nil {
 			return nil, err
 		}
 
-		segments = append(segments, completion.Message.Text())
+		acc.Add(*completion)
 	}
 
-	completion, err := a.completer.Complete(ctx, []provider.Message{
-		provider.UserMessage("Distill the following parts into a consolidated summary: \n" + strings.Join(segments, "\n\n")),
-	}, nil)
-
-	if err != nil {
-		return nil, err
-	}
+	finalResult := acc.Result()
 
 	result := &summarizer.Summary{
-		Text: completion.Message.Text(),
+		Text: finalResult.Message.Text(),
 	}
 
 	return result, nil

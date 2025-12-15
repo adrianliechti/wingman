@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -114,17 +113,26 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		completionCall := ""
 		completionCallIndex := map[string]int{}
 
-		options.Stream = func(ctx context.Context, completion provider.Completion) error {
-			if completion.Usage != nil && (completion.Message == nil || len(completion.Message.Content) == 0) {
-				return nil
+		acc := provider.CompletionAccumulator{}
+
+		for c, err := range completer.Complete(r.Context(), messages, options) {
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			acc.Add(*c)
+
+			if c.Usage != nil && (c.Message == nil || len(c.Message.Content) == 0) {
+				continue
 			}
 
 			result := ChatCompletion{
 				Object: "chat.completion.chunk",
 
-				ID: completion.ID,
+				ID: c.ID,
 
-				Model:   completion.Model,
+				Model:   c.Model,
 				Created: time.Now().Unix(),
 
 				Choices: []ChatCompletionChoice{
@@ -138,14 +146,14 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				result.Model = req.Model
 			}
 
-			if completion.Message != nil {
+			if c.Message != nil {
 				message := &ChatCompletionMessage{}
 
-				if content := completion.Message.Text(); content != "" {
+				if content := c.Message.Text(); content != "" {
 					message.Content = &content
 				}
 
-				if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
+				if calls := oaiToolCalls(c.Message.Content); len(calls) > 0 {
 					for i, c := range calls {
 						if c.ID != "" {
 							completionCall = c.ID
@@ -188,15 +196,10 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				result.Choices[0].Delta.Role = MessageRoleAssistant
 			}
 
-			return writeEvent(w, result)
+			writeEvent(w, result)
 		}
 
-		completion, err := completer.Complete(r.Context(), messages, options)
-
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
+		completion := acc.Result()
 
 		if streamReason != "" {
 			result := ChatCompletion{
@@ -249,12 +252,18 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 		fmt.Fprintf(w, "data: [DONE]\n\n")
 	} else {
-		completion, err := completer.Complete(r.Context(), messages, options)
+		acc := provider.CompletionAccumulator{}
 
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
+		for completion, err := range completer.Complete(r.Context(), messages, options) {
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			acc.Add(*completion)
 		}
+
+		completion := acc.Result()
 
 		role := MessageRoleAssistant
 

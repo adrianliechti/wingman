@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"reflect"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -50,19 +51,20 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 	}, nil
 }
 
-func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	if options == nil {
-		options = new(provider.CompleteOptions)
-	}
+func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if options == nil {
+			options = new(provider.CompleteOptions)
+		}
 
-	req, err := c.convertConverseInput(messages, options)
+		req, err := c.convertConverseInput(messages, options)
 
-	if err != nil {
-		return nil, err
-	}
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
-	if options.Stream != nil {
-		req := &bedrockruntime.ConverseStreamInput{
+		params := &bedrockruntime.ConverseStreamInput{
 			ModelId: req.ModelId,
 
 			Messages: req.Messages,
@@ -75,66 +77,106 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			},
 		}
 
-		return c.completeStream(ctx, req, options)
-	}
+		resp, err := c.client.ConverseStream(ctx, params)
 
-	return c.complete(ctx, req, options)
-}
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
-func (c *Completer) complete(ctx context.Context, req *bedrockruntime.ConverseInput, options *provider.CompleteOptions) (*provider.Completion, error) {
-	resp, err := c.client.Converse(ctx, req)
+		id := uuid.NewString()
 
-	if err != nil {
-		return nil, err
-	}
+		for event := range resp.GetStream().Events() {
+			switch v := event.(type) {
+			case *types.ConverseStreamOutputMemberMessageStart:
+				delta := &provider.Completion{
+					ID:    id,
+					Model: c.model,
 
-	return &provider.Completion{
-		ID:    uuid.New().String(),
-		Model: c.model,
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+					},
+				}
 
-		Message: &provider.Message{
-			Role: provider.MessageRoleAssistant,
+				if !yield(delta, nil) {
+					return
+				}
 
-			Content: toContent(resp.Output),
-		},
+			case *types.ConverseStreamOutputMemberContentBlockStart:
+				switch b := v.Value.Start.(type) {
+				case *types.ContentBlockStartMemberToolUse:
+					delta := &provider.Completion{
+						ID:    id,
+						Model: c.model,
 
-		Usage: toUsage(resp.Usage),
-	}, nil
-}
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
 
-func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.ConverseStreamInput, options *provider.CompleteOptions) (*provider.Completion, error) {
-	resp, err := c.client.ConverseStream(ctx, req)
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									ID:   aws.ToString(b.Value.ToolUseId),
+									Name: aws.ToString(b.Value.Name),
+								}),
+							},
+						},
+					}
 
-	if err != nil {
-		return nil, err
-	}
+					if !yield(delta, nil) {
+						return
+					}
 
-	id := uuid.NewString()
+				default:
+					fmt.Printf("unknown block type, %T\n", b)
+				}
 
-	result := provider.CompletionAccumulator{}
+			case *types.ConverseStreamOutputMemberContentBlockDelta:
+				switch b := v.Value.Delta.(type) {
+				case *types.ContentBlockDeltaMemberText:
+					delta := &provider.Completion{
+						ID:    id,
+						Model: c.model,
 
-	for event := range resp.GetStream().Events() {
-		switch v := event.(type) {
-		case *types.ConverseStreamOutputMemberMessageStart:
-			delta := provider.Completion{
-				ID:    id,
-				Model: c.model,
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
 
-				Message: &provider.Message{
-					Role: provider.MessageRoleAssistant,
-				},
-			}
+							Content: []provider.Content{
+								provider.TextContent(b.Value),
+							},
+						},
+					}
 
-			result.Add(delta)
+					if !yield(delta, nil) {
+						return
+					}
 
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
+				case *types.ContentBlockDeltaMemberToolUse:
+					delta := &provider.Completion{
+						ID:    id,
+						Model: c.model,
 
-		case *types.ConverseStreamOutputMemberContentBlockStart:
-			switch b := v.Value.Start.(type) {
-			case *types.ContentBlockStartMemberToolUse:
-				delta := provider.Completion{
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									Arguments: *b.Value.Input,
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
+				default:
+					fmt.Printf("unknown block type, %T\n", b)
+				}
+
+			case *types.ConverseStreamOutputMemberContentBlockStop:
+
+			case *types.ConverseStreamOutputMemberMessageStop:
+				delta := &provider.Completion{
 					ID:    id,
 					Model: c.model,
 
@@ -142,125 +184,43 @@ func (c *Completer) completeStream(ctx context.Context, req *bedrockruntime.Conv
 						Role: provider.MessageRoleAssistant,
 
 						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall{
-								ID:   aws.ToString(b.Value.ToolUseId),
-								Name: aws.ToString(b.Value.Name),
-							}),
+							provider.TextContent(""),
 						},
 					},
 				}
 
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
+				if !yield(delta, nil) {
+					return
 				}
+
+			case *types.ConverseStreamOutputMemberMetadata:
+				delta := &provider.Completion{
+					ID:    id,
+					Model: c.model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.TextContent(""),
+						},
+					},
+
+					Usage: toUsage(v.Value.Usage),
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+
+			case *types.UnknownUnionMember:
+				fmt.Println("unknown tag", v.Tag)
 
 			default:
-				fmt.Printf("unknown block type, %T\n", b)
+				fmt.Printf("unknown event type, %T\n", v)
 			}
-
-		case *types.ConverseStreamOutputMemberContentBlockDelta:
-			switch b := v.Value.Delta.(type) {
-			case *types.ContentBlockDeltaMemberText:
-				delta := provider.Completion{
-					ID:    id,
-					Model: c.model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.TextContent(b.Value),
-						},
-					},
-				}
-
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
-				}
-
-			case *types.ContentBlockDeltaMemberToolUse:
-				delta := provider.Completion{
-					ID:    id,
-					Model: c.model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall{
-								Arguments: *b.Value.Input,
-							}),
-						},
-					},
-				}
-
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
-				}
-
-			default:
-				fmt.Printf("unknown block type, %T\n", b)
-			}
-
-		case *types.ConverseStreamOutputMemberContentBlockStop:
-
-		case *types.ConverseStreamOutputMemberMessageStop:
-			delta := provider.Completion{
-				ID:    id,
-				Model: c.model,
-
-				Message: &provider.Message{
-					Role: provider.MessageRoleAssistant,
-
-					Content: []provider.Content{
-						provider.TextContent(""),
-					},
-				},
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
-
-		case *types.ConverseStreamOutputMemberMetadata:
-			delta := provider.Completion{
-				ID:    id,
-				Model: c.model,
-
-				Message: &provider.Message{
-					Role: provider.MessageRoleAssistant,
-
-					Content: []provider.Content{
-						provider.TextContent(""),
-					},
-				},
-
-				Usage: toUsage(v.Value.Usage),
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
-
-		case *types.UnknownUnionMember:
-			fmt.Println("unknown tag", v.Tag)
-
-		default:
-			fmt.Printf("unknown event type, %T\n", v)
 		}
 	}
-
-	return result.Result(), nil
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
@@ -538,50 +498,6 @@ func convertVideoFormat(mime string) (types.VideoFormat, bool) {
 	}
 
 	return "", false
-}
-
-func toRole(val types.ConversationRole) provider.MessageRole {
-	switch val {
-	case types.ConversationRoleUser:
-		return provider.MessageRoleUser
-
-	case types.ConversationRoleAssistant:
-		return provider.MessageRoleAssistant
-
-	default:
-		return ""
-	}
-}
-
-func toContent(val types.ConverseOutput) []provider.Content {
-	message, ok := val.(*types.ConverseOutputMemberMessage)
-
-	if !ok {
-		return nil
-	}
-
-	var parts []provider.Content
-
-	for _, b := range message.Value.Content {
-		switch block := b.(type) {
-		case *types.ContentBlockMemberText:
-			parts = append(parts, provider.TextContent(block.Value))
-
-		case *types.ContentBlockMemberToolUse:
-			data, _ := block.Value.Input.MarshalSmithyDocument()
-
-			tool := provider.ToolCall{
-				ID:   aws.ToString(block.Value.ToolUseId),
-				Name: aws.ToString(block.Value.Name),
-
-				Arguments: string(data),
-			}
-
-			parts = append(parts, provider.ToolCallContent(tool))
-		}
-	}
-
-	return parts
 }
 
 func toUsage(val *types.TokenUsage) *provider.Usage {

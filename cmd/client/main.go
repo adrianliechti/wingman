@@ -112,12 +112,7 @@ func chat(ctx context.Context, c *client.Client, model string) {
 
 		Messages: []client.Message{},
 
-		CompleteOptions: client.CompleteOptions{
-			Stream: func(ctx context.Context, completion client.Completion) error {
-				output.WriteString(completion.Message.Text())
-				return nil
-			},
-		},
+		CompleteOptions: client.CompleteOptions{},
 	}
 
 LOOP:
@@ -151,6 +146,8 @@ LOOP:
 			output.WriteString(err.Error() + "\n")
 			continue LOOP
 		}
+
+		output.WriteString(completion.Message.Text())
 
 		req.Messages = append(req.Messages, *completion.Message)
 
