@@ -336,9 +336,14 @@ func (im *InputMessage) UnmarshalJSON(data []byte) error {
 }
 
 type InputContent struct {
-	Type     InputContentType `json:"type,omitempty"`
-	Text     string           `json:"text,omitempty"`
-	ImageURL string           `json:"image_url,omitempty"`
+	Type InputContentType `json:"type,omitempty"`
+	Text string           `json:"text,omitempty"`
+
+	ImageURL string `json:"image_url,omitempty"`
+
+	Filename string `json:"filename,omitempty"`
+	FileURL  string `json:"file_url,omitempty"`
+	FileData string `json:"file_data,omitempty"`
 }
 
 type InputContentType string
