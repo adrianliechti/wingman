@@ -144,6 +144,7 @@ func DetectModelType(id string) ModelType {
 
 	transcribers := []string{
 		"transcribe",
+		"voxtral",
 		"whisper",
 	}
 
