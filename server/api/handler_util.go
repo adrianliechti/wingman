@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -61,6 +62,16 @@ func valueLanguage(r *http.Request) string {
 	}
 
 	return ""
+}
+
+func valueLimit(r *http.Request) *int {
+	if val := r.FormValue("limit"); val != "" {
+		if limit, err := strconv.Atoi(val); err == nil {
+			return &limit
+		}
+	}
+
+	return nil
 }
 
 func valueSchema(r *http.Request) (*provider.Schema, error) {
