@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/adapter/trimmer"
 	"github.com/adrianliechti/wingman/pkg/template"
 
 	"github.com/adrianliechti/wingman/pkg/chain"
@@ -40,8 +39,6 @@ type chainConfig struct {
 	Verbosity string `yaml:"verbosity"`
 
 	Temperature *float32 `yaml:"temperature"`
-
-	Compaction string `yaml:"compaction"`
 }
 
 type chainContext struct {
@@ -84,19 +81,6 @@ func (cfg *Config) registerChains(f *configFile) error {
 		if config.Model != "" {
 			if p, err := cfg.Completer(config.Model); err == nil {
 				context.Completer = p
-			}
-		}
-
-		if context.Completer != nil {
-			switch strings.ToLower(config.Compaction) {
-			case "":
-				// no compaction
-
-			case "trim":
-				context.Completer = trimmer.New(context.Completer)
-
-			default:
-				return errors.New("invalid compaction type: " + config.Compaction)
 			}
 		}
 
