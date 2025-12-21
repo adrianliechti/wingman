@@ -309,9 +309,16 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 					case "application/pdf":
 						url := "data:" + mime + ";base64," + content
 
+						name := c.File.Name
+
+						if name == "" {
+							name = "file.pdf"
+						}
+
 						message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
 							OfInputFile: &responses.ResponseInputFileParam{
-								FileURL: openai.String(url),
+								Filename: openai.String(name),
+								FileData: openai.String(url),
 							},
 						})
 

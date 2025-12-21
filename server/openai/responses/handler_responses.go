@@ -3,10 +3,12 @@ package responses
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -533,11 +535,48 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 					content = append(content, provider.TextContent(c.Text))
 				}
 
-				if c.Type == InputContentImage && c.ImageURL != "" {
+				if c.Type == InputContentImage {
 					file, err := toFile(c.ImageURL)
 
 					if err != nil {
 						return nil, err
+					}
+
+					content = append(content, provider.FileContent(file))
+				}
+
+				if c.Type == InputContentFile {
+					file := &provider.File{
+						Name: c.Filename,
+					}
+
+					if c.FileData != "" {
+						data, err := base64.StdEncoding.DecodeString(c.FileData)
+
+						if err != nil {
+							return nil, err
+						}
+
+						if mime := mime.TypeByExtension(path.Ext(c.Filename)); mime != "" {
+							file.ContentType = mime
+						}
+
+						file.Content = data
+					}
+
+					if c.FileURL != "" {
+						f, err := toFile(c.FileURL)
+
+						if err != nil {
+							return nil, err
+						}
+
+						if file.Name == "" {
+							file.Name = f.Name
+						}
+
+						file.Content = f.Content
+						file.ContentType = f.ContentType
 					}
 
 					content = append(content, provider.FileContent(file))
@@ -647,6 +686,10 @@ func toMessageRole(r MessageRole) provider.MessageRole {
 }
 
 func toFile(url string) (*provider.File, error) {
+	if url == "" {
+		return nil, errors.New("inavlid data url")
+	}
+
 	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 		resp, err := http.Get(url)
 

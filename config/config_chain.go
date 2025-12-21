@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/adapter/trimmer"
 	"github.com/adrianliechti/wingman/pkg/template"
 
 	"github.com/adrianliechti/wingman/pkg/chain"
@@ -39,12 +40,11 @@ type chainConfig struct {
 	Verbosity string `yaml:"verbosity"`
 
 	Temperature *float32 `yaml:"temperature"`
+
+	Compaction string `yaml:"compaction"`
 }
 
 type chainContext struct {
-	Model string
-
-	Embedder  provider.Embedder
 	Completer provider.Completer
 
 	Template *template.Template
@@ -73,8 +73,6 @@ func (cfg *Config) registerChains(f *configFile) error {
 		}
 
 		context := chainContext{
-			Model: id,
-
 			Messages: make([]provider.Message, 0),
 
 			Tools: make(map[string]tool.Provider),
@@ -87,9 +85,18 @@ func (cfg *Config) registerChains(f *configFile) error {
 			if p, err := cfg.Completer(config.Model); err == nil {
 				context.Completer = p
 			}
+		}
 
-			if p, err := cfg.Embedder(config.Model); err == nil {
-				context.Embedder = p
+		if context.Completer != nil {
+			switch strings.ToLower(config.Compaction) {
+			case "":
+				// no compaction
+
+			case "trim":
+				context.Completer = trimmer.New(context.Completer)
+
+			default:
+				return errors.New("invalid compaction type: " + config.Compaction)
 			}
 		}
 
@@ -168,5 +175,5 @@ func agentChain(cfg chainConfig, context chainContext) (chain.Provider, error) {
 		options = append(options, agent.WithVerbosity(context.Verbosity))
 	}
 
-	return agent.New(context.Model, options...)
+	return agent.New(cfg.Model, options...)
 }

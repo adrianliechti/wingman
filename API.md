@@ -103,10 +103,10 @@ Extract text from files or URLs.
 
 | Parameter   | Type   | Description                             |
 |-------------|--------|-----------------------------------------|
+| `model`     | String | Model/provider to use                   |
 | `file`      | File   | Document to extract text from           |
 | `url`       | String | URL to scrape and extract               |
 | `schema`    | JSON   | JSON schema for structured extraction   |
-| `model`     | String | Model/provider to use                   |
 
 **Headers:**
 
@@ -134,11 +134,11 @@ Generate images from text descriptions.
 
 **Endpoint:** `POST /v1/render`
 
-| Parameter   | Type     | Description                 |
-|-------------|----------|-----------------------------|
-| `input`     | String   | Text description to render  |
-| `file`      | File(s)  | Optional reference images   |
-| `model`     | String   | Model/provider to use       |
+| Parameter    | Type     | Description                 |
+|--------------|----------|-----------------------------|
+| `model`      | String   | Model/provider to use       |
+| `prompt`     | String   | Text description to render  |
+| `file`       | File(s)  | Optional reference images   |
 
 ```bash
 curl -X POST -F "input=a sunset over mountains" http://localhost:8080/v1/render
@@ -152,8 +152,8 @@ Search for information.
 
 | Parameter   | Type   | Description            |
 |-------------|--------|------------------------|
-| `input`     | String | Search query           |
 | `model`     | String | Model/provider to use  |
+| `query`     | String | Search query           |
 
 ```bash
 curl -X POST -F "input=your query" http://localhost:8080/v1/search
@@ -165,10 +165,10 @@ Deep research on a topic.
 
 **Endpoint:** `POST /v1/research`
 
-| Parameter   | Type   | Description              |
-|-------------|--------|--------------------------|
-| `input`     | String | Research topic/question  |
-| `model`     | String | Model/provider to use    |
+| Parameter      | Type   | Description              |
+|----------------|--------|--------------------------|
+| `model`        | String | Model/provider to use    |
+| `instructions` | String | Research topic/question  |
 
 ```bash
 curl -X POST -F "input=explain quantum computing" http://localhost:8080/v1/research
@@ -220,10 +220,10 @@ Summarize text content.
 
 | Parameter   | Type   | Description                     |
 |-------------|--------|---------------------------------|
+| `model`     | String | Model/provider to use           |
 | `input`     | String | Text to summarize               |
 | `file`      | File   | File to extract and summarize   |
 | `url`       | String | URL to scrape and summarize     |
-| `model`     | String | Model/provider to use           |
 
 ```bash
 curl -X POST -F "input=long article text" http://localhost:8080/v1/summarize
@@ -237,10 +237,10 @@ Translate text or files to another language.
 
 | Parameter   | Type   | Description            |
 |-------------|--------|------------------------|
+| `model`     | String | Model/provider to use  |
 | `input`     | String | Text to translate      |
 | `file`      | File   | File to translate      |
 | `language`  | String | Target language        |
-| `model`     | String | Model/provider to use  |
 
 ```bash
 curl -X POST -F "input=Hello world" -F "language=de" http://localhost:8080/v1/translate
@@ -254,9 +254,9 @@ Transcribe audio files to text.
 
 | Parameter   | Type   | Description                |
 |-------------|--------|----------------------------|
+| `model`     | String | Model/provider to use      |
 | `file`      | File   | Audio file to transcribe   |
 | `language`  | String | Audio language (optional)  |
-| `model`     | String | Model/provider to use      |
 
 ```bash
 curl -X POST -F "file=@audio.mp3" http://localhost:8080/v1/transcribe

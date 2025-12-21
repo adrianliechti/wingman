@@ -9,6 +9,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor/custom"
 	"github.com/adrianliechti/wingman/pkg/extractor/docling"
 	"github.com/adrianliechti/wingman/pkg/extractor/kreuzberg"
+	"github.com/adrianliechti/wingman/pkg/extractor/mistral"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
 	"github.com/adrianliechti/wingman/pkg/extractor/text"
 	"github.com/adrianliechti/wingman/pkg/extractor/tika"
@@ -114,6 +115,9 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "kreuzberg":
 		return kreuzbergExtractor(cfg)
 
+	case "mistral":
+		return mistralExtractor(cfg)
+
 	case "text":
 		return textExtractor(cfg)
 
@@ -159,6 +163,16 @@ func kreuzbergExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	}
 
 	return kreuzberg.New(cfg.URL, options...)
+}
+
+func mistralExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	var options []mistral.Option
+
+	if cfg.Token != "" {
+		options = append(options, mistral.WithToken(cfg.Token))
+	}
+
+	return mistral.New(options...)
 }
 
 func textExtractor(cfg extractorConfig) (extractor.Provider, error) {
