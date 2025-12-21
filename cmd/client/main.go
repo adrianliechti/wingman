@@ -140,16 +140,24 @@ LOOP:
 
 		req.Messages = append(req.Messages, client.UserMessage(input))
 
-		completion, err := c.Completions.New(ctx, req)
+		acc := client.CompletionAccumulator{}
 
-		if err != nil {
-			output.WriteString(err.Error() + "\n")
-			continue LOOP
+		for c, err := range c.Completions.NewStream(ctx, req) {
+			if err != nil {
+				output.WriteString(err.Error() + "\n")
+				continue LOOP
+			}
+
+			acc.Add(*c)
+
+			if c.Message != nil {
+				output.WriteString(c.Message.Text())
+			}
 		}
 
-		output.WriteString(completion.Message.Text())
-
-		req.Messages = append(req.Messages, *completion.Message)
+		if result := acc.Result(); result.Message != nil {
+			req.Messages = append(req.Messages, *result.Message)
+		}
 
 		output.WriteString("\n")
 		output.WriteString("\n")
