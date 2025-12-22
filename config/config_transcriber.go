@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/groq"
+	"github.com/adrianliechti/wingman/pkg/provider/mistral"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/pkg/provider/whisper"
 )
@@ -39,6 +40,9 @@ func createTranscriber(cfg providerConfig, model modelContext) (provider.Transcr
 	case "groq":
 		return groqTranscriber(cfg, model)
 
+	case "mistral":
+		return mistralTranscriber(cfg, model)
+
 	case "openai", "openai-compatible":
 		return openaiTranscriber(cfg, model)
 
@@ -58,6 +62,16 @@ func groqTranscriber(cfg providerConfig, model modelContext) (provider.Transcrib
 	}
 
 	return groq.NewTranscriber(cfg.URL, model.ID, options...)
+}
+
+func mistralTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
+	var options []mistral.Option
+
+	if cfg.Token != "" {
+		options = append(options, mistral.WithToken(cfg.Token))
+	}
+
+	return mistral.NewTranscriber(model.ID, options...)
 }
 
 func openaiTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {

@@ -133,14 +133,20 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			Schema: schema,
 		}
 
-		completion, err := c.Complete(r.Context(), messages, options)
+		acc := provider.CompletionAccumulator{}
 
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
+		for completion, err := range c.Complete(r.Context(), messages, options) {
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			acc.Add(*completion)
 		}
 
-		content = completion.Message.Text()
+		result := acc.Result()
+
+		content = result.Message.Text()
 		contentType = "application/json"
 	}
 

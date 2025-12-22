@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"iter"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -34,237 +35,190 @@ func NewCompleter(url, model string, options ...Option) (*Completer, error) {
 	}, nil
 }
 
-func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	if options == nil {
-		options = new(provider.CompleteOptions)
-	}
-
-	req, err := c.convertMessageRequest(messages, options)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if options.Stream != nil {
-		return c.completeStream(ctx, *req, options)
-	}
-
-	return c.complete(ctx, *req, options)
-}
-
-func (c *Completer) complete(ctx context.Context, req anthropic.BetaMessageNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
-	message, err := c.messages.New(ctx, req)
-
-	if err != nil {
-		return nil, convertError(err)
-	}
-
-	content := toContent(message.Content)
-
-	if options.Schema != nil {
-		content = []provider.Content{
-			provider.TextContent(content[0].ToolCall.Arguments),
+func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if options == nil {
+			options = new(provider.CompleteOptions)
 		}
-	}
 
-	return &provider.Completion{
-		ID:    message.ID,
-		Model: c.model,
+		req, err := c.convertMessageRequest(messages, options)
 
-		Message: &provider.Message{
-			Role:    provider.MessageRoleAssistant,
-			Content: content,
-		},
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
-		Usage: toUsage(message.Usage),
-	}, nil
-}
+		message := anthropic.BetaMessage{}
+		stream := c.messages.NewStreaming(ctx, *req)
 
-func (c *Completer) completeStream(ctx context.Context, req anthropic.BetaMessageNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
-	result := provider.CompletionAccumulator{}
+		for stream.Next() {
+			event := stream.Current()
 
-	message := anthropic.BetaMessage{}
-	stream := c.messages.NewStreaming(ctx, req)
+			// HACK: handle empty tool use blocks
+			switch event.AsAny().(type) {
+			case anthropic.BetaRawContentBlockStopEvent:
+				block := &message.Content[len(message.Content)-1]
 
-	for stream.Next() {
-		event := stream.Current()
+				if block.Type == "tool_use" && len(block.Input) == 0 {
+					block.Input = json.RawMessage([]byte("{}"))
 
-		// HACK: handle empty tool use blocks
-		switch event.AsAny().(type) {
-		case anthropic.BetaRawContentBlockStopEvent:
-			block := &message.Content[len(message.Content)-1]
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
 
-			if block.Type == "tool_use" && len(block.Input) == 0 {
-				block.Input = json.RawMessage([]byte("{}"))
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
 
-				delta := provider.Completion{
-					ID:    message.ID,
-					Model: c.model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall{
-								Arguments: "{}",
-							}),
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									Arguments: "{}",
+								}),
+							},
 						},
-					},
-				}
+					}
 
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
+					if !yield(delta, nil) {
+						return
+					}
 				}
 			}
-		}
 
-		if err := message.Accumulate(event); err != nil {
-			return nil, err
-		}
+			if err := message.Accumulate(event); err != nil {
+				yield(nil, err)
+				return
+			}
 
-		switch event := event.AsAny().(type) {
-		case anthropic.BetaRawMessageStartEvent:
-			break
+			switch event := event.AsAny().(type) {
+			case anthropic.BetaRawMessageStartEvent:
+				break
 
-		case anthropic.BetaRawContentBlockStartEvent:
-			switch event := event.ContentBlock.AsAny().(type) {
-			case anthropic.BetaTextBlock:
-				delta := provider.Completion{
+			case anthropic.BetaRawContentBlockStartEvent:
+				switch event := event.ContentBlock.AsAny().(type) {
+				case anthropic.BetaTextBlock:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.TextContent(event.Text),
+							},
+						},
+
+						Usage: toUsage(message.Usage),
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
+				case anthropic.BetaToolUseBlock:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									ID:   event.ID,
+									Name: event.Name,
+								}),
+							},
+						},
+
+						Usage: toUsage(message.Usage),
+					}
+
+					if options.Schema != nil {
+						delta.Message.Content = []provider.Content{
+							provider.TextContent(""),
+						}
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+				}
+
+			case anthropic.BetaRawContentBlockDeltaEvent:
+				switch event := event.Delta.AsAny().(type) {
+				case anthropic.BetaTextDelta:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.TextContent(event.Text),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
+				case anthropic.BetaInputJSONDelta:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									Arguments: event.PartialJSON,
+								}),
+							},
+						},
+					}
+
+					if options.Schema != nil {
+						delta.Message.Content = []provider.Content{
+							{
+								Text: event.PartialJSON,
+							},
+						}
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+				}
+
+			case anthropic.BetaRawContentBlockStopEvent:
+				break
+
+			case anthropic.BetaRawMessageStopEvent:
+				delta := &provider.Completion{
 					ID:    message.ID,
 					Model: c.model,
 
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.TextContent(event.Text),
-						},
 					},
 
 					Usage: toUsage(message.Usage),
 				}
 
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
+				if !yield(delta, nil) {
+					return
 				}
-
-			case anthropic.BetaToolUseBlock:
-				delta := provider.Completion{
-					ID:    message.ID,
-					Model: c.model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall{
-								ID:   event.ID,
-								Name: event.Name,
-							}),
-						},
-					},
-
-					Usage: toUsage(message.Usage),
-				}
-
-				if options.Schema != nil {
-					delta.Message.Content = []provider.Content{
-						provider.TextContent(""),
-					}
-				}
-
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
-				}
-			}
-
-		case anthropic.BetaRawContentBlockDeltaEvent:
-			switch event := event.Delta.AsAny().(type) {
-			case anthropic.BetaTextDelta:
-				delta := provider.Completion{
-					ID:    message.ID,
-					Model: c.model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.TextContent(event.Text),
-						},
-					},
-				}
-
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
-				}
-
-			case anthropic.BetaInputJSONDelta:
-				delta := provider.Completion{
-					ID:    message.ID,
-					Model: c.model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall{
-								Arguments: event.PartialJSON,
-							}),
-						},
-					},
-				}
-
-				if options.Schema != nil {
-					delta.Message.Content = []provider.Content{
-						{
-							Text: event.PartialJSON,
-						},
-					}
-				}
-
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
-				}
-			}
-
-		case anthropic.BetaRawContentBlockStopEvent:
-			break
-
-		case anthropic.BetaRawMessageStopEvent:
-			delta := provider.Completion{
-				ID:    message.ID,
-				Model: c.model,
-
-				Message: &provider.Message{
-					Role: provider.MessageRoleAssistant,
-				},
-
-				Usage: toUsage(message.Usage),
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
 			}
 		}
-	}
 
-	if err := stream.Err(); err != nil {
-		return nil, convertError(err)
+		if err := stream.Err(); err != nil {
+			yield(nil, convertError(err))
+			return
+		}
 	}
-
-	return result.Result(), nil
 }
 
 func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.BetaMessageNewParams, error) {
@@ -275,18 +229,14 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	req := &anthropic.BetaMessageNewParams{
 		Model: anthropic.Model(c.model),
 
-		MaxTokens: 16000,
-	}
+		MaxTokens: 64000,
 
-	if options.Stream != nil {
-		req.MaxTokens = 64000
-
-		req.Betas = []anthropic.AnthropicBeta{
+		Betas: []anthropic.AnthropicBeta{
 			anthropic.AnthropicBetaContext1m2025_08_07,
 			anthropic.AnthropicBetaContextManagement2025_06_27,
-		}
+		},
 
-		req.ContextManagement = anthropic.BetaContextManagementConfigParam{
+		ContextManagement: anthropic.BetaContextManagementConfigParam{
 			Edits: []anthropic.BetaContextManagementConfigEditUnionParam{
 				// {
 				// 	OfClearThinking20251015: &anthropic.BetaClearThinking20251015EditParam{},
@@ -295,7 +245,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					OfClearToolUses20250919: &anthropic.BetaClearToolUses20250919EditParam{},
 				},
 			},
-		}
+		},
 	}
 
 	// switch options.Effort {
@@ -485,31 +435,6 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	return req, nil
-}
-
-func toContent(blocks []anthropic.BetaContentBlockUnion) []provider.Content {
-	var parts []provider.Content
-
-	for _, b := range blocks {
-		switch b := b.AsAny().(type) {
-		case anthropic.BetaTextBlock:
-			parts = append(parts, provider.TextContent(b.Text))
-
-		case anthropic.BetaToolUseBlock:
-			input, _ := json.Marshal(b.Input)
-
-			call := provider.ToolCall{
-				ID: b.ID,
-
-				Name:      b.Name,
-				Arguments: string(input),
-			}
-
-			parts = append(parts, provider.ToolCallContent(call))
-		}
-	}
-
-	return parts
 }
 
 func toUsage(usage anthropic.BetaUsage) *provider.Usage {

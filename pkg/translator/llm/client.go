@@ -54,14 +54,20 @@ func (c *Client) Translate(ctx context.Context, input translator.Input, options 
 		provider.UserMessage(text),
 	}
 
-	completion, err := c.completer.Complete(ctx, messages, nil)
+	acc := provider.CompletionAccumulator{}
 
-	if err != nil {
-		return nil, err
+	for completion, err := range c.completer.Complete(ctx, messages, nil) {
+		if err != nil {
+			return nil, err
+		}
+
+		acc.Add(*completion)
 	}
 
+	result := acc.Result()
+
 	return &translator.File{
-		Content:     []byte(completion.Message.Text()),
+		Content:     []byte(result.Message.Text()),
 		ContentType: "text/plain",
 	}, nil
 }

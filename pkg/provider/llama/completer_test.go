@@ -50,11 +50,17 @@ func TestCompleter(t *testing.T) {
 	c, err := llama.NewCompleter("http://"+url, "default")
 	require.NoError(t, err)
 
-	result, err := c.Complete(ctx, []provider.Message{
-		provider.UserMessage("Hello!"),
-	}, nil)
+	acc := provider.CompletionAccumulator{}
 
-	require.NoError(t, err)
+	for completion, err := range c.Complete(ctx, []provider.Message{
+		provider.UserMessage("Hello!"),
+	}, nil) {
+		require.NoError(t, err)
+		acc.Add(*completion)
+	}
+
+	result := acc.Result()
+
 	require.NotEmpty(t, result.Message.Content)
 
 	t.Log(result.Message.Content)

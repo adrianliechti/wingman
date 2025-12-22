@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"iter"
 	"slices"
 	"strings"
 
@@ -35,114 +36,64 @@ func NewCompleter(url, model string, options ...Option) (*Completer, error) {
 	}, nil
 }
 
-func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	if options == nil {
-		options = new(provider.CompleteOptions)
-	}
-
-	req, err := c.convertCompletionRequest(messages, options)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if options.Stream != nil {
-		return c.completeStream(ctx, *req, options)
-	}
-
-	return c.complete(ctx, *req, options)
-}
-
-func (c *Completer) complete(ctx context.Context, req openai.ChatCompletionNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
-	completion, err := c.completions.New(ctx, req)
-
-	if err != nil {
-		return nil, convertError(err)
-	}
-
-	choice := completion.Choices[0]
-
-	result := &provider.Completion{
-		ID:    completion.ID,
-		Model: c.model,
-
-		Message: &provider.Message{
-			Role: provider.MessageRoleAssistant,
-		},
-	}
-
-	if val := toUsage(completion.Usage); val != nil {
-		result.Usage = val
-	}
-
-	if choice.Message.JSON.Content.Valid() {
-		result.Message.Content = append(result.Message.Content, provider.TextContent(choice.Message.Content))
-	}
-
-	for _, c := range choice.Message.ToolCalls {
-		call := provider.ToolCall{
-			ID: c.ID,
-
-			Name:      c.Function.Name,
-			Arguments: c.Function.Arguments,
+func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if options == nil {
+			options = new(provider.CompleteOptions)
 		}
 
-		result.Message.Content = append(result.Message.Content, provider.ToolCallContent(call))
-	}
+		req, err := c.convertCompletionRequest(messages, options)
 
-	return result, nil
-}
-
-func (c *Completer) completeStream(ctx context.Context, req openai.ChatCompletionNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
-	stream := c.completions.NewStreaming(ctx, req)
-
-	result := provider.CompletionAccumulator{}
-
-	for stream.Next() {
-		chunk := stream.Current()
-
-		delta := provider.Completion{
-			ID:    chunk.ID,
-			Model: c.model,
-
-			Message: &provider.Message{
-				Role: provider.MessageRoleAssistant,
-			},
-
-			Usage: toUsage(chunk.Usage),
+		if err != nil {
+			yield(nil, err)
+			return
 		}
 
-		if len(chunk.Choices) > 0 {
-			choice := chunk.Choices[0]
+		stream := c.completions.NewStreaming(ctx, *req)
 
-			if choice.Delta.JSON.Content.Valid() {
-				delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Content))
+		for stream.Next() {
+			chunk := stream.Current()
+
+			delta := &provider.Completion{
+				ID:    chunk.ID,
+				Model: c.model,
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
+
+				Usage: toUsage(chunk.Usage),
 			}
 
-			for _, c := range choice.Delta.ToolCalls {
-				call := provider.ToolCall{
-					ID: c.ID,
+			if len(chunk.Choices) > 0 {
+				choice := chunk.Choices[0]
 
-					Name:      c.Function.Name,
-					Arguments: c.Function.Arguments,
+				if choice.Delta.JSON.Content.Valid() {
+					delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Content))
 				}
 
-				delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(call))
+				for _, c := range choice.Delta.ToolCalls {
+					call := provider.ToolCall{
+						ID: c.ID,
+
+						Name:      c.Function.Name,
+						Arguments: c.Function.Arguments,
+					}
+
+					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(call))
+				}
+			}
+
+			if !yield(delta, nil) {
+				return
 			}
 		}
 
-		result.Add(delta)
-
-		if err := options.Stream(ctx, delta); err != nil {
-			return nil, err
+		if err := stream.Err(); err != nil {
+			yield(nil, convertError(err))
+			return
 		}
 	}
-
-	if err := stream.Err(); err != nil {
-		return nil, convertError(err)
-	}
-
-	return result.Result(), nil
 }
 
 func (c *Completer) convertCompletionRequest(input []provider.Message, options *provider.CompleteOptions) (*openai.ChatCompletionNewParams, error) {
@@ -166,11 +117,9 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		Model: c.model,
 	}
 
-	if options.Stream != nil {
-		if !strings.Contains(c.url, "api.mistral.ai") {
-			req.StreamOptions = openai.ChatCompletionStreamOptionsParam{
-				IncludeUsage: openai.Bool(true),
-			}
+	if !strings.Contains(c.url, "api.mistral.ai") {
+		req.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
 		}
 	}
 

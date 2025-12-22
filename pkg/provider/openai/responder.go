@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"iter"
 	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -35,83 +36,73 @@ func NewResponder(url, model string, options ...Option) (*Responder, error) {
 	}, nil
 }
 
-func (r *Responder) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	if options == nil {
-		options = new(provider.CompleteOptions)
-	}
-
-	req, err := r.convertResponsesRequest(messages, options)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if options.Stream != nil {
-		return r.completeStream(ctx, *req, options)
-	}
-
-	return r.complete(ctx, *req)
-}
-
-func (r *Responder) complete(ctx context.Context, req responses.ResponseNewParams) (*provider.Completion, error) {
-	resp, err := r.responses.New(ctx, req)
-
-	if err != nil {
-		return nil, err
-	}
-
-	result := &provider.Completion{
-		ID:    resp.ID,
-		Model: resp.Model,
-
-		Message: &provider.Message{
-			Role: provider.MessageRoleAssistant,
-		},
-
-		Usage: toResponseUsage(resp.Usage),
-	}
-
-	for _, item := range resp.Output {
-		switch item := item.AsAny().(type) {
-		case responses.ResponseOutputMessage:
-			for _, c := range item.Content {
-				if c.JSON.Text.Valid() {
-					content := provider.TextContent(c.Text)
-					result.Message.Content = append(result.Message.Content, content)
-				}
-			}
-		case responses.ResponseFunctionToolCall:
-			call := provider.ToolCall{
-				ID: item.CallID,
-
-				Name:      item.Name,
-				Arguments: item.Arguments,
-			}
-
-			result.Message.Content = append(result.Message.Content, provider.ToolCallContent(call))
+func (r *Responder) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if options == nil {
+			options = new(provider.CompleteOptions)
 		}
-	}
 
-	return result, nil
-}
+		req, err := r.convertResponsesRequest(messages, options)
 
-func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNewParams, options *provider.CompleteOptions) (*provider.Completion, error) {
-	stream := r.responses.NewStreaming(ctx, req)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 
-	result := provider.CompletionAccumulator{}
+		stream := r.responses.NewStreaming(ctx, *req)
 
-	for stream.Next() {
-		data := stream.Current()
+		for stream.Next() {
+			data := stream.Current()
 
-		//println(data.RawJSON())
+			switch event := data.AsAny().(type) {
+			case responses.ResponseCreatedEvent:
+			case responses.ResponseInProgressEvent:
+			case responses.ResponseOutputItemAddedEvent:
+				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseFunctionToolCall:
+					delta := &provider.Completion{
+						ID:    data.Response.ID,
+						Model: data.Response.Model,
 
-		switch event := data.AsAny().(type) {
-		case responses.ResponseCreatedEvent:
-		case responses.ResponseInProgressEvent:
-		case responses.ResponseOutputItemAddedEvent:
-			switch item := event.Item.AsAny().(type) {
-			case responses.ResponseFunctionToolCall:
-				delta := provider.Completion{
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									ID: item.CallID,
+
+									Name:      item.Name,
+									Arguments: item.Arguments,
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+				}
+			case responses.ResponseContentPartAddedEvent:
+			case responses.ResponseTextDeltaEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.TextContent(event.Delta),
+						},
+					},
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+			case responses.ResponseTextDoneEvent:
+			case responses.ResponseFunctionCallArgumentsDeltaEvent:
+				delta := &provider.Completion{
 					ID:    data.Response.ID,
 					Model: data.Response.Model,
 
@@ -120,89 +111,39 @@ func (r *Responder) completeStream(ctx context.Context, req responses.ResponseNe
 
 						Content: []provider.Content{
 							provider.ToolCallContent(provider.ToolCall{
-								ID: item.CallID,
-
-								Name:      item.Name,
-								Arguments: item.Arguments,
+								Arguments: event.Delta,
 							}),
 						},
 					},
 				}
 
-				result.Add(delta)
-
-				if err := options.Stream(ctx, delta); err != nil {
-					return nil, err
+				if !yield(delta, nil) {
+					return
 				}
+			case responses.ResponseFunctionCallArgumentsDoneEvent:
+			case responses.ResponseContentPartDoneEvent:
+			case responses.ResponseOutputItemDoneEvent:
+			case responses.ResponseCompletedEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Usage: toResponseUsage(event.Response.Usage),
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+			default:
+				println("unknown event", data.Type)
 			}
-		case responses.ResponseContentPartAddedEvent:
-		case responses.ResponseTextDeltaEvent:
-			delta := provider.Completion{
-				ID:    data.Response.ID,
-				Model: data.Response.Model,
+		}
 
-				Message: &provider.Message{
-					Role: provider.MessageRoleAssistant,
-
-					Content: []provider.Content{
-						provider.TextContent(event.Delta),
-					},
-				},
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
-		case responses.ResponseTextDoneEvent:
-		case responses.ResponseFunctionCallArgumentsDeltaEvent:
-			delta := provider.Completion{
-				ID:    data.Response.ID,
-				Model: data.Response.Model,
-
-				Message: &provider.Message{
-					Role: provider.MessageRoleAssistant,
-
-					Content: []provider.Content{
-						provider.ToolCallContent(provider.ToolCall{
-							Arguments: event.Delta,
-						}),
-					},
-				},
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
-		case responses.ResponseFunctionCallArgumentsDoneEvent:
-		case responses.ResponseContentPartDoneEvent:
-		case responses.ResponseOutputItemDoneEvent:
-		case responses.ResponseCompletedEvent:
-			delta := provider.Completion{
-				ID:    data.Response.ID,
-				Model: data.Response.Model,
-
-				Usage: toResponseUsage(event.Response.Usage),
-			}
-
-			result.Add(delta)
-
-			if err := options.Stream(ctx, delta); err != nil {
-				return nil, err
-			}
-		default:
-			println("unknown event", data.Type)
+		if err := stream.Err(); err != nil {
+			yield(nil, convertError(err))
+			return
 		}
 	}
-
-	if err := stream.Err(); err != nil {
-		return nil, convertError(err)
-	}
-
-	return result.Result(), nil
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {

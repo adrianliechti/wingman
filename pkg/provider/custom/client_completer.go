@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"iter"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -57,80 +58,85 @@ func NewCompleter(url string, options ...Option) (*Completer, error) {
 	return c, nil
 }
 
-func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	if options == nil {
-		options = new(provider.CompleteOptions)
-	}
-
-	req := &CompleteRequest{
-		Tools:    wireTools(options.Tools),
-		Messages: wireMessages(messages),
-	}
-
-	if options.Effort != "" {
-		val := string(options.Effort)
-		req.Effort = &val
-	}
-
-	if options.MaxTokens != nil {
-		val := int32(*options.MaxTokens)
-		req.MaxTokens = &val
-	}
-
-	if options.Temperature != nil {
-		val := *options.Temperature
-		req.Temperature = &val
-	}
-
-	if len(options.Stop) > 0 {
-		req.Stops = options.Stop
-	}
-
-	if options.Format != "" {
-		val := string(options.Format)
-		req.Format = &val
-	}
-
-	if options.Schema != nil {
-		req.Schema = &Schema{
-			Name:        options.Schema.Name,
-			Description: options.Schema.Description,
+func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if options == nil {
+			options = new(provider.CompleteOptions)
 		}
 
-		if len(options.Schema.Schema) > 0 {
-			data, _ := json.Marshal(options.Schema.Schema)
-			req.Schema.Properties = string(data)
-		} else {
-			req.Schema.Properties = "{}"
-		}
-	}
-
-	stream, err := c.client.Complete(ctx, req)
-
-	if err != nil {
-		return nil, err
-	}
-
-	for {
-		in, err := stream.Recv()
-
-		if err != nil {
-			return nil, err
+		req := &CompleteRequest{
+			Tools:    wireTools(options.Tools),
+			Messages: wireMessages(messages),
 		}
 
-		if in.Delta != nil {
-			if options.Stream != nil {
-				completion := unwireCompletion(in)
+		if options.Effort != "" {
+			val := string(options.Effort)
+			req.Effort = &val
+		}
 
-				if err := options.Stream(ctx, completion); err != nil {
-					return nil, err
-				}
+		if options.MaxTokens != nil {
+			val := int32(*options.MaxTokens)
+			req.MaxTokens = &val
+		}
+
+		if options.Temperature != nil {
+			val := *options.Temperature
+			req.Temperature = &val
+		}
+
+		if len(options.Stop) > 0 {
+			req.Stops = options.Stop
+		}
+
+		if options.Format != "" {
+			val := string(options.Format)
+			req.Format = &val
+		}
+
+		if options.Schema != nil {
+			req.Schema = &Schema{
+				Name:        options.Schema.Name,
+				Description: options.Schema.Description,
+			}
+
+			if len(options.Schema.Schema) > 0 {
+				data, _ := json.Marshal(options.Schema.Schema)
+				req.Schema.Properties = string(data)
+			} else {
+				req.Schema.Properties = "{}"
 			}
 		}
 
-		if in.Message != nil {
-			completion := unwireCompletion(in)
-			return &completion, nil
+		stream, err := c.client.Complete(ctx, req)
+
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+
+		for {
+			in, err := stream.Recv()
+
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+
+			if in.Delta != nil {
+				completion := unwireCompletion(in)
+
+				if !yield(&completion, nil) {
+					return
+				}
+			}
+
+			if in.Message != nil {
+				completion := unwireCompletion(in)
+
+				if !yield(&completion, nil) {
+					return
+				}
+			}
 		}
 	}
 }

@@ -2,6 +2,7 @@ package limiter
 
 import (
 	"context"
+	"iter"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -28,10 +29,16 @@ func NewCompleter(l *rate.Limiter, p provider.Completer) Completer {
 func (p *limitedCompleter) limiterSetup() {
 }
 
-func (p *limitedCompleter) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	if p.limiter != nil {
-		p.limiter.Wait(ctx)
-	}
+func (p *limitedCompleter) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if p.limiter != nil {
+			p.limiter.Wait(ctx)
+		}
 
-	return p.provider.Complete(ctx, messages, options)
+		for completion, err := range p.provider.Complete(ctx, messages, options) {
+			if !yield(completion, err) {
+				return
+			}
+		}
+	}
 }

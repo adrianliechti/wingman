@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"iter"
 	"strings"
 
 	"google.golang.org/genai"
@@ -32,88 +33,57 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 	}, nil
 }
 
-func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	if options == nil {
-		options = new(provider.CompleteOptions)
-	}
+func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if options == nil {
+			options = new(provider.CompleteOptions)
+		}
 
-	client, err := c.newClient(ctx)
+		client, err := c.newClient(ctx)
 
-	if err != nil {
-		return nil, err
-	}
-
-	contents, err := convertMessages(messages)
-
-	if err != nil {
-		return nil, err
-	}
-
-	config := convertGenerateConfig(convertInstruction(messages), options)
-
-	if options.Stream != nil {
-		return c.completeStream(ctx, client, contents, config, options)
-	}
-
-	return c.complete(ctx, client, contents, config, options)
-}
-
-func (c *Completer) complete(ctx context.Context, client *genai.Client, contents []*genai.Content, config *genai.GenerateContentConfig, options *provider.CompleteOptions) (*provider.Completion, error) {
-	resp, err := client.Models.GenerateContent(ctx, c.model, contents, config)
-
-	if err != nil {
-		return nil, convertError(err)
-	}
-
-	candidate := resp.Candidates[0]
-
-	return &provider.Completion{
-		ID:    resp.ResponseID,
-		Model: c.model,
-
-		Message: &provider.Message{
-			Role:    provider.MessageRoleAssistant,
-			Content: toContent(candidate.Content),
-		},
-
-		Usage: toCompletionUsage(resp.UsageMetadata),
-	}, nil
-}
-
-func (c *Completer) completeStream(ctx context.Context, client *genai.Client, contents []*genai.Content, config *genai.GenerateContentConfig, options *provider.CompleteOptions) (*provider.Completion, error) {
-	iter := client.Models.GenerateContentStream(ctx, c.model, contents, config)
-
-	result := provider.CompletionAccumulator{}
-
-	for resp, err := range iter {
 		if err != nil {
-			return nil, convertError(err)
+			yield(nil, err)
+			return
 		}
 
-		delta := provider.Completion{
-			ID: resp.ResponseID,
+		contents, err := convertMessages(messages)
 
-			Message: &provider.Message{
-				Role: provider.MessageRoleAssistant,
-			},
-
-			Usage: toCompletionUsage(resp.UsageMetadata),
+		if err != nil {
+			yield(nil, err)
+			return
 		}
 
-		if len(resp.Candidates) > 0 {
-			candidate := resp.Candidates[0]
+		config := convertGenerateConfig(convertInstruction(messages), options)
 
-			delta.Message.Content = toContent(candidate.Content)
-		}
+		iter := client.Models.GenerateContentStream(ctx, c.model, contents, config)
 
-		result.Add(delta)
+		for resp, err := range iter {
+			if err != nil {
+				yield(nil, convertError(err))
+				return
+			}
 
-		if err := options.Stream(ctx, delta); err != nil {
-			return nil, err
+			delta := &provider.Completion{
+				ID: resp.ResponseID,
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+				},
+
+				Usage: toCompletionUsage(resp.UsageMetadata),
+			}
+
+			if len(resp.Candidates) > 0 {
+				candidate := resp.Candidates[0]
+
+				delta.Message.Content = toContent(candidate.Content)
+			}
+
+			if !yield(delta, nil) {
+				return
+			}
 		}
 	}
-
-	return result.Result(), nil
 }
 
 func convertInstruction(messages []provider.Message) *genai.Content {

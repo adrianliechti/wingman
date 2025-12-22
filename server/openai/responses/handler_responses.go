@@ -1,7 +1,6 @@
 package responses
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -352,31 +351,47 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 
-		// Set up stream handler to feed into accumulator
-		options.Stream = func(ctx context.Context, completion provider.Completion) error {
-			return accumulator.Add(completion)
-		}
-
-		_, err = completer.Complete(r.Context(), messages, options)
-
-		if err != nil {
-			writeEvent(w, "response.failed", ResponseFailedEvent{
-				Type:           "response.failed",
-				SequenceNumber: nextSeq(),
-				Response: &Response{
-					ID:        responseID,
-					Object:    "response",
-					CreatedAt: createdAt,
-					Status:    "failed",
-					Model:     req.Model,
-					Output:    []ResponseOutput{},
-					Error: &ResponseError{
-						Code:    "server_error",
-						Message: err.Error(),
+		// Iterate over completions from the provider
+		for completion, err := range completer.Complete(r.Context(), messages, options) {
+			if err != nil {
+				writeEvent(w, "response.failed", ResponseFailedEvent{
+					Type:           "response.failed",
+					SequenceNumber: nextSeq(),
+					Response: &Response{
+						ID:        responseID,
+						Object:    "response",
+						CreatedAt: createdAt,
+						Status:    "failed",
+						Model:     req.Model,
+						Output:    []ResponseOutput{},
+						Error: &ResponseError{
+							Code:    "server_error",
+							Message: err.Error(),
+						},
 					},
-				},
-			})
-			return
+				})
+				return
+			}
+
+			if err := accumulator.Add(*completion); err != nil {
+				writeEvent(w, "response.failed", ResponseFailedEvent{
+					Type:           "response.failed",
+					SequenceNumber: nextSeq(),
+					Response: &Response{
+						ID:        responseID,
+						Object:    "response",
+						CreatedAt: createdAt,
+						Status:    "failed",
+						Model:     req.Model,
+						Output:    []ResponseOutput{},
+						Error: &ResponseError{
+							Code:    "server_error",
+							Message: err.Error(),
+						},
+					},
+				})
+				return
+			}
 		}
 
 		// Emit final events
@@ -400,12 +415,18 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		completion, err := completer.Complete(r.Context(), messages, options)
+		acc := provider.CompletionAccumulator{}
 
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
+		for c, err := range completer.Complete(r.Context(), messages, options) {
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			acc.Add(*c)
 		}
+
+		completion := acc.Result()
 
 		result := Response{
 			Object: "response",

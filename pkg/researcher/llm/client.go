@@ -108,22 +108,28 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 	}
 
 	for {
-		completion, err := c.completer.Complete(ctx, messages, completeOptions)
+		acc := provider.CompletionAccumulator{}
 
-		if err != nil {
-			return nil, err
+		for completion, err := range c.completer.Complete(ctx, messages, completeOptions) {
+			if err != nil {
+				return nil, err
+			}
+
+			acc.Add(*completion)
 		}
 
-		if completion.Message == nil {
+		result := acc.Result()
+
+		if result.Message == nil {
 			return &researcher.Result{Content: ""}, nil
 		}
 
-		messages = append(messages, *completion.Message)
+		messages = append(messages, *result.Message)
 
-		calls := completion.Message.ToolCalls()
+		calls := result.Message.ToolCalls()
 
 		if len(calls) == 0 {
-			return &researcher.Result{Content: completion.Message.Text()}, nil
+			return &researcher.Result{Content: result.Message.Text()}, nil
 		}
 
 		for _, tc := range calls {

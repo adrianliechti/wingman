@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -45,53 +46,66 @@ func NewCompleter(provider, model string, p provider.Completer) Completer {
 func (p *observableCompleter) otelSetup() {
 }
 
-func (p *observableCompleter) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) (*provider.Completion, error) {
-	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "chat "+p.model)
-	defer span.End()
+func (p *observableCompleter) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		ctx, span := otel.Tracer(instrumentationName).Start(ctx, "chat "+p.model)
+		defer span.End()
 
-	timestamp := time.Now()
+		timestamp := time.Now()
 
-	result, err := p.completer.Complete(ctx, messages, options)
+		var lastResult *provider.Completion
 
-	if result != nil {
-		duration := time.Since(timestamp).Seconds()
-
-		providerName := genaiconv.ProviderNameAttr(p.provider)
-		providerModel := p.model
-
-		if result.Model != "" {
-			providerModel = result.Model
-		}
-
-		p.operationDurationMetric.Record(ctx, duration,
-			genaiconv.OperationNameChat,
-			providerName,
-			p.operationDurationMetric.AttrRequestModel(p.model),
-			p.operationDurationMetric.AttrResponseModel(providerModel),
-		)
-
-		if result.Usage != nil {
-			if result.Usage.InputTokens > 0 {
-				p.tokenUsageMetric.Record(ctx, int64(result.Usage.InputTokens),
-					genaiconv.OperationNameChat,
-					providerName,
-					genaiconv.TokenTypeInput,
-					p.tokenUsageMetric.AttrRequestModel(p.model),
-					p.tokenUsageMetric.AttrResponseModel(providerModel),
-				)
+		for completion, err := range p.completer.Complete(ctx, messages, options) {
+			if err != nil {
+				yield(nil, err)
+				return
 			}
 
-			if result.Usage.OutputTokens > 0 {
-				p.tokenUsageMetric.Record(ctx, int64(result.Usage.OutputTokens),
-					genaiconv.OperationNameChat,
-					providerName,
-					genaiconv.TokenTypeOutput,
-					p.tokenUsageMetric.AttrRequestModel(p.model),
-					p.tokenUsageMetric.AttrResponseModel(providerModel),
-				)
+			lastResult = completion
+
+			if !yield(completion, nil) {
+				return
+			}
+		}
+
+		if lastResult != nil {
+			duration := time.Since(timestamp).Seconds()
+
+			providerName := genaiconv.ProviderNameAttr(p.provider)
+			providerModel := p.model
+
+			if lastResult.Model != "" {
+				providerModel = lastResult.Model
+			}
+
+			p.operationDurationMetric.Record(ctx, duration,
+				genaiconv.OperationNameChat,
+				providerName,
+				p.operationDurationMetric.AttrRequestModel(p.model),
+				p.operationDurationMetric.AttrResponseModel(providerModel),
+			)
+
+			if lastResult.Usage != nil {
+				if lastResult.Usage.InputTokens > 0 {
+					p.tokenUsageMetric.Record(ctx, int64(lastResult.Usage.InputTokens),
+						genaiconv.OperationNameChat,
+						providerName,
+						genaiconv.TokenTypeInput,
+						p.tokenUsageMetric.AttrRequestModel(p.model),
+						p.tokenUsageMetric.AttrResponseModel(providerModel),
+					)
+				}
+
+				if lastResult.Usage.OutputTokens > 0 {
+					p.tokenUsageMetric.Record(ctx, int64(lastResult.Usage.OutputTokens),
+						genaiconv.OperationNameChat,
+						providerName,
+						genaiconv.TokenTypeOutput,
+						p.tokenUsageMetric.AttrRequestModel(p.model),
+						p.tokenUsageMetric.AttrResponseModel(providerModel),
+					)
+				}
 			}
 		}
 	}
-
-	return result, err
 }
