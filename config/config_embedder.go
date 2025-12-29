@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/azure"
 	"github.com/adrianliechti/wingman/pkg/provider/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
@@ -42,14 +41,8 @@ func (cfg *Config) Embedder(id string) (provider.Embedder, error) {
 
 func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
 	switch strings.ToLower(cfg.Type) {
-	case "azure":
-		return azureEmbedder(cfg, model)
-
 	case "gemini", "google":
 		return googleEmbedder(cfg, model)
-
-	case "github":
-		return azureEmbedder(cfg, model)
 
 	case "huggingface":
 		return huggingfaceEmbedder(cfg, model)
@@ -75,16 +68,6 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 	default:
 		return nil, errors.New("invalid embedder type: " + cfg.Type)
 	}
-}
-
-func azureEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
-	var options []azure.Option
-
-	if cfg.Token != "" {
-		options = append(options, azure.WithToken(cfg.Token))
-	}
-
-	return azure.NewEmbedder(cfg.URL, model.ID, options...)
 }
 
 func googleEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {

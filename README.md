@@ -16,11 +16,9 @@ The platform integrates with a wide range of LLM providers:
 - Anthropic (Claude models)
 - Google Gemini
 - AWS Bedrock
-- Groq
 - Mistral AI
-- xAI
 - Hugging Face
-- Local deployments: Ollama, LLAMA.CPP, Mistral.RS
+- Local deployments: Ollama, LLAMA.CPP
 - Custom models via gRPC plugins
 
 **Embedding Models:**
@@ -30,7 +28,7 @@ The platform integrates with a wide range of LLM providers:
 
 **Media Processing:**
 - Image generation: OpenAI DALL-E, Replicate
-- Speech-to-text: OpenAI Whisper, Groq Whisper, WHISPER.CPP
+- Speech-to-text: OpenAI Whisper, Mistral
 - Text-to-speech: OpenAI TTS
 - Reranking: Jina
 
@@ -40,13 +38,15 @@ The platform integrates with a wide range of LLM providers:
 - Apache Tika for various document formats
 - Unstructured.io for advanced document parsing
 - Azure Document Intelligence
-- Jina Reader for web content
-- Exa and Tavily for web search and extraction
+- Docling for document conversion
+- Kreuzberg for document parsing
+- Mistral document extraction
 - Text extraction from plain files
 - Custom extractors via gRPC
 
 **Text Segmentation:**
 - Jina segmenter for semantic chunking
+- Kreuzberg segmenter
 - Text-based chunking with configurable sizes
 - Unstructured.io segmentation
 - Custom segmenters via gRPC
@@ -255,26 +255,6 @@ providers:
 ```
 
 
-#### Groq
-
-```yaml
-providers:
-  - type: groq
-    token: ${GROQ_API_KEY}
-
-    # https://console.groq.com/docs/models
-    #
-    # {alias}:
-    #   - id: {groq api model name}
-    models:
-      groq-llama-3-8b:
-        id: llama3-8b-8192
-
-      groq-whisper-1:
-        id: whisper-large-v3
-```
-
-
 #### Mistral AI
 
 ```yaml
@@ -289,19 +269,6 @@ providers:
     models:
       mistral-large:
         id: mistral-large-latest
-```
-
-
-#### xAI
-
-```yaml
-providers:
-  - type: xai
-    token: ${XAI_API_KEY}
-
-    models:
-      grok-beta:
-        id: grok-beta
 ```
 
 
@@ -361,44 +328,6 @@ providers:
 
     models:
       - mistral-7b-instruct
-```
-
-
-#### Mistral.RS
-
-https://github.com/EricLBuehler/mistral.rs
-
-```shell
-$ mistralrs-server --port 1234 --isq Q4K plain -m meta-llama/Meta-Llama-3.1-8B-Instruct -a llama
-```
-
-```yaml
-providers:
-  - type: mistralrs
-    url: http://localhost:1234
-
-    models:
-      mistralrs-llama-3.1-8b:
-        id: llama
-        
-```
-
-
-#### WHISPER.CPP
-
-https://github.com/ggerganov/whisper.cpp/tree/master/examples/server
-
-```shell
-$ whisper-server --port 9083 --convert --model ./models/whisper-large-v3-turbo.bin
-```
-
-```yaml
-providers:
-  - type: whisper
-    url: http://localhost:9083
-
-    models:
-      - whisper
 ```
 
 
@@ -526,27 +455,37 @@ extractors:
 ```
 
 
-#### Jina Reader
+#### Docling Extractor
+
+https://github.com/DS4SD/docling
 
 ```yaml
 extractors:
-  jina:
-    type: jina
-    token: ${JINA_API_KEY}
+  docling:
+    type: docling
+    url: http://localhost:5000
 ```
 
 
-#### Exa / Tavily Web Extraction
+#### Kreuzberg Extractor
+
+https://github.com/lenskit/kreuzberg
 
 ```yaml
 extractors:
-  exa:
-    type: exa
-    token: ${EXA_API_KEY}
+  kreuzberg:
+    type: kreuzberg
+    url: http://localhost:8000
+```
 
-  tavily:
-    type: tavily
-    token: ${TAVILY_API_KEY}
+
+#### Mistral Extractor
+
+```yaml
+extractors:
+  mistral:
+    type: mistral
+    token: ${MISTRAL_API_KEY}
 ```
 
 
@@ -578,6 +517,16 @@ segmenters:
   jina:
     type: jina
     token: ${JINA_API_KEY}
+```
+
+
+#### Kreuzberg Segmenter
+
+```yaml
+segmenters:
+  kreuzberg:
+    type: kreuzberg
+    url: http://localhost:8000
 ```
 
 

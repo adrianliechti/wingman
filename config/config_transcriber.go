@@ -5,10 +5,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/groq"
 	"github.com/adrianliechti/wingman/pkg/provider/mistral"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
-	"github.com/adrianliechti/wingman/pkg/provider/whisper"
 )
 
 func (cfg *Config) RegisterTranscriber(id string, p provider.Transcriber) {
@@ -37,31 +35,15 @@ func (cfg *Config) Transcriber(id string) (provider.Transcriber, error) {
 
 func createTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
 	switch strings.ToLower(cfg.Type) {
-	case "groq":
-		return groqTranscriber(cfg, model)
-
 	case "mistral":
 		return mistralTranscriber(cfg, model)
 
 	case "openai", "openai-compatible":
 		return openaiTranscriber(cfg, model)
 
-	case "whisper":
-		return whisperTranscriber(cfg, model)
-
 	default:
 		return nil, errors.New("invalid transcriber type: " + cfg.Type)
 	}
-}
-
-func groqTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
-	var options []groq.Option
-
-	if cfg.Token != "" {
-		options = append(options, groq.WithToken(cfg.Token))
-	}
-
-	return groq.NewTranscriber(cfg.URL, model.ID, options...)
 }
 
 func mistralTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
@@ -82,10 +64,4 @@ func openaiTranscriber(cfg providerConfig, model modelContext) (provider.Transcr
 	}
 
 	return openai.NewTranscriber(cfg.URL, model.ID, options...)
-}
-
-func whisperTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
-	var options []whisper.Option
-
-	return whisper.NewTranscriber(cfg.URL, model.ID, options...)
 }

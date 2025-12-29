@@ -6,17 +6,14 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
-	"github.com/adrianliechti/wingman/pkg/provider/azure"
 	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
 	"github.com/adrianliechti/wingman/pkg/provider/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
-	"github.com/adrianliechti/wingman/pkg/provider/groq"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
 	"github.com/adrianliechti/wingman/pkg/provider/mistral"
 	"github.com/adrianliechti/wingman/pkg/provider/ollama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
-	"github.com/adrianliechti/wingman/pkg/provider/xai"
 )
 
 func (cfg *Config) RegisterCompleter(id string, p provider.Completer) {
@@ -54,20 +51,11 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	case "anthropic":
 		return anthropicCompleter(cfg, model)
 
-	case "azure":
-		return azureCompleter(cfg, model)
-
 	case "bedrock":
 		return bedrockCompleter(cfg, model)
 
 	case "gemini", "google":
 		return googleCompleter(cfg, model)
-
-	case "github":
-		return azureCompleter(cfg, model)
-
-	case "groq":
-		return groqCompleter(cfg, model)
 
 	case "huggingface":
 		return huggingfaceCompleter(cfg, model)
@@ -87,9 +75,6 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	case "openai-compatible":
 		return openaiCompleter(cfg, model, true)
 
-	case "xai":
-		return xaiCompleter(cfg, model)
-
 	case "custom":
 		return customCompleter(cfg, model)
 
@@ -108,16 +93,6 @@ func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Comple
 	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
 }
 
-func azureCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []azure.Option
-
-	if cfg.Token != "" {
-		options = append(options, azure.WithToken(cfg.Token))
-	}
-
-	return azure.NewCompleter(cfg.URL, model.ID, options...)
-}
-
 func bedrockCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []bedrock.Option
 
@@ -132,16 +107,6 @@ func googleCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	}
 
 	return google.NewCompleter(model.ID, options...)
-}
-
-func groqCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []groq.Option
-
-	if cfg.Token != "" {
-		options = append(options, groq.WithToken(cfg.Token))
-	}
-
-	return groq.NewCompleter(model.ID, options...)
 }
 
 func huggingfaceCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
@@ -188,16 +153,6 @@ func openaiCompleter(cfg providerConfig, model modelContext, useLegacy bool) (pr
 	}
 
 	return openai.NewResponder(cfg.URL, model.ID, options...)
-}
-
-func xaiCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []xai.Option
-
-	if cfg.Token != "" {
-		options = append(options, xai.WithToken(cfg.Token))
-	}
-
-	return xai.NewCompleter(cfg.URL, model.ID, options...)
 }
 
 func customCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
