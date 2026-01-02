@@ -5,6 +5,7 @@ import (
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/server/api"
+	"github.com/adrianliechti/wingman/server/gemini"
 	"github.com/adrianliechti/wingman/server/mcp"
 	"github.com/adrianliechti/wingman/server/openai"
 
@@ -23,12 +24,15 @@ type Server struct {
 	mcp *mcp.Handler
 
 	openai *openai.Handler
+	gemini *gemini.Handler
 }
 
 func New(cfg *config.Config) (*Server, error) {
 	api := api.New(cfg)
 	mcp := mcp.New(cfg)
+
 	openai := openai.New(cfg)
+	gemini := gemini.New(cfg)
 
 	mux := chi.NewMux()
 
@@ -40,6 +44,7 @@ func New(cfg *config.Config) (*Server, error) {
 		mcp: mcp,
 
 		openai: openai,
+		gemini: gemini,
 	}
 
 	mux.Use(middleware.Logger)
@@ -72,6 +77,10 @@ func New(cfg *config.Config) (*Server, error) {
 		s.api.Attach(r)
 		s.mcp.Attach(r)
 		s.openai.Attach(r)
+	})
+
+	mux.Route("/v1beta", func(r chi.Router) {
+		s.gemini.Attach(r)
 	})
 
 	return s, nil

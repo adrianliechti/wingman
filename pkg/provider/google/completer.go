@@ -313,16 +313,14 @@ func formatToolID(id, name string, signature []byte) string {
 func parseToolID(s string) (id, name string, signature []byte) {
 	parts := strings.Split(s, "::")
 
-	if len(parts) > 0 {
+	if len(parts) >= 3 {
+		// Format: id::name::signature
 		id = parts[0]
-	}
-
-	if len(parts) > 1 {
 		name = parts[1]
-	}
-
-	if len(parts) > 2 {
 		signature, _ = base64.StdEncoding.DecodeString(parts[2])
+	} else {
+		// Fallback: treat the whole string as the name
+		name = s
 	}
 
 	return
