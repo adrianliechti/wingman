@@ -43,10 +43,10 @@ services:
 
 models:
   llm:
-    model: adrianliechti/qwen3
+    model: ai/qwen3
   
   embedding:
-    model: adrianliechti/qwen3-embedding
+    model: ai/qwen3-embedding
 
 configs:
   caddyfile:
