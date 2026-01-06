@@ -8,7 +8,12 @@ type Route struct {
 	Name        string
 	Description string
 
-	Completer          provider.Completer
-	CompleterEffort    provider.Effort
-	CompleterVerbosity provider.Verbosity
+	Completer provider.Completer
+
+	Options *RouteOptions
+}
+
+type RouteOptions struct {
+	Effort    provider.Effort
+	Verbosity provider.Verbosity
 }

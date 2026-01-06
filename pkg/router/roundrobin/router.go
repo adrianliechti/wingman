@@ -6,15 +6,26 @@ import (
 	"math/rand"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/router"
 )
 
 type Completer struct {
 	completers []provider.Completer
 }
 
-func NewCompleter(completer ...provider.Completer) (provider.Completer, error) {
+func NewCompleter(routes ...router.Route) (provider.Completer, error) {
+	completers := []provider.Completer{}
+
+	for _, r := range routes {
+		if r.Completer == nil {
+			continue
+		}
+
+		completers = append(completers, r.Completer)
+	}
+
 	c := &Completer{
-		completers: completer,
+		completers: completers,
 	}
 
 	return c, nil

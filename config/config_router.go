@@ -6,17 +6,45 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/router"
+	"github.com/adrianliechti/wingman/pkg/router/auto"
 	"github.com/adrianliechti/wingman/pkg/router/roundrobin"
 )
 
 type routerConfig struct {
 	Type string `yaml:"type"`
 
-	Models []string `yaml:"models"`
+	Model string `yaml:"model"`
+
+	Effort    string `yaml:"effort"`
+	Verbosity string `yaml:"verbosity"`
+
+	Routes []routeConfig `yaml:"routes"`
+}
+
+type routeConfig struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+
+	Model string `yaml:"model"`
+
+	Options *routeOptions `yaml:"options"`
+}
+
+type routeOptions struct {
+	Effort    string `yaml:"effort"`
+	Verbosity string `yaml:"verbosity"`
+
+	Temperature *float32 `yaml:"temperature"`
 }
 
 type routerContext struct {
-	Completers []provider.Completer
+	Routes []router.Route
+
+	Completer provider.Completer
+
+	Effort    string `yaml:"effort"`
+	Verbosity string `yaml:"verbosity"`
 }
 
 func (cfg *Config) registerRouters(f *configFile) error {
@@ -35,16 +63,45 @@ func (cfg *Config) registerRouters(f *configFile) error {
 			continue
 		}
 
-		context := routerContext{}
+		context := routerContext{
+			Routes: []router.Route{},
 
-		for _, m := range config.Models {
-			completer, err := cfg.Completer(m)
+			Effort:    config.Effort,
+			Verbosity: config.Verbosity,
+		}
+
+		if config.Model != "" {
+			completer, err := cfg.Completer(config.Model)
 
 			if err != nil {
 				return err
 			}
 
-			context.Completers = append(context.Completers, completer)
+			context.Completer = completer
+		}
+
+		for _, r := range config.Routes {
+			completer, err := cfg.Completer(r.Model)
+
+			if err != nil {
+				return err
+			}
+
+			route := router.Route{
+				Name:        r.Name,
+				Description: r.Description,
+
+				Completer: completer,
+			}
+
+			if r.Options != nil {
+				route.Options = &router.RouteOptions{
+					Effort:    provider.Effort(r.Options.Effort),
+					Verbosity: provider.Verbosity(r.Options.Verbosity),
+				}
+			}
+
+			context.Routes = append(context.Routes, route)
 		}
 
 		router, err := createRouter(config, context)
@@ -67,6 +124,9 @@ func (cfg *Config) registerRouters(f *configFile) error {
 
 func createRouter(cfg routerConfig, context routerContext) (any, error) {
 	switch strings.ToLower(cfg.Type) {
+	case "auto":
+		return autoRouter(cfg, context)
+
 	case "roundrobin":
 		return roundrobinRouter(cfg, context)
 
@@ -75,6 +135,10 @@ func createRouter(cfg routerConfig, context routerContext) (any, error) {
 	}
 }
 
+func autoRouter(cfg routerConfig, context routerContext) (any, error) {
+	return auto.NewCompleter(context.Completer, context.Routes...)
+}
+
 func roundrobinRouter(cfg routerConfig, context routerContext) (any, error) {
-	return roundrobin.NewCompleter(context.Completers...)
+	return roundrobin.NewCompleter(context.Routes...)
 }
