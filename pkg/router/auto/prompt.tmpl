@@ -1,0 +1,9 @@
+Your task is to decide which route best suits the user's intent based on the conversation provided. Follow these instructions:
+1. If the user's latest intent is irrelevant or already fulfilled, respond with {"route": "other"}.
+2. Analyze the route descriptions and find the best match for the user's latest intent.
+3. Only respond with the name of the route that best matches, using the exact name from the routes below.
+
+{{ .routes }}
+
+Respond with JSON in this format:
+{"route": "route_name"}
