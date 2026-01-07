@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"net/http"
 	"reflect"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -29,14 +30,21 @@ type Completer struct {
 
 func NewCompleter(model string, options ...Option) (*Completer, error) {
 	cfg := &Config{
-		model: model,
+		model:  model,
+		client: http.DefaultClient,
 	}
 
 	for _, option := range options {
 		option(cfg)
 	}
 
-	config, err := config.LoadDefaultConfig(context.Background())
+	var configOptions []func(*config.LoadOptions) error
+
+	if cfg.client != nil {
+		configOptions = append(configOptions, config.WithHTTPClient(cfg.client))
+	}
+
+	config, err := config.LoadDefaultConfig(context.Background(), configOptions...)
 
 	if err != nil {
 		return nil, err
