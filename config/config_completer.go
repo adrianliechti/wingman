@@ -96,6 +96,10 @@ func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Comple
 func bedrockCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []bedrock.Option
 
+	if cfg.Token != "" {
+		options = append(options, bedrock.WithToken(cfg.Token))
+	}
+
 	return bedrock.NewCompleter(model.ID, options...)
 }
 
