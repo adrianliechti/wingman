@@ -14,7 +14,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
@@ -37,15 +36,7 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 		option(cfg)
 	}
 
-	var configOptions []func(*config.LoadOptions) error
-
-	if cfg.token != "" {
-		configOptions = append(configOptions, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(cfg.token, "", ""),
-		))
-	}
-
-	config, err := config.LoadDefaultConfig(context.Background(), configOptions...)
+	config, err := config.LoadDefaultConfig(context.Background())
 
 	if err != nil {
 		return nil, err
