@@ -6,7 +6,6 @@ import (
 	"errors"
 	"iter"
 	"net/http"
-	"reflect"
 	"strings"
 	"time"
 
@@ -351,103 +350,126 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 func convertMessages(messages []provider.Message) ([]types.Message, error) {
 	var result []types.Message
 
+	// Pre-process: merge consecutive messages with the same role (required by Bedrock API)
+	var merged []provider.Message
 	for _, m := range messages {
-		switch m.Role {
+		if len(merged) > 0 && merged[len(merged)-1].Role == m.Role {
+			last := &merged[len(merged)-1]
+			last.Content = append(last.Content, m.Content...)
+		} else {
+			merged = append(merged, m)
+		}
+	}
 
-		case provider.MessageRoleSystem:
+	for _, m := range merged {
+		if m.Role == provider.MessageRoleSystem {
 			continue
+		}
 
+		var err error
+
+		var role types.ConversationRole
+		var content []types.ContentBlock
+
+		switch m.Role {
 		case provider.MessageRoleUser:
-			message := types.Message{
-				Role: types.ConversationRoleUser,
-			}
-
-			for _, c := range m.Content {
-				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
-					block := &types.ContentBlockMemberText{
-						Value: text,
-					}
-
-					message.Content = append(message.Content, block)
-				}
-
-				if c.File != nil {
-					block, err := convertFile(c.File)
-
-					if err != nil {
-						return nil, err
-					}
-
-					message.Content = append(message.Content, block)
-				}
-
-				if c.ToolResult != nil {
-					var data any
-					json.Unmarshal([]byte(c.ToolResult.Data), &data)
-
-					if reflect.TypeOf(data).Kind() != reflect.Map {
-						data = map[string]any{
-							"result": data,
-						}
-					}
-
-					block := &types.ContentBlockMemberToolResult{
-						Value: types.ToolResultBlock{
-							ToolUseId: aws.String(c.ToolResult.ID),
-
-							Content: []types.ToolResultContentBlock{
-								&types.ToolResultContentBlockMemberJson{
-									Value: document.NewLazyDocument(data),
-								},
-							},
-						},
-					}
-
-					message.Content = append(message.Content, block)
-				}
-			}
-
-			result = append(result, message)
+			role = types.ConversationRoleUser
+			content, err = convertUserContent(m)
 
 		case provider.MessageRoleAssistant:
-			message := types.Message{
-				Role: types.ConversationRoleAssistant,
-			}
-
-			for _, c := range m.Content {
-				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
-					content := &types.ContentBlockMemberText{
-						Value: text,
-					}
-
-					message.Content = append(message.Content, content)
-				}
-
-				if c.ToolCall != nil {
-					var data any
-					json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
-
-					content := &types.ContentBlockMemberToolUse{
-						Value: types.ToolUseBlock{
-							ToolUseId: aws.String(c.ToolCall.ID),
-							Name:      aws.String(c.ToolCall.Name),
-
-							Input: document.NewLazyDocument(data),
-						},
-					}
-
-					message.Content = append(message.Content, content)
-				}
-			}
-
-			result = append(result, message)
+			role = types.ConversationRoleAssistant
+			content, err = convertAssistantContent(m)
 
 		default:
 			return nil, errors.New("unsupported message role")
 		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if len(content) == 0 {
+			continue
+		}
+
+		result = append(result, types.Message{
+			Role:    role,
+			Content: content,
+		})
 	}
 
 	return result, nil
+}
+
+func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
+	var content []types.ContentBlock
+
+	for _, c := range m.Content {
+		if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+			content = append(content, &types.ContentBlockMemberText{Value: text})
+		}
+
+		if c.File != nil {
+			block, err := convertFile(c.File)
+
+			if err != nil {
+				return nil, err
+			}
+
+			content = append(content, block)
+		}
+
+		if c.ToolResult != nil {
+			data := c.ToolResult.Data
+
+			if data == "" {
+				data = "OK"
+			}
+
+			content = append(content, &types.ContentBlockMemberToolResult{
+				Value: types.ToolResultBlock{
+					Status: types.ToolResultStatusSuccess,
+
+					ToolUseId: aws.String(c.ToolResult.ID),
+
+					Content: []types.ToolResultContentBlock{
+						&types.ToolResultContentBlockMemberText{Value: data},
+					},
+				},
+			})
+		}
+	}
+
+	return content, nil
+}
+
+func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
+	var content []types.ContentBlock
+
+	for _, c := range m.Content {
+		if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+			content = append(content, &types.ContentBlockMemberText{Value: text})
+		}
+
+		if c.ToolCall != nil {
+			var data any
+
+			if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil {
+				data = map[string]any{}
+			}
+
+			content = append(content, &types.ContentBlockMemberToolUse{
+				Value: types.ToolUseBlock{
+					ToolUseId: aws.String(c.ToolCall.ID),
+
+					Name:  aws.String(c.ToolCall.Name),
+					Input: document.NewLazyDocument(data),
+				},
+			})
+		}
+	}
+
+	return content, nil
 }
 
 func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
@@ -479,15 +501,12 @@ func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
 }
 
 func convertFile(val *provider.File) (types.ContentBlock, error) {
-	if val == nil {
-		return nil, nil
-	}
-
 	if format, ok := convertDocumentFormat(val.ContentType); ok {
 		return &types.ContentBlockMemberDocument{
 			Value: types.DocumentBlock{
 				Name:   aws.String(uuid.NewString()),
 				Format: format,
+
 				Source: &types.DocumentSourceMemberBytes{
 					Value: val.Content,
 				},
@@ -499,6 +518,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		return &types.ContentBlockMemberImage{
 			Value: types.ImageBlock{
 				Format: format,
+
 				Source: &types.ImageSourceMemberBytes{
 					Value: val.Content,
 				},
@@ -510,6 +530,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		return &types.ContentBlockMemberVideo{
 			Value: types.VideoBlock{
 				Format: format,
+
 				Source: &types.VideoSourceMemberBytes{
 					Value: val.Content,
 				},
@@ -520,64 +541,42 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 	return nil, errors.New("unsupported file format")
 }
 
+var documentFormats = map[string]types.DocumentFormat{
+	"application/pdf": types.DocumentFormatPdf,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": types.DocumentFormatDocx,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":       types.DocumentFormatXlsx,
+	"text/plain":    types.DocumentFormatTxt,
+	"text/csv":      types.DocumentFormatCsv,
+	"text/markdown": types.DocumentFormatMd,
+}
+
+var imageFormats = map[string]types.ImageFormat{
+	"image/png":  types.ImageFormatPng,
+	"image/jpeg": types.ImageFormatJpeg,
+	"image/gif":  types.ImageFormatGif,
+	"image/webp": types.ImageFormatWebp,
+}
+
+var videoFormats = map[string]types.VideoFormat{
+	"video/matroska":  types.VideoFormatMkv,
+	"video/quicktime": types.VideoFormatMov,
+	"video/mp4":       types.VideoFormatMp4,
+	"video/webm":      types.VideoFormatWebm,
+}
+
 func convertDocumentFormat(mime string) (types.DocumentFormat, bool) {
-	switch mime {
-	case "application/pdf":
-		return types.DocumentFormatPdf, true
-
-	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-		return types.DocumentFormatDocx, true
-
-	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-		return types.DocumentFormatXlsx, true
-
-	case "text/plain":
-		return types.DocumentFormatTxt, true
-
-	case "text/csv":
-		return types.DocumentFormatCsv, true
-
-	case "text/markdown":
-		return types.DocumentFormatMd, true
-	}
-
-	return "", false
+	format, ok := documentFormats[mime]
+	return format, ok
 }
 
 func convertImageFormat(mime string) (types.ImageFormat, bool) {
-	switch mime {
-	case "image/png":
-		return types.ImageFormatPng, true
-
-	case "image/jpeg":
-		return types.ImageFormatJpeg, true
-
-	case "image/gif":
-		return types.ImageFormatGif, true
-
-	case "image/webp":
-		return types.ImageFormatWebp, true
-	}
-
-	return "", false
+	format, ok := imageFormats[mime]
+	return format, ok
 }
 
 func convertVideoFormat(mime string) (types.VideoFormat, bool) {
-	switch mime {
-	case "video/matroska":
-		return types.VideoFormatMkv, true
-
-	case "video/quicktime":
-		return types.VideoFormatMov, true
-
-	case "video/mp4":
-		return types.VideoFormatMp4, true
-
-	case "video/webm":
-		return types.VideoFormatWebm, true
-	}
-
-	return "", false
+	format, ok := videoFormats[mime]
+	return format, ok
 }
 
 func toUsage(val *types.TokenUsage) *provider.Usage {
