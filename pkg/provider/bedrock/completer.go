@@ -7,6 +7,7 @@ import (
 	"iter"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -362,9 +363,9 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 			}
 
 			for _, c := range m.Content {
-				if c.Text != "" {
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 					block := &types.ContentBlockMemberText{
-						Value: c.Text,
+						Value: text,
 					}
 
 					message.Content = append(message.Content, block)
@@ -414,9 +415,9 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 			}
 
 			for _, c := range m.Content {
-				if c.Text != "" {
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 					content := &types.ContentBlockMemberText{
-						Value: c.Text,
+						Value: text,
 					}
 
 					message.Content = append(message.Content, content)

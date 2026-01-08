@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"iter"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -289,8 +290,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
-				if c.Text != "" {
-					blocks = append(blocks, anthropic.NewBetaTextBlock(c.Text))
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
 				}
 
 				if c.File != nil {
@@ -338,8 +339,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
-				if c.Text != "" {
-					blocks = append(blocks, anthropic.NewBetaTextBlock(c.Text))
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
 				}
 
 				if c.ToolCall != nil {
