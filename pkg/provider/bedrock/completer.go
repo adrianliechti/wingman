@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"iter"
 	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
@@ -44,6 +45,14 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 		configOptions = append(configOptions, config.WithHTTPClient(cfg.client))
 	}
 
+	// Configure retry with exponential backoff for throttling errors
+	configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
+		return retry.NewStandard(func(o *retry.StandardOptions) {
+			o.MaxAttempts = 10
+			o.MaxBackoff = 60 * time.Second
+		})
+	}))
+
 	config, err := config.LoadDefaultConfig(context.Background(), configOptions...)
 
 	if err != nil {
@@ -72,6 +81,20 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 
+		config := &types.InferenceConfiguration{}
+
+		if options.MaxTokens != nil {
+			config.MaxTokens = aws.Int32(int32(*options.MaxTokens))
+		}
+
+		if options.Temperature != nil {
+			config.Temperature = options.Temperature
+		}
+
+		if len(options.Stop) > 0 {
+			config.StopSequences = options.Stop
+		}
+
 		params := &bedrockruntime.ConverseStreamInput{
 			ModelId: req.ModelId,
 
@@ -80,9 +103,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			System:     req.System,
 			ToolConfig: req.ToolConfig,
 
-			InferenceConfig: &types.InferenceConfiguration{
-				MaxTokens: aws.Int32(16384),
-			},
+			InferenceConfig: config,
 		}
 
 		resp, err := c.client.ConverseStream(ctx, params)
@@ -129,12 +150,19 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						},
 					}
 
+					// Schema mode: convert tool call to text content
+					if options.Schema != nil {
+						delta.Message.Content = []provider.Content{
+							provider.TextContent(""),
+						}
+					}
+
 					if !yield(delta, nil) {
 						return
 					}
 
 				default:
-					fmt.Printf("unknown block type, %T\n", b)
+					// Unknown block type, skip silently
 				}
 
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
@@ -173,12 +201,19 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						},
 					}
 
+					// Schema mode: convert tool arguments to text content
+					if options.Schema != nil {
+						delta.Message.Content = []provider.Content{
+							provider.TextContent(*b.Value.Input),
+						}
+					}
+
 					if !yield(delta, nil) {
 						return
 					}
 
 				default:
-					fmt.Printf("unknown block type, %T\n", b)
+					// Unknown delta type, skip silently
 				}
 
 			case *types.ConverseStreamOutputMemberContentBlockStop:
@@ -222,11 +257,17 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case *types.UnknownUnionMember:
-				fmt.Println("unknown tag", v.Tag)
+				// Unknown union member, skip silently
 
 			default:
-				fmt.Printf("unknown event type, %T\n", v)
+				// Unknown event type, skip silently
 			}
+		}
+
+		// Check for stream errors
+		if err := resp.GetStream().Err(); err != nil {
+			yield(nil, err)
+			return
 		}
 	}
 }
@@ -238,13 +279,43 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		return nil, err
 	}
 
+	toolConfig := convertToolConfig(options.Tools)
+
+	// Schema mode: create a tool with the schema and force ToolChoice
+	if options.Schema != nil {
+		if toolConfig == nil {
+			toolConfig = &types.ToolConfiguration{}
+		}
+
+		tool := types.ToolSpecification{
+			Name: aws.String(options.Schema.Name),
+		}
+
+		if options.Schema.Description != "" {
+			tool.Description = aws.String(options.Schema.Description)
+		}
+
+		if options.Schema.Schema != nil {
+			tool.InputSchema = &types.ToolInputSchemaMemberJson{
+				Value: document.NewLazyDocument(options.Schema.Schema),
+			}
+		}
+
+		toolConfig.Tools = append(toolConfig.Tools, &types.ToolMemberToolSpec{Value: tool})
+		toolConfig.ToolChoice = &types.ToolChoiceMemberTool{
+			Value: types.SpecificToolChoice{
+				Name: aws.String(options.Schema.Name),
+			},
+		}
+	}
+
 	return &bedrockruntime.ConverseInput{
 		ModelId: aws.String(c.model),
 
 		Messages: messages,
 
 		System:     convertSystem(input),
-		ToolConfig: convertToolConfig(options.Tools),
+		ToolConfig: toolConfig,
 	}, nil
 }
 
