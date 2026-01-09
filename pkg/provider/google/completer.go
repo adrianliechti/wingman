@@ -150,8 +150,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "user"
 
 		for _, c := range message.Content {
-			if c.Text != "" {
-				part := genai.NewPartFromText(c.Text)
+			if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+				part := genai.NewPartFromText(text)
 				content.Parts = append(content.Parts, part)
 			}
 
@@ -194,8 +194,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "model"
 
 		for _, c := range message.Content {
-			if c.Text != "" {
-				part := genai.NewPartFromText(c.Text)
+			if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+				part := genai.NewPartFromText(text)
 				content.Parts = append(content.Parts, part)
 			}
 
