@@ -343,10 +343,10 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 
 				if c.ToolCall != nil {
-					var input any
+					var input map[string]any
 
-					if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &input); err != nil {
-						input = c.ToolCall.Arguments
+					if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &input); err != nil || input == nil {
+						input = map[string]any{}
 					}
 
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{

@@ -201,7 +201,9 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 
 			if c.ToolCall != nil {
 				var data map[string]any
-				json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
+				if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil || data == nil {
+					data = map[string]any{}
+				}
 
 				id, name, signature := parseToolID(c.ToolCall.ID)
 

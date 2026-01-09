@@ -423,8 +423,10 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 				}
 
 				if c.ToolCall != nil {
-					var data any
-					json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
+					var data map[string]any
+					if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil || data == nil {
+						data = map[string]any{}
+					}
 
 					content := &types.ContentBlockMemberToolUse{
 						Value: types.ToolUseBlock{
