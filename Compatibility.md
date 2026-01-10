@@ -1,0 +1,35 @@
+
+## Claude Code
+
+```
+export ANTHROPIC_BASE_URL=http://localhost:8080
+export ANTHROPIC_API_KEY=""
+export ANTHROPIC_AUTH_TOKEN="-"
+
+export ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-5
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-4-5
+export ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-4-5
+
+export USE_BUILTIN_RIPGREP=1
+
+export DISABLE_TELEMETRY=1
+export DISABLE_AUTOUPDATER=1
+export DISABLE_BUG_COMMAND=1
+export DISABLE_PROMPT_CACHING=1
+export DISABLE_ERROR_REPORTING=1
+
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+claude
+```
+
+## Gemini CLI
+
+```
+export GOOGLE_GEMINI_BASE_URL=http://localhost:8080
+export GEMINI_API_KEY="-"
+export GEMINI_MODEL=gemini-3-pro-preview
+export GEMINI_TELEMETRY_ENABLED=false
+
+gemini
+```
