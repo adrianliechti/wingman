@@ -137,8 +137,13 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 		return nil, nil, nil, err
 	}
 
+	// Check if VALIDATED mode is requested (equivalent to OpenAI's strict mode)
+	strict := req.ToolConfig != nil &&
+		req.ToolConfig.FunctionCallingConfig != nil &&
+		req.ToolConfig.FunctionCallingConfig.Mode == "VALIDATED"
+
 	options := &provider.CompleteOptions{
-		Tools: toTools(req.Tools),
+		Tools: toTools(req.Tools, strict),
 	}
 
 	if req.GenerationConfig != nil {

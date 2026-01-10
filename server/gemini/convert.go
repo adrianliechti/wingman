@@ -131,24 +131,37 @@ func toJSONString(v any) (string, error) {
 	return string(data), nil
 }
 
-func toTools(tools []*Tool) []provider.Tool {
+func toTools(tools []*Tool, strict bool) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
 		for _, fd := range t.FunctionDeclarations {
-			// Handle parameters - could be a map or nil
+			// Handle parameters - could be from Parameters or ParametersJsonSchema (CLI format)
 			var params map[string]any
-			if fd.Parameters != nil {
-				if p, ok := fd.Parameters.(map[string]any); ok {
+
+			// Try Parameters first, then fall back to ParametersJsonSchema (Gemini CLI uses this)
+			paramSource := fd.Parameters
+			if paramSource == nil {
+				paramSource = fd.ParametersJsonSchema
+			}
+
+			if paramSource != nil {
+				if p, ok := paramSource.(map[string]any); ok {
 					params = p
 				}
 			}
 
-			result = append(result, provider.Tool{
+			tool := provider.Tool{
 				Name:        fd.Name,
 				Description: fd.Description,
 				Parameters:  tool.NormalizeSchema(params),
-			})
+			}
+
+			if strict {
+				tool.Strict = &strict
+			}
+
+			result = append(result, tool)
 		}
 	}
 

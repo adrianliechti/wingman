@@ -72,9 +72,10 @@ type Tool struct {
 
 // FunctionDeclaration describes a function
 type FunctionDeclaration struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Parameters  any    `json:"parameters,omitempty"` // JSON Schema
+	Name                 string `json:"name,omitempty"`
+	Description          string `json:"description,omitempty"`
+	Parameters           any    `json:"parameters,omitempty"`           // JSON Schema (standard Gemini API)
+	ParametersJsonSchema any    `json:"parametersJsonSchema,omitempty"` // JSON Schema (Gemini CLI format)
 }
 
 // ToolConfig configures tool behavior
