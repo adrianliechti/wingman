@@ -93,6 +93,61 @@ List available models.
 
 ---
 
+# Anthropic Compatible API
+
+Anthropic-compatible endpoints. See [Anthropic API Reference](https://docs.anthropic.com/en/api/messages) for full documentation.
+
+## Messages
+
+**Endpoint:** `POST /v1/messages`
+
+| Parameter        | Type         | Description                                    |
+|------------------|--------------|------------------------------------------------|
+| `model`          | String       | Model ID                                       |
+| `messages`       | Array        | Conversation messages                          |
+| `system`         | String/Array | System prompt                                  |
+| `max_tokens`     | Integer      | Maximum tokens to generate                     |
+| `stream`         | Boolean      | Enable streaming                               |
+| `temperature`    | Float        | Sampling temperature                           |
+| `stop_sequences` | Array        | Stop sequences                                 |
+| `tools`          | Array        | Available tools/functions                      |
+| `output_format`  | Object       | Structured output with JSON schema             |
+
+---
+
+# Gemini Compatible API
+
+Gemini-compatible endpoints. See [Gemini API Reference](https://ai.google.dev/api/generate-content) for full documentation.
+
+## Generate Content
+
+**Endpoint:** `POST /v1beta/models/{model}:generateContent`
+
+| Parameter            | Type   | Description                                  |
+|----------------------|--------|----------------------------------------------|
+| `contents`           | Array  | Conversation contents with parts             |
+| `systemInstruction`  | Object | System instruction content                   |
+| `tools`              | Array  | Available tools/functions                    |
+| `toolConfig`         | Object | Tool configuration (mode: AUTO, ANY, NONE)   |
+| `generationConfig`   | Object | Generation parameters                        |
+
+**Generation Config:**
+
+| Parameter            | Type    | Description                                 |
+|----------------------|---------|---------------------------------------------|
+| `stopSequences`      | Array   | Stop sequences                              |
+| `temperature`        | Float   | Sampling temperature                        |
+| `maxOutputTokens`    | Integer | Maximum tokens to generate                  |
+| `responseSchema`     | Object  | JSON schema for structured output           |
+
+## Stream Generate Content
+
+**Endpoint:** `POST /v1beta/models/{model}:streamGenerateContent`
+
+Same parameters as Generate Content. Returns Server-Sent Events when `?alt=sse` query parameter is provided, otherwise returns a JSON array.
+
+---
+
 # Utility APIs
 
 ## Extract

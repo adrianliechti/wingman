@@ -2,6 +2,7 @@ package google
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -117,6 +118,18 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 
 	if len(options.Tools) > 0 {
 		config.Tools = convertTools(options.Tools)
+
+		// Check if any tool has Strict=true, if so use VALIDATED mode
+		for _, t := range options.Tools {
+			if t.Strict != nil && *t.Strict {
+				config.ToolConfig = &genai.ToolConfig{
+					FunctionCallingConfig: &genai.FunctionCallingConfig{
+						Mode: genai.FunctionCallingConfigModeValidated,
+					},
+				}
+				break
+			}
+		}
 	}
 
 	if len(options.Stop) > 0 {
@@ -310,7 +323,17 @@ func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *pr
 }
 
 func formatToolID(id, name string, signature []byte) string {
+	// Generate a unique ID if upstream didn't provide one
+	if id == "" {
+		id = generateCallID()
+	}
 	return strings.Join([]string{id, name, base64.StdEncoding.EncodeToString(signature)}, "::")
+}
+
+func generateCallID() string {
+	b := make([]byte, 12)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func parseToolID(s string) (id, name string, signature []byte) {
