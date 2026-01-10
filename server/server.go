@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/server/anthropic"
 	"github.com/adrianliechti/wingman/server/api"
 	"github.com/adrianliechti/wingman/server/mcp"
 	"github.com/adrianliechti/wingman/server/openai"
@@ -22,13 +23,15 @@ type Server struct {
 	api *api.Handler
 	mcp *mcp.Handler
 
-	openai *openai.Handler
+	openai    *openai.Handler
+	anthropic *anthropic.Handler
 }
 
 func New(cfg *config.Config) (*Server, error) {
 	api := api.New(cfg)
 	mcp := mcp.New(cfg)
 	openai := openai.New(cfg)
+	anthropic := anthropic.New(cfg)
 
 	mux := chi.NewMux()
 
@@ -39,7 +42,8 @@ func New(cfg *config.Config) (*Server, error) {
 		api: api,
 		mcp: mcp,
 
-		openai: openai,
+		openai:    openai,
+		anthropic: anthropic,
 	}
 
 	mux.Use(middleware.Logger)
@@ -72,6 +76,7 @@ func New(cfg *config.Config) (*Server, error) {
 		s.api.Attach(r)
 		s.mcp.Attach(r)
 		s.openai.Attach(r)
+		s.anthropic.Attach(r)
 	})
 
 	return s, nil

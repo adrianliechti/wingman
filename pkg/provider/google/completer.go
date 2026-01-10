@@ -131,12 +131,9 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 		config.Temperature = options.Temperature
 	}
 
-	if options.Format == provider.CompletionFormatJSON || options.Schema != nil {
+	if options.Schema != nil {
 		config.ResponseMIMEType = "application/json"
-
-		if options.Schema != nil {
-			config.ResponseJsonSchema = options.Schema.Schema
-		}
+		config.ResponseJsonSchema = options.Schema.Schema
 	}
 
 	return config
@@ -168,16 +165,20 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 
 			if c.ToolResult != nil {
 				var data any
-				json.Unmarshal([]byte(c.ToolResult.Data), &data)
-
 				var parameters map[string]any
 
-				if val, ok := data.(map[string]any); ok {
-					parameters = val
+				if err := json.Unmarshal([]byte(c.ToolResult.Data), &data); err == nil {
+					if val, ok := data.(map[string]any); ok {
+						parameters = val
+					}
+
+					if val, ok := data.([]any); ok {
+						parameters = map[string]any{"data": val}
+					}
 				}
 
-				if val, ok := data.([]any); ok {
-					parameters = map[string]any{"data": val}
+				if parameters == nil {
+					parameters = map[string]any{"output": c.ToolResult.Data}
 				}
 
 				id, name, signature := parseToolID(c.ToolResult.ID)

@@ -235,6 +235,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		Betas: []anthropic.AnthropicBeta{
 			anthropic.AnthropicBetaContext1m2025_08_07,
 			anthropic.AnthropicBetaContextManagement2025_06_27,
+			"structured-outputs-2025-11-13",
 		},
 
 		ContextManagement: anthropic.BetaContextManagementConfigParam{
@@ -396,31 +397,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.Schema != nil {
-		var schema anthropic.BetaToolInputSchemaParam
-
-		schemaData, _ := json.Marshal(options.Schema.Schema)
-
-		if err := json.Unmarshal(schemaData, &schema); err != nil {
-			return nil, errors.New("invalid tool parameters schema")
-		}
-
-		tool := anthropic.BetaToolParam{
-			Name: options.Schema.Name,
-
-			InputSchema: schema,
-		}
-
-		if options.Schema.Description != "" {
-			tool.Description = anthropic.String(options.Schema.Description)
-		}
-
-		req.ToolChoice = anthropic.BetaToolChoiceUnionParam{
-			OfTool: &anthropic.BetaToolChoiceToolParam{
-				Name: options.Schema.Name,
-			},
-		}
-
-		tools = append(tools, anthropic.BetaToolUnionParam{OfTool: &tool})
+		req.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(options.Schema.Schema)
 	}
 
 	if len(system) > 0 {
