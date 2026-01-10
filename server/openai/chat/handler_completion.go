@@ -2,7 +2,6 @@ package chat
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -184,8 +183,13 @@ func (h *Handler) handleChatCompletionStream(w http.ResponseWriter, r *http.Requ
 			return writeEvent(w, event.Chunk)
 
 		case StreamEventDone:
-			_, err := fmt.Fprintf(w, "data: [DONE]\n\n")
-			return err
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+
+			if rc := http.NewResponseController(w); rc != nil {
+				rc.Flush()
+			}
+
+			return nil
 
 		case StreamEventError:
 			return writeErrorEvent(w, event.Error)

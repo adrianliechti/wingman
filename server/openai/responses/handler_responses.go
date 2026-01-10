@@ -389,6 +389,13 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		accumulator.Error(err)
 		return
 	}
+
+	// Send done marker to signal end of stream
+	_, _ = w.Write([]byte("data: [DONE]\n\n"))
+
+	if rc := http.NewResponseController(w); rc != nil {
+		rc.Flush()
+	}
 }
 
 func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
