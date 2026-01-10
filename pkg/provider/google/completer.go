@@ -2,6 +2,7 @@ package google
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -322,7 +323,17 @@ func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *pr
 }
 
 func formatToolID(id, name string, signature []byte) string {
+	// Generate a unique ID if upstream didn't provide one
+	if id == "" {
+		id = generateCallID()
+	}
 	return strings.Join([]string{id, name, base64.StdEncoding.EncodeToString(signature)}, "::")
+}
+
+func generateCallID() string {
+	b := make([]byte, 12)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func parseToolID(s string) (id, name string, signature []byte) {

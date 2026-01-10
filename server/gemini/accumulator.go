@@ -46,14 +46,23 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	}
 
 	// Convert content to Gemini format
+	// Skip function calls during streaming - they will be sent in Complete()
 	if c.Message != nil && len(c.Message.Content) > 0 {
-		content := toContent(c.Message.Content)
-		if content != nil {
-			response.Candidates = []*Candidate{
-				{
-					Content: content,
-					Index:   0,
-				},
+		var textContent []provider.Content
+		for _, content := range c.Message.Content {
+			if content.Text != "" {
+				textContent = append(textContent, content)
+			}
+		}
+		if len(textContent) > 0 {
+			content := toContent(textContent)
+			if content != nil {
+				response.Candidates = []*Candidate{
+					{
+						Content: content,
+						Index:   0,
+					},
+				}
 			}
 		}
 	}

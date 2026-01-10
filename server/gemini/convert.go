@@ -193,11 +193,15 @@ func toContent(content []provider.Content) *Content {
 				args = map[string]any{}
 			}
 
-			// The ID from upstream may already be formatted with ::name
-			// Use the ID as-is since the upstream provider formats it
+			// Use upstream ID for correlation, but ensure it exists
+			id := c.ToolCall.ID
+			if id == "" {
+				id = generateFunctionCallID()
+			}
+
 			parts = append(parts, &Part{
 				FunctionCall: &FunctionCall{
-					ID:   c.ToolCall.ID,
+					ID:   id,
 					Name: c.ToolCall.Name,
 					Args: args,
 				},
