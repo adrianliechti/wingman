@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -407,6 +408,140 @@ func TestChatCompletionStreamOptions(t *testing.T) {
 				require.NoError(t, stream.Err())
 				require.Greater(t, acc.Usage.TotalTokens, int64(0))
 			})
+		})
+	}
+}
+
+// BookRecommendation represents a structured book recommendation response
+type BookRecommendation struct {
+	Title  string   `json:"title"`
+	Author string   `json:"author"`
+	Year   int      `json:"year"`
+	Genres []string `json:"genres"`
+	Rating struct {
+		Score  float64 `json:"score"`
+		Review string  `json:"review"`
+	} `json:"rating"`
+}
+
+// BookRecommendationSchema is the JSON schema for book recommendations
+var BookRecommendationSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"title":  map[string]any{"type": "string"},
+		"author": map[string]any{"type": "string"},
+		"year":   map[string]any{"type": "integer"},
+		"genres": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string"},
+		},
+		"rating": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"score":  map[string]any{"type": "number"},
+				"review": map[string]any{"type": "string"},
+			},
+			"required":             []string{"score", "review"},
+			"additionalProperties": false,
+		},
+	},
+	"required":             []string{"title", "author", "year", "genres", "rating"},
+	"additionalProperties": false,
+}
+
+func TestChatCompletionStructuredOutput(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			tests := []struct {
+				name   string
+				strict bool
+			}{
+				{"strict mode", true},
+				{"non-strict mode", false},
+			}
+
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					t.Run("non-streaming", func(t *testing.T) {
+						ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+						defer cancel()
+
+						completion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+							Model: model,
+							Messages: []openai.ChatCompletionMessageParamUnion{
+								openai.UserMessage("Recommend a classic science fiction book. Respond with JSON only."),
+							},
+							ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+								OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+									JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
+										Name:   "book_recommendation",
+										Schema: BookRecommendationSchema,
+										Strict: openai.Bool(tt.strict),
+									},
+								},
+							},
+						})
+						require.NoError(t, err)
+						require.NotNil(t, completion)
+						require.NotEmpty(t, completion.Choices)
+
+						content := completion.Choices[0].Message.Content
+
+						var book BookRecommendation
+						err = json.Unmarshal([]byte(content), &book)
+						require.NoError(t, err, "response should be valid JSON matching schema")
+						require.NotEmpty(t, book.Title, "title should be present")
+						require.NotEmpty(t, book.Author, "author should be present")
+						require.NotZero(t, book.Year, "year should be present")
+						require.NotEmpty(t, book.Genres, "genres should be present")
+						require.NotZero(t, book.Rating.Score, "rating score should be present")
+						require.NotEmpty(t, book.Rating.Review, "rating review should be present")
+					})
+
+					t.Run("streaming", func(t *testing.T) {
+						ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+						defer cancel()
+
+						stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
+							Model: model,
+							Messages: []openai.ChatCompletionMessageParamUnion{
+								openai.UserMessage("Recommend a classic science fiction book. Respond with JSON only."),
+							},
+							ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+								OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+									JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
+										Name:   "book_recommendation",
+										Schema: BookRecommendationSchema,
+										Strict: openai.Bool(tt.strict),
+									},
+								},
+							},
+						})
+
+						var content string
+						for stream.Next() {
+							chunk := stream.Current()
+							if len(chunk.Choices) > 0 {
+								content += chunk.Choices[0].Delta.Content
+							}
+						}
+						require.NoError(t, stream.Err())
+
+						var book BookRecommendation
+						err := json.Unmarshal([]byte(content), &book)
+						require.NoError(t, err, "response should be valid JSON matching schema")
+						require.NotEmpty(t, book.Title, "title should be present")
+						require.NotEmpty(t, book.Author, "author should be present")
+						require.NotZero(t, book.Year, "year should be present")
+						require.NotEmpty(t, book.Genres, "genres should be present")
+						require.NotZero(t, book.Rating.Score, "rating score should be present")
+						require.NotEmpty(t, book.Rating.Review, "rating review should be present")
+					})
+				})
+			}
 		})
 	}
 }

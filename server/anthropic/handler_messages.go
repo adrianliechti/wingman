@@ -49,6 +49,23 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		options.MaxTokens = &req.MaxTokens
 	}
 
+	// Handle structured output via output_format
+	// Support both explicit type: "json_schema" and SDK format (just schema field)
+	if req.OutputFormat != nil && (req.OutputFormat.Type == "json_schema" || req.OutputFormat.Schema != nil) {
+		options.Format = provider.CompletionFormatJSON
+
+		name := req.OutputFormat.Name
+		if name == "" {
+			name = "response" // default name for providers that require it
+		}
+
+		options.Schema = &provider.Schema{
+			Name:   name,
+			Schema: req.OutputFormat.Schema,
+			Strict: req.OutputFormat.Strict,
+		}
+	}
+
 	if req.Stream {
 		h.handleMessagesStream(w, r, req, completer, messages, options)
 	} else {

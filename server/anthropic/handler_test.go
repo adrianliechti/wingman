@@ -2,6 +2,7 @@ package anthropic_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -454,6 +455,145 @@ func TestMessagesUsage(t *testing.T) {
 				// provide input token counts during streaming (only in final response)
 				require.Greater(t, message.Usage.OutputTokens, int64(0))
 			})
+		})
+	}
+}
+
+// BookRecommendation represents a structured book recommendation response
+type BookRecommendation struct {
+	Title  string   `json:"title"`
+	Author string   `json:"author"`
+	Year   int      `json:"year"`
+	Genres []string `json:"genres"`
+	Rating struct {
+		Score  float64 `json:"score"`
+		Review string  `json:"review"`
+	} `json:"rating"`
+}
+
+// BookRecommendationSchema is the JSON schema for book recommendations
+var BookRecommendationSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"title":  map[string]any{"type": "string"},
+		"author": map[string]any{"type": "string"},
+		"year":   map[string]any{"type": "integer"},
+		"genres": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string"},
+		},
+		"rating": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"score":  map[string]any{"type": "number"},
+				"review": map[string]any{"type": "string"},
+			},
+			"required":             []string{"score", "review"},
+			"additionalProperties": false,
+		},
+	},
+	"required":             []string{"title", "author", "year", "genres", "rating"},
+	"additionalProperties": false,
+}
+
+func TestMessagesStructuredOutput(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			tests := []struct {
+				name   string
+				strict bool
+			}{
+				{"strict mode", true},
+				{"non-strict mode", false},
+			}
+
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					t.Run("non-streaming", func(t *testing.T) {
+						ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+						defer cancel()
+
+						message, err := client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
+							Model:     anthropic.Model(model),
+							MaxTokens: 1024,
+							Messages: []anthropic.BetaMessageParam{
+								anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock("Recommend a classic science fiction book. Respond with JSON only.")),
+							},
+							OutputFormat: anthropic.BetaJSONSchemaOutputFormat(BookRecommendationSchema),
+							Betas:        []anthropic.AnthropicBeta{"structured-outputs-2025-11-13"},
+						})
+						require.NoError(t, err)
+						require.NotNil(t, message)
+						require.NotEmpty(t, message.Content)
+
+						// Extract text content from response
+						var content string
+						for _, block := range message.Content {
+							if block.Type == "text" {
+								content = block.Text
+								break
+							}
+						}
+						require.NotEmpty(t, content, "expected text content in response")
+
+						var book BookRecommendation
+						err = json.Unmarshal([]byte(content), &book)
+						require.NoError(t, err, "response should be valid JSON matching schema")
+						require.NotEmpty(t, book.Title, "title should be present")
+						require.NotEmpty(t, book.Author, "author should be present")
+						require.NotZero(t, book.Year, "year should be present")
+						require.NotEmpty(t, book.Genres, "genres should be present")
+						require.NotZero(t, book.Rating.Score, "rating score should be present")
+						require.NotEmpty(t, book.Rating.Review, "rating review should be present")
+					})
+
+					t.Run("streaming", func(t *testing.T) {
+						ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+						defer cancel()
+
+						message := anthropic.BetaMessage{}
+						stream := client.Beta.Messages.NewStreaming(ctx, anthropic.BetaMessageNewParams{
+							Model:     anthropic.Model(model),
+							MaxTokens: 1024,
+							Messages: []anthropic.BetaMessageParam{
+								anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock("Recommend a classic science fiction book. Respond with JSON only.")),
+							},
+							OutputFormat: anthropic.BetaJSONSchemaOutputFormat(BookRecommendationSchema),
+							Betas:        []anthropic.AnthropicBeta{"structured-outputs-2025-11-13"},
+						})
+
+						for stream.Next() {
+							event := stream.Current()
+							err := message.Accumulate(event)
+							require.NoError(t, err)
+						}
+						require.NoError(t, stream.Err())
+
+						// Extract text content from accumulated message
+						var content string
+						for _, block := range message.Content {
+							if block.Type == "text" {
+								content = block.Text
+								break
+							}
+						}
+						require.NotEmpty(t, content, "expected text content in response")
+
+						var book BookRecommendation
+						err := json.Unmarshal([]byte(content), &book)
+						require.NoError(t, err, "response should be valid JSON matching schema")
+						require.NotEmpty(t, book.Title, "title should be present")
+						require.NotEmpty(t, book.Author, "author should be present")
+						require.NotZero(t, book.Year, "year should be present")
+						require.NotEmpty(t, book.Genres, "genres should be present")
+						require.NotZero(t, book.Rating.Score, "rating score should be present")
+						require.NotEmpty(t, book.Rating.Review, "rating review should be present")
+					})
+				})
+			}
 		})
 	}
 }

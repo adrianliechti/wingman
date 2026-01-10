@@ -19,6 +19,14 @@ type MessageRequest struct {
 	Tools         []ToolParam    `json:"tools,omitempty"`
 	ToolChoice    *ToolChoice    `json:"tool_choice,omitempty"`
 	Metadata      *Metadata      `json:"metadata,omitempty"`
+	OutputFormat  *OutputFormat  `json:"output_format,omitempty"`
+}
+
+type OutputFormat struct {
+	Type   string         `json:"type"`             // "json_schema"
+	Name   string         `json:"name,omitempty"`   // optional name for the schema
+	Schema map[string]any `json:"schema,omitempty"` // JSON Schema definition
+	Strict *bool          `json:"strict,omitempty"` // whether to use strict mode
 }
 
 type MessageParam struct {
