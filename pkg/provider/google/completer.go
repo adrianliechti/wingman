@@ -131,12 +131,9 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 		config.Temperature = options.Temperature
 	}
 
-	if options.Format == provider.CompletionFormatJSON || options.Schema != nil {
+	if options.Schema != nil {
 		config.ResponseMIMEType = "application/json"
-
-		if options.Schema != nil {
-			config.ResponseJsonSchema = options.Schema.Schema
-		}
+		config.ResponseJsonSchema = options.Schema.Schema
 	}
 
 	return config

@@ -142,12 +142,6 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		req.ReasoningEffort = openai.ReasoningEffortHigh
 	}
 
-	if options.Format == provider.CompletionFormatJSON {
-		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
-		}
-	}
-
 	if options.Schema != nil {
 		schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
 			Name:   options.Schema.Name,

@@ -22,7 +22,6 @@ func NewCompletionService(opts ...RequestOption) CompletionService {
 type Message = provider.Message
 
 type Completion = provider.Completion
-type CompletionFormat = provider.CompletionFormat
 type CompletionAccumulator = provider.CompletionAccumulator
 
 type CompleteOptions = provider.CompleteOptions

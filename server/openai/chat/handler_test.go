@@ -545,3 +545,73 @@ func TestChatCompletionStructuredOutput(t *testing.T) {
 		})
 	}
 }
+
+// SimpleAnswer represents a simple JSON response with an answer field
+type SimpleAnswer struct {
+	Answer int `json:"answer"`
+}
+
+func TestChatCompletionJSONObjectFormat(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			t.Run("non-streaming", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				completion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+					Model: model,
+					Messages: []openai.ChatCompletionMessageParamUnion{
+						openai.SystemMessage("You are a helpful assistant that responds only in valid JSON format. Never include markdown formatting, code blocks, or any text outside the JSON object."),
+						openai.UserMessage(`Respond with exactly this JSON object: {"answer": 42}`),
+					},
+					ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+						OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, completion)
+				require.NotEmpty(t, completion.Choices)
+
+				content := completion.Choices[0].Message.Content
+
+				var result SimpleAnswer
+				err = json.Unmarshal([]byte(content), &result)
+				require.NoError(t, err, "response should be valid JSON, got: %s", content)
+				require.Equal(t, 42, result.Answer, "answer field should be 42")
+			})
+
+			t.Run("streaming", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
+					Model: model,
+					Messages: []openai.ChatCompletionMessageParamUnion{
+						openai.SystemMessage("You are a helpful assistant that responds only in valid JSON format. Never include markdown formatting, code blocks, or any text outside the JSON object."),
+						openai.UserMessage(`Respond with exactly this JSON object: {"answer": 42}`),
+					},
+					ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+						OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+					},
+				})
+
+				var content string
+				for stream.Next() {
+					chunk := stream.Current()
+					if len(chunk.Choices) > 0 {
+						content += chunk.Choices[0].Delta.Content
+					}
+				}
+				require.NoError(t, stream.Err())
+
+				var result SimpleAnswer
+				err := json.Unmarshal([]byte(content), &result)
+				require.NoError(t, err, "response should be valid JSON, got: %s", content)
+				require.Equal(t, 42, result.Answer, "answer field should be 42")
+			})
+		})
+	}
+}

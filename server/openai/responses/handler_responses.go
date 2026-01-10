@@ -65,8 +65,12 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	// Handle structured output configuration
 	if req.Text != nil {
 		if req.Text.Format != nil {
-			if req.Text.Format.Type == "json_object" || req.Text.Format.Type == "json_schema" {
-				options.Format = provider.CompletionFormatJSON
+			if req.Text.Format.Type == "json_object" {
+				// Convert json_object to minimal json_schema
+				options.Schema = &provider.Schema{
+					Name:   "json_object",
+					Schema: map[string]any{"type": "object"},
+				}
 			}
 
 			if req.Text.Format.Type == "json_schema" && req.Text.Format.Schema != nil {

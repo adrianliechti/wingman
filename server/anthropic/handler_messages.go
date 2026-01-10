@@ -52,8 +52,6 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	// Handle structured output via output_format
 	// Support both explicit type: "json_schema" and SDK format (just schema field)
 	if req.OutputFormat != nil && (req.OutputFormat.Type == "json_schema" || req.OutputFormat.Schema != nil) {
-		options.Format = provider.CompletionFormatJSON
-
 		name := req.OutputFormat.Name
 		if name == "" {
 			name = "response" // default name for providers that require it

@@ -672,3 +672,75 @@ func TestResponsesStructuredOutput(t *testing.T) {
 		})
 	}
 }
+
+// SimpleAnswer represents a simple JSON response with an answer field
+type SimpleAnswer struct {
+	Answer int `json:"answer"`
+}
+
+func TestResponsesJSONObjectFormat(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			t.Run("non-streaming", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				resp, err := client.Responses.New(ctx, responses.ResponseNewParams{
+					Model:        model,
+					Instructions: openai.String("You are a helpful assistant that responds only in valid JSON format. Never include markdown formatting, code blocks, or any text outside the JSON object."),
+					Input: responses.ResponseNewParamsInputUnion{
+						OfString: openai.String(`Respond with exactly this JSON object: {"answer": 42}`),
+					},
+					Text: responses.ResponseTextConfigParam{
+						Format: responses.ResponseFormatTextConfigUnionParam{
+							OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
+						},
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Equal(t, responses.ResponseStatusCompleted, resp.Status)
+
+				content := resp.OutputText()
+
+				var result SimpleAnswer
+				err = json.Unmarshal([]byte(content), &result)
+				require.NoError(t, err, "response should be valid JSON, got: %s", content)
+				require.Equal(t, 42, result.Answer, "answer field should be 42")
+			})
+
+			t.Run("streaming", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				stream := client.Responses.NewStreaming(ctx, responses.ResponseNewParams{
+					Model:        model,
+					Instructions: openai.String("You are a helpful assistant that responds only in valid JSON format. Never include markdown formatting, code blocks, or any text outside the JSON object."),
+					Input: responses.ResponseNewParamsInputUnion{
+						OfString: openai.String(`Respond with exactly this JSON object: {"answer": 42}`),
+					},
+					Text: responses.ResponseTextConfigParam{
+						Format: responses.ResponseFormatTextConfigUnionParam{
+							OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
+						},
+					},
+				})
+
+				var content string
+				for stream.Next() {
+					data := stream.Current()
+					content += data.Delta
+				}
+				require.NoError(t, stream.Err())
+
+				var result SimpleAnswer
+				err := json.Unmarshal([]byte(content), &result)
+				require.NoError(t, err, "response should be valid JSON, got: %s", content)
+				require.Equal(t, 42, result.Answer, "answer field should be 42")
+			})
+		})
+	}
+}
