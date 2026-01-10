@@ -67,6 +67,7 @@ type StreamingAccumulator struct {
 	toolCallArgs string
 
 	// Usage tracking
+	inputTokens  int
 	outputTokens int
 	stopReason   StopReason
 }
@@ -89,6 +90,13 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if !s.started {
 		s.started = true
 
+		// Get input tokens from first chunk if available
+		inputTokens := 0
+		if c.Usage != nil && c.Usage.InputTokens > 0 {
+			inputTokens = c.Usage.InputTokens
+			s.inputTokens = inputTokens
+		}
+
 		if err := s.emitEvent(StreamEvent{
 			Type: StreamEventMessageStart,
 			Message: &Message{
@@ -100,7 +108,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				Content: []ContentBlock{},
 
 				Usage: Usage{
-					InputTokens:  0,
+					InputTokens:  inputTokens,
 					OutputTokens: 0,
 				},
 			},
@@ -114,9 +122,14 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		s.model = c.Model
 	}
 
-	// Update output tokens if provided
-	if c.Usage != nil && c.Usage.OutputTokens > 0 {
-		s.outputTokens = c.Usage.OutputTokens
+	// Update usage tokens if provided
+	if c.Usage != nil {
+		if c.Usage.InputTokens > 0 {
+			s.inputTokens = c.Usage.InputTokens
+		}
+		if c.Usage.OutputTokens > 0 {
+			s.outputTokens = c.Usage.OutputTokens
+		}
 	}
 
 	// Skip empty content chunks
@@ -279,6 +292,18 @@ func (s *StreamingAccumulator) Complete() error {
 		s.stopReason = toStopReason(result.Message.Content)
 	}
 
+	// Get final usage from accumulated result (prefer accumulated result over tracked values)
+	inputTokens := s.inputTokens
+	outputTokens := s.outputTokens
+	if result.Usage != nil {
+		if result.Usage.InputTokens > inputTokens {
+			inputTokens = result.Usage.InputTokens
+		}
+		if result.Usage.OutputTokens > outputTokens {
+			outputTokens = result.Usage.OutputTokens
+		}
+	}
+
 	// Send message_delta with stop_reason and usage
 	if err := s.emitEvent(StreamEvent{
 		Type: StreamEventMessageDelta,
@@ -286,7 +311,8 @@ func (s *StreamingAccumulator) Complete() error {
 			StopReason: s.stopReason,
 		},
 		DeltaUsage: &DeltaUsage{
-			OutputTokens: s.outputTokens,
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
 		},
 		Completion: result,
 	}); err != nil {

@@ -180,6 +180,7 @@ type MessageDelta struct {
 }
 
 type DeltaUsage struct {
+	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 }
 

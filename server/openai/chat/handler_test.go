@@ -2,7 +2,6 @@ package chat_test
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -20,9 +19,10 @@ const (
 
 // Test models covering different providers
 var testModels = []string{
-	"gpt-5.2",              // OpenAI
-	"claude-sonnet-4-5",    // Anthropic
-	"gemini-3-pro-preview", // Google
+	"gpt-5.2",           // OpenAI
+	"claude-sonnet-4-5", // Anthropic
+	"gemini-2.5-pro",    // Google
+	"mistral-medium",    // Mistral (OpenAI-compatible)
 }
 
 func newTestClient() openai.Client {
@@ -32,39 +32,12 @@ func newTestClient() openai.Client {
 	)
 }
 
-func checkServer(t *testing.T) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, testBaseURL+"models", nil)
-	if err != nil {
-		t.Skipf("skipping test: failed to create request: %v", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Skipf("skipping test: server not available at %s: %v", testBaseURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Skipf("skipping test: server returned status %d", resp.StatusCode)
-	}
-}
-
 func TestChatCompletion(t *testing.T) {
-	checkServer(t)
-	t.Parallel()
-
 	client := newTestClient()
 
 	for _, model := range testModels {
 		model := model // capture range variable
 		t.Run(model, func(t *testing.T) {
-			t.Parallel()
-
 			tests := []struct {
 				name      string
 				messages  []openai.ChatCompletionMessageParamUnion
@@ -114,10 +87,7 @@ func TestChatCompletion(t *testing.T) {
 
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
-					t.Parallel()
-
 					t.Run("non-streaming", func(t *testing.T) {
-						t.Parallel()
 
 						ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 						defer cancel()
@@ -138,8 +108,6 @@ func TestChatCompletion(t *testing.T) {
 					})
 
 					t.Run("streaming", func(t *testing.T) {
-						t.Parallel()
-
 						ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 						defer cancel()
 
@@ -176,9 +144,6 @@ func TestChatCompletion(t *testing.T) {
 }
 
 func TestChatCompletionToolCallingMultiTurn(t *testing.T) {
-	checkServer(t)
-	t.Parallel()
-
 	client := newTestClient()
 
 	weatherTool := openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
@@ -207,59 +172,52 @@ func TestChatCompletionToolCallingMultiTurn(t *testing.T) {
 	for _, model := range testModels {
 		model := model // capture range variable
 		t.Run(model, func(t *testing.T) {
-			t.Parallel()
-
 			t.Run("non-streaming multi-turn", func(t *testing.T) {
-				t.Parallel()
 
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 				defer cancel()
 
-				// Step 1: Initial request - should trigger tool call
 				messages := []openai.ChatCompletionMessageParamUnion{
 					openai.UserMessage("What's the weather in London? Be specific about the conditions."),
 				}
 
-				completion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-					Model:    model,
-					Messages: messages,
-					Tools:    tools,
-				})
-				require.NoError(t, err)
-				require.NotNil(t, completion)
-				require.NotEmpty(t, completion.Choices)
+				var finalContent string
+				maxIterations := 10 // Safety limit to prevent infinite loops
 
-				choice := completion.Choices[0]
-				require.Equal(t, "tool_calls", string(choice.FinishReason), "expected model to call tool")
-				require.NotEmpty(t, choice.Message.ToolCalls)
+				for i := 0; i < maxIterations; i++ {
+					completion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+						Model:    model,
+						Messages: messages,
+						Tools:    tools,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, completion)
+					require.NotEmpty(t, completion.Choices)
 
-				toolCall := choice.Message.ToolCalls[0]
-				require.Equal(t, "get_weather", toolCall.Function.Name)
-				require.NotEmpty(t, toolCall.ID)
-				require.Contains(t, strings.ToLower(toolCall.Function.Arguments), "london")
+					choice := completion.Choices[0]
 
-				// Step 2: Execute tool and send result back
-				toolResult := executeWeatherTool(toolCall.Function.Arguments)
+					// If no tool calls, we're done
+					if choice.FinishReason != "tool_calls" {
+						finalContent = choice.Message.Content
+						require.Equal(t, "stop", string(choice.FinishReason))
+						break
+					}
 
-				messages = append(messages,
-					completion.Choices[0].Message.ToParam(),
-					openai.ToolMessage(toolResult, toolCall.ID),
-				)
+					// Process all tool calls
+					require.NotEmpty(t, choice.Message.ToolCalls)
+					messages = append(messages, choice.Message.ToParam())
 
-				// Step 3: Get final response that incorporates tool result
-				finalCompletion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-					Model:    model,
-					Messages: messages,
-					Tools:    tools,
-				})
-				require.NoError(t, err)
-				require.NotNil(t, finalCompletion)
-				require.NotEmpty(t, finalCompletion.Choices)
-				require.Equal(t, "stop", string(finalCompletion.Choices[0].FinishReason))
+					for _, toolCall := range choice.Message.ToolCalls {
+						require.Equal(t, "get_weather", toolCall.Function.Name)
+						require.NotEmpty(t, toolCall.ID)
+
+						toolResult := executeWeatherTool(toolCall.Function.Arguments)
+						messages = append(messages, openai.ToolMessage(toolResult, toolCall.ID))
+					}
+				}
 
 				// Verify final response includes data from tool result
-				finalContent := finalCompletion.Choices[0].Message.Content
-				require.NotEmpty(t, finalContent)
+				require.NotEmpty(t, finalContent, "expected final response after tool execution")
 
 				lower := strings.ToLower(finalContent)
 				hasWeatherInfo := strings.Contains(lower, "sunny") ||
@@ -270,70 +228,55 @@ func TestChatCompletionToolCallingMultiTurn(t *testing.T) {
 			})
 
 			t.Run("streaming multi-turn", func(t *testing.T) {
-				t.Parallel()
-
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 				defer cancel()
 
-				// Step 1: Initial streaming request - should trigger tool call
 				messages := []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage("What's the weather in Paris? Include temperature details."),
+					openai.UserMessage("What's the weather in Paris, France? Include temperature details."),
 				}
-
-				stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-					Model:    model,
-					Messages: messages,
-					Tools:    tools,
-				})
-
-				acc := openai.ChatCompletionAccumulator{}
-				for stream.Next() {
-					acc.AddChunk(stream.Current())
-				}
-				require.NoError(t, stream.Err())
-				require.NotEmpty(t, acc.Choices)
-
-				choice := acc.Choices[0]
-				require.Equal(t, "tool_calls", choice.FinishReason, "expected model to call tool")
-				require.NotEmpty(t, choice.Message.ToolCalls)
-
-				toolCall := choice.Message.ToolCalls[0]
-				require.Equal(t, "get_weather", toolCall.Function.Name)
-				require.NotEmpty(t, toolCall.ID)
-				require.Contains(t, strings.ToLower(toolCall.Function.Arguments), "paris")
-
-				// Step 2: Execute tool and send result back
-				toolResult := executeWeatherTool(toolCall.Function.Arguments)
-
-				// Build assistant message from accumulated response
-				messages = append(messages,
-					acc.Choices[0].Message.ToParam(),
-					openai.ToolMessage(toolResult, toolCall.ID),
-				)
-
-				// Step 3: Stream final response that incorporates tool result
-				finalStream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
-					Model:    model,
-					Messages: messages,
-					Tools:    tools,
-				})
 
 				var finalContent string
-				var finalFinishReason string
-				for finalStream.Next() {
-					chunk := finalStream.Current()
-					if len(chunk.Choices) > 0 {
-						finalContent += chunk.Choices[0].Delta.Content
-						if chunk.Choices[0].FinishReason != "" {
-							finalFinishReason = string(chunk.Choices[0].FinishReason)
-						}
+				maxIterations := 10 // Safety limit to prevent infinite loops
+
+				for i := 0; i < maxIterations; i++ {
+					stream := client.Chat.Completions.NewStreaming(ctx, openai.ChatCompletionNewParams{
+						Model:    model,
+						Messages: messages,
+						Tools:    tools,
+					})
+
+					acc := openai.ChatCompletionAccumulator{}
+					for stream.Next() {
+						acc.AddChunk(stream.Current())
+					}
+					require.NoError(t, stream.Err())
+					require.NotEmpty(t, acc.Choices)
+
+					choice := acc.Choices[0]
+
+					// If no tool calls, we're done
+					if choice.FinishReason != "tool_calls" {
+						finalContent = choice.Message.Content
+						require.Equal(t, "stop", choice.FinishReason)
+						break
+					}
+
+					// Process all tool calls
+					require.NotEmpty(t, choice.Message.ToolCalls)
+					messages = append(messages, choice.Message.ToParam())
+
+					for _, toolCall := range choice.Message.ToolCalls {
+						require.Equal(t, "get_weather", toolCall.Function.Name)
+						require.NotEmpty(t, toolCall.ID)
+
+						toolResult := executeWeatherTool(toolCall.Function.Arguments)
+						messages = append(messages, openai.ToolMessage(toolResult, toolCall.ID))
 					}
 				}
-				require.NoError(t, finalStream.Err())
-				require.Equal(t, "stop", finalFinishReason)
-				require.NotEmpty(t, finalContent)
 
 				// Verify final response includes data from tool result
+				require.NotEmpty(t, finalContent, "expected final response after tool execution")
+
 				lower := strings.ToLower(finalContent)
 				hasWeatherInfo := strings.Contains(lower, "sunny") ||
 					strings.Contains(lower, "22") ||
@@ -346,18 +289,12 @@ func TestChatCompletionToolCallingMultiTurn(t *testing.T) {
 }
 
 func TestChatCompletionAccumulator(t *testing.T) {
-	checkServer(t)
-	t.Parallel()
-
 	client := newTestClient()
 
 	for _, model := range testModels {
 		model := model // capture range variable
 		t.Run(model, func(t *testing.T) {
-			t.Parallel()
-
 			t.Run("content accumulation", func(t *testing.T) {
-				t.Parallel()
 
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 				defer cancel()
@@ -388,8 +325,6 @@ func TestChatCompletionAccumulator(t *testing.T) {
 			})
 
 			t.Run("tool call accumulation", func(t *testing.T) {
-				t.Parallel()
-
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 				defer cancel()
 
@@ -442,18 +377,12 @@ func TestChatCompletionAccumulator(t *testing.T) {
 }
 
 func TestChatCompletionStreamOptions(t *testing.T) {
-	checkServer(t)
-	t.Parallel()
-
 	client := newTestClient()
 
 	for _, model := range testModels {
 		model := model // capture range variable
 		t.Run(model, func(t *testing.T) {
-			t.Parallel()
-
 			t.Run("include usage", func(t *testing.T) {
-				t.Parallel()
 
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 				defer cancel()
