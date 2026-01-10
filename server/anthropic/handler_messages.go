@@ -106,223 +106,75 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, r
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	messageID := generateMessageID()
 	model := req.Model
 
-	// Track streaming state
-	var (
-		outputTokens      int
-		currentBlockIndex = -1
-		currentBlockType  = ""
-		toolCallID        = ""
-		toolCallName      = ""
-		toolCallArgs      = ""
-		hasContent        = false
-		stopReason        = StopReasonEndTurn
-	)
+	// Create streaming accumulator with event handler
+	accumulator := NewStreamingAccumulator(messageID, model, func(event StreamEvent) error {
+		switch event.Type {
+		case StreamEventMessageStart:
+			return writeEvent(w, "message_start", MessageStartEvent{
+				Type:    "message_start",
+				Message: *event.Message,
+			})
 
-	acc := provider.CompletionAccumulator{}
+		case StreamEventContentBlockStart:
+			return writeEvent(w, "content_block_start", ContentBlockStartEvent{
+				Type:         "content_block_start",
+				Index:        event.Index,
+				ContentBlock: *event.ContentBlock,
+			})
 
-	// Send message_start event
-	initialMessage := Message{
-		ID: generateMessageID(),
+		case StreamEventContentBlockDelta:
+			return writeEvent(w, "content_block_delta", ContentBlockDeltaEvent{
+				Type:  "content_block_delta",
+				Index: event.Index,
+				Delta: *event.Delta,
+			})
 
-		Type: "message",
-		Role: "assistant",
+		case StreamEventContentBlockStop:
+			return writeEvent(w, "content_block_stop", ContentBlockStopEvent{
+				Type:  "content_block_stop",
+				Index: event.Index,
+			})
 
-		Model:   model,
-		Content: []ContentBlock{},
+		case StreamEventMessageDelta:
+			return writeEvent(w, "message_delta", MessageDeltaEvent{
+				Type:  "message_delta",
+				Delta: *event.MessageDelta,
+				Usage: *event.DeltaUsage,
+			})
 
-		Usage: Usage{
-			InputTokens:  0,
-			OutputTokens: 0,
-		},
-	}
+		case StreamEventMessageStop:
+			return writeEvent(w, "message_stop", MessageStopEvent{
+				Type: "message_stop",
+			})
 
-	if err := writeEvent(w, "message_start", MessageStartEvent{
-		Type:    "message_start",
-		Message: initialMessage,
-	}); err != nil {
-		return
-	}
+		case StreamEventError:
+			return writeEvent(w, "error", ErrorResponse{
+				Type:  "error",
+				Error: *event.Error,
+			})
+		}
+
+		return nil
+	})
 
 	for completion, err := range completer.Complete(r.Context(), messages, options) {
 		if err != nil {
-			writeEvent(w, "error", ErrorResponse{
-				Type: "error",
-
-				Error: Error{
-					Type:    "api_error",
-					Message: err.Error(),
-				},
-			})
+			accumulator.Error(err)
 			return
 		}
 
-		acc.Add(*completion)
-
-		if completion.Model != "" {
-			model = completion.Model
-		}
-
-		if completion.Usage != nil {
-			outputTokens = completion.Usage.OutputTokens
-		}
-
-		if completion.Message == nil || len(completion.Message.Content) == 0 {
-			continue
-		}
-
-		for _, c := range completion.Message.Content {
-			// Handle text content
-			if c.Text != "" {
-				// Start text block if needed
-				if currentBlockType != "text" {
-					// Close previous block if any
-					if currentBlockIndex >= 0 {
-						writeEvent(w, "content_block_stop", ContentBlockStopEvent{
-							Type:  "content_block_stop",
-							Index: currentBlockIndex,
-						})
-					}
-
-					currentBlockIndex++
-					currentBlockType = "text"
-					hasContent = true
-
-					writeEvent(w, "content_block_start", ContentBlockStartEvent{
-						Type:  "content_block_start",
-						Index: currentBlockIndex,
-
-						ContentBlock: ContentBlock{
-							Type: "text",
-							Text: "",
-						},
-					})
-				}
-
-				// Send text delta
-				writeEvent(w, "content_block_delta", ContentBlockDeltaEvent{
-					Type:  "content_block_delta",
-					Index: currentBlockIndex,
-
-					Delta: Delta{
-						Type: "text_delta",
-						Text: c.Text,
-					},
-				})
-			}
-
-			// Handle tool calls
-			if c.ToolCall != nil {
-				stopReason = StopReasonToolUse
-
-				// Check if this is a new tool call or continuation
-				isNewToolCall := c.ToolCall.ID != "" && c.ToolCall.ID != toolCallID
-
-				if isNewToolCall {
-					// Close previous block if any
-					if currentBlockIndex >= 0 {
-						writeEvent(w, "content_block_stop", ContentBlockStopEvent{
-							Type:  "content_block_stop",
-							Index: currentBlockIndex,
-						})
-					}
-
-					currentBlockIndex++
-					currentBlockType = "tool_use"
-
-					toolCallID = c.ToolCall.ID
-
-					if toolCallID == "" {
-						toolCallID = generateToolUseID()
-					}
-
-					toolCallName = c.ToolCall.Name
-					toolCallArgs = ""
-
-					hasContent = true
-
-					// Send content_block_start for tool_use
-					writeEvent(w, "content_block_start", ContentBlockStartEvent{
-						Type:  "content_block_start",
-						Index: currentBlockIndex,
-
-						ContentBlock: ContentBlock{
-							Type: "tool_use",
-
-							ID:   toolCallID,
-							Name: toolCallName,
-
-							Input: map[string]any{},
-						},
-					})
-				}
-
-				// Send input_json_delta if there are arguments
-				if c.ToolCall.Arguments != "" {
-					toolCallArgs += c.ToolCall.Arguments
-
-					writeEvent(w, "content_block_delta", ContentBlockDeltaEvent{
-						Type:  "content_block_delta",
-						Index: currentBlockIndex,
-
-						Delta: Delta{
-							Type:        "input_json_delta",
-							PartialJSON: c.ToolCall.Arguments,
-						},
-					})
-				}
-			}
+		if err := accumulator.Add(*completion); err != nil {
+			accumulator.Error(err)
+			return
 		}
 	}
 
-	// Close last content block if any
-	if currentBlockIndex >= 0 {
-		writeEvent(w, "content_block_stop", ContentBlockStopEvent{
-			Type:  "content_block_stop",
-			Index: currentBlockIndex,
-		})
+	// Emit final events
+	if err := accumulator.Complete(); err != nil {
+		accumulator.Error(err)
+		return
 	}
-
-	// If no content was generated, send an empty text block
-	if !hasContent {
-		writeEvent(w, "content_block_start", ContentBlockStartEvent{
-			Type:  "content_block_start",
-			Index: 0,
-			ContentBlock: ContentBlock{
-				Type: "text",
-				Text: "",
-			},
-		})
-
-		writeEvent(w, "content_block_stop", ContentBlockStopEvent{
-			Type:  "content_block_stop",
-			Index: 0,
-		})
-	}
-
-	// Determine final stop reason from accumulated result
-	completion := acc.Result()
-
-	if completion.Message != nil {
-		stopReason = toStopReason(completion.Message.Content)
-	}
-
-	// Send message_delta with stop_reason and usage
-	writeEvent(w, "message_delta", MessageDeltaEvent{
-		Type: "message_delta",
-
-		Delta: MessageDelta{
-			StopReason: stopReason,
-		},
-
-		Usage: DeltaUsage{
-			OutputTokens: outputTokens,
-		},
-	})
-
-	// Send message_stop
-	writeEvent(w, "message_stop", MessageStopEvent{
-		Type: "message_stop",
-	})
 }

@@ -1,20 +1,11 @@
 package responses
 
 import (
-	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"mime"
 	"net/http"
-	"path"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/tool"
 
 	"github.com/google/uuid"
 )
@@ -104,299 +95,258 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		h.handleResponsesStream(w, r, req, completer, messages, options)
+	} else {
+		h.handleResponsesComplete(w, r, req, completer, messages, options)
+	}
+}
 
-		createdAt := time.Now().Unix()
+func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 
-		responseID := "resp_" + uuid.NewString()
-		messageID := "msg_" + uuid.NewString()
+	createdAt := time.Now().Unix()
 
-		seqNum := 0
+	responseID := "resp_" + uuid.NewString()
+	messageID := "msg_" + uuid.NewString()
 
-		// Helper to get sequence number and increment
-		nextSeq := func() int {
-			n := seqNum
-			seqNum++
-			return n
+	seqNum := 0
+
+	// Helper to get sequence number and increment
+	nextSeq := func() int {
+		n := seqNum
+		seqNum++
+		return n
+	}
+
+	// Create initial response template
+	createResponse := func(status string, output []ResponseOutput) *Response {
+		return &Response{
+			ID:        responseID,
+			Object:    "response",
+			CreatedAt: createdAt,
+			Status:    status,
+			Model:     req.Model,
+			Output:    output,
 		}
+	}
 
-		// Create initial response template
-		createResponse := func(status string, output []ResponseOutput) *Response {
-			return &Response{
+	// Create streaming accumulator with event handler
+	accumulator := NewStreamingAccumulator(func(event StreamEvent) error {
+		switch event.Type {
+		case StreamEventResponseCreated:
+			return writeEvent(w, "response.created", ResponseCreatedEvent{
+				Type:           "response.created",
+				SequenceNumber: nextSeq(),
+				Response:       createResponse("in_progress", []ResponseOutput{}),
+			})
+
+		case StreamEventResponseInProgress:
+			return writeEvent(w, "response.in_progress", ResponseInProgressEvent{
+				Type:           "response.in_progress",
+				SequenceNumber: nextSeq(),
+				Response:       createResponse("in_progress", []ResponseOutput{}),
+			})
+
+		case StreamEventOutputItemAdded:
+			return writeEvent(w, "response.output_item.added", OutputItemAddedEvent{
+				Type:           "response.output_item.added",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    0,
+				Item: &OutputItem{
+					ID:      messageID,
+					Type:    "message",
+					Status:  "in_progress",
+					Content: []OutputContent{},
+					Role:    MessageRoleAssistant,
+				},
+			})
+
+		case StreamEventContentPartAdded:
+			return writeEvent(w, "response.content_part.added", ContentPartAddedEvent{
+				Type:           "response.content_part.added",
+				SequenceNumber: nextSeq(),
+				ItemID:         messageID,
+				OutputIndex:    0,
+				ContentIndex:   0,
+				Part: &OutputContent{
+					Type: "output_text",
+					Text: "",
+				},
+			})
+
+		case StreamEventTextDelta:
+			return writeEvent(w, "response.output_text.delta", OutputTextDeltaEvent{
+				Type:           "response.output_text.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         messageID,
+				OutputIndex:    0,
+				ContentIndex:   0,
+				Delta:          event.Delta,
+			})
+
+		case StreamEventTextDone:
+			return writeEvent(w, "response.output_text.done", OutputTextDoneEvent{
+				Type:           "response.output_text.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         messageID,
+				OutputIndex:    0,
+				ContentIndex:   0,
+				Text:           event.Text,
+			})
+
+		case StreamEventContentPartDone:
+			return writeEvent(w, "response.content_part.done", ContentPartDoneEvent{
+				Type:           "response.content_part.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         messageID,
+				OutputIndex:    0,
+				ContentIndex:   0,
+				Part: &OutputContent{
+					Type: "output_text",
+					Text: event.Text,
+				},
+			})
+
+		case StreamEventFunctionCallAdded:
+			return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
+				Type:           "response.output_item.added",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    event.OutputIndex,
+				Item: &FunctionCallOutputItem{
+					ID:        event.ToolCallID,
+					Type:      "function_call",
+					Status:    "in_progress",
+					CallID:    event.ToolCallID,
+					Name:      event.ToolCallName,
+					Arguments: "",
+				},
+			})
+
+		case StreamEventFunctionCallArgumentsDelta:
+			return writeEvent(w, "response.function_call_arguments.delta", FunctionCallArgumentsDeltaEvent{
+				Type:           "response.function_call_arguments.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ToolCallID,
+				OutputIndex:    event.OutputIndex,
+				Delta:          event.Delta,
+			})
+
+		case StreamEventFunctionCallArgumentsDone:
+			return writeEvent(w, "response.function_call_arguments.done", FunctionCallArgumentsDoneEvent{
+				Type:           "response.function_call_arguments.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ToolCallID,
+				Name:           event.ToolCallName,
+				OutputIndex:    event.OutputIndex,
+				Arguments:      event.Arguments,
+			})
+
+		case StreamEventFunctionCallDone:
+			return writeEvent(w, "response.output_item.done", FunctionCallOutputItemDoneEvent{
+				Type:           "response.output_item.done",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    event.OutputIndex,
+				Item: &FunctionCallOutputItem{
+					ID:        event.ToolCallID,
+					Type:      "function_call",
+					Status:    "completed",
+					CallID:    event.ToolCallID,
+					Name:      event.ToolCallName,
+					Arguments: event.Arguments,
+				},
+			})
+
+		case StreamEventOutputItemDone:
+			return writeEvent(w, "response.output_item.done", OutputItemDoneEvent{
+				Type:           "response.output_item.done",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    0,
+				Item: &OutputItem{
+					ID:     messageID,
+					Type:   "message",
+					Status: "completed",
+					Content: []OutputContent{
+						{
+							Type: "output_text",
+							Text: event.Completion.Message.Text(),
+						},
+					},
+					Role: MessageRoleAssistant,
+				},
+			})
+
+		case StreamEventResponseCompleted:
+			model := req.Model
+			if event.Completion != nil && event.Completion.Model != "" {
+				model = event.Completion.Model
+			}
+
+			output := []ResponseOutput{}
+
+			if event.Completion != nil && event.Completion.Message != nil {
+				// Add function call outputs first (they appear before messages)
+				for _, call := range event.Completion.Message.ToolCalls() {
+					output = append(output, ResponseOutput{
+						Type: ResponseOutputTypeFunctionCall,
+						FunctionCallOutputItem: &FunctionCallOutputItem{
+							ID:        call.ID,
+							Type:      "function_call",
+							Status:    "completed",
+							Name:      call.Name,
+							CallID:    call.ID,
+							Arguments: call.Arguments,
+						},
+					})
+				}
+
+				// Add message output if there's text content
+				text := event.Completion.Message.Text()
+				if text != "" {
+					output = append(output, ResponseOutput{
+						Type: ResponseOutputTypeMessage,
+						OutputMessage: &OutputMessage{
+							ID:     messageID,
+							Role:   MessageRoleAssistant,
+							Status: "completed",
+							Contents: []OutputContent{
+								{
+									Type: "output_text",
+									Text: text,
+								},
+							},
+						},
+					})
+				}
+			}
+
+			response := &Response{
 				ID:        responseID,
 				Object:    "response",
 				CreatedAt: createdAt,
-				Status:    status,
-				Model:     req.Model,
+				Status:    "completed",
+				Model:     model,
 				Output:    output,
 			}
-		}
 
-		// Create streaming accumulator with event handler
-		accumulator := NewStreamingAccumulator(func(event StreamEvent) error {
-			switch event.Type {
-			case StreamEventResponseCreated:
-				return writeEvent(w, "response.created", ResponseCreatedEvent{
-					Type:           "response.created",
-					SequenceNumber: nextSeq(),
-					Response:       createResponse("in_progress", []ResponseOutput{}),
-				})
-
-			case StreamEventResponseInProgress:
-				return writeEvent(w, "response.in_progress", ResponseInProgressEvent{
-					Type:           "response.in_progress",
-					SequenceNumber: nextSeq(),
-					Response:       createResponse("in_progress", []ResponseOutput{}),
-				})
-
-			case StreamEventOutputItemAdded:
-				return writeEvent(w, "response.output_item.added", OutputItemAddedEvent{
-					Type:           "response.output_item.added",
-					SequenceNumber: nextSeq(),
-					OutputIndex:    0,
-					Item: &OutputItem{
-						ID:      messageID,
-						Type:    "message",
-						Status:  "in_progress",
-						Content: []OutputContent{},
-						Role:    MessageRoleAssistant,
-					},
-				})
-
-			case StreamEventContentPartAdded:
-				return writeEvent(w, "response.content_part.added", ContentPartAddedEvent{
-					Type:           "response.content_part.added",
-					SequenceNumber: nextSeq(),
-					ItemID:         messageID,
-					OutputIndex:    0,
-					ContentIndex:   0,
-					Part: &OutputContent{
-						Type: "output_text",
-						Text: "",
-					},
-				})
-
-			case StreamEventTextDelta:
-				return writeEvent(w, "response.output_text.delta", OutputTextDeltaEvent{
-					Type:           "response.output_text.delta",
-					SequenceNumber: nextSeq(),
-					ItemID:         messageID,
-					OutputIndex:    0,
-					ContentIndex:   0,
-					Delta:          event.Delta,
-				})
-
-			case StreamEventTextDone:
-				return writeEvent(w, "response.output_text.done", OutputTextDoneEvent{
-					Type:           "response.output_text.done",
-					SequenceNumber: nextSeq(),
-					ItemID:         messageID,
-					OutputIndex:    0,
-					ContentIndex:   0,
-					Text:           event.Text,
-				})
-
-			case StreamEventContentPartDone:
-				return writeEvent(w, "response.content_part.done", ContentPartDoneEvent{
-					Type:           "response.content_part.done",
-					SequenceNumber: nextSeq(),
-					ItemID:         messageID,
-					OutputIndex:    0,
-					ContentIndex:   0,
-					Part: &OutputContent{
-						Type: "output_text",
-						Text: event.Text,
-					},
-				})
-
-			case StreamEventFunctionCallAdded:
-				return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
-					Type:           "response.output_item.added",
-					SequenceNumber: nextSeq(),
-					OutputIndex:    event.OutputIndex,
-					Item: &FunctionCallOutputItem{
-						ID:        event.ToolCallID,
-						Type:      "function_call",
-						Status:    "in_progress",
-						CallID:    event.ToolCallID,
-						Name:      event.ToolCallName,
-						Arguments: "",
-					},
-				})
-
-			case StreamEventFunctionCallArgumentsDelta:
-				return writeEvent(w, "response.function_call_arguments.delta", FunctionCallArgumentsDeltaEvent{
-					Type:           "response.function_call_arguments.delta",
-					SequenceNumber: nextSeq(),
-					ItemID:         event.ToolCallID,
-					OutputIndex:    event.OutputIndex,
-					Delta:          event.Delta,
-				})
-
-			case StreamEventFunctionCallArgumentsDone:
-				return writeEvent(w, "response.function_call_arguments.done", FunctionCallArgumentsDoneEvent{
-					Type:           "response.function_call_arguments.done",
-					SequenceNumber: nextSeq(),
-					ItemID:         event.ToolCallID,
-					Name:           event.ToolCallName,
-					OutputIndex:    event.OutputIndex,
-					Arguments:      event.Arguments,
-				})
-
-			case StreamEventFunctionCallDone:
-				return writeEvent(w, "response.output_item.done", FunctionCallOutputItemDoneEvent{
-					Type:           "response.output_item.done",
-					SequenceNumber: nextSeq(),
-					OutputIndex:    event.OutputIndex,
-					Item: &FunctionCallOutputItem{
-						ID:        event.ToolCallID,
-						Type:      "function_call",
-						Status:    "completed",
-						CallID:    event.ToolCallID,
-						Name:      event.ToolCallName,
-						Arguments: event.Arguments,
-					},
-				})
-
-			case StreamEventOutputItemDone:
-				return writeEvent(w, "response.output_item.done", OutputItemDoneEvent{
-					Type:           "response.output_item.done",
-					SequenceNumber: nextSeq(),
-					OutputIndex:    0,
-					Item: &OutputItem{
-						ID:     messageID,
-						Type:   "message",
-						Status: "completed",
-						Content: []OutputContent{
-							{
-								Type: "output_text",
-								Text: event.Completion.Message.Text(),
-							},
-						},
-						Role: MessageRoleAssistant,
-					},
-				})
-
-			case StreamEventResponseCompleted:
-				model := req.Model
-				if event.Completion != nil && event.Completion.Model != "" {
-					model = event.Completion.Model
+			// Add usage statistics if requested and available
+			if streamUsage(req) && event.Completion != nil && event.Completion.Usage != nil {
+				response.Usage = &Usage{
+					InputTokens:  event.Completion.Usage.InputTokens,
+					OutputTokens: event.Completion.Usage.OutputTokens,
+					TotalTokens:  event.Completion.Usage.InputTokens + event.Completion.Usage.OutputTokens,
 				}
-
-				output := []ResponseOutput{}
-
-				if event.Completion != nil && event.Completion.Message != nil {
-					// Add function call outputs first (they appear before messages)
-					for _, call := range event.Completion.Message.ToolCalls() {
-						output = append(output, ResponseOutput{
-							Type: ResponseOutputTypeFunctionCall,
-							FunctionCallOutputItem: &FunctionCallOutputItem{
-								ID:        call.ID,
-								Type:      "function_call",
-								Status:    "completed",
-								Name:      call.Name,
-								CallID:    call.ID,
-								Arguments: call.Arguments,
-							},
-						})
-					}
-
-					// Add message output if there's text content
-					text := event.Completion.Message.Text()
-					if text != "" {
-						output = append(output, ResponseOutput{
-							Type: ResponseOutputTypeMessage,
-							OutputMessage: &OutputMessage{
-								ID:     messageID,
-								Role:   MessageRoleAssistant,
-								Status: "completed",
-								Contents: []OutputContent{
-									{
-										Type: "output_text",
-										Text: text,
-									},
-								},
-							},
-						})
-					}
-				}
-
-				response := &Response{
-					ID:        responseID,
-					Object:    "response",
-					CreatedAt: createdAt,
-					Status:    "completed",
-					Model:     model,
-					Output:    output,
-				}
-
-				// Add usage statistics if requested and available
-				if streamUsage(req) && event.Completion != nil && event.Completion.Usage != nil {
-					response.Usage = &Usage{
-						InputTokens:  event.Completion.Usage.InputTokens,
-						OutputTokens: event.Completion.Usage.OutputTokens,
-						TotalTokens:  event.Completion.Usage.InputTokens + event.Completion.Usage.OutputTokens,
-					}
-				}
-
-				return writeEvent(w, "response.completed", ResponseCompletedEvent{
-					Type:           "response.completed",
-					SequenceNumber: nextSeq(),
-					Response:       response,
-				})
 			}
 
-			return nil
-		})
+			return writeEvent(w, "response.completed", ResponseCompletedEvent{
+				Type:           "response.completed",
+				SequenceNumber: nextSeq(),
+				Response:       response,
+			})
 
-		// Iterate over completions from the provider
-		for completion, err := range completer.Complete(r.Context(), messages, options) {
-			if err != nil {
-				writeEvent(w, "response.failed", ResponseFailedEvent{
-					Type:           "response.failed",
-					SequenceNumber: nextSeq(),
-					Response: &Response{
-						ID:        responseID,
-						Object:    "response",
-						CreatedAt: createdAt,
-						Status:    "failed",
-						Model:     req.Model,
-						Output:    []ResponseOutput{},
-						Error: &ResponseError{
-							Code:    "server_error",
-							Message: err.Error(),
-						},
-					},
-				})
-				return
-			}
-
-			if err := accumulator.Add(*completion); err != nil {
-				writeEvent(w, "response.failed", ResponseFailedEvent{
-					Type:           "response.failed",
-					SequenceNumber: nextSeq(),
-					Response: &Response{
-						ID:        responseID,
-						Object:    "response",
-						CreatedAt: createdAt,
-						Status:    "failed",
-						Model:     req.Model,
-						Output:    []ResponseOutput{},
-						Error: &ResponseError{
-							Code:    "server_error",
-							Message: err.Error(),
-						},
-					},
-				})
-				return
-			}
-		}
-
-		// Emit final events
-		if err := accumulator.Complete(); err != nil {
-			writeEvent(w, "response.failed", ResponseFailedEvent{
+		case StreamEventResponseFailed:
+			return writeEvent(w, "response.failed", ResponseFailedEvent{
 				Type:           "response.failed",
 				SequenceNumber: nextSeq(),
 				Response: &Response{
@@ -408,341 +358,111 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 					Output:    []ResponseOutput{},
 					Error: &ResponseError{
 						Code:    "server_error",
-						Message: err.Error(),
+						Message: event.Error.Error(),
 					},
 				},
 			})
+		}
+
+		return nil
+	})
+
+	// Iterate over completions from the provider
+	for completion, err := range completer.Complete(r.Context(), messages, options) {
+		if err != nil {
+			accumulator.Error(err)
 			return
 		}
-	} else {
-		acc := provider.CompletionAccumulator{}
 
-		for c, err := range completer.Complete(r.Context(), messages, options) {
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err)
-				return
-			}
+		if err := accumulator.Add(*completion); err != nil {
+			accumulator.Error(err)
+			return
+		}
+	}
 
-			acc.Add(*c)
+	// Emit final events
+	if err := accumulator.Complete(); err != nil {
+		accumulator.Error(err)
+		return
+	}
+}
+
+func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
+	acc := provider.CompletionAccumulator{}
+
+	for c, err := range completer.Complete(r.Context(), messages, options) {
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
 		}
 
-		completion := acc.Result()
+		acc.Add(*c)
+	}
 
-		result := Response{
-			Object: "response",
-			Status: "completed",
+	completion := acc.Result()
 
-			ID: completion.ID,
+	result := Response{
+		Object: "response",
+		Status: "completed",
 
-			Model:     completion.Model,
-			CreatedAt: time.Now().Unix(),
+		ID: completion.ID,
 
-			Output: []ResponseOutput{},
+		Model:     completion.Model,
+		CreatedAt: time.Now().Unix(),
+
+		Output: []ResponseOutput{},
+	}
+
+	if result.Model == "" {
+		result.Model = req.Model
+	}
+
+	if completion.Message != nil {
+		// Add function call outputs first
+		for _, call := range completion.Message.ToolCalls() {
+			result.Output = append(result.Output, ResponseOutput{
+				Type: ResponseOutputTypeFunctionCall,
+				FunctionCallOutputItem: &FunctionCallOutputItem{
+					ID:        call.ID,
+					Type:      "function_call",
+					Status:    "completed",
+					Name:      call.Name,
+					CallID:    call.ID,
+					Arguments: call.Arguments,
+				},
+			})
 		}
 
-		if result.Model == "" {
-			result.Model = req.Model
-		}
+		// Add message output if there's text content
+		if text := completion.Message.Text(); text != "" {
+			output := ResponseOutput{
+				Type: ResponseOutputTypeMessage,
 
-		if completion.Message != nil {
-			// Add function call outputs first
-			for _, call := range completion.Message.ToolCalls() {
-				result.Output = append(result.Output, ResponseOutput{
-					Type: ResponseOutputTypeFunctionCall,
-					FunctionCallOutputItem: &FunctionCallOutputItem{
-						ID:        call.ID,
-						Type:      "function_call",
-						Status:    "completed",
-						Name:      call.Name,
-						CallID:    call.ID,
-						Arguments: call.Arguments,
-					},
-				})
-			}
+				OutputMessage: &OutputMessage{
+					Role: "assistant",
 
-			// Add message output if there's text content
-			if text := completion.Message.Text(); text != "" {
-				output := ResponseOutput{
-					Type: ResponseOutputTypeMessage,
+					Status: "completed",
 
-					OutputMessage: &OutputMessage{
-						Role: "assistant",
-
-						Status: "completed",
-
-						Contents: []OutputContent{
-							{
-								Type: "output_text",
-								Text: text,
-							},
+					Contents: []OutputContent{
+						{
+							Type: "output_text",
+							Text: text,
 						},
 					},
-				}
-
-				result.Output = append(result.Output, output)
-			}
-		}
-
-		if completion.Usage != nil {
-			result.Usage = &Usage{
-				InputTokens:  completion.Usage.InputTokens,
-				OutputTokens: completion.Usage.OutputTokens,
-				TotalTokens:  completion.Usage.InputTokens + completion.Usage.OutputTokens,
-			}
-		}
-
-		writeJson(w, result)
-	}
-}
-
-func streamUsage(req ResponsesRequest) bool {
-	if req.StreamOptions == nil {
-		return false
-	}
-
-	if req.StreamOptions.IncludeUsage == nil {
-		return false
-	}
-
-	return *req.StreamOptions.IncludeUsage
-}
-
-func toMessages(items []InputItem, instructions string) ([]provider.Message, error) {
-	result := make([]provider.Message, 0)
-
-	if instructions != "" {
-		result = append(result, provider.Message{
-			Role:    provider.MessageRoleSystem,
-			Content: []provider.Content{provider.TextContent(instructions)},
-		})
-	}
-
-	// Track pending tool calls to merge with their results
-	var pendingToolCalls []provider.ToolCall
-
-	for _, item := range items {
-		switch item.Type {
-		case InputItemTypeMessage:
-			if item.InputMessage == nil {
-				continue
-			}
-
-			m := item.InputMessage
-			var content []provider.Content
-
-			for _, c := range m.Content {
-				if c.Type == InputContentText {
-					content = append(content, provider.TextContent(c.Text))
-				}
-
-				if c.Type == InputContentImage {
-					file, err := toFile(c.ImageURL)
-
-					if err != nil {
-						return nil, err
-					}
-
-					content = append(content, provider.FileContent(file))
-				}
-
-				if c.Type == InputContentFile {
-					file := &provider.File{
-						Name: c.Filename,
-					}
-
-					if c.FileData != "" {
-						data, err := base64.StdEncoding.DecodeString(c.FileData)
-
-						if err != nil {
-							return nil, err
-						}
-
-						if mime := mime.TypeByExtension(path.Ext(c.Filename)); mime != "" {
-							file.ContentType = mime
-						}
-
-						file.Content = data
-					}
-
-					if c.FileURL != "" {
-						f, err := toFile(c.FileURL)
-
-						if err != nil {
-							return nil, err
-						}
-
-						if file.Name == "" {
-							file.Name = f.Name
-						}
-
-						file.Content = f.Content
-						file.ContentType = f.ContentType
-					}
-
-					content = append(content, provider.FileContent(file))
-				}
-			}
-
-			if m.Role == MessageRoleAssistant && len(pendingToolCalls) > 0 {
-				for _, call := range pendingToolCalls {
-					content = append(content, provider.ToolCallContent(call))
-				}
-
-				pendingToolCalls = nil
-			}
-
-			if len(content) > 0 {
-				result = append(result, provider.Message{
-					Role:    toMessageRole(m.Role),
-					Content: content,
-				})
-			}
-
-		case InputItemTypeReasoning:
-			continue
-
-		case InputItemTypeFunctionCall:
-			if item.InputFunctionCall == nil {
-				continue
-			}
-
-			call := item.InputFunctionCall
-
-			toolCall := provider.ToolCall{
-				ID:        call.CallID,
-				Name:      call.Name,
-				Arguments: call.Arguments,
-			}
-
-			result = append(result, provider.Message{
-				Role: provider.MessageRoleAssistant,
-				Content: []provider.Content{
-					provider.ToolCallContent(toolCall),
 				},
-			})
-
-		case InputItemTypeFunctionCallOutput:
-			if item.InputFunctionCallOutput == nil {
-				continue
 			}
 
-			output := item.InputFunctionCallOutput
-
-			result = append(result, provider.Message{
-				Role: provider.MessageRoleUser,
-				Content: []provider.Content{
-					provider.ToolResultContent(provider.ToolResult{
-						ID:   output.CallID,
-						Data: output.Output,
-					}),
-				},
-			})
+			result.Output = append(result.Output, output)
 		}
 	}
 
-	return result, nil
-}
-
-func toTools(tools []Tool) ([]provider.Tool, error) {
-	if len(tools) == 0 {
-		return nil, nil
+	if completion.Usage != nil {
+		result.Usage = &Usage{
+			InputTokens:  completion.Usage.InputTokens,
+			OutputTokens: completion.Usage.OutputTokens,
+			TotalTokens:  completion.Usage.InputTokens + completion.Usage.OutputTokens,
+		}
 	}
 
-	result := make([]provider.Tool, 0, len(tools))
-
-	for _, t := range tools {
-		// Only support function tools for now
-		// Custom tools (like apply_patch) require special handling by the model
-		if t.Type == ToolTypeFunction {
-			tool := provider.Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				Strict:      t.Strict,
-				Parameters:  tool.NormalizeSchema(t.Parameters),
-			}
-			result = append(result, tool)
-		}
-		// Note: Custom tools with grammar format are passed through to the model
-		// but may require special handling in the completer
-	}
-
-	return result, nil
-}
-
-func toMessageRole(r MessageRole) provider.MessageRole {
-	switch r {
-	case MessageRoleSystem:
-		return provider.MessageRoleSystem
-
-	case MessageRoleUser: // MessageRoleTool
-		return provider.MessageRoleUser
-
-	case MessageRoleAssistant:
-		return provider.MessageRoleAssistant
-
-	default:
-		return ""
-	}
-}
-
-func toFile(url string) (*provider.File, error) {
-	if url == "" {
-		return nil, errors.New("inavlid data url")
-	}
-
-	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-		resp, err := http.Get(url)
-
-		if err != nil {
-			return nil, err
-		}
-
-		defer resp.Body.Close()
-
-		data, err := io.ReadAll(resp.Body)
-
-		if err != nil {
-			return nil, err
-		}
-
-		file := provider.File{
-			Content:     data,
-			ContentType: resp.Header.Get("Content-Type"),
-		}
-
-		if ext, _ := mime.ExtensionsByType(file.ContentType); len(ext) > 0 {
-			file.Name = uuid.New().String() + ext[0]
-		}
-
-		return &file, nil
-	}
-
-	if strings.HasPrefix(url, "data:") {
-		re := regexp.MustCompile(`data:([a-zA-Z]+\/[a-zA-Z0-9.+_-]+);base64,\s*(.+)`)
-
-		match := re.FindStringSubmatch(url)
-
-		if len(match) != 3 {
-			return nil, fmt.Errorf("invalid data url")
-		}
-
-		data, err := base64.StdEncoding.DecodeString(match[2])
-
-		if err != nil {
-			return nil, fmt.Errorf("invalid data encoding")
-		}
-
-		file := provider.File{
-			Content:     data,
-			ContentType: match[1],
-		}
-
-		if ext, _ := mime.ExtensionsByType(file.ContentType); len(ext) > 0 {
-			file.Name = uuid.New().String() + ext[0]
-		}
-
-		return &file, nil
-	}
-
-	return nil, fmt.Errorf("invalid url")
+	writeJson(w, result)
 }

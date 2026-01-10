@@ -11,6 +11,7 @@ const (
 	StreamEventResponseCreated    StreamEventType = "response.created"
 	StreamEventResponseInProgress StreamEventType = "response.in_progress"
 	StreamEventResponseCompleted  StreamEventType = "response.completed"
+	StreamEventResponseFailed     StreamEventType = "response.failed"
 	StreamEventOutputItemAdded    StreamEventType = "output_item.added"
 	StreamEventOutputItemDone     StreamEventType = "output_item.done"
 	StreamEventContentPartAdded   StreamEventType = "content_part.added"
@@ -40,6 +41,9 @@ type StreamEvent struct {
 	ToolCallName string
 	Arguments    string
 	OutputIndex  int
+
+	// For error events
+	Error error
 
 	// The accumulated completion state
 	Completion *provider.Completion
@@ -276,6 +280,14 @@ func (s *StreamingAccumulator) Complete() error {
 	}
 
 	return nil
+}
+
+// Error emits an error event
+func (s *StreamingAccumulator) Error(err error) error {
+	return s.emitEvent(StreamEvent{
+		Type:  StreamEventResponseFailed,
+		Error: err,
+	})
 }
 
 // Result returns the accumulated completion

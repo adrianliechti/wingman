@@ -140,10 +140,6 @@ type Usage struct {
 
 // Streaming event types
 
-type StreamEvent struct {
-	Type string `json:"type"`
-}
-
 type MessageStartEvent struct {
 	Type    string  `json:"type"` // "message_start"
 	Message Message `json:"message"`
