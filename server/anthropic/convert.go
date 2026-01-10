@@ -9,22 +9,24 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
 func toMessages(system string, messages []MessageParam) ([]provider.Message, error) {
 	var result []provider.Message
 
-	// Add system message if present
 	if system != "" {
 		result = append(result, provider.SystemMessage(system))
 	}
 
 	for _, m := range messages {
-		msg, err := toMessage(m)
+		message, err := toMessage(m)
+
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *msg)
+
+		result = append(result, *message)
 	}
 
 	return result, nil
@@ -32,16 +34,20 @@ func toMessages(system string, messages []MessageParam) ([]provider.Message, err
 
 func toMessage(m MessageParam) (*provider.Message, error) {
 	blocks, err := parseContentBlocks(m.Content)
+
 	if err != nil {
 		return nil, err
 	}
 
 	var role provider.MessageRole
+
 	switch m.Role {
 	case MessageRoleUser:
 		role = provider.MessageRoleUser
+
 	case MessageRoleAssistant:
 		role = provider.MessageRoleAssistant
+
 	default:
 		role = provider.MessageRoleUser
 	}
@@ -56,18 +62,22 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 		case "image":
 			if block.Source != nil {
 				file, err := toFile(block.Source)
+
 				if err != nil {
 					return nil, err
 				}
+
 				content = append(content, provider.FileContent(file))
 			}
 
 		case "tool_use":
 			// Tool use in assistant message (for multi-turn conversations)
 			args, err := toJSONString(block.Input)
+
 			if err != nil {
 				return nil, err
 			}
+
 			content = append(content, provider.ToolCallContent(provider.ToolCall{
 				ID:        block.ID,
 				Name:      block.Name,
@@ -76,13 +86,15 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 
 		case "tool_result":
 			// Tool result in user message
-			resultContent, err := toToolResultContent(block.Content)
+			result, err := toToolResultContent(block.Content)
+
 			if err != nil {
 				return nil, err
 			}
+
 			content = append(content, provider.ToolResultContent(provider.ToolResult{
 				ID:   block.ToolUseID,
-				Data: resultContent,
+				Data: result,
 			}))
 		}
 	}
@@ -105,9 +117,11 @@ func toFile(source *ImageSource) (*provider.File, error) {
 	switch source.Type {
 	case "base64":
 		data, err := base64.StdEncoding.DecodeString(source.Data)
+
 		if err != nil {
 			return nil, err
 		}
+
 		file.Content = data
 
 	case "url":
@@ -127,28 +141,37 @@ func toToolResultContent(content any) (string, error) {
 	switch v := content.(type) {
 	case string:
 		return v, nil
+
 	case []any:
 		// Array of content blocks - extract text
 		var texts []string
+
 		for _, item := range v {
 			data, err := json.Marshal(item)
+
 			if err != nil {
 				return "", err
 			}
+
 			var block ContentBlockParam
+
 			if err := json.Unmarshal(data, &block); err != nil {
 				return "", err
 			}
+
 			if block.Type == "text" {
 				texts = append(texts, block.Text)
 			}
 		}
 		return strings.Join(texts, "\n"), nil
+
 	default:
 		data, err := json.Marshal(v)
+
 		if err != nil {
 			return "", err
 		}
+
 		return string(data), nil
 	}
 }
@@ -163,6 +186,7 @@ func toJSONString(v any) (string, error) {
 	}
 
 	data, err := json.Marshal(v)
+
 	if err != nil {
 		return "", err
 	}
@@ -174,12 +198,11 @@ func toTools(tools []ToolParam) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
-		tool := provider.Tool{
+		result = append(result, provider.Tool{
 			Name:        t.Name,
 			Description: t.Description,
-			Parameters:  t.InputSchema,
-		}
-		result = append(result, tool)
+			Parameters:  tool.NormalizeSchema(t.InputSchema),
+		})
 	}
 
 	return result
@@ -198,15 +221,18 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 
 		if c.ToolCall != nil {
 			var input any
+
 			if c.ToolCall.Arguments != "" {
 				json.Unmarshal([]byte(c.ToolCall.Arguments), &input)
 			}
+
 			if input == nil {
 				input = map[string]any{}
 			}
 
 			result = append(result, ContentBlock{
-				Type:  "tool_use",
+				Type: "tool_use",
+
 				ID:    c.ToolCall.ID,
 				Name:  c.ToolCall.Name,
 				Input: input,
@@ -223,6 +249,7 @@ func toStopReason(content []provider.Content) StopReason {
 			return StopReasonToolUse
 		}
 	}
+
 	return StopReasonEndTurn
 }
 
@@ -237,5 +264,6 @@ func generateToolUseID() string {
 func generateID(length int) string {
 	bytes := make([]byte, length)
 	rand.Read(bytes)
+
 	return hex.EncodeToString(bytes)[:length]
 }

@@ -71,9 +71,10 @@ type CacheControl struct {
 }
 
 type ToolParam struct {
+	Type        string         `json:"type,omitempty"` // "custom" for regular tools
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
-	InputSchema map[string]any `json:"input_schema"`
+	InputSchema map[string]any `json:"input_schema,omitempty"`
 }
 
 type ToolChoice struct {
@@ -83,6 +84,19 @@ type ToolChoice struct {
 
 type Metadata struct {
 	UserID string `json:"user_id,omitempty"`
+}
+
+// Count tokens types
+
+type CountTokensRequest struct {
+	Model    string         `json:"model"`
+	Messages []MessageParam `json:"messages"`
+	System   any            `json:"system,omitempty"` // string or []SystemBlock
+	Tools    []ToolParam    `json:"tools,omitempty"`
+}
+
+type CountTokensResponse struct {
+	InputTokens int `json:"input_tokens"`
 }
 
 // Response types

@@ -24,6 +24,7 @@ func New(cfg *config.Config) *Handler {
 
 func (h *Handler) Attach(r chi.Router) {
 	r.Post("/messages", h.handleMessages)
+	r.Post("/messages/count_tokens", h.handleCountTokens)
 }
 
 func writeJson(w http.ResponseWriter, v any) {
@@ -42,22 +43,31 @@ func writeError(w http.ResponseWriter, code int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 
-	errorType := "invalid_request_error"
-
-	if code == http.StatusUnauthorized {
+	var errorType string
+	switch code {
+	case http.StatusUnauthorized:
 		errorType = "authentication_error"
-	} else if code == http.StatusForbidden {
+
+	case http.StatusForbidden:
 		errorType = "permission_error"
-	} else if code == http.StatusNotFound {
+
+	case http.StatusNotFound:
 		errorType = "not_found_error"
-	} else if code == http.StatusTooManyRequests {
+
+	case http.StatusTooManyRequests:
 		errorType = "rate_limit_error"
-	} else if code >= 500 {
-		errorType = "api_error"
+
+	default:
+		errorType = "invalid_request_error"
+
+		if code >= 500 {
+			errorType = "api_error"
+		}
 	}
 
 	resp := ErrorResponse{
 		Type: "error",
+
 		Error: Error{
 			Type:    errorType,
 			Message: err.Error(),
