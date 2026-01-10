@@ -1,9 +1,14 @@
 package embeddings
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
+
+	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +31,7 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	switch v := req.Input.(type) {
 	case string:
 		inputs = []string{v}
+
 	case []string:
 		inputs = v
 	}
@@ -35,7 +41,15 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	embedding, err := embedder.Embed(r.Context(), inputs)
+	var options *provider.EmbedOptions
+
+	if req.Dimensions != nil {
+		options = &provider.EmbedOptions{
+			Dimensions: req.Dimensions,
+		}
+	}
+
+	embedding, err := embedder.Embed(r.Context(), inputs, options)
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -52,13 +66,21 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		result.Model = req.Model
 	}
 
+	useBase64 := req.EncodingFormat == "base64"
+
 	for i, e := range embedding.Embeddings {
-		result.Data = append(result.Data, Embedding{
+		embedding := Embedding{
 			Object: "embedding",
 
 			Index:     i,
 			Embedding: e,
-		})
+		}
+
+		if useBase64 {
+			embedding.Embedding = floatsToBase64(e)
+		}
+
+		result.Data = append(result.Data, embedding)
 	}
 
 	if embedding.Usage != nil {
@@ -69,4 +91,14 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJson(w, result)
+}
+
+func floatsToBase64(floats []float32) string {
+	buf := make([]byte, len(floats)*4)
+
+	for i, f := range floats {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(f))
+	}
+
+	return base64.StdEncoding.EncodeToString(buf)
 }

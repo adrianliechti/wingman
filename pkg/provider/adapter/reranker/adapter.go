@@ -25,7 +25,7 @@ func FromEmbedder(model string, embedder provider.Embedder) *Adapter {
 }
 
 func (a *Adapter) Rerank(ctx context.Context, query string, texts []string, options *provider.RerankOptions) ([]provider.Ranking, error) {
-	result, err := a.embedder.Embed(ctx, []string{query})
+	result, err := a.embedder.Embed(ctx, []string{query}, nil)
 
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func (a *Adapter) Rerank(ctx context.Context, query string, texts []string, opti
 	var results []provider.Ranking
 
 	for _, text := range texts {
-		embedding, err := a.embedder.Embed(ctx, []string{text})
+		embedding, err := a.embedder.Embed(ctx, []string{text}, nil)
 
 		if err != nil {
 			return nil, err
