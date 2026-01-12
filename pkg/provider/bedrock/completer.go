@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"iter"
-	"reflect"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
@@ -29,14 +31,29 @@ type Completer struct {
 
 func NewCompleter(model string, options ...Option) (*Completer, error) {
 	cfg := &Config{
-		model: model,
+		model:  model,
+		client: http.DefaultClient,
 	}
 
 	for _, option := range options {
 		option(cfg)
 	}
 
-	config, err := config.LoadDefaultConfig(context.Background())
+	var configOptions []func(*config.LoadOptions) error
+
+	if cfg.client != nil {
+		configOptions = append(configOptions, config.WithHTTPClient(cfg.client))
+	}
+
+	// Configure retry with exponential backoff for throttling errors
+	configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
+		return retry.NewStandard(func(o *retry.StandardOptions) {
+			o.MaxAttempts = 10
+			o.MaxBackoff = 60 * time.Second
+		})
+	}))
+
+	config, err := config.LoadDefaultConfig(context.Background(), configOptions...)
 
 	if err != nil {
 		return nil, err
@@ -64,6 +81,20 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 
+		config := &types.InferenceConfiguration{}
+
+		if options.MaxTokens != nil {
+			config.MaxTokens = aws.Int32(int32(*options.MaxTokens))
+		}
+
+		if options.Temperature != nil {
+			config.Temperature = options.Temperature
+		}
+
+		if len(options.Stop) > 0 {
+			config.StopSequences = options.Stop
+		}
+
 		params := &bedrockruntime.ConverseStreamInput{
 			ModelId: req.ModelId,
 
@@ -72,9 +103,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			System:     req.System,
 			ToolConfig: req.ToolConfig,
 
-			InferenceConfig: &types.InferenceConfiguration{
-				MaxTokens: aws.Int32(16384),
-			},
+			InferenceConfig: config,
 		}
 
 		resp, err := c.client.ConverseStream(ctx, params)
@@ -121,12 +150,19 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						},
 					}
 
+					// Schema mode: convert tool call to text content
+					if options.Schema != nil {
+						delta.Message.Content = []provider.Content{
+							provider.TextContent(""),
+						}
+					}
+
 					if !yield(delta, nil) {
 						return
 					}
 
 				default:
-					fmt.Printf("unknown block type, %T\n", b)
+					// Unknown block type, skip silently
 				}
 
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
@@ -165,12 +201,19 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						},
 					}
 
+					// Schema mode: convert tool arguments to text content
+					if options.Schema != nil {
+						delta.Message.Content = []provider.Content{
+							provider.TextContent(*b.Value.Input),
+						}
+					}
+
 					if !yield(delta, nil) {
 						return
 					}
 
 				default:
-					fmt.Printf("unknown block type, %T\n", b)
+					// Unknown delta type, skip silently
 				}
 
 			case *types.ConverseStreamOutputMemberContentBlockStop:
@@ -214,11 +257,17 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case *types.UnknownUnionMember:
-				fmt.Println("unknown tag", v.Tag)
+				// Unknown union member, skip silently
 
 			default:
-				fmt.Printf("unknown event type, %T\n", v)
+				// Unknown event type, skip silently
 			}
+		}
+
+		// Check for stream errors
+		if err := resp.GetStream().Err(); err != nil {
+			yield(nil, err)
+			return
 		}
 	}
 }
@@ -230,13 +279,43 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		return nil, err
 	}
 
+	toolConfig := convertToolConfig(options.Tools)
+
+	// Schema mode: create a tool with the schema and force ToolChoice
+	if options.Schema != nil {
+		if toolConfig == nil {
+			toolConfig = &types.ToolConfiguration{}
+		}
+
+		tool := types.ToolSpecification{
+			Name: aws.String(options.Schema.Name),
+		}
+
+		if options.Schema.Description != "" {
+			tool.Description = aws.String(options.Schema.Description)
+		}
+
+		if options.Schema.Schema != nil {
+			tool.InputSchema = &types.ToolInputSchemaMemberJson{
+				Value: document.NewLazyDocument(options.Schema.Schema),
+			}
+		}
+
+		toolConfig.Tools = append(toolConfig.Tools, &types.ToolMemberToolSpec{Value: tool})
+		toolConfig.ToolChoice = &types.ToolChoiceMemberTool{
+			Value: types.SpecificToolChoice{
+				Name: aws.String(options.Schema.Name),
+			},
+		}
+	}
+
 	return &bedrockruntime.ConverseInput{
 		ModelId: aws.String(c.model),
 
 		Messages: messages,
 
 		System:     convertSystem(input),
-		ToolConfig: convertToolConfig(options.Tools),
+		ToolConfig: toolConfig,
 	}, nil
 }
 
@@ -271,103 +350,126 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 func convertMessages(messages []provider.Message) ([]types.Message, error) {
 	var result []types.Message
 
+	// Pre-process: merge consecutive messages with the same role (required by Bedrock API)
+	var merged []provider.Message
 	for _, m := range messages {
-		switch m.Role {
+		if len(merged) > 0 && merged[len(merged)-1].Role == m.Role {
+			last := &merged[len(merged)-1]
+			last.Content = append(last.Content, m.Content...)
+		} else {
+			merged = append(merged, m)
+		}
+	}
 
-		case provider.MessageRoleSystem:
+	for _, m := range merged {
+		if m.Role == provider.MessageRoleSystem {
 			continue
+		}
 
+		var err error
+
+		var role types.ConversationRole
+		var content []types.ContentBlock
+
+		switch m.Role {
 		case provider.MessageRoleUser:
-			message := types.Message{
-				Role: types.ConversationRoleUser,
-			}
-
-			for _, c := range m.Content {
-				if c.Text != "" {
-					block := &types.ContentBlockMemberText{
-						Value: c.Text,
-					}
-
-					message.Content = append(message.Content, block)
-				}
-
-				if c.File != nil {
-					block, err := convertFile(c.File)
-
-					if err != nil {
-						return nil, err
-					}
-
-					message.Content = append(message.Content, block)
-				}
-
-				if c.ToolResult != nil {
-					var data any
-					json.Unmarshal([]byte(c.ToolResult.Data), &data)
-
-					if reflect.TypeOf(data).Kind() != reflect.Map {
-						data = map[string]any{
-							"result": data,
-						}
-					}
-
-					block := &types.ContentBlockMemberToolResult{
-						Value: types.ToolResultBlock{
-							ToolUseId: aws.String(c.ToolResult.ID),
-
-							Content: []types.ToolResultContentBlock{
-								&types.ToolResultContentBlockMemberJson{
-									Value: document.NewLazyDocument(data),
-								},
-							},
-						},
-					}
-
-					message.Content = append(message.Content, block)
-				}
-			}
-
-			result = append(result, message)
+			role = types.ConversationRoleUser
+			content, err = convertUserContent(m)
 
 		case provider.MessageRoleAssistant:
-			message := types.Message{
-				Role: types.ConversationRoleAssistant,
-			}
-
-			for _, c := range m.Content {
-				if c.Text != "" {
-					content := &types.ContentBlockMemberText{
-						Value: c.Text,
-					}
-
-					message.Content = append(message.Content, content)
-				}
-
-				if c.ToolCall != nil {
-					var data any
-					json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
-
-					content := &types.ContentBlockMemberToolUse{
-						Value: types.ToolUseBlock{
-							ToolUseId: aws.String(c.ToolCall.ID),
-							Name:      aws.String(c.ToolCall.Name),
-
-							Input: document.NewLazyDocument(data),
-						},
-					}
-
-					message.Content = append(message.Content, content)
-				}
-			}
-
-			result = append(result, message)
+			role = types.ConversationRoleAssistant
+			content, err = convertAssistantContent(m)
 
 		default:
 			return nil, errors.New("unsupported message role")
 		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if len(content) == 0 {
+			continue
+		}
+
+		result = append(result, types.Message{
+			Role:    role,
+			Content: content,
+		})
 	}
 
 	return result, nil
+}
+
+func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
+	var content []types.ContentBlock
+
+	for _, c := range m.Content {
+		if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+			content = append(content, &types.ContentBlockMemberText{Value: text})
+		}
+
+		if c.File != nil {
+			block, err := convertFile(c.File)
+
+			if err != nil {
+				return nil, err
+			}
+
+			content = append(content, block)
+		}
+
+		if c.ToolResult != nil {
+			data := c.ToolResult.Data
+
+			if data == "" {
+				data = "OK"
+			}
+
+			content = append(content, &types.ContentBlockMemberToolResult{
+				Value: types.ToolResultBlock{
+					Status: types.ToolResultStatusSuccess,
+
+					ToolUseId: aws.String(c.ToolResult.ID),
+
+					Content: []types.ToolResultContentBlock{
+						&types.ToolResultContentBlockMemberText{Value: data},
+					},
+				},
+			})
+		}
+	}
+
+	return content, nil
+}
+
+func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
+	var content []types.ContentBlock
+
+	for _, c := range m.Content {
+		if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+			content = append(content, &types.ContentBlockMemberText{Value: text})
+		}
+
+		if c.ToolCall != nil {
+			var data map[string]any
+
+			if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil || data == nil {
+				data = map[string]any{}
+			}
+
+			content = append(content, &types.ContentBlockMemberToolUse{
+				Value: types.ToolUseBlock{
+					ToolUseId: aws.String(c.ToolCall.ID),
+
+					Name:  aws.String(c.ToolCall.Name),
+					Input: document.NewLazyDocument(data),
+				},
+			})
+		}
+	}
+
+	return content, nil
 }
 
 func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
@@ -399,15 +501,12 @@ func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
 }
 
 func convertFile(val *provider.File) (types.ContentBlock, error) {
-	if val == nil {
-		return nil, nil
-	}
-
 	if format, ok := convertDocumentFormat(val.ContentType); ok {
 		return &types.ContentBlockMemberDocument{
 			Value: types.DocumentBlock{
 				Name:   aws.String(uuid.NewString()),
 				Format: format,
+
 				Source: &types.DocumentSourceMemberBytes{
 					Value: val.Content,
 				},
@@ -419,6 +518,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		return &types.ContentBlockMemberImage{
 			Value: types.ImageBlock{
 				Format: format,
+
 				Source: &types.ImageSourceMemberBytes{
 					Value: val.Content,
 				},
@@ -430,6 +530,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		return &types.ContentBlockMemberVideo{
 			Value: types.VideoBlock{
 				Format: format,
+
 				Source: &types.VideoSourceMemberBytes{
 					Value: val.Content,
 				},
@@ -440,64 +541,42 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 	return nil, errors.New("unsupported file format")
 }
 
+var documentFormats = map[string]types.DocumentFormat{
+	"application/pdf": types.DocumentFormatPdf,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": types.DocumentFormatDocx,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":       types.DocumentFormatXlsx,
+	"text/plain":    types.DocumentFormatTxt,
+	"text/csv":      types.DocumentFormatCsv,
+	"text/markdown": types.DocumentFormatMd,
+}
+
+var imageFormats = map[string]types.ImageFormat{
+	"image/png":  types.ImageFormatPng,
+	"image/jpeg": types.ImageFormatJpeg,
+	"image/gif":  types.ImageFormatGif,
+	"image/webp": types.ImageFormatWebp,
+}
+
+var videoFormats = map[string]types.VideoFormat{
+	"video/matroska":  types.VideoFormatMkv,
+	"video/quicktime": types.VideoFormatMov,
+	"video/mp4":       types.VideoFormatMp4,
+	"video/webm":      types.VideoFormatWebm,
+}
+
 func convertDocumentFormat(mime string) (types.DocumentFormat, bool) {
-	switch mime {
-	case "application/pdf":
-		return types.DocumentFormatPdf, true
-
-	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-		return types.DocumentFormatDocx, true
-
-	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-		return types.DocumentFormatXlsx, true
-
-	case "text/plain":
-		return types.DocumentFormatTxt, true
-
-	case "text/csv":
-		return types.DocumentFormatCsv, true
-
-	case "text/markdown":
-		return types.DocumentFormatMd, true
-	}
-
-	return "", false
+	format, ok := documentFormats[mime]
+	return format, ok
 }
 
 func convertImageFormat(mime string) (types.ImageFormat, bool) {
-	switch mime {
-	case "image/png":
-		return types.ImageFormatPng, true
-
-	case "image/jpeg":
-		return types.ImageFormatJpeg, true
-
-	case "image/gif":
-		return types.ImageFormatGif, true
-
-	case "image/webp":
-		return types.ImageFormatWebp, true
-	}
-
-	return "", false
+	format, ok := imageFormats[mime]
+	return format, ok
 }
 
 func convertVideoFormat(mime string) (types.VideoFormat, bool) {
-	switch mime {
-	case "video/matroska":
-		return types.VideoFormatMkv, true
-
-	case "video/quicktime":
-		return types.VideoFormatMov, true
-
-	case "video/mp4":
-		return types.VideoFormatMp4, true
-
-	case "video/webm":
-		return types.VideoFormatWebm, true
-	}
-
-	return "", false
+	format, ok := videoFormats[mime]
+	return format, ok
 }
 
 func toUsage(val *types.TokenUsage) *provider.Usage {

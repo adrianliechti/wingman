@@ -45,13 +45,13 @@ func NewEmbedder(provider, model string, p provider.Embedder) Embedder {
 func (p *observableEmbedder) otelSetup() {
 }
 
-func (p *observableEmbedder) Embed(ctx context.Context, texts []string) (*provider.Embedding, error) {
+func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options *provider.EmbedOptions) (*provider.Embedding, error) {
 	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "embeddings "+p.model)
 	defer span.End()
 
 	timestamp := time.Now()
 
-	result, err := p.embedder.Embed(ctx, texts)
+	result, err := p.embedder.Embed(ctx, texts, options)
 
 	if result != nil {
 		duration := time.Since(timestamp).Seconds()

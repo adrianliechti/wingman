@@ -49,5 +49,9 @@ func openaiSynthesizer(cfg providerConfig, model modelContext) (provider.Synthes
 		options = append(options, openai.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, openai.WithClient(model.Client))
+	}
+
 	return openai.NewSynthesizer(cfg.URL, model.ID, options...)
 }

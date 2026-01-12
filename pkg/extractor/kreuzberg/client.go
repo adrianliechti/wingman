@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -14,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+
+	"github.com/google/uuid"
 )
 
 var _ extractor.Provider = &Client{}
@@ -52,15 +55,19 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 	w := multipart.NewWriter(&body)
 
-	mime := file.ContentType
+	if file.ContentType == "" {
+		file.ContentType = "application/octet-stream"
+	}
 
-	if mime == "" {
-		mime = "application/octet-stream"
+	if file.Name == "" {
+		if ext, _ := mime.ExtensionsByType(file.ContentType); len(ext) > 0 {
+			file.Name = uuid.New().String() + ext[0]
+		}
 	}
 
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition", multipart.FileContentDisposition("files", file.Name))
-	h.Set("Content-Type", mime)
+	h.Set("Content-Type", file.ContentType)
 
 	f, err := w.CreatePart(h)
 
@@ -85,7 +92,7 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK {
 		return nil, convertError(resp)
 	}
 

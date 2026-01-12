@@ -279,7 +279,6 @@ type CompleteOptions struct {
 	MaxTokens   *int
 	Temperature *float32
 
-	Format CompletionFormat
 	Schema *Schema
 }
 
@@ -307,10 +306,4 @@ const (
 	VerbosityLow    Verbosity = "low"
 	VerbosityMedium Verbosity = "medium"
 	VerbosityHigh   Verbosity = "high"
-)
-
-type CompletionFormat string
-
-const (
-	CompletionFormatJSON CompletionFormat = "json"
 )
