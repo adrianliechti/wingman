@@ -161,7 +161,6 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			MaxTokens:   options.MaxTokens,
 			Temperature: options.Temperature,
 
-			Format: options.Format,
 			Schema: options.Schema,
 		}
 

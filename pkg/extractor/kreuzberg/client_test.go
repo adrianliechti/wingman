@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestExtract(t *testing.T) {
@@ -21,9 +20,8 @@ func TestExtract(t *testing.T) {
 		Started: true,
 
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "goldziher/kreuzberg:v3.18.0",
+			Image:        "goldziher/kreuzberg:4.0.0-core",
 			ExposedPorts: []string{"8000/tcp"},
-			WaitingFor:   wait.ForLog("Application startup complete"),
 		},
 	})
 
@@ -36,7 +34,7 @@ func TestExtract(t *testing.T) {
 
 	require.NoError(t, err)
 
-	resp, err := http.Get("https://helpx.adobe.com/pdf/acrobat_reference.pdf")
+	resp, err := http.Get("https://www.adobe.com/support/products/enterprise/knowledgecenter/media/c4611_sample_explain.pdf")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

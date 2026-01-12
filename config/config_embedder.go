@@ -77,6 +77,10 @@ func googleEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 		options = append(options, google.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, google.WithClient(model.Client))
+	}
+
 	return google.NewEmbedder(model.ID, options...)
 }
 
@@ -85,6 +89,10 @@ func huggingfaceEmbedder(cfg providerConfig, model modelContext) (provider.Embed
 
 	if cfg.Token != "" {
 		options = append(options, huggingface.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, huggingface.WithClient(model.Client))
 	}
 
 	return huggingface.NewEmbedder(cfg.URL, model.ID, options...)
@@ -97,11 +105,19 @@ func jinaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, er
 		options = append(options, jina.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, jina.WithClient(model.Client))
+	}
+
 	return jina.NewEmbedder(cfg.URL, model.ID, options...)
 }
 
 func llamaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
 	var options []llama.Option
+
+	if model.Client != nil {
+		options = append(options, llama.WithClient(model.Client))
+	}
 
 	return llama.NewEmbedder(model.ID, cfg.URL, options...)
 }
@@ -113,11 +129,19 @@ func mistralEmbedder(cfg providerConfig, model modelContext) (provider.Embedder,
 		options = append(options, mistral.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, mistral.WithClient(model.Client))
+	}
+
 	return mistral.NewEmbedder(model.ID, options...)
 }
 
 func ollamaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
 	var options []ollama.Option
+
+	if model.Client != nil {
+		options = append(options, ollama.WithClient(model.Client))
+	}
 
 	return ollama.NewEmbedder(cfg.URL, model.ID, options...)
 }
@@ -127,6 +151,10 @@ func openaiEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 
 	if cfg.Token != "" {
 		options = append(options, openai.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, openai.WithClient(model.Client))
 	}
 
 	return openai.NewEmbedder(cfg.URL, model.ID, options...)

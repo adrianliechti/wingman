@@ -2,6 +2,7 @@ package google
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -117,6 +118,18 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 
 	if len(options.Tools) > 0 {
 		config.Tools = convertTools(options.Tools)
+
+		// Check if any tool has Strict=true, if so use VALIDATED mode
+		for _, t := range options.Tools {
+			if t.Strict != nil && *t.Strict {
+				config.ToolConfig = &genai.ToolConfig{
+					FunctionCallingConfig: &genai.FunctionCallingConfig{
+						Mode: genai.FunctionCallingConfigModeValidated,
+					},
+				}
+				break
+			}
+		}
 	}
 
 	if len(options.Stop) > 0 {
@@ -131,12 +144,9 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 		config.Temperature = options.Temperature
 	}
 
-	if options.Format == provider.CompletionFormatJSON || options.Schema != nil {
+	if options.Schema != nil {
 		config.ResponseMIMEType = "application/json"
-
-		if options.Schema != nil {
-			config.ResponseJsonSchema = options.Schema.Schema
-		}
+		config.ResponseJsonSchema = options.Schema.Schema
 	}
 
 	return config
@@ -150,8 +160,8 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "user"
 
 		for _, c := range message.Content {
-			if c.Text != "" {
-				part := genai.NewPartFromText(c.Text)
+			if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+				part := genai.NewPartFromText(text)
 				content.Parts = append(content.Parts, part)
 			}
 
@@ -168,16 +178,20 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 
 			if c.ToolResult != nil {
 				var data any
-				json.Unmarshal([]byte(c.ToolResult.Data), &data)
-
 				var parameters map[string]any
 
-				if val, ok := data.(map[string]any); ok {
-					parameters = val
+				if err := json.Unmarshal([]byte(c.ToolResult.Data), &data); err == nil {
+					if val, ok := data.(map[string]any); ok {
+						parameters = val
+					}
+
+					if val, ok := data.([]any); ok {
+						parameters = map[string]any{"data": val}
+					}
 				}
 
-				if val, ok := data.([]any); ok {
-					parameters = map[string]any{"data": val}
+				if parameters == nil {
+					parameters = map[string]any{"output": c.ToolResult.Data}
 				}
 
 				id, name, signature := parseToolID(c.ToolResult.ID)
@@ -194,14 +208,16 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 		content.Role = "model"
 
 		for _, c := range message.Content {
-			if c.Text != "" {
-				part := genai.NewPartFromText(c.Text)
+			if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+				part := genai.NewPartFromText(text)
 				content.Parts = append(content.Parts, part)
 			}
 
 			if c.ToolCall != nil {
 				var data map[string]any
-				json.Unmarshal([]byte(c.ToolCall.Arguments), &data)
+				if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil || data == nil {
+					data = map[string]any{}
+				}
 
 				id, name, signature := parseToolID(c.ToolCall.ID)
 
@@ -307,7 +323,17 @@ func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *pr
 }
 
 func formatToolID(id, name string, signature []byte) string {
+	// Generate a unique ID if upstream didn't provide one
+	if id == "" {
+		id = generateCallID()
+	}
 	return strings.Join([]string{id, name, base64.StdEncoding.EncodeToString(signature)}, "::")
+}
+
+func generateCallID() string {
+	b := make([]byte, 12)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func parseToolID(s string) (id, name string, signature []byte) {

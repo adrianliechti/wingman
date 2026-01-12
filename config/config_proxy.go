@@ -14,15 +14,16 @@ func (cfg *proxyConfig) proxyTransport() (*http.Transport, error) {
 		return nil, nil
 	}
 
-	url, err := url.Parse(cfg.URL)
+	proxyURL, err := url.Parse(cfg.URL)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &http.Transport{
-		Proxy: http.ProxyURL(url),
-	}, nil
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = http.ProxyURL(proxyURL)
+
+	return tr, nil
 }
 
 func (cfg *proxyConfig) proxyClient() (*http.Client, error) {

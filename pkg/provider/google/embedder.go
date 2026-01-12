@@ -28,7 +28,11 @@ func NewEmbedder(model string, options ...Option) (*Embedder, error) {
 	}, nil
 }
 
-func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embedding, error) {
+func (e *Embedder) Embed(ctx context.Context, texts []string, options *provider.EmbedOptions) (*provider.Embedding, error) {
+	if options == nil {
+		options = new(provider.EmbedOptions)
+	}
+
 	client, err := e.newClient(ctx)
 
 	if err != nil {
@@ -37,7 +41,21 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embeddi
 
 	var contents []*genai.Content
 
-	resp, err := client.Models.EmbedContent(ctx, e.model, contents, nil)
+	for _, text := range texts {
+		contents = append(contents, genai.NewContentFromText(text, genai.RoleUser))
+	}
+
+	var config *genai.EmbedContentConfig
+
+	if options.Dimensions != nil {
+		dim := int32(*options.Dimensions)
+
+		config = &genai.EmbedContentConfig{
+			OutputDimensionality: &dim,
+		}
+	}
+
+	resp, err := client.Models.EmbedContent(ctx, e.model, contents, config)
 
 	if err != nil {
 		return nil, convertError(err)

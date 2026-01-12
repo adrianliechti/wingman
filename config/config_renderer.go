@@ -59,6 +59,10 @@ func googleRenderer(cfg providerConfig, model modelContext) (provider.Renderer, 
 		options = append(options, google.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, google.WithClient(model.Client))
+	}
+
 	return google.NewRenderer(model.ID, options...)
 }
 
@@ -67,6 +71,10 @@ func openaiRenderer(cfg providerConfig, model modelContext) (provider.Renderer, 
 
 	if cfg.Token != "" {
 		options = append(options, openai.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, openai.WithClient(model.Client))
 	}
 
 	return openai.NewRenderer(cfg.URL, model.ID, options...)
@@ -78,6 +86,10 @@ func replicateRenderer(cfg providerConfig, model modelContext) (provider.Rendere
 
 		if cfg.Token != "" {
 			options = append(options, replicate.WithToken(cfg.Token))
+		}
+
+		if model.Client != nil {
+			options = append(options, replicate.WithClient(model.Client))
 		}
 
 		return flux.NewRenderer(model.ID, options...)

@@ -62,3 +62,12 @@ func writeEvent(w http.ResponseWriter, v any) error {
 
 	return nil
 }
+
+func writeErrorEvent(w http.ResponseWriter, err error) error {
+	return writeEvent(w, shared.ErrorResponse{
+		Error: shared.Error{
+			Type:    "server_error",
+			Message: err.Error(),
+		},
+	})
+}

@@ -44,9 +44,18 @@ func NewEmbedder(url string, model string, options ...Option) (*Embedder, error)
 	}, nil
 }
 
-func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embedding, error) {
+func (e *Embedder) Embed(ctx context.Context, texts []string, options *provider.EmbedOptions) (*provider.Embedding, error) {
+	if options == nil {
+		options = new(provider.EmbedOptions)
+	}
+
 	body := map[string]any{
+		"model": e.model,
 		"input": texts,
+	}
+
+	if options.Dimensions != nil {
+		body["dimensions"] = *options.Dimensions
 	}
 
 	u, _ := url.JoinPath(e.url, "/v1/embeddings")

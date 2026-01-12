@@ -212,12 +212,6 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		req.Text.Verbosity = responses.ResponseTextConfigVerbosityHigh
 	}
 
-	if options.Format == provider.CompletionFormatJSON {
-		req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
-			OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
-		}
-	}
-
 	if options.Schema != nil {
 		schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
 			Name:   options.Schema.Name,

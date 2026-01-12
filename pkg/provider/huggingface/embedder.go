@@ -42,7 +42,7 @@ func NewEmbedder(url, model string, options ...Option) (*Embedder, error) {
 	}, nil
 }
 
-func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embedding, error) {
+func (e *Embedder) Embed(ctx context.Context, texts []string, options *provider.EmbedOptions) (*provider.Embedding, error) {
 	body := map[string]any{
 		"inputs": texts,
 	}

@@ -46,5 +46,5 @@ func (r *EmbeddingService) New(ctx context.Context, input EmbeddingsRequest, opt
 		return nil, err
 	}
 
-	return p.Embed(ctx, input.Texts)
+	return p.Embed(ctx, input.Texts, nil)
 }

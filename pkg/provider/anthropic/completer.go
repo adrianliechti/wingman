@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"iter"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -234,6 +235,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		Betas: []anthropic.AnthropicBeta{
 			anthropic.AnthropicBetaContext1m2025_08_07,
 			anthropic.AnthropicBetaContextManagement2025_06_27,
+			"structured-outputs-2025-11-13",
 		},
 
 		ContextManagement: anthropic.BetaContextManagementConfigParam{
@@ -289,8 +291,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
-				if c.Text != "" {
-					blocks = append(blocks, anthropic.NewBetaTextBlock(c.Text))
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
 				}
 
 				if c.File != nil {
@@ -338,15 +340,15 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
-				if c.Text != "" {
-					blocks = append(blocks, anthropic.NewBetaTextBlock(c.Text))
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
 				}
 
 				if c.ToolCall != nil {
-					var input any
+					var input map[string]any
 
-					if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &input); err != nil {
-						input = c.ToolCall.Arguments
+					if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &input); err != nil || input == nil {
+						input = map[string]any{}
 					}
 
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
@@ -395,31 +397,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.Schema != nil {
-		var schema anthropic.BetaToolInputSchemaParam
-
-		schemaData, _ := json.Marshal(options.Schema.Schema)
-
-		if err := json.Unmarshal(schemaData, &schema); err != nil {
-			return nil, errors.New("invalid tool parameters schema")
-		}
-
-		tool := anthropic.BetaToolParam{
-			Name: options.Schema.Name,
-
-			InputSchema: schema,
-		}
-
-		if options.Schema.Description != "" {
-			tool.Description = anthropic.String(options.Schema.Description)
-		}
-
-		req.ToolChoice = anthropic.BetaToolChoiceUnionParam{
-			OfTool: &anthropic.BetaToolChoiceToolParam{
-				Name: options.Schema.Name,
-			},
-		}
-
-		tools = append(tools, anthropic.BetaToolUnionParam{OfTool: &tool})
+		req.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(options.Schema.Schema)
 	}
 
 	if len(system) > 0 {

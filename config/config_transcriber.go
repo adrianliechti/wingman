@@ -53,6 +53,10 @@ func mistralTranscriber(cfg providerConfig, model modelContext) (provider.Transc
 		options = append(options, mistral.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, mistral.WithClient(model.Client))
+	}
+
 	return mistral.NewTranscriber(model.ID, options...)
 }
 
@@ -61,6 +65,10 @@ func openaiTranscriber(cfg providerConfig, model modelContext) (provider.Transcr
 
 	if cfg.Token != "" {
 		options = append(options, openai.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, openai.WithClient(model.Client))
 	}
 
 	return openai.NewTranscriber(cfg.URL, model.ID, options...)

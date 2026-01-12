@@ -72,6 +72,16 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				Limiter: createLimiter(limit),
 			}
 
+			if p.Proxy != nil {
+				client, err := p.Proxy.proxyClient()
+
+				if err != nil {
+					return err
+				}
+
+				context.Client = client
+			}
+
 			switch context.Type {
 			case ModelTypeCompleter:
 				completer, err := createCompleter(p, context)
@@ -192,7 +202,8 @@ type providerConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
-	Limit *int `yaml:"limit"`
+	Limit *int         `yaml:"limit"`
+	Proxy *proxyConfig `yaml:"proxy"`
 
 	Models yaml.Node `yaml:"models"`
 }

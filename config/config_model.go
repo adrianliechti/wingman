@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -77,6 +78,7 @@ type modelContext struct {
 	Name        string
 	Description string
 
+	Client  *http.Client
 	Limiter *rate.Limiter
 }
 

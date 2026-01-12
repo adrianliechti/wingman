@@ -88,11 +88,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			req.Stops = options.Stop
 		}
 
-		if options.Format != "" {
-			val := string(options.Format)
-			req.Format = &val
-		}
-
 		if options.Schema != nil {
 			req.Schema = &Schema{
 				Name:        options.Schema.Name,

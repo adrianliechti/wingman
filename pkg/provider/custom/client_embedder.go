@@ -55,7 +55,7 @@ func NewEmbedder(url string, options ...Option) (*Embedder, error) {
 	return c, nil
 }
 
-func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embedding, error) {
+func (e *Embedder) Embed(ctx context.Context, texts []string, options *provider.EmbedOptions) (*provider.Embedding, error) {
 	req := &EmbedRequest{
 		Texts: texts,
 	}

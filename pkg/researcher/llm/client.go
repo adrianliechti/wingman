@@ -47,9 +47,6 @@ func New(completer provider.Completer, searcher searcher.Provider, options ...Op
 		completer: completer,
 		searcher:  searcher,
 
-		effort:    provider.EffortMinimal,
-		verbosity: provider.VerbosityMedium,
-
 		prompt: prompt,
 	}
 
@@ -66,7 +63,6 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 	}
 
 	prompt, err := c.prompt.Execute(map[string]any{
-		"Goal":       instructions,
 		"HasScraper": c.scraper != nil,
 	})
 

@@ -31,14 +31,26 @@ func NewEmbedder(url, model string, options ...Option) (*Embedder, error) {
 	}, nil
 }
 
-func (e *Embedder) Embed(ctx context.Context, texts []string) (*provider.Embedding, error) {
-	embedding, err := e.embeddings.New(ctx, openai.EmbeddingNewParams{
+func (e *Embedder) Embed(ctx context.Context, texts []string, options *provider.EmbedOptions) (*provider.Embedding, error) {
+	if options == nil {
+		options = new(provider.EmbedOptions)
+	}
+
+	params := openai.EmbeddingNewParams{
 		Model: e.model,
+
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfArrayOfStrings: texts,
 		},
+
 		EncodingFormat: openai.EmbeddingNewParamsEncodingFormatFloat,
-	})
+	}
+
+	if options.Dimensions != nil {
+		params.Dimensions = openai.Int(int64(*options.Dimensions))
+	}
+
+	embedding, err := e.embeddings.New(ctx, params)
 
 	if err != nil {
 		return nil, convertError(err)

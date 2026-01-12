@@ -142,12 +142,6 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		req.ReasoningEffort = openai.ReasoningEffortHigh
 	}
 
-	if options.Format == provider.CompletionFormatJSON {
-		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
-		}
-	}
-
 	if options.Schema != nil {
 		schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
 			Name:   options.Schema.Name,
@@ -221,8 +215,8 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			var toolData string
 
 			for _, c := range m.Content {
-				if c.Text != "" {
-					parts = append(parts, openai.TextContentPart(c.Text))
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+					parts = append(parts, openai.TextContentPart(text))
 				}
 
 				if c.File != nil {
@@ -270,10 +264,10 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			var content []openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion
 
 			for _, c := range m.Content {
-				if c.Text != "" {
+				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 					content = append(content, openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{
 						OfText: &openai.ChatCompletionContentPartTextParam{
-							Text: c.Text,
+							Text: text,
 						},
 					})
 				}

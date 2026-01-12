@@ -90,11 +90,19 @@ func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Comple
 		options = append(options, anthropic.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, anthropic.WithClient(model.Client))
+	}
+
 	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
 }
 
 func bedrockCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []bedrock.Option
+
+	if model.Client != nil {
+		options = append(options, bedrock.WithClient(model.Client))
+	}
 
 	return bedrock.NewCompleter(model.ID, options...)
 }
@@ -104,6 +112,10 @@ func googleCompleter(cfg providerConfig, model modelContext) (provider.Completer
 
 	if cfg.Token != "" {
 		options = append(options, google.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, google.WithClient(model.Client))
 	}
 
 	return google.NewCompleter(model.ID, options...)
@@ -116,11 +128,19 @@ func huggingfaceCompleter(cfg providerConfig, model modelContext) (provider.Comp
 		options = append(options, huggingface.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, huggingface.WithClient(model.Client))
+	}
+
 	return huggingface.NewCompleter(cfg.URL, model.ID, options...)
 }
 
 func llamaCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []llama.Option
+
+	if model.Client != nil {
+		options = append(options, llama.WithClient(model.Client))
+	}
 
 	return llama.NewCompleter(model.ID, cfg.URL, options...)
 }
@@ -132,11 +152,19 @@ func mistralCompleter(cfg providerConfig, model modelContext) (provider.Complete
 		options = append(options, mistral.WithToken(cfg.Token))
 	}
 
+	if model.Client != nil {
+		options = append(options, mistral.WithClient(model.Client))
+	}
+
 	return mistral.NewCompleter(model.ID, options...)
 }
 
 func ollamaCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
 	var options []ollama.Option
+
+	if model.Client != nil {
+		options = append(options, ollama.WithClient(model.Client))
+	}
 
 	return ollama.NewCompleter(cfg.URL, model.ID, options...)
 }
@@ -146,6 +174,10 @@ func openaiCompleter(cfg providerConfig, model modelContext, useLegacy bool) (pr
 
 	if cfg.Token != "" {
 		options = append(options, openai.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, openai.WithClient(model.Client))
 	}
 
 	if useLegacy {
