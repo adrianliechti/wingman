@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	"github.com/aws/smithy-go"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -45,11 +47,14 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 		configOptions = append(configOptions, config.WithHTTPClient(cfg.client))
 	}
 
-	// Configure retry with exponential backoff for throttling errors
+	// Configure adaptive retry mode for automatic throttle-based rate limiting
+	// AdaptiveMode starts unrestricted and applies rate limiting when throttle errors occur
 	configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
-		return retry.NewStandard(func(o *retry.StandardOptions) {
-			o.MaxAttempts = 10
-			o.MaxBackoff = 60 * time.Second
+		return retry.NewAdaptiveMode(func(o *retry.AdaptiveModeOptions) {
+			o.StandardOptions = append(o.StandardOptions, func(so *retry.StandardOptions) {
+				so.MaxAttempts = 10
+				so.MaxBackoff = 60 * time.Second
+			})
 		})
 	}))
 
@@ -109,7 +114,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		resp, err := c.client.ConverseStream(ctx, params)
 
 		if err != nil {
-			yield(nil, err)
+			yield(nil, convertError(err))
 			return
 		}
 
@@ -266,10 +271,86 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 		// Check for stream errors
 		if err := resp.GetStream().Err(); err != nil {
-			yield(nil, err)
+			yield(nil, convertError(err))
 			return
 		}
 	}
+}
+
+// convertError extracts meaningful error information from AWS SDK errors
+func convertError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Handle Bedrock-specific error types
+	var throttle *types.ThrottlingException
+	if errors.As(err, &throttle) {
+		return fmt.Errorf("bedrock throttling: %s", aws.ToString(throttle.Message))
+	}
+
+	var validation *types.ValidationException
+	if errors.As(err, &validation) {
+		return fmt.Errorf("bedrock validation: %s", aws.ToString(validation.Message))
+	}
+
+	var modelErr *types.ModelStreamErrorException
+	if errors.As(err, &modelErr) {
+		return fmt.Errorf("bedrock stream error: %s", aws.ToString(modelErr.Message))
+	}
+
+	var modelNotReady *types.ModelNotReadyException
+	if errors.As(err, &modelNotReady) {
+		return fmt.Errorf("bedrock model not ready: %s", aws.ToString(modelNotReady.Message))
+	}
+
+	var serviceUnavailable *types.ServiceUnavailableException
+	if errors.As(err, &serviceUnavailable) {
+		return fmt.Errorf("bedrock service unavailable: %s", aws.ToString(serviceUnavailable.Message))
+	}
+
+	var internalServer *types.InternalServerException
+	if errors.As(err, &internalServer) {
+		return fmt.Errorf("bedrock internal error: %s", aws.ToString(internalServer.Message))
+	}
+
+	var accessDenied *types.AccessDeniedException
+	if errors.As(err, &accessDenied) {
+		return fmt.Errorf("bedrock access denied: %s", aws.ToString(accessDenied.Message))
+	}
+
+	var modelTimeout *types.ModelTimeoutException
+	if errors.As(err, &modelTimeout) {
+		return fmt.Errorf("bedrock model timeout: %s", aws.ToString(modelTimeout.Message))
+	}
+
+	var modelError *types.ModelErrorException
+	if errors.As(err, &modelError) {
+		return fmt.Errorf("bedrock model error: %s", aws.ToString(modelError.Message))
+	}
+
+	var conflict *types.ConflictException
+	if errors.As(err, &conflict) {
+		return fmt.Errorf("bedrock conflict: %s", aws.ToString(conflict.Message))
+	}
+
+	var resourceNotFound *types.ResourceNotFoundException
+	if errors.As(err, &resourceNotFound) {
+		return fmt.Errorf("bedrock resource not found: %s", aws.ToString(resourceNotFound.Message))
+	}
+
+	var quotaExceeded *types.ServiceQuotaExceededException
+	if errors.As(err, &quotaExceeded) {
+		return fmt.Errorf("bedrock quota exceeded: %s", aws.ToString(quotaExceeded.Message))
+	}
+
+	// Extract AWS API error details (error code, message) for any other AWS errors
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		return fmt.Errorf("bedrock error [%s]: %s", ae.ErrorCode(), ae.ErrorMessage())
+	}
+
+	return err
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
