@@ -18,6 +18,9 @@ func convertError(err error) error {
 }
 
 var CodingModels = []string{
+	// GPT 5.2 Family
+	"gpt-5.2-codex",
+
 	// GPT 5.1 Family
 	"gpt-5.1-codex",
 	"gpt-5.1-codex-max",
@@ -31,6 +34,8 @@ var ReasoningModels = []string{
 	// GPT 5.2 Family
 	"gpt-5.2",
 	"gpt-5.2-pro",
+
+	"gpt-5.2-codex",
 
 	// GPT 5.1 Family
 	"gpt-5.1",
