@@ -47,8 +47,12 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 		"search_depth": "advanced",
 	}
 
-	if len(options.Domains) > 0 {
-		body["include_domains"] = options.Domains
+	if len(options.Include) > 0 {
+		body["include_domains"] = options.Include
+	}
+
+	if len(options.Exclude) > 0 {
+		body["exclude_domains"] = options.Exclude
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", u.String(), jsonReader(body))

@@ -40,18 +40,26 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 		options = new(searcher.SearchOptions)
 	}
 
-	body, _ := json.Marshal(&SearchRequest{
+	request := &SearchRequest{
 		Query: query,
 
 		NumResults: options.Limit,
 
-		IncludeDomains: options.Domains,
+		IncludeDomains: options.Include,
+		ExcludeDomains: options.Exclude,
 
-		Contents: SearchContents{
-			Text:      true,
-			LiveCrawl: LiveCrawlPreferred,
+		Contents: &SearchContents{
+			Text: true,
+
+			//LiveCrawl: LiveCrawlPreferred,
 		},
-	})
+	}
+
+	if len(request.ExcludeDomains) > 0 && len(request.IncludeDomains) > 0 {
+		request.ExcludeDomains = nil
+	}
+
+	body, _ := json.Marshal(request)
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", "https://api.exa.ai/search", bytes.NewReader(body))
 	req.Header.Set("x-api-key", c.token)

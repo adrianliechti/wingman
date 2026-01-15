@@ -5,15 +5,18 @@ type SearchRequest struct {
 
 	NumResults *int `json:"numResults,omitempty"`
 
-	IncludeDomains []string `json:"includeDomains,omitempty"`
+	UserLocation string `json:"userLocation,omitempty"`
 
-	Contents SearchContents `json:"contents"`
+	IncludeDomains []string `json:"includeDomains,omitempty"`
+	ExcludeDomains []string `json:"excludeDomains,omitempty"`
+
+	Contents *SearchContents `json:"contents"`
 }
 
 type SearchContents struct {
 	Text bool `json:"text,omitempty"`
 
-	LiveCrawl LiveCrawl `json:"livecrawl,omitempty"`
+	LiveCrawl *LiveCrawl `json:"livecrawl,omitempty"`
 }
 
 type LiveCrawl string

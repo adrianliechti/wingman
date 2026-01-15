@@ -78,7 +78,7 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	if domains, ok := parameters["domains"].([]any); ok {
 		for _, d := range domains {
 			if domain, ok := d.(string); ok {
-				options.Domains = append(options.Domains, domain)
+				options.Include = append(options.Include, domain)
 			}
 		}
 	}

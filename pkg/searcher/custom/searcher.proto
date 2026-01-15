@@ -12,6 +12,9 @@ message SearchRequest {
   string query = 1;
   
   optional int32 limit = 2;
+
+  repeated string include = 3;
+  repeated string exclude = 4;
 }
 
 message SearchResponse {

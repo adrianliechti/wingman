@@ -61,6 +61,14 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 		req.Limit = &val
 	}
 
+	if len(options.Include) > 0. {
+		req.Include = options.Include
+	}
+
+	if len(options.Exclude) > 0. {
+		req.Exclude = options.Exclude
+	}
+
 	resp, err := c.client.Search(ctx, req)
 
 	if err != nil {

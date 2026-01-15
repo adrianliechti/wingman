@@ -35,18 +35,16 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 		options = new(searcher.SearchOptions)
 	}
 
-	if len(options.Domains) > 0 {
-		var siteQuery string
-
-		for _, domain := range options.Domains {
-			if siteQuery != "" {
-				siteQuery += " OR "
-			}
-
-			siteQuery += "site:" + domain
+	if len(options.Include) > 0 {
+		for _, domain := range options.Include {
+			query = query + " site:" + domain
 		}
+	}
 
-		query = query + " (" + siteQuery + ")"
+	if len(options.Exclude) > 0 {
+		for _, domain := range options.Exclude {
+			query = query + " -site:" + domain
+		}
 	}
 
 	url, _ := url.Parse("https://duckduckgo.com/html/")
