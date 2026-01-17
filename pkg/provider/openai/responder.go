@@ -412,7 +412,7 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 }
 
 func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
-	if usage.TotalTokens == 0 {
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 {
 		return nil
 	}
 

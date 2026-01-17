@@ -25,8 +25,6 @@ type ResponsesRequest struct {
 
 	Reasoning *ReasoningConfig `json:"reasoning,omitempty"`
 
-	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
-
 	//ToolChoice        any  `json:"tool_choice,omitempty"`
 	//ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
 }
@@ -46,10 +44,6 @@ var (
 	ReasoningEffortHigh    ReasoningEffort = "high"
 	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
 )
-
-type StreamOptions struct {
-	IncludeUsage *bool `json:"include_usage"`
-}
 
 // TextConfig represents configuration options for text responses
 type TextConfig struct {

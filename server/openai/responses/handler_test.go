@@ -33,6 +33,11 @@ func newTestClient() openai.Client {
 	)
 }
 
+func requireUsage(t *testing.T, usage responses.ResponseUsage) {
+	require.Greater(t, usage.TotalTokens, int64(0))
+	require.Equal(t, usage.TotalTokens, usage.InputTokens+usage.OutputTokens)
+}
+
 func TestResponses(t *testing.T) {
 	client := newTestClient()
 
@@ -536,7 +541,31 @@ func TestResponsesStreamOptions(t *testing.T) {
 
 				require.NoError(t, stream.Err())
 				require.NotEmpty(t, lastResponse.ID)
+				requireUsage(t, lastResponse.Usage)
 			})
+		})
+	}
+
+}
+
+func TestResponsesUsage(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			resp, err := client.Responses.New(ctx, responses.ResponseNewParams{
+				Model: model,
+				Input: responses.ResponseNewParamsInputUnion{
+					OfString: openai.String("Say 'test'."),
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			requireUsage(t, resp.Usage)
 		})
 	}
 }

@@ -335,7 +335,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			}
 
 			// Add usage statistics if requested and available
-			if streamUsage(req) && event.Completion != nil && event.Completion.Usage != nil {
+			if event.Completion != nil && event.Completion.Usage != nil {
 				response.Usage = &Usage{
 					InputTokens:  event.Completion.Usage.InputTokens,
 					OutputTokens: event.Completion.Usage.OutputTokens,

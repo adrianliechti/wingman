@@ -10,18 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
 
-func streamUsage(req ResponsesRequest) bool {
-	if req.StreamOptions == nil {
-		return false
-	}
-
-	if req.StreamOptions.IncludeUsage == nil {
-		return false
-	}
-
-	return *req.StreamOptions.IncludeUsage
-}
-
 func toMessages(items []InputItem, instructions string) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
