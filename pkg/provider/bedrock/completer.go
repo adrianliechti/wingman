@@ -47,13 +47,13 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 		configOptions = append(configOptions, config.WithHTTPClient(cfg.client))
 	}
 
-	// Configure adaptive retry mode for automatic throttle-based rate limiting
-	// AdaptiveMode starts unrestricted and applies rate limiting when throttle errors occur
+	// Configure adaptive retry mode for throttle-based rate limiting
+	// Keep attempts low to reduce the risk of duplicate billing on retries for streaming requests
 	configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
 		return retry.NewAdaptiveMode(func(o *retry.AdaptiveModeOptions) {
 			o.StandardOptions = append(o.StandardOptions, func(so *retry.StandardOptions) {
-				so.MaxAttempts = 10
-				so.MaxBackoff = 60 * time.Second
+				so.MaxAttempts = 3
+				so.MaxBackoff = 20 * time.Second
 			})
 		})
 	}))
