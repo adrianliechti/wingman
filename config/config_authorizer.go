@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
+	"github.com/adrianliechti/wingman/pkg/auth/anonymous"
 	"github.com/adrianliechti/wingman/pkg/auth/header"
 	"github.com/adrianliechti/wingman/pkg/auth/oidc"
 	"github.com/adrianliechti/wingman/pkg/auth/static"
@@ -35,6 +36,9 @@ func (c *Config) registerAuthorizer(f *configFile) error {
 
 func createAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
+	case "anonymous":
+		return anonymousAuthorizer(cfg)
+
 	case "header":
 		return headerAuthorizer(cfg)
 
@@ -47,6 +51,10 @@ func createAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
 	default:
 		return nil, errors.New("invalid authorizer type: " + cfg.Type)
 	}
+}
+
+func anonymousAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
+	return anonymous.New()
 }
 
 func headerAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
