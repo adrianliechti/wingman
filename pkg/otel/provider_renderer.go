@@ -63,8 +63,10 @@ func (p *observableRenderer) Render(ctx context.Context, input string, options *
 		p.operationDurationMetric.Record(ctx, duration,
 			genaiconv.OperationNameGenerateContent,
 			providerName,
-			p.operationDurationMetric.AttrRequestModel(p.model),
-			p.operationDurationMetric.AttrResponseModel(providerModel),
+			KeyValues([]KeyValue{
+				p.operationDurationMetric.AttrRequestModel(p.model),
+				p.operationDurationMetric.AttrResponseModel(providerModel),
+			}, EndUserAttrs(ctx))...,
 		)
 	}
 

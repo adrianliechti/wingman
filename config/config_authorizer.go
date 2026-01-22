@@ -4,9 +4,10 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/authorizer"
-	"github.com/adrianliechti/wingman/pkg/authorizer/oidc"
-	"github.com/adrianliechti/wingman/pkg/authorizer/static"
+	"github.com/adrianliechti/wingman/pkg/auth"
+	"github.com/adrianliechti/wingman/pkg/auth/header"
+	"github.com/adrianliechti/wingman/pkg/auth/oidc"
+	"github.com/adrianliechti/wingman/pkg/auth/static"
 )
 
 type authorizerConfig struct {
@@ -32,8 +33,11 @@ func (c *Config) registerAuthorizer(f *configFile) error {
 	return nil
 }
 
-func createAuthorizer(cfg authorizerConfig) (authorizer.Provider, error) {
+func createAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
+	case "header":
+		return headerAuthorizer(cfg)
+
 	case "static":
 		return staticAuthorizer(cfg)
 
@@ -45,10 +49,14 @@ func createAuthorizer(cfg authorizerConfig) (authorizer.Provider, error) {
 	}
 }
 
-func staticAuthorizer(cfg authorizerConfig) (authorizer.Provider, error) {
+func headerAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
+	return header.New()
+}
+
+func staticAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
 	return static.New(cfg.Token)
 }
 
-func oidcAuthorizer(cfg authorizerConfig) (authorizer.Provider, error) {
+func oidcAuthorizer(cfg authorizerConfig) (auth.Provider, error) {
 	return oidc.New(cfg.Issuer, cfg.Audience)
 }

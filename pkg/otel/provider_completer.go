@@ -81,8 +81,10 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 			p.operationDurationMetric.Record(ctx, duration,
 				genaiconv.OperationNameChat,
 				providerName,
-				p.operationDurationMetric.AttrRequestModel(p.model),
-				p.operationDurationMetric.AttrResponseModel(providerModel),
+				KeyValues([]KeyValue{
+					p.operationDurationMetric.AttrRequestModel(p.model),
+					p.operationDurationMetric.AttrResponseModel(providerModel),
+				}, EndUserAttrs(ctx))...,
 			)
 
 			if lastResult.Usage != nil {
@@ -91,8 +93,10 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 						genaiconv.OperationNameChat,
 						providerName,
 						genaiconv.TokenTypeInput,
-						p.tokenUsageMetric.AttrRequestModel(p.model),
-						p.tokenUsageMetric.AttrResponseModel(providerModel),
+						KeyValues([]KeyValue{
+							p.tokenUsageMetric.AttrRequestModel(p.model),
+							p.tokenUsageMetric.AttrResponseModel(providerModel),
+						}, EndUserAttrs(ctx))...,
 					)
 				}
 
@@ -101,8 +105,10 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 						genaiconv.OperationNameChat,
 						providerName,
 						genaiconv.TokenTypeOutput,
-						p.tokenUsageMetric.AttrRequestModel(p.model),
-						p.tokenUsageMetric.AttrResponseModel(providerModel),
+						KeyValues([]KeyValue{
+							p.tokenUsageMetric.AttrRequestModel(p.model),
+							p.tokenUsageMetric.AttrResponseModel(providerModel),
+						}, EndUserAttrs(ctx))...,
 					)
 				}
 			}
