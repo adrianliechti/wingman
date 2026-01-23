@@ -101,7 +101,8 @@ func (s *Server) handleAuth(next http.Handler) http.Handler {
 		var authorized = len(s.Authorizers) == 0
 
 		for _, a := range s.Authorizers {
-			if err := a.Verify(ctx, r); err == nil {
+			if authCtx, err := a.Authenticate(ctx, r); err == nil {
+				ctx = authCtx
 				authorized = true
 				break
 			}

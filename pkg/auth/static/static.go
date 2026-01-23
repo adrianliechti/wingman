@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/adrianliechti/wingman/pkg/auth"
 )
 
 type Provider struct {
@@ -17,26 +19,28 @@ func New(token string) (*Provider, error) {
 	}, nil
 }
 
-func (p *Provider) Verify(ctx context.Context, r *http.Request) error {
+func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.Context, error) {
 	if p.token == "" {
-		return nil
+		return ctx, nil
 	}
 
 	header := r.Header.Get("Authorization")
 
 	if header == "" {
-		return errors.New("missing authorization header")
+		return ctx, errors.New("missing authorization header")
 	}
 
 	if !strings.HasPrefix(header, "Bearer ") {
-		return errors.New("invalid authorization header")
+		return ctx, errors.New("invalid authorization header")
 	}
 
 	token := strings.TrimPrefix(header, "Bearer ")
 
 	if !strings.EqualFold(token, p.token) {
-		return errors.New("invalid token")
+		return ctx, errors.New("invalid token")
 	}
 
-	return nil
+	ctx = context.WithValue(ctx, auth.UserContextKey, token)
+
+	return ctx, nil
 }

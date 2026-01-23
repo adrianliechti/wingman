@@ -512,7 +512,7 @@
       "id": 4,
       "options": {
         "legend": {
-          "calcs": ["sum"],
+          "calcs": ["mean"],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -604,7 +604,7 @@
       "id": 5,
       "options": {
         "legend": {
-          "calcs": ["sum"],
+          "calcs": ["mean"],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -893,7 +893,7 @@
         "cellHeight": "sm",
         "footer": {
           "countRows": false,
-          "fields": "",
+          "fields": "Input Tokens|Output Tokens",
           "reducer": ["sum"],
           "show": true
         },

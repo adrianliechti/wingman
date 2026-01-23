@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"os"
 
-	"github.com/adrianliechti/wingman/pkg/authorizer"
+	"github.com/adrianliechti/wingman/pkg/auth"
 	"github.com/adrianliechti/wingman/pkg/chain"
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/mcp"
@@ -24,7 +24,7 @@ import (
 type Config struct {
 	Address string
 
-	Authorizers []authorizer.Provider
+	Authorizers []auth.Provider
 
 	models map[string]provider.Model
 

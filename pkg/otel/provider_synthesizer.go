@@ -63,8 +63,10 @@ func (p *observableSynthesizer) Synthesize(ctx context.Context, content string, 
 		p.operationDurationMetric.Record(ctx, duration,
 			genaiconv.OperationNameGenerateContent,
 			providerName,
-			p.operationDurationMetric.AttrRequestModel(p.model),
-			p.operationDurationMetric.AttrResponseModel(providerModel),
+			KeyValues([]KeyValue{
+				p.operationDurationMetric.AttrRequestModel(p.model),
+				p.operationDurationMetric.AttrResponseModel(providerModel),
+			}, EndUserAttrs(ctx))...,
 		)
 	}
 

@@ -66,8 +66,10 @@ func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options 
 		p.operationDurationMetric.Record(ctx, duration,
 			genaiconv.OperationNameEmbeddings,
 			providerName,
-			p.operationDurationMetric.AttrRequestModel(p.model),
-			p.operationDurationMetric.AttrResponseModel(providerModel),
+			KeyValues([]KeyValue{
+				p.operationDurationMetric.AttrRequestModel(p.model),
+				p.operationDurationMetric.AttrResponseModel(providerModel),
+			}, EndUserAttrs(ctx))...,
 		)
 
 		if result.Usage != nil {
@@ -76,8 +78,10 @@ func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options 
 					genaiconv.OperationNameEmbeddings,
 					providerName,
 					genaiconv.TokenTypeInput,
-					p.tokenUsageMetric.AttrRequestModel(p.model),
-					p.tokenUsageMetric.AttrResponseModel(providerModel),
+					KeyValues([]KeyValue{
+						p.tokenUsageMetric.AttrRequestModel(p.model),
+						p.tokenUsageMetric.AttrResponseModel(providerModel),
+					}, EndUserAttrs(ctx))...,
 				)
 			}
 
@@ -86,8 +90,10 @@ func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options 
 					genaiconv.OperationNameEmbeddings,
 					providerName,
 					genaiconv.TokenTypeOutput,
-					p.tokenUsageMetric.AttrRequestModel(p.model),
-					p.tokenUsageMetric.AttrResponseModel(providerModel),
+					KeyValues([]KeyValue{
+						p.tokenUsageMetric.AttrRequestModel(p.model),
+						p.tokenUsageMetric.AttrResponseModel(providerModel),
+					}, EndUserAttrs(ctx))...,
 				)
 			}
 		}
