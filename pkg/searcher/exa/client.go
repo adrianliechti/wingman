@@ -17,6 +17,8 @@ type Client struct {
 	token  string
 	client *http.Client
 
+	mode string
+
 	category string
 	location string
 }
@@ -67,6 +69,10 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 
 			//LiveCrawl: LiveCrawlPreferred,
 		},
+	}
+
+	if c.mode != "" {
+		request.Type = c.mode
 	}
 
 	if len(request.ExcludeDomains) > 0 && len(request.IncludeDomains) > 0 {

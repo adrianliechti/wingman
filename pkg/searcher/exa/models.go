@@ -3,6 +3,8 @@ package exa
 type SearchRequest struct {
 	Query string `json:"query"`
 
+	Type string `json:"type,omitempty"`
+
 	Category string `json:"category,omitempty"`
 	Location string `json:"userLocation,omitempty"`
 

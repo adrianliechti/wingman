@@ -12,6 +12,12 @@ func WithClient(client *http.Client) Option {
 	}
 }
 
+func WithMode(val string) Option {
+	return func(c *Client) {
+		c.mode = val
+	}
+}
+
 func WithCategory(val string) Option {
 	return func(c *Client) {
 		c.category = val

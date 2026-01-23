@@ -136,12 +136,16 @@ func exaSearch(cfg searcherConfig, context searcherContext) (searcher.Provider, 
 		options = append(options, exa.WithClient(context.Client))
 	}
 
-	if category := cfg.Vars["category"]; category != "" {
-		options = append(options, exa.WithCategory(category))
+	if val := cfg.Vars["mode"]; val != "" {
+		options = append(options, exa.WithMode(val))
 	}
 
-	if location := cfg.Vars["location"]; location != "" {
-		options = append(options, exa.WithLocation(location))
+	if val := cfg.Vars["category"]; val != "" {
+		options = append(options, exa.WithCategory(val))
+	}
+
+	if val := cfg.Vars["location"]; val != "" {
+		options = append(options, exa.WithLocation(val))
 	}
 
 	return exa.New(cfg.Token, options...)
