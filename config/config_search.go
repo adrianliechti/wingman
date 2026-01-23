@@ -160,5 +160,13 @@ func tavilySearch(cfg searcherConfig, context searcherContext) (searcher.Provide
 func customSearcher(cfg searcherConfig) (searcher.Provider, error) {
 	var options []custom.Option
 
+	if category := cfg.Vars["category"]; category != "" {
+		options = append(options, custom.WithCategory(category))
+	}
+
+	if location := cfg.Vars["location"]; location != "" {
+		options = append(options, custom.WithLocation(location))
+	}
+
 	return custom.New(cfg.URL, options...)
 }

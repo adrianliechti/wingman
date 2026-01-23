@@ -15,6 +15,9 @@ message SearchRequest {
 
   repeated string include = 3;
   repeated string exclude = 4;
+
+  optional string category = 5;
+  optional string location = 6;
 }
 
 message SearchResponse {

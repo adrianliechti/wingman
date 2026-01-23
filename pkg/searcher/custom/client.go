@@ -18,6 +18,9 @@ var (
 type Client struct {
 	url    string
 	client SearcherClient
+
+	category string
+	location string
 }
 
 func New(url string, options ...Option) (*Client, error) {
@@ -52,8 +55,24 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 		options = new(searcher.SearchOptions)
 	}
 
+	if options.Category == "" {
+		options.Category = c.category
+	}
+
+	if options.Location == "" {
+		options.Location = c.location
+	}
+
 	req := &SearchRequest{
 		Query: query,
+	}
+
+	if options.Category != "" {
+		req.Category = &options.Category
+	}
+
+	if options.Location != "" {
+		req.Location = &options.Location
 	}
 
 	if options.Limit != nil {
