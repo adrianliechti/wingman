@@ -136,6 +136,14 @@ func exaSearch(cfg searcherConfig, context searcherContext) (searcher.Provider, 
 		options = append(options, exa.WithClient(context.Client))
 	}
 
+	if category := cfg.Vars["category"]; category != "" {
+		options = append(options, exa.WithCategory(category))
+	}
+
+	if location := cfg.Vars["location"]; location != "" {
+		options = append(options, exa.WithLocation(location))
+	}
+
 	return exa.New(cfg.Token, options...)
 }
 

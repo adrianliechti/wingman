@@ -3,9 +3,10 @@ package exa
 type SearchRequest struct {
 	Query string `json:"query"`
 
-	NumResults *int `json:"numResults,omitempty"`
+	Category string `json:"category,omitempty"`
+	Location string `json:"userLocation,omitempty"`
 
-	UserLocation string `json:"userLocation,omitempty"`
+	NumResults *int `json:"numResults,omitempty"`
 
 	IncludeDomains []string `json:"includeDomains,omitempty"`
 	ExcludeDomains []string `json:"excludeDomains,omitempty"`

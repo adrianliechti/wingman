@@ -11,6 +11,9 @@ type Provider interface {
 type SearchOptions struct {
 	Limit *int
 
+	Category string
+	Location string
+
 	Include []string
 	Exclude []string
 }

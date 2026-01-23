@@ -64,6 +64,22 @@ func valueLanguage(r *http.Request) string {
 	return ""
 }
 
+func valueCategory(r *http.Request) string {
+	if val := r.FormValue("category"); val != "" {
+		return val
+	}
+
+	return ""
+}
+
+func valueLocation(r *http.Request) string {
+	if val := r.FormValue("location"); val != "" {
+		return val
+	}
+
+	return ""
+}
+
 func valueLimit(r *http.Request) *int {
 	if val := r.FormValue("limit"); val != "" {
 		if limit, err := strconv.Atoi(val); err == nil {

@@ -19,6 +19,9 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	query := valueInput(r)
 
+	category := valueCategory(r)
+	location := valueLocation(r)
+
 	if query == "" {
 		writeError(w, http.StatusBadRequest, nil)
 		return
@@ -26,6 +29,9 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	options := &searcher.SearchOptions{
 		Limit: valueLimit(r),
+
+		Category: category,
+		Location: location,
 	}
 
 	if values, ok := r.Form["domain"]; ok && len(values) > 0 {

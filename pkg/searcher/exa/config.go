@@ -11,3 +11,15 @@ func WithClient(client *http.Client) Option {
 		c.client = client
 	}
 }
+
+func WithCategory(val string) Option {
+	return func(c *Client) {
+		c.category = val
+	}
+}
+
+func WithLocation(val string) Option {
+	return func(c *Client) {
+		c.location = val
+	}
+}
