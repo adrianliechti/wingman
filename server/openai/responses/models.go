@@ -375,8 +375,10 @@ type Usage struct {
 
 // ResponseError contains error details when a response fails
 type ResponseError struct {
-	Code    string `json:"code"`    // e.g., "server_error", "rate_limit_exceeded"
-	Message string `json:"message"` // Human-readable error message
+	Type    string `json:"type"`            // e.g., "server_error", "invalid_request"
+	Code    string `json:"code,omitempty"`  // Optional error code for additional detail
+	Param   string `json:"param,omitempty"` // The input parameter related to the error
+	Message string `json:"message"`         // Human-readable error message
 }
 
 type ResponseOutput struct {

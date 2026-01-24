@@ -361,7 +361,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Model:     req.Model,
 					Output:    []ResponseOutput{},
 					Error: &ResponseError{
-						Code:    "server_error",
+						Type:    "server_error",
 						Message: event.Error.Error(),
 					},
 				},
@@ -412,11 +412,18 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 
 	completion := acc.Result()
 
+	responseID := completion.ID
+	if responseID == "" {
+		responseID = "resp_" + uuid.NewString()
+	}
+
+	messageID := "msg_" + uuid.NewString()
+
 	result := Response{
 		Object: "response",
 		Status: "completed",
 
-		ID: completion.ID,
+		ID: responseID,
 
 		Model:     completion.Model,
 		CreatedAt: time.Now().Unix(),
@@ -450,6 +457,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 				Type: ResponseOutputTypeMessage,
 
 				OutputMessage: &OutputMessage{
+					ID:   messageID,
 					Role: "assistant",
 
 					Status: "completed",

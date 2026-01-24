@@ -18,10 +18,10 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 
-	errorType := "invalid_request_error"
+	errorType := "invalid_request"
 
 	if code >= 500 {
-		errorType = "internal_server_error"
+		errorType = "server_error"
 	}
 
 	resp := ErrorResponse{
