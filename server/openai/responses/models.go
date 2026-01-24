@@ -386,6 +386,7 @@ type ResponseOutput struct {
 
 	*OutputMessage
 	*FunctionCallOutputItem
+	*ReasoningOutputItem
 }
 
 type ResponseOutputType string
@@ -393,6 +394,7 @@ type ResponseOutputType string
 var (
 	ResponseOutputTypeMessage      ResponseOutputType = "message"
 	ResponseOutputTypeFunctionCall ResponseOutputType = "function_call"
+	ResponseOutputTypeReasoning    ResponseOutputType = "reasoning"
 )
 
 type OutputMessage struct {
@@ -402,12 +404,13 @@ type OutputMessage struct {
 
 	Status string `json:"status,omitempty"` // completed
 
-	Contents []OutputContent `json:"content,omitempty"`
+	Contents []OutputContent `json:"content"`
 }
 
 type OutputContent struct {
-	Type string `json:"type,omitempty"`
-	Text string `json:"text,omitempty"`
+	Type        string        `json:"type,omitempty"`
+	Text        string        `json:"text,omitempty"`
+	Annotations []interface{} `json:"annotations,omitempty"`
 }
 
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/created
@@ -545,4 +548,121 @@ type FunctionCallOutputItemDoneEvent struct {
 	SequenceNumber int                     `json:"sequence_number"`
 	OutputIndex    int                     `json:"output_index"`
 	Item           *FunctionCallOutputItem `json:"item"`
+}
+
+// ReasoningOutputItem represents a reasoning item in the output
+type ReasoningOutputItem struct {
+	ID      string                       `json:"id"`
+	Type    string                       `json:"type"`   // reasoning
+	Status  string                       `json:"status"` // in_progress, completed
+	Summary []ReasoningOutputSummary     `json:"summary,omitempty"`
+	Content []ReasoningOutputContentPart `json:"content,omitempty"`
+}
+
+// ReasoningOutputSummary represents a summary part in reasoning output
+type ReasoningOutputSummary struct {
+	Type string `json:"type"` // summary_text
+	Text string `json:"text"`
+}
+
+// ReasoningOutputContentPart represents a content part in reasoning output
+type ReasoningOutputContentPart struct {
+	Type string `json:"type"` // reasoning_text
+	Text string `json:"text"`
+}
+
+// ReasoningOutputItemAddedEvent is emitted when a reasoning item is added
+type ReasoningOutputItemAddedEvent struct {
+	Type           string               `json:"type"` // response.output_item.added
+	SequenceNumber int                  `json:"sequence_number"`
+	OutputIndex    int                  `json:"output_index"`
+	Item           *ReasoningOutputItem `json:"item"`
+}
+
+// ReasoningOutputItemDoneEvent is emitted when a reasoning item is done
+type ReasoningOutputItemDoneEvent struct {
+	Type           string               `json:"type"` // response.output_item.done
+	SequenceNumber int                  `json:"sequence_number"`
+	OutputIndex    int                  `json:"output_index"`
+	Item           *ReasoningOutputItem `json:"item"`
+}
+
+// ReasoningSummaryPartAddedEvent is emitted when a reasoning summary part is added
+type ReasoningSummaryPartAddedEvent struct {
+	Type           string                  `json:"type"` // response.reasoning_summary_part.added
+	SequenceNumber int                     `json:"sequence_number"`
+	ItemID         string                  `json:"item_id"`
+	OutputIndex    int                     `json:"output_index"`
+	SummaryIndex   int                     `json:"summary_index"`
+	Part           *ReasoningOutputSummary `json:"part"`
+}
+
+// ReasoningSummaryPartDoneEvent is emitted when a reasoning summary part is done
+type ReasoningSummaryPartDoneEvent struct {
+	Type           string                  `json:"type"` // response.reasoning_summary_part.done
+	SequenceNumber int                     `json:"sequence_number"`
+	ItemID         string                  `json:"item_id"`
+	OutputIndex    int                     `json:"output_index"`
+	SummaryIndex   int                     `json:"summary_index"`
+	Part           *ReasoningOutputSummary `json:"part"`
+}
+
+// ReasoningSummaryTextDeltaEvent is emitted when reasoning summary text delta is received
+type ReasoningSummaryTextDeltaEvent struct {
+	Type           string `json:"type"` // response.reasoning_summary_text.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	SummaryIndex   int    `json:"summary_index"`
+	Delta          string `json:"delta"`
+}
+
+// ReasoningSummaryTextDoneEvent is emitted when reasoning summary text is done
+type ReasoningSummaryTextDoneEvent struct {
+	Type           string `json:"type"` // response.reasoning_summary_text.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	SummaryIndex   int    `json:"summary_index"`
+	Text           string `json:"text"`
+}
+
+// ReasoningContentPartAddedEvent is emitted when a reasoning content part is added
+type ReasoningContentPartAddedEvent struct {
+	Type           string                      `json:"type"` // response.content_part.added
+	SequenceNumber int                         `json:"sequence_number"`
+	ItemID         string                      `json:"item_id"`
+	OutputIndex    int                         `json:"output_index"`
+	ContentIndex   int                         `json:"content_index"`
+	Part           *ReasoningOutputContentPart `json:"part"`
+}
+
+// ReasoningContentPartDoneEvent is emitted when a reasoning content part is done
+type ReasoningContentPartDoneEvent struct {
+	Type           string                      `json:"type"` // response.content_part.done
+	SequenceNumber int                         `json:"sequence_number"`
+	ItemID         string                      `json:"item_id"`
+	OutputIndex    int                         `json:"output_index"`
+	ContentIndex   int                         `json:"content_index"`
+	Part           *ReasoningOutputContentPart `json:"part"`
+}
+
+// ReasoningTextDeltaEvent is emitted when reasoning text delta is received
+type ReasoningTextDeltaEvent struct {
+	Type           string `json:"type"` // response.reasoning_text.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Delta          string `json:"delta"`
+}
+
+// ReasoningTextDoneEvent is emitted when reasoning text is done
+type ReasoningTextDoneEvent struct {
+	Type           string `json:"type"` // response.reasoning_text.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Text           string `json:"text"`
 }

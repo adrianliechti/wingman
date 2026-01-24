@@ -109,6 +109,9 @@ type CompletionAccumulator struct {
 
 	content strings.Builder
 
+	summary   strings.Builder
+	reasoning strings.Builder
+
 	toolCalls      []ToolCall
 	lastToolCallID string
 
@@ -132,6 +135,16 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		for _, c := range c.Message.Content {
 			if c.Text != "" {
 				a.content.WriteString(c.Text)
+			}
+
+			if c.Reasoning != nil {
+				if c.Reasoning.Summary != "" {
+					a.summary.WriteString(c.Reasoning.Summary)
+				}
+
+				if c.Reasoning.Text != "" {
+					a.reasoning.WriteString(c.Reasoning.Text)
+				}
 			}
 
 			if c.ToolCall != nil {
@@ -200,6 +213,13 @@ func (a *CompletionAccumulator) Add(c Completion) {
 func (a *CompletionAccumulator) Result() *Completion {
 	var content []Content
 
+	if a.reasoning.Len() > 0 || a.summary.Len() > 0 {
+		content = append(content, ReasoningContent(Reasoning{
+			Text:    a.reasoning.String(),
+			Summary: a.summary.String(),
+		}))
+	}
+
 	if a.content.Len() > 0 {
 		content = append(content, TextContent(a.content.String()))
 	}
@@ -245,10 +265,18 @@ func ToolResultContent(val ToolResult) Content {
 	}
 }
 
+func ReasoningContent(val Reasoning) Content {
+	return Content{
+		Reasoning: &val,
+	}
+}
+
 type Content struct {
 	Text string
 
 	File *File
+
+	Reasoning *Reasoning
 
 	ToolCall   *ToolCall
 	ToolResult *ToolResult
@@ -307,3 +335,8 @@ const (
 	VerbosityMedium Verbosity = "medium"
 	VerbosityHigh   Verbosity = "high"
 )
+
+type Reasoning struct {
+	Text    string
+	Summary string
+}

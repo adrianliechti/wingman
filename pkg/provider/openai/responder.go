@@ -82,6 +82,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 				}
+
 			case responses.ResponseContentPartAddedEvent:
 			case responses.ResponseTextDeltaEvent:
 				delta := &provider.Completion{
@@ -100,6 +101,47 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+
+			case responses.ResponseReasoningTextDeltaEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.ReasoningContent(provider.Reasoning{
+								Text: event.Delta,
+							}),
+						},
+					},
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+
+			case responses.ResponseReasoningSummaryTextDeltaEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.ReasoningContent(provider.Reasoning{
+								Summary: event.Delta,
+							}),
+						},
+					},
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+
 			case responses.ResponseTextDoneEvent:
 			case responses.ResponseFunctionCallArgumentsDeltaEvent:
 				delta := &provider.Completion{
@@ -120,6 +162,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+
 			case responses.ResponseFunctionCallArgumentsDoneEvent:
 			case responses.ResponseContentPartDoneEvent:
 			case responses.ResponseOutputItemDoneEvent:
@@ -134,6 +177,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+
 			default:
 				println("unknown event", data.Type)
 			}
@@ -195,12 +239,16 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	switch options.Effort {
 	case provider.EffortMinimal:
 		req.Reasoning.Effort = responses.ReasoningEffortMinimal
+		req.Reasoning.Summary = responses.ReasoningSummaryAuto
 	case provider.EffortLow:
 		req.Reasoning.Effort = responses.ReasoningEffortLow
+		req.Reasoning.Summary = responses.ReasoningSummaryAuto
 	case provider.EffortMedium:
 		req.Reasoning.Effort = responses.ReasoningEffortMedium
+		req.Reasoning.Summary = responses.ReasoningSummaryAuto
 	case provider.EffortHigh:
 		req.Reasoning.Effort = responses.ReasoningEffortHigh
+		req.Reasoning.Summary = responses.ReasoningSummaryAuto
 	}
 
 	switch options.Verbosity {

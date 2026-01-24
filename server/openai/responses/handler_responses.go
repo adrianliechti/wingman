@@ -175,8 +175,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				OutputIndex:    0,
 				ContentIndex:   0,
 				Part: &OutputContent{
-					Type: "output_text",
-					Text: "",
+					Type:        "output_text",
+					Text:        "",
+					Annotations: []interface{}{},
 				},
 			})
 
@@ -208,8 +209,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				OutputIndex:    0,
 				ContentIndex:   0,
 				Part: &OutputContent{
-					Type: "output_text",
-					Text: event.Text,
+					Type:        "output_text",
+					Text:        event.Text,
+					Annotations: []interface{}{},
 				},
 			})
 
@@ -262,6 +264,139 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				},
 			})
 
+		case StreamEventReasoningItemAdded:
+			return writeEvent(w, "response.output_item.added", ReasoningOutputItemAddedEvent{
+				Type:           "response.output_item.added",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    event.OutputIndex,
+				Item: &ReasoningOutputItem{
+					ID:      event.ReasoningID,
+					Type:    "reasoning",
+					Status:  "in_progress",
+					Summary: []ReasoningOutputSummary{},
+					Content: []ReasoningOutputContentPart{},
+				},
+			})
+
+		case StreamEventReasoningContentPartAdded:
+			return writeEvent(w, "response.content_part.added", ReasoningContentPartAddedEvent{
+				Type:           "response.content_part.added",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				ContentIndex:   event.ContentIndex,
+				Part: &ReasoningOutputContentPart{
+					Type: "reasoning_text",
+					Text: "",
+				},
+			})
+
+		case StreamEventReasoningTextDelta:
+			return writeEvent(w, "response.reasoning_text.delta", ReasoningTextDeltaEvent{
+				Type:           "response.reasoning_text.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				ContentIndex:   event.ContentIndex,
+				Delta:          event.Delta,
+			})
+
+		case StreamEventReasoningTextDone:
+			return writeEvent(w, "response.reasoning_text.done", ReasoningTextDoneEvent{
+				Type:           "response.reasoning_text.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				ContentIndex:   event.ContentIndex,
+				Text:           event.ReasoningText,
+			})
+
+		case StreamEventReasoningContentPartDone:
+			return writeEvent(w, "response.content_part.done", ReasoningContentPartDoneEvent{
+				Type:           "response.content_part.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				ContentIndex:   event.ContentIndex,
+				Part: &ReasoningOutputContentPart{
+					Type: "reasoning_text",
+					Text: event.ReasoningText,
+				},
+			})
+
+		case StreamEventReasoningSummaryPartAdded:
+			return writeEvent(w, "response.reasoning_summary_part.added", ReasoningSummaryPartAddedEvent{
+				Type:           "response.reasoning_summary_part.added",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				SummaryIndex:   event.SummaryIndex,
+				Part: &ReasoningOutputSummary{
+					Type: "summary_text",
+					Text: "",
+				},
+			})
+
+		case StreamEventReasoningSummaryDelta:
+			return writeEvent(w, "response.reasoning_summary_text.delta", ReasoningSummaryTextDeltaEvent{
+				Type:           "response.reasoning_summary_text.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				SummaryIndex:   event.SummaryIndex,
+				Delta:          event.Delta,
+			})
+
+		case StreamEventReasoningSummaryDone:
+			return writeEvent(w, "response.reasoning_summary_text.done", ReasoningSummaryTextDoneEvent{
+				Type:           "response.reasoning_summary_text.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				SummaryIndex:   event.SummaryIndex,
+				Text:           event.ReasoningSummary,
+			})
+
+		case StreamEventReasoningSummaryPartDone:
+			return writeEvent(w, "response.reasoning_summary_part.done", ReasoningSummaryPartDoneEvent{
+				Type:           "response.reasoning_summary_part.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ReasoningID,
+				OutputIndex:    event.OutputIndex,
+				SummaryIndex:   event.SummaryIndex,
+				Part: &ReasoningOutputSummary{
+					Type: "summary_text",
+					Text: event.ReasoningSummary,
+				},
+			})
+
+		case StreamEventReasoningItemDone:
+			item := &ReasoningOutputItem{
+				ID:      event.ReasoningID,
+				Type:    "reasoning",
+				Status:  "completed",
+				Summary: []ReasoningOutputSummary{},
+				Content: []ReasoningOutputContentPart{},
+			}
+			if event.ReasoningSummary != "" {
+				item.Summary = append(item.Summary, ReasoningOutputSummary{
+					Type: "summary_text",
+					Text: event.ReasoningSummary,
+				})
+			}
+			if event.ReasoningText != "" {
+				item.Content = append(item.Content, ReasoningOutputContentPart{
+					Type: "reasoning_text",
+					Text: event.ReasoningText,
+				})
+			}
+			return writeEvent(w, "response.output_item.done", ReasoningOutputItemDoneEvent{
+				Type:           "response.output_item.done",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    event.OutputIndex,
+				Item:           item,
+			})
+
 		case StreamEventOutputItemDone:
 			return writeEvent(w, "response.output_item.done", OutputItemDoneEvent{
 				Type:           "response.output_item.done",
@@ -273,8 +408,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Status: "completed",
 					Content: []OutputContent{
 						{
-							Type: "output_text",
-							Text: event.Completion.Message.Text(),
+							Type:        "output_text",
+							Text:        event.Completion.Message.Text(),
+							Annotations: []interface{}{},
 						},
 					},
 					Role: MessageRoleAssistant,
@@ -290,7 +426,37 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			output := []ResponseOutput{}
 
 			if event.Completion != nil && event.Completion.Message != nil {
-				// Add function call outputs first (they appear before messages)
+				// Add reasoning output if present
+				for _, content := range event.Completion.Message.Content {
+					if content.Reasoning != nil {
+						reasoningItem := &ReasoningOutputItem{
+							ID:      "rs_" + event.Completion.ID,
+							Type:    "reasoning",
+							Status:  "completed",
+							Summary: []ReasoningOutputSummary{},
+							Content: []ReasoningOutputContentPart{},
+						}
+						if content.Reasoning.Summary != "" {
+							reasoningItem.Summary = append(reasoningItem.Summary, ReasoningOutputSummary{
+								Type: "summary_text",
+								Text: content.Reasoning.Summary,
+							})
+						}
+						if content.Reasoning.Text != "" {
+							reasoningItem.Content = append(reasoningItem.Content, ReasoningOutputContentPart{
+								Type: "reasoning_text",
+								Text: content.Reasoning.Text,
+							})
+						}
+						output = append(output, ResponseOutput{
+							Type:                ResponseOutputTypeReasoning,
+							ReasoningOutputItem: reasoningItem,
+						})
+						break
+					}
+				}
+
+				// Add function call outputs (they appear before messages)
 				for _, call := range event.Completion.Message.ToolCalls() {
 					output = append(output, ResponseOutput{
 						Type: ResponseOutputTypeFunctionCall,
@@ -305,7 +471,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					})
 				}
 
-				// Add message output if there's text content
+				// Add message output only if there's text content
 				text := event.Completion.Message.Text()
 				if text != "" {
 					output = append(output, ResponseOutput{
@@ -316,8 +482,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 							Status: "completed",
 							Contents: []OutputContent{
 								{
-									Type: "output_text",
-									Text: text,
+									Type:        "output_text",
+									Text:        text,
+									Annotations: []interface{}{},
 								},
 							},
 						},
@@ -451,11 +618,10 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 			})
 		}
 
-		// Add message output if there's text content
+		// Add message output only if there's text content
 		if text := completion.Message.Text(); text != "" {
 			output := ResponseOutput{
 				Type: ResponseOutputTypeMessage,
-
 				OutputMessage: &OutputMessage{
 					ID:   messageID,
 					Role: "assistant",
