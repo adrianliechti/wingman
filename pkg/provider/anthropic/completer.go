@@ -95,28 +95,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case anthropic.BetaRawContentBlockStartEvent:
 				switch event := event.ContentBlock.AsAny().(type) {
-				case anthropic.BetaThinkingBlock:
-					delta := &provider.Completion{
-						ID:    message.ID,
-						Model: c.model,
-
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-
-							Content: []provider.Content{
-								provider.ReasoningContent(provider.Reasoning{
-									Text: event.Thinking,
-								}),
-							},
-						},
-
-						Usage: toUsage(message.Usage),
-					}
-
-					if !yield(delta, nil) {
-						return
-					}
-
 				case anthropic.BetaTextBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -169,26 +147,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case anthropic.BetaRawContentBlockDeltaEvent:
 				switch event := event.Delta.AsAny().(type) {
-				case anthropic.BetaThinkingDelta:
-					delta := &provider.Completion{
-						ID:    message.ID,
-						Model: c.model,
-
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-
-							Content: []provider.Content{
-								provider.ReasoningContent(provider.Reasoning{
-									Text: event.Thinking,
-								}),
-							},
-						},
-					}
-
-					if !yield(delta, nil) {
-						return
-					}
-
 				case anthropic.BetaTextDelta:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -303,18 +261,6 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	// 	req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
 	// }
 
-	// Enable extended thinking based on effort level
-	switch options.Effort {
-	case provider.EffortMinimal:
-		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(1024)
-	case provider.EffortLow:
-		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(4096)
-	case provider.EffortMedium:
-		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(10000)
-	case provider.EffortHigh:
-		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(32000)
-	}
-
 	var system []anthropic.BetaTextBlockParam
 
 	var tools []anthropic.BetaToolUnionParam
@@ -394,11 +340,6 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
-				if c.Reasoning != nil && c.Reasoning.Text != "" {
-					// Use signature for thinking blocks to enable round-tripping
-					blocks = append(blocks, anthropic.NewBetaThinkingBlock("", c.Reasoning.Text))
-				}
-
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
 				}
