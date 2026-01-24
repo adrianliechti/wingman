@@ -6,6 +6,7 @@ import (
 	"errors"
 	"iter"
 	"slices"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -166,6 +167,36 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseFunctionCallArgumentsDoneEvent:
 			case responses.ResponseContentPartDoneEvent:
 			case responses.ResponseOutputItemDoneEvent:
+				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseOutputMessage:
+					var textBuilder strings.Builder
+					for _, part := range item.Content {
+						switch content := part.AsAny().(type) {
+						case responses.ResponseOutputText:
+							if content.Text != "" {
+								textBuilder.WriteString(content.Text)
+							}
+						}
+					}
+
+					if textBuilder.Len() > 0 {
+						delta := &provider.Completion{
+							ID:    data.Response.ID,
+							Model: data.Response.Model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+								Content: []provider.Content{
+									provider.TextContent(textBuilder.String()),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+					}
+				}
 			case responses.ResponseCompletedEvent:
 				delta := &provider.Completion{
 					ID:    data.Response.ID,

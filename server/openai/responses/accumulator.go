@@ -1,7 +1,10 @@
 package responses
 
 import (
+	"strings"
+
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/google/uuid"
 )
 
 // StreamEventType represents the type of streaming event
@@ -80,8 +83,8 @@ type StreamingAccumulator struct {
 	// Track state for event emission
 	started        bool
 	hasOutputItem  bool // True if we emitted output_item.added for message
-	hasContentPart bool // True if we have actual text content
-	hasTextContent bool // True if we received any text delta
+	hasContentPart bool // True if we emitted content_part.added
+	streamedText   strings.Builder
 
 	// Track tool calls - map from tool call ID to output index
 	toolCallIndices map[string]int
@@ -135,6 +138,8 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		// Process text content
 		for _, content := range c.Message.Content {
 			if content.Text != "" {
+				s.streamedText.WriteString(content.Text)
+
 				// Emit output_item.added on first text (message container)
 				if !s.hasOutputItem {
 					s.hasOutputItem = true
@@ -157,8 +162,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						return err
 					}
 				}
-
-				s.hasTextContent = true
 
 				// Emit text delta
 				if err := s.emitEvent(StreamEvent{
@@ -234,7 +237,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						s.hasReasoningItem = true
 						s.reasoningOutputIndex = s.nextOutputIndex
 						s.nextOutputIndex++
-						s.reasoningID = "rs_" + c.ID
+						s.reasoningID = "rs_" + uuid.NewString()
 
 						if err := s.emitEvent(StreamEvent{
 							Type:        StreamEventReasoningItemAdded,
@@ -280,7 +283,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						s.hasReasoningItem = true
 						s.reasoningOutputIndex = s.nextOutputIndex
 						s.nextOutputIndex++
-						s.reasoningID = "rs_" + c.ID
+						s.reasoningID = "rs_" + uuid.NewString()
 
 						if err := s.emitEvent(StreamEvent{
 							Type:        StreamEventReasoningItemAdded,
@@ -331,18 +334,14 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 // Complete signals that streaming is done and emits final events
 func (s *StreamingAccumulator) Complete() error {
 	result := s.accumulator.Result()
-	fullText := ""
-
-	if result.Message != nil {
-		fullText = result.Message.Text()
-	}
+	text := s.streamedText.String()
 
 	// Only emit text/content done events if we actually had text content
-	if s.hasTextContent {
+	if s.streamedText.Len() > 0 {
 		// text.done
 		if err := s.emitEvent(StreamEvent{
 			Type:       StreamEventTextDone,
-			Text:       fullText,
+			Text:       text,
 			Completion: result,
 		}); err != nil {
 			return err
@@ -351,7 +350,7 @@ func (s *StreamingAccumulator) Complete() error {
 		// content_part.done
 		if err := s.emitEvent(StreamEvent{
 			Type:       StreamEventContentPartDone,
-			Text:       fullText,
+			Text:       text,
 			Completion: result,
 		}); err != nil {
 			return err
@@ -360,6 +359,7 @@ func (s *StreamingAccumulator) Complete() error {
 		// output_item.done for message
 		if err := s.emitEvent(StreamEvent{
 			Type:       StreamEventOutputItemDone,
+			Text:       text,
 			Completion: result,
 		}); err != nil {
 			return err
@@ -474,6 +474,7 @@ func (s *StreamingAccumulator) Complete() error {
 	// response.completed
 	if err := s.emitEvent(StreamEvent{
 		Type:       StreamEventResponseCompleted,
+		Text:       text,
 		Completion: result,
 	}); err != nil {
 		return err

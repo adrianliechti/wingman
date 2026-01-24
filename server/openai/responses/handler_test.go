@@ -129,6 +129,51 @@ func TestResponses(t *testing.T) {
 	}
 }
 
+func TestResponsesStreamingCompletedIncludesText(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			stream := client.Responses.NewStreaming(ctx, responses.ResponseNewParams{
+				Model: model,
+				Input: responses.ResponseNewParamsInputUnion{
+					OfString: openai.String("Say hello in one short sentence."),
+				},
+			})
+
+			var streamed string
+			var completedText string
+
+			for stream.Next() {
+				data := stream.Current()
+				streamed += data.Delta
+
+				if data.Response.Status == responses.ResponseStatusCompleted {
+					completedText = data.Response.OutputText()
+				}
+			}
+
+			require.NoError(t, stream.Err())
+			require.NotEmpty(t, streamed)
+			require.NotEmpty(t, completedText)
+
+			trimmedStreamed := strings.TrimSpace(streamed)
+			trimmedCompleted := strings.TrimSpace(completedText)
+			require.True(
+				t,
+				strings.Contains(trimmedCompleted, trimmedStreamed) || strings.Contains(trimmedStreamed, trimmedCompleted),
+				"completed output should include streamed text (streamed=%q completed=%q)",
+				trimmedStreamed,
+				trimmedCompleted,
+			)
+		})
+	}
+}
+
 func TestResponsesWithInstructions(t *testing.T) {
 	client := newTestClient()
 

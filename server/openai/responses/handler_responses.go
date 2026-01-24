@@ -409,7 +409,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Content: []OutputContent{
 						{
 							Type:        "output_text",
-							Text:        event.Completion.Message.Text(),
+							Text:        event.Text,
 							Annotations: []interface{}{},
 						},
 					},
@@ -472,8 +472,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				}
 
 				// Add message output only if there's text content
-				text := event.Completion.Message.Text()
-				if text != "" {
+				if event.Text != "" {
 					output = append(output, ResponseOutput{
 						Type: ResponseOutputTypeMessage,
 						OutputMessage: &OutputMessage{
@@ -483,7 +482,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 							Contents: []OutputContent{
 								{
 									Type:        "output_text",
-									Text:        text,
+									Text:        event.Text,
 									Annotations: []interface{}{},
 								},
 							},

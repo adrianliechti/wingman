@@ -389,6 +389,67 @@ type ResponseOutput struct {
 	*ReasoningOutputItem
 }
 
+// MarshalJSON implements custom JSON marshaling to avoid field conflicts
+// between embedded structs (ID, Type, Status fields exist in multiple embedded types)
+func (r ResponseOutput) MarshalJSON() ([]byte, error) {
+	switch r.Type {
+	case ResponseOutputTypeMessage:
+		if r.OutputMessage != nil {
+			return json.Marshal(struct {
+				Type     ResponseOutputType `json:"type"`
+				ID       string             `json:"id,omitempty"`
+				Role     MessageRole        `json:"role,omitempty"`
+				Status   string             `json:"status,omitempty"`
+				Contents []OutputContent    `json:"content"`
+			}{
+				Type:     r.Type,
+				ID:       r.OutputMessage.ID,
+				Role:     r.OutputMessage.Role,
+				Status:   r.OutputMessage.Status,
+				Contents: r.OutputMessage.Contents,
+			})
+		}
+	case ResponseOutputTypeFunctionCall:
+		if r.FunctionCallOutputItem != nil {
+			return json.Marshal(struct {
+				Type      ResponseOutputType `json:"type"`
+				ID        string             `json:"id"`
+				Status    string             `json:"status"`
+				Name      string             `json:"name"`
+				CallID    string             `json:"call_id"`
+				Arguments string             `json:"arguments"`
+			}{
+				Type:      r.Type,
+				ID:        r.FunctionCallOutputItem.ID,
+				Status:    r.FunctionCallOutputItem.Status,
+				Name:      r.FunctionCallOutputItem.Name,
+				CallID:    r.FunctionCallOutputItem.CallID,
+				Arguments: r.FunctionCallOutputItem.Arguments,
+			})
+		}
+	case ResponseOutputTypeReasoning:
+		if r.ReasoningOutputItem != nil {
+			return json.Marshal(struct {
+				Type    ResponseOutputType           `json:"type"`
+				ID      string                       `json:"id"`
+				Status  string                       `json:"status"`
+				Summary []ReasoningOutputSummary     `json:"summary,omitempty"`
+				Content []ReasoningOutputContentPart `json:"content,omitempty"`
+			}{
+				Type:    r.Type,
+				ID:      r.ReasoningOutputItem.ID,
+				Status:  r.ReasoningOutputItem.Status,
+				Summary: r.ReasoningOutputItem.Summary,
+				Content: r.ReasoningOutputItem.Content,
+			})
+		}
+	}
+	// Fallback: just marshal the type
+	return json.Marshal(struct {
+		Type ResponseOutputType `json:"type,omitempty"`
+	}{Type: r.Type})
+}
+
 type ResponseOutputType string
 
 var (
