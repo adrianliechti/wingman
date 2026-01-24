@@ -111,6 +111,27 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			InferenceConfig: config,
 		}
 
+		// var budgetTokens int
+		// switch options.Effort {
+		// case provider.EffortMinimal:
+		// 	budgetTokens = 1024
+		// case provider.EffortLow:
+		// 	budgetTokens = 2048
+		// case provider.EffortMedium:
+		// 	budgetTokens = 8192
+		// case provider.EffortHigh:
+		// 	budgetTokens = 32000
+		// }
+
+		// if budgetTokens > 0 {
+		// 	params.AdditionalModelRequestFields = document.NewLazyDocument(map[string]any{
+		// 		"thinking": map[string]any{
+		// 			"type":          "enabled",
+		// 			"budget_tokens": budgetTokens,
+		// 		},
+		// 	})
+		// }
+
 		resp, err := c.client.ConverseStream(ctx, params)
 
 		if err != nil {
@@ -172,6 +193,49 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
 				switch b := v.Value.Delta.(type) {
+				case *types.ContentBlockDeltaMemberReasoningContent:
+					switch r := b.Value.(type) {
+					case *types.ReasoningContentBlockDeltaMemberText:
+						delta := &provider.Completion{
+							ID:    id,
+							Model: c.model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.ReasoningContent(provider.Reasoning{
+										Text: r.Value,
+									}),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+
+					case *types.ReasoningContentBlockDeltaMemberSignature:
+						delta := &provider.Completion{
+							ID:    id,
+							Model: c.model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.ReasoningContent(provider.Reasoning{
+										Signature: r.Value,
+									}),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+					}
+
 				case *types.ContentBlockDeltaMemberText:
 					delta := &provider.Completion{
 						ID:    id,
@@ -530,6 +594,17 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 	for _, c := range m.Content {
 		if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 			content = append(content, &types.ContentBlockMemberText{Value: text})
+		}
+
+		if c.Reasoning != nil {
+			content = append(content, &types.ContentBlockMemberReasoningContent{
+				Value: &types.ReasoningContentBlockMemberReasoningText{
+					Value: types.ReasoningTextBlock{
+						Text:      aws.String(c.Reasoning.Text),
+						Signature: aws.String(c.Reasoning.Signature),
+					},
+				},
+			})
 		}
 
 		if c.ToolCall != nil {

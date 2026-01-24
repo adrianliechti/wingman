@@ -293,15 +293,20 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		},
 	}
 
-	// Configure extended thinking based on effort level
-	// Anthropic requires budget_tokens >= 1024 and < max_tokens
-	switch options.Effort {
-	case provider.EffortLow:
-		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(2048)
-	case provider.EffortMedium:
-		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(8192)
-	case provider.EffortHigh:
-		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(32000)
+	if strings.Contains(c.model, "opus-4-5") || strings.Contains(c.model, "opus-4.5") {
+		switch options.Effort {
+		case provider.EffortMinimal, provider.EffortLow:
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortLow
+			req.Betas = append(req.Betas, "effort-2025-11-24")
+
+		case provider.EffortMedium:
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMedium
+			req.Betas = append(req.Betas, "effort-2025-11-24")
+
+		case provider.EffortHigh:
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
+			req.Betas = append(req.Betas, "effort-2025-11-24")
+		}
 	}
 
 	var system []anthropic.BetaTextBlockParam

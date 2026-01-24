@@ -263,39 +263,41 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		Truncation: responses.ResponseNewParamsTruncationAuto,
 	}
 
-	// Include encrypted_content for reasoning models to enable multi-turn conversation continuity
-	if slices.Contains(ReasoningModels, r.model) {
-		req.Include = []responses.ResponseIncludable{
-			responses.ResponseIncludableReasoningEncryptedContent,
-		}
-	}
-
 	if slices.Contains(CodingModels, r.model) {
 		req.Truncation = ""
 	}
 
-	switch options.Effort {
-	case provider.EffortMinimal:
-		req.Reasoning.Effort = responses.ReasoningEffortMinimal
+	if options.Effort != "" && slices.Contains(ReasoningModels, r.model) {
 		req.Reasoning.Summary = responses.ReasoningSummaryAuto
-	case provider.EffortLow:
-		req.Reasoning.Effort = responses.ReasoningEffortLow
-		req.Reasoning.Summary = responses.ReasoningSummaryAuto
-	case provider.EffortMedium:
-		req.Reasoning.Effort = responses.ReasoningEffortMedium
-		req.Reasoning.Summary = responses.ReasoningSummaryAuto
-	case provider.EffortHigh:
-		req.Reasoning.Effort = responses.ReasoningEffortHigh
-		req.Reasoning.Summary = responses.ReasoningSummaryAuto
+
+		switch options.Effort {
+		case provider.EffortMinimal:
+			req.Reasoning.Effort = responses.ReasoningEffortMinimal
+
+		case provider.EffortLow:
+			req.Reasoning.Effort = responses.ReasoningEffortLow
+
+		case provider.EffortMedium:
+			req.Reasoning.Effort = responses.ReasoningEffortMedium
+
+		case provider.EffortHigh:
+			req.Reasoning.Effort = responses.ReasoningEffortHigh
+		}
+
+		req.Include = append(req.Include, responses.ResponseIncludableReasoningEncryptedContent)
 	}
 
-	switch options.Verbosity {
-	case provider.VerbosityLow:
-		req.Text.Verbosity = responses.ResponseTextConfigVerbosityLow
-	case provider.VerbosityMedium:
-		req.Text.Verbosity = responses.ResponseTextConfigVerbosityMedium
-	case provider.VerbosityHigh:
-		req.Text.Verbosity = responses.ResponseTextConfigVerbosityHigh
+	if options.Verbosity != "" {
+		switch options.Verbosity {
+		case provider.VerbosityLow:
+			req.Text.Verbosity = responses.ResponseTextConfigVerbosityLow
+
+		case provider.VerbosityMedium:
+			req.Text.Verbosity = responses.ResponseTextConfigVerbosityMedium
+
+		case provider.VerbosityHigh:
+			req.Text.Verbosity = responses.ResponseTextConfigVerbosityHigh
+		}
 	}
 
 	if options.Schema != nil {
