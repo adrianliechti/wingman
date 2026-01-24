@@ -116,6 +116,30 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 		SystemInstruction: instruction,
 	}
 
+	// // Configure thinking based on effort level
+	// switch options.Effort {
+	// case provider.EffortMinimal:
+	// 	config.ThinkingConfig = &genai.ThinkingConfig{
+	// 		IncludeThoughts: true,
+	// 		ThinkingLevel:   genai.ThinkingLevelMinimal,
+	// 	}
+	// case provider.EffortLow:
+	// 	config.ThinkingConfig = &genai.ThinkingConfig{
+	// 		IncludeThoughts: true,
+	// 		ThinkingLevel:   genai.ThinkingLevelLow,
+	// 	}
+	// case provider.EffortMedium:
+	// 	config.ThinkingConfig = &genai.ThinkingConfig{
+	// 		IncludeThoughts: true,
+	// 		ThinkingLevel:   genai.ThinkingLevelMedium,
+	// 	}
+	// case provider.EffortHigh:
+	// 	config.ThinkingConfig = &genai.ThinkingConfig{
+	// 		IncludeThoughts: true,
+	// 		ThinkingLevel:   genai.ThinkingLevelHigh,
+	// 	}
+	// }
+
 	if len(options.Tools) > 0 {
 		config.Tools = convertTools(options.Tools)
 
@@ -213,6 +237,13 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 				content.Parts = append(content.Parts, part)
 			}
 
+			if c.Reasoning != nil {
+				part := genai.NewPartFromText(c.Reasoning.Text)
+				part.Thought = true
+				part.ThoughtSignature = []byte(c.Reasoning.Signature)
+				content.Parts = append(content.Parts, part)
+			}
+
 			if c.ToolCall != nil {
 				var data map[string]any
 				if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil || data == nil {
@@ -290,6 +321,15 @@ func toContent(content *genai.Content) []provider.Content {
 	var parts []provider.Content
 
 	for _, p := range content.Parts {
+		// Handle thought/reasoning content
+		if p.Thought && p.Text != "" {
+			parts = append(parts, provider.ReasoningContent(provider.Reasoning{
+				Text:      p.Text,
+				Signature: string(p.ThoughtSignature),
+			}))
+			continue
+		}
+
 		if p.Text != "" {
 			parts = append(parts, provider.TextContent(p.Text))
 		}
