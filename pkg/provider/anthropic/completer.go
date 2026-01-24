@@ -95,6 +95,29 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case anthropic.BetaRawContentBlockStartEvent:
 				switch event := event.ContentBlock.AsAny().(type) {
+				case anthropic.BetaThinkingBlock:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ReasoningContent(provider.Reasoning{
+									Text:      event.Thinking,
+									Signature: event.Signature,
+								}),
+							},
+						},
+
+						Usage: toUsage(message.Usage),
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
 				case anthropic.BetaTextBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -147,6 +170,26 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case anthropic.BetaRawContentBlockDeltaEvent:
 				switch event := event.Delta.AsAny().(type) {
+				case anthropic.BetaThinkingDelta:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ReasoningContent(provider.Reasoning{
+									Text: event.Thinking,
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
 				case anthropic.BetaTextDelta:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -250,16 +293,16 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		},
 	}
 
-	// switch options.Effort {
-	// case provider.EffortMinimal, provider.EffortLow:
-	// 	req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortLow
-
-	// case provider.EffortMedium:
-	// 	req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMedium
-
-	// case provider.EffortHigh:
-	// 	req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
-	// }
+	// Configure extended thinking based on effort level
+	// Anthropic requires budget_tokens >= 1024 and < max_tokens
+	switch options.Effort {
+	case provider.EffortLow:
+		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(2048)
+	case provider.EffortMedium:
+		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(8192)
+	case provider.EffortHigh:
+		req.Thinking = anthropic.BetaThinkingConfigParamOfEnabled(32000)
+	}
 
 	var system []anthropic.BetaTextBlockParam
 
@@ -342,6 +385,11 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			for _, c := range m.Content {
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
+				}
+
+				if c.Reasoning != nil {
+					// Include thinking blocks for conversation continuity
+					blocks = append(blocks, anthropic.NewBetaThinkingBlock(c.Reasoning.Signature, c.Reasoning.Text))
 				}
 
 				if c.ToolCall != nil {

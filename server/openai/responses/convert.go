@@ -102,7 +102,29 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			}
 
 		case InputItemTypeReasoning:
-			continue
+			if item.InputReasoning == nil {
+				continue
+			}
+
+			reasoning := item.InputReasoning
+
+			// Build summary text from summary parts
+			var summaryText string
+			for _, part := range reasoning.Summary {
+				if part.Type == "summary_text" {
+					summaryText += part.Text
+				}
+			}
+
+			result = append(result, provider.Message{
+				Role: provider.MessageRoleAssistant,
+				Content: []provider.Content{
+					provider.ReasoningContent(provider.Reasoning{
+						Summary:   summaryText,
+						Signature: reasoning.EncryptedContent,
+					}),
+				},
+			})
 
 		case InputItemTypeFunctionCall:
 			if item.InputFunctionCall == nil {

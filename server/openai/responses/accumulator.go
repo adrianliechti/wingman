@@ -58,11 +58,12 @@ type StreamEvent struct {
 	OutputIndex  int
 
 	// For reasoning events
-	ReasoningID      string
-	ReasoningText    string
-	ReasoningSummary string
-	SummaryIndex     int
-	ContentIndex     int
+	ReasoningID        string
+	ReasoningText      string
+	ReasoningSummary   string
+	ReasoningSignature string
+	SummaryIndex       int
+	ContentIndex       int
 
 	// For error events
 	Error error
@@ -94,6 +95,7 @@ type StreamingAccumulator struct {
 
 	// Track reasoning state
 	reasoningID             string
+	reasoningSignature      string
 	hasReasoningItem        bool
 	hasReasoningContentPart bool
 	hasReasoningText        bool
@@ -229,6 +231,11 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			// Process reasoning content
 			if content.Reasoning != nil {
 				reasoning := content.Reasoning
+
+				// Capture signature/encrypted_content for conversation continuity
+				if reasoning.Signature != "" {
+					s.reasoningSignature = reasoning.Signature
+				}
 
 				// Handle reasoning text
 				if reasoning.Text != "" {
@@ -430,12 +437,13 @@ func (s *StreamingAccumulator) Complete() error {
 
 		// output_item.done for reasoning
 		if err := s.emitEvent(StreamEvent{
-			Type:             StreamEventReasoningItemDone,
-			ReasoningID:      s.reasoningID,
-			ReasoningText:    reasoningText,
-			ReasoningSummary: reasoningSummary,
-			OutputIndex:      s.reasoningOutputIndex,
-			Completion:       result,
+			Type:               StreamEventReasoningItemDone,
+			ReasoningID:        s.reasoningID,
+			ReasoningText:      reasoningText,
+			ReasoningSummary:   reasoningSummary,
+			ReasoningSignature: s.reasoningSignature,
+			OutputIndex:        s.reasoningOutputIndex,
+			Completion:         result,
 		}); err != nil {
 			return err
 		}

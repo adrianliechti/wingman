@@ -337,6 +337,7 @@ const (
 )
 
 type Reasoning struct {
-	Text    string
-	Summary string
+	Text      string
+	Summary   string
+	Signature string
 }

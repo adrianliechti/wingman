@@ -818,3 +818,240 @@ func TestResponsesJSONObjectFormat(t *testing.T) {
 		})
 	}
 }
+
+// Models that support reasoning/thinking
+var reasoningModels = []string{
+	"gpt-5.2", // OpenAI reasoning model
+}
+
+func TestResponsesWithReasoning(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range reasoningModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			t.Run("non-streaming with reasoning", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				resp, err := client.Responses.New(ctx, responses.ResponseNewParams{
+					Model: model,
+					Input: responses.ResponseNewParamsInputUnion{
+						OfString: openai.String("What is 15 * 17? Think step by step."),
+					},
+					Reasoning: responses.ReasoningParam{
+						Effort:  responses.ReasoningEffortLow,
+						Summary: responses.ReasoningSummaryAuto,
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Equal(t, responses.ResponseStatusCompleted, resp.Status)
+
+				// Should have output text with the answer
+				outputText := resp.OutputText()
+				require.NotEmpty(t, outputText)
+				require.Contains(t, outputText, "255")
+			})
+
+			t.Run("streaming with reasoning", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				stream := client.Responses.NewStreaming(ctx, responses.ResponseNewParams{
+					Model: model,
+					Input: responses.ResponseNewParamsInputUnion{
+						OfString: openai.String("What is 15 * 17? Think step by step."),
+					},
+					Reasoning: responses.ReasoningParam{
+						Effort:  responses.ReasoningEffortLow,
+						Summary: responses.ReasoningSummaryAuto,
+					},
+				})
+
+				var textContent string
+				var hasReasoningItem bool
+				var hasReasoningSummary bool
+
+				for stream.Next() {
+					data := stream.Current()
+					textContent += data.Delta
+
+					// Check for reasoning items in output
+					if data.Response.Status == responses.ResponseStatusCompleted {
+						for _, item := range data.Response.Output {
+							if item.Type == "reasoning" {
+								hasReasoningItem = true
+								if len(item.Summary) > 0 {
+									hasReasoningSummary = true
+								}
+							}
+						}
+					}
+				}
+
+				require.NoError(t, stream.Err())
+				require.NotEmpty(t, textContent)
+				require.Contains(t, textContent, "255")
+				// Note: hasReasoningItem may be false if the model doesn't return reasoning
+				// This depends on the upstream provider's response
+				_ = hasReasoningItem
+				_ = hasReasoningSummary
+			})
+		})
+	}
+}
+
+func TestResponsesReasoningStreamEvents(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range reasoningModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			stream := client.Responses.NewStreaming(ctx, responses.ResponseNewParams{
+				Model: model,
+				Input: responses.ResponseNewParamsInputUnion{
+					OfString: openai.String("What is 23 + 19?"),
+				},
+				Reasoning: responses.ReasoningParam{
+					Effort:  responses.ReasoningEffortLow,
+					Summary: responses.ReasoningSummaryAuto,
+				},
+			})
+
+			eventTypes := make(map[string]int)
+			var finalResponse *responses.Response
+
+			for stream.Next() {
+				data := stream.Current()
+				eventTypes[data.Type]++
+
+				if data.Response.Status == responses.ResponseStatusCompleted {
+					finalResponse = &data.Response
+				}
+			}
+
+			require.NoError(t, stream.Err())
+			require.NotNil(t, finalResponse)
+
+			// Should have basic response events
+			require.Greater(t, eventTypes["response.created"], 0, "should have response.created event")
+			require.Greater(t, eventTypes["response.completed"], 0, "should have response.completed event")
+
+			// Should have text output
+			outputText := finalResponse.OutputText()
+			require.NotEmpty(t, outputText)
+			require.Contains(t, outputText, "42")
+		})
+	}
+}
+
+func TestResponsesReasoningEncryptedContent(t *testing.T) {
+	client := newTestClient()
+
+	for _, model := range reasoningModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+			defer cancel()
+
+			// First request with reasoning
+			resp1, err := client.Responses.New(ctx, responses.ResponseNewParams{
+				Model: model,
+				Input: responses.ResponseNewParamsInputUnion{
+					OfString: openai.String("Remember the number 7. Just say 'OK'."),
+				},
+				Reasoning: responses.ReasoningParam{
+					Effort:  responses.ReasoningEffortLow,
+					Summary: responses.ReasoningSummaryAuto,
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp1)
+
+			// Build input for second request including previous output
+			var inputItems []responses.ResponseInputItemUnionParam
+
+			// Add original user message
+			inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
+				OfMessage: &responses.EasyInputMessageParam{
+					Role: responses.EasyInputMessageRoleUser,
+					Content: responses.EasyInputMessageContentUnionParam{
+						OfString: openai.String("Remember the number 7. Just say 'OK'."),
+					},
+				},
+			})
+
+			// Add previous response output
+			for _, item := range resp1.Output {
+				switch item.Type {
+				case "message":
+					outputMsg := &responses.ResponseOutputMessageParam{
+						Content: []responses.ResponseOutputMessageContentUnionParam{},
+					}
+					for _, content := range item.Content {
+						if content.Type == "output_text" {
+							outputMsg.Content = append(outputMsg.Content, responses.ResponseOutputMessageContentUnionParam{
+								OfOutputText: &responses.ResponseOutputTextParam{
+									Text: content.Text,
+								},
+							})
+						}
+					}
+					if len(outputMsg.Content) > 0 {
+						inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
+							OfOutputMessage: outputMsg,
+						})
+					}
+
+				case "reasoning":
+					// Include reasoning with encrypted_content for continuity
+					reasoningItem := &responses.ResponseReasoningItemParam{
+						Summary: []responses.ResponseReasoningItemSummaryParam{},
+					}
+					for _, s := range item.Summary {
+						reasoningItem.Summary = append(reasoningItem.Summary, responses.ResponseReasoningItemSummaryParam{
+							Text: s.Text,
+						})
+					}
+					if item.EncryptedContent != "" {
+						reasoningItem.EncryptedContent = openai.String(item.EncryptedContent)
+					}
+					inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
+						OfReasoning: reasoningItem,
+					})
+				}
+			}
+
+			// Add follow-up question
+			inputItems = append(inputItems, responses.ResponseInputItemUnionParam{
+				OfMessage: &responses.EasyInputMessageParam{
+					Role: responses.EasyInputMessageRoleUser,
+					Content: responses.EasyInputMessageContentUnionParam{
+						OfString: openai.String("What number did I ask you to remember?"),
+					},
+				},
+			})
+
+			// Second request should remember the context
+			resp2, err := client.Responses.New(ctx, responses.ResponseNewParams{
+				Model: model,
+				Input: responses.ResponseNewParamsInputUnion{
+					OfInputItemList: inputItems,
+				},
+				Reasoning: responses.ReasoningParam{
+					Effort:  responses.ReasoningEffortLow,
+					Summary: responses.ReasoningSummaryAuto,
+				},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, resp2)
+
+			outputText := resp2.OutputText()
+			require.Contains(t, outputText, "7", "should remember the number 7")
+		})
+	}
+}

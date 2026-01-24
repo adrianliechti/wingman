@@ -168,6 +168,29 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseContentPartDoneEvent:
 			case responses.ResponseOutputItemDoneEvent:
 				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseReasoningItem:
+					// Capture encrypted_content for conversation continuity
+					if item.EncryptedContent != "" {
+						delta := &provider.Completion{
+							ID:    data.Response.ID,
+							Model: data.Response.Model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.ReasoningContent(provider.Reasoning{
+										Signature: item.EncryptedContent,
+									}),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+					}
+
 				case responses.ResponseOutputMessage:
 					var textBuilder strings.Builder
 					for _, part := range item.Content {
@@ -430,6 +453,24 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						OfOutputText: &responses.ResponseOutputTextParam{
 							Text: c.Text,
 						},
+					})
+				}
+
+				if c.Reasoning != nil {
+					reasoning := &responses.ResponseReasoningItemParam{}
+
+					if c.Reasoning.Summary != "" {
+						reasoning.Summary = append(reasoning.Summary, responses.ResponseReasoningItemSummaryParam{
+							Text: c.Reasoning.Summary,
+						})
+					}
+
+					if c.Reasoning.Signature != "" {
+						reasoning.EncryptedContent = openai.String(c.Reasoning.Signature)
+					}
+
+					result = append(result, responses.ResponseInputItemUnionParam{
+						OfReasoning: reasoning,
 					})
 				}
 

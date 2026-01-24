@@ -372,11 +372,14 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 
 		case StreamEventReasoningItemDone:
 			item := &ReasoningOutputItem{
-				ID:      event.ReasoningID,
-				Type:    "reasoning",
-				Status:  "completed",
+				ID:     event.ReasoningID,
+				Type:   "reasoning",
+				Status: "completed",
+
 				Summary: []ReasoningOutputSummary{},
 				Content: []ReasoningOutputContentPart{},
+
+				EncryptedContent: event.ReasoningSignature,
 			}
 			if event.ReasoningSummary != "" {
 				item.Summary = append(item.Summary, ReasoningOutputSummary{

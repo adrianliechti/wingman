@@ -430,17 +430,19 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 	case ResponseOutputTypeReasoning:
 		if r.ReasoningOutputItem != nil {
 			return json.Marshal(struct {
-				Type    ResponseOutputType           `json:"type"`
-				ID      string                       `json:"id"`
-				Status  string                       `json:"status"`
-				Summary []ReasoningOutputSummary     `json:"summary,omitempty"`
-				Content []ReasoningOutputContentPart `json:"content,omitempty"`
+				Type             ResponseOutputType           `json:"type"`
+				ID               string                       `json:"id"`
+				Status           string                       `json:"status"`
+				Summary          []ReasoningOutputSummary     `json:"summary,omitempty"`
+				Content          []ReasoningOutputContentPart `json:"content,omitempty"`
+				EncryptedContent string                       `json:"encrypted_content,omitempty"`
 			}{
-				Type:    r.Type,
-				ID:      r.ReasoningOutputItem.ID,
-				Status:  r.ReasoningOutputItem.Status,
-				Summary: r.ReasoningOutputItem.Summary,
-				Content: r.ReasoningOutputItem.Content,
+				Type:             r.Type,
+				ID:               r.ReasoningOutputItem.ID,
+				Status:           r.ReasoningOutputItem.Status,
+				Summary:          r.ReasoningOutputItem.Summary,
+				Content:          r.ReasoningOutputItem.Content,
+				EncryptedContent: r.ReasoningOutputItem.EncryptedContent,
 			})
 		}
 	}
@@ -613,11 +615,14 @@ type FunctionCallOutputItemDoneEvent struct {
 
 // ReasoningOutputItem represents a reasoning item in the output
 type ReasoningOutputItem struct {
-	ID      string                       `json:"id"`
-	Type    string                       `json:"type"`   // reasoning
-	Status  string                       `json:"status"` // in_progress, completed
+	ID     string `json:"id"`
+	Type   string `json:"type"`   // reasoning
+	Status string `json:"status"` // in_progress, completed
+
 	Summary []ReasoningOutputSummary     `json:"summary,omitempty"`
 	Content []ReasoningOutputContentPart `json:"content,omitempty"`
+
+	EncryptedContent string `json:"encrypted_content,omitempty"`
 }
 
 // ReasoningOutputSummary represents a summary part in reasoning output
