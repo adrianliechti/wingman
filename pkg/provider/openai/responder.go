@@ -6,7 +6,6 @@ import (
 	"errors"
 	"iter"
 	"slices"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -190,36 +189,8 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 							return
 						}
 					}
-
-				case responses.ResponseOutputMessage:
-					var textBuilder strings.Builder
-					for _, part := range item.Content {
-						switch content := part.AsAny().(type) {
-						case responses.ResponseOutputText:
-							if content.Text != "" {
-								textBuilder.WriteString(content.Text)
-							}
-						}
-					}
-
-					if textBuilder.Len() > 0 {
-						delta := &provider.Completion{
-							ID:    data.Response.ID,
-							Model: data.Response.Model,
-
-							Message: &provider.Message{
-								Role: provider.MessageRoleAssistant,
-								Content: []provider.Content{
-									provider.TextContent(textBuilder.String()),
-								},
-							},
-						}
-
-						if !yield(delta, nil) {
-							return
-						}
-					}
 				}
+
 			case responses.ResponseCompletedEvent:
 				delta := &provider.Completion{
 					ID:    data.Response.ID,
@@ -315,21 +286,27 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	}
 
 	if options.Schema != nil {
-		schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
-			Name:   options.Schema.Name,
-			Schema: options.Schema.Schema,
-		}
+		if options.Schema.Name == "json_object" {
+			req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+				OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
+			}
+		} else {
+			schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
+				Name:   options.Schema.Name,
+				Schema: options.Schema.Schema,
+			}
 
-		if options.Schema.Strict != nil {
-			schema.Strict = openai.Bool(*options.Schema.Strict)
-		}
+			if options.Schema.Strict != nil {
+				schema.Strict = openai.Bool(*options.Schema.Strict)
+			}
 
-		if options.Schema.Description != "" {
-			schema.Description = openai.String(options.Schema.Description)
-		}
+			if options.Schema.Description != "" {
+				schema.Description = openai.String(options.Schema.Description)
+			}
 
-		req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
-			OfJSONSchema: schema,
+			req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+				OfJSONSchema: schema,
+			}
 		}
 	}
 

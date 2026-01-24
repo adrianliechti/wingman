@@ -111,6 +111,7 @@ type CompletionAccumulator struct {
 
 	summary   strings.Builder
 	reasoning strings.Builder
+	signature string
 
 	toolCalls      []ToolCall
 	lastToolCallID string
@@ -144,6 +145,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 				if c.Reasoning.Text != "" {
 					a.reasoning.WriteString(c.Reasoning.Text)
+				}
+
+				if c.Reasoning.Signature != "" {
+					a.signature = c.Reasoning.Signature
 				}
 			}
 
@@ -213,10 +218,11 @@ func (a *CompletionAccumulator) Add(c Completion) {
 func (a *CompletionAccumulator) Result() *Completion {
 	var content []Content
 
-	if a.reasoning.Len() > 0 || a.summary.Len() > 0 {
+	if a.reasoning.Len() > 0 || a.summary.Len() > 0 || a.signature != "" {
 		content = append(content, ReasoningContent(Reasoning{
-			Text:    a.reasoning.String(),
-			Summary: a.summary.String(),
+			Text:      a.reasoning.String(),
+			Summary:   a.summary.String(),
+			Signature: a.signature,
 		}))
 	}
 

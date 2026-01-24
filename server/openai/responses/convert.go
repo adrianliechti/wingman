@@ -2,6 +2,7 @@ package responses
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"mime"
 	"path"
 
@@ -116,10 +117,28 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				}
 			}
 
+			// Parse reasoning content if present
+			var reasoningText string
+			if len(reasoning.Content) > 0 && string(reasoning.Content) != "null" {
+				// Content is an array of content parts with type and text
+				var contentParts []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}
+				if err := json.Unmarshal(reasoning.Content, &contentParts); err == nil {
+					for _, part := range contentParts {
+						if part.Type == "reasoning_text" {
+							reasoningText += part.Text
+						}
+					}
+				}
+			}
+
 			result = append(result, provider.Message{
 				Role: provider.MessageRoleAssistant,
 				Content: []provider.Content{
 					provider.ReasoningContent(provider.Reasoning{
+						Text:      reasoningText,
 						Summary:   summaryText,
 						Signature: reasoning.EncryptedContent,
 					}),

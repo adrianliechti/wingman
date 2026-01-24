@@ -66,10 +66,8 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	if req.Text != nil {
 		if req.Text.Format != nil {
 			if req.Text.Format.Type == "json_object" {
-				// Convert json_object to minimal json_schema
 				options.Schema = &provider.Schema{
-					Name:   "json_object",
-					Schema: map[string]any{"type": "object"},
+					Name: "json_object",
 				}
 			}
 
@@ -432,12 +430,18 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				// Add reasoning output if present
 				for _, content := range event.Completion.Message.Content {
 					if content.Reasoning != nil {
+						reasoningID := event.ReasoningID
+						if reasoningID == "" {
+							reasoningID = "rs_" + uuid.NewString()
+						}
+
 						reasoningItem := &ReasoningOutputItem{
-							ID:      "rs_" + event.Completion.ID,
-							Type:    "reasoning",
-							Status:  "completed",
-							Summary: []ReasoningOutputSummary{},
-							Content: []ReasoningOutputContentPart{},
+							ID:               reasoningID,
+							Type:             "reasoning",
+							Status:           "completed",
+							Summary:          []ReasoningOutputSummary{},
+							Content:          []ReasoningOutputContentPart{},
+							EncryptedContent: event.ReasoningSignature,
 						}
 						if content.Reasoning.Summary != "" {
 							reasoningItem.Summary = append(reasoningItem.Summary, ReasoningOutputSummary{
@@ -605,7 +609,45 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 	}
 
 	if completion.Message != nil {
-		// Add function call outputs first
+		// Add reasoning output first if present
+		for _, content := range completion.Message.Content {
+			if content.Reasoning != nil {
+				reasoningItem := &ReasoningOutputItem{
+					ID:     "rs_" + uuid.NewString(),
+					Type:   "reasoning",
+					Status: "completed",
+
+					Summary: []ReasoningOutputSummary{},
+					Content: []ReasoningOutputContentPart{},
+				}
+
+				if content.Reasoning.Summary != "" {
+					reasoningItem.Summary = append(reasoningItem.Summary, ReasoningOutputSummary{
+						Type: "summary_text",
+						Text: content.Reasoning.Summary,
+					})
+				}
+
+				if content.Reasoning.Text != "" {
+					reasoningItem.Content = append(reasoningItem.Content, ReasoningOutputContentPart{
+						Type: "reasoning_text",
+						Text: content.Reasoning.Text,
+					})
+				}
+
+				if content.Reasoning.Signature != "" {
+					reasoningItem.EncryptedContent = content.Reasoning.Signature
+				}
+
+				result.Output = append(result.Output, ResponseOutput{
+					Type:                ResponseOutputTypeReasoning,
+					ReasoningOutputItem: reasoningItem,
+				})
+				break // Only one reasoning block
+			}
+		}
+
+		// Add function call outputs
 		for _, call := range completion.Message.ToolCalls() {
 			result.Output = append(result.Output, ResponseOutput{
 				Type: ResponseOutputTypeFunctionCall,

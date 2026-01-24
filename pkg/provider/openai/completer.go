@@ -143,23 +143,29 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	if options.Schema != nil {
-		schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
-			Name:   options.Schema.Name,
-			Schema: options.Schema.Schema,
-		}
+		if options.Schema.Name == "json_object" {
+			req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+			}
+		} else {
+			schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
+				Name:   options.Schema.Name,
+				Schema: options.Schema.Schema,
+			}
 
-		if options.Schema.Description != "" {
-			schema.Description = openai.String(options.Schema.Description)
-		}
+			if options.Schema.Description != "" {
+				schema.Description = openai.String(options.Schema.Description)
+			}
 
-		if options.Schema.Strict != nil {
-			schema.Strict = openai.Bool(*options.Schema.Strict)
-		}
+			if options.Schema.Strict != nil {
+				schema.Strict = openai.Bool(*options.Schema.Strict)
+			}
 
-		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
-				JSONSchema: schema,
-			},
+			req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+					JSONSchema: schema,
+				},
+			}
 		}
 	}
 
