@@ -229,7 +229,7 @@ func TestStreamingAccumulatorReasoningOutputIndex(t *testing.T) {
 
 	// Reasoning comes first, should get output_index 0
 	require.NoError(t, acc.Add(reasoningChunk("thinking", "", "")))
-	// Text comes second, should get output_index 1 (but currently uses 0 for message)
+	// Text comes second, should get output_index 1
 	require.NoError(t, acc.Add(textChunk("response")))
 	require.NoError(t, acc.Complete())
 
@@ -240,4 +240,19 @@ func TestStreamingAccumulatorReasoningOutputIndex(t *testing.T) {
 	reasoningItemDoneEvent := findEvent(*events, StreamEventReasoningItemDone)
 	require.NotNil(t, reasoningItemDoneEvent)
 	require.Equal(t, 0, reasoningItemDoneEvent.OutputIndex)
+
+	// Message should be at output_index 1
+	outputItemAddedEvent := findEvent(*events, StreamEventOutputItemAdded)
+	require.NotNil(t, outputItemAddedEvent)
+	require.Equal(t, 1, outputItemAddedEvent.OutputIndex, "message should be at output_index 1 when reasoning is at 0")
+
+	// Text delta should reference the message's output_index
+	textDeltaEvent := findEvent(*events, StreamEventTextDelta)
+	require.NotNil(t, textDeltaEvent)
+	require.Equal(t, 1, textDeltaEvent.OutputIndex, "text delta should reference output_index 1")
+
+	// Output item done should reference the message's output_index
+	outputItemDoneEvent := findEvent(*events, StreamEventOutputItemDone)
+	require.NotNil(t, outputItemDoneEvent)
+	require.Equal(t, 1, outputItemDoneEvent.OutputIndex, "output_item.done should reference output_index 1")
 }

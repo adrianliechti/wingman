@@ -143,6 +143,10 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case responses.ResponseTextDoneEvent:
+			case responses.ResponseReasoningTextDoneEvent:
+			case responses.ResponseReasoningSummaryPartAddedEvent:
+			case responses.ResponseReasoningSummaryTextDoneEvent:
+			case responses.ResponseReasoningSummaryPartDoneEvent:
 			case responses.ResponseFunctionCallArgumentsDeltaEvent:
 				delta := &provider.Completion{
 					ID:    data.Response.ID,
@@ -255,6 +259,13 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		Tools: tools,
 
 		Truncation: responses.ResponseNewParamsTruncationAuto,
+	}
+
+	// Include encrypted_content for reasoning models to enable multi-turn conversation continuity
+	if slices.Contains(ReasoningModels, r.model) {
+		req.Include = []responses.ResponseIncludable{
+			responses.ResponseIncludableReasoningEncryptedContent,
+		}
 	}
 
 	if slices.Contains(CodingModels, r.model) {

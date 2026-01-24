@@ -471,9 +471,8 @@ type OutputMessage struct {
 }
 
 type OutputContent struct {
-	Type        string        `json:"type,omitempty"`
-	Text        string        `json:"text,omitempty"`
-	Annotations []interface{} `json:"annotations,omitempty"`
+	Type string `json:"type,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/created

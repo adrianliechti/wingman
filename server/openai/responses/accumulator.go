@@ -82,10 +82,11 @@ type StreamingAccumulator struct {
 	handler StreamEventHandler
 
 	// Track state for event emission
-	started        bool
-	hasOutputItem  bool // True if we emitted output_item.added for message
-	hasContentPart bool // True if we emitted content_part.added
-	streamedText   strings.Builder
+	started            bool
+	hasOutputItem      bool // True if we emitted output_item.added for message
+	hasContentPart     bool // True if we emitted content_part.added
+	messageOutputIndex int  // Output index for the message item
+	streamedText       strings.Builder
 
 	// Track tool calls - map from tool call ID to output index
 	toolCallIndices map[string]int
@@ -227,10 +228,12 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					}
 
 					s.hasOutputItem = true
+					s.messageOutputIndex = s.nextOutputIndex
 					s.nextOutputIndex++ // Increment for next item
 
 					if err := s.emitEvent(StreamEvent{
-						Type: StreamEventOutputItemAdded,
+						Type:        StreamEventOutputItemAdded,
+						OutputIndex: s.messageOutputIndex,
 					}); err != nil {
 						return err
 					}
@@ -241,7 +244,8 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					s.hasContentPart = true
 
 					if err := s.emitEvent(StreamEvent{
-						Type: StreamEventContentPartAdded,
+						Type:        StreamEventContentPartAdded,
+						OutputIndex: s.messageOutputIndex,
 					}); err != nil {
 						return err
 					}
@@ -249,8 +253,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 				// Emit text delta
 				if err := s.emitEvent(StreamEvent{
-					Type:  StreamEventTextDelta,
-					Delta: content.Text,
+					Type:        StreamEventTextDelta,
+					Delta:       content.Text,
+					OutputIndex: s.messageOutputIndex,
 				}); err != nil {
 					return err
 				}
@@ -431,27 +436,30 @@ func (s *StreamingAccumulator) Complete() error {
 	if s.streamedText.Len() > 0 {
 		// text.done
 		if err := s.emitEvent(StreamEvent{
-			Type:       StreamEventTextDone,
-			Text:       text,
-			Completion: result,
+			Type:        StreamEventTextDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+			Completion:  result,
 		}); err != nil {
 			return err
 		}
 
 		// content_part.done
 		if err := s.emitEvent(StreamEvent{
-			Type:       StreamEventContentPartDone,
-			Text:       text,
-			Completion: result,
+			Type:        StreamEventContentPartDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+			Completion:  result,
 		}); err != nil {
 			return err
 		}
 
 		// output_item.done for message
 		if err := s.emitEvent(StreamEvent{
-			Type:       StreamEventOutputItemDone,
-			Text:       text,
-			Completion: result,
+			Type:        StreamEventOutputItemDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+			Completion:  result,
 		}); err != nil {
 			return err
 		}
