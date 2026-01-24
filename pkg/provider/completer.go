@@ -343,6 +343,7 @@ const (
 )
 
 type Reasoning struct {
+	ID        string
 	Text      string
 	Summary   string
 	Signature string

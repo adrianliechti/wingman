@@ -112,6 +112,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 						Content: []provider.Content{
 							provider.ReasoningContent(provider.Reasoning{
+								ID:   event.ItemID,
 								Text: event.Delta,
 							}),
 						},
@@ -132,6 +133,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 						Content: []provider.Content{
 							provider.ReasoningContent(provider.Reasoning{
+								ID:      event.ItemID,
 								Summary: event.Delta,
 							}),
 						},
@@ -445,7 +447,15 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				}
 
 				if c.Reasoning != nil {
-					reasoning := &responses.ResponseReasoningItemParam{}
+					reasoning := &responses.ResponseReasoningItemParam{
+						ID: c.Reasoning.ID,
+					}
+
+					if c.Reasoning.Text != "" {
+						reasoning.Content = append(reasoning.Content, responses.ResponseReasoningItemContentParam{
+							Text: c.Reasoning.Text,
+						})
+					}
 
 					if c.Reasoning.Summary != "" {
 						reasoning.Summary = append(reasoning.Summary, responses.ResponseReasoningItemSummaryParam{
@@ -455,6 +465,14 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 
 					if c.Reasoning.Signature != "" {
 						reasoning.EncryptedContent = openai.String(c.Reasoning.Signature)
+					}
+
+					if len(reasoning.Summary) == 0 && len(reasoning.Content) == 0 {
+						reasoning.Summary = []responses.ResponseReasoningItemSummaryParam{
+							{
+								Text: "",
+							},
+						}
 					}
 
 					result = append(result, responses.ResponseInputItemUnionParam{

@@ -138,6 +138,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				Role: provider.MessageRoleAssistant,
 				Content: []provider.Content{
 					provider.ReasoningContent(provider.Reasoning{
+						ID:        reasoning.ID,
 						Text:      reasoningText,
 						Summary:   summaryText,
 						Signature: reasoning.EncryptedContent,

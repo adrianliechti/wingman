@@ -1010,6 +1010,7 @@ func TestResponsesReasoningEncryptedContent(t *testing.T) {
 				case "reasoning":
 					// Include reasoning with encrypted_content for continuity
 					reasoningItem := &responses.ResponseReasoningItemParam{
+						ID:      item.ID,
 						Summary: []responses.ResponseReasoningItemSummaryParam{},
 					}
 					for _, s := range item.Summary {
