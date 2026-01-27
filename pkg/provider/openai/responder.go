@@ -547,5 +547,7 @@ func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
 	return &provider.Usage{
 		InputTokens:  int(usage.InputTokens),
 		OutputTokens: int(usage.OutputTokens),
+
+		CacheReadInputTokens: int(usage.InputTokensDetails.CachedTokens),
 	}
 }
