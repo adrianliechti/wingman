@@ -8,14 +8,12 @@ import (
 	"iter"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
@@ -49,14 +47,15 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 
 	// Configure adaptive retry mode for throttle-based rate limiting
 	// Keep attempts low to reduce the risk of duplicate billing on retries for streaming requests
-	configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
-		return retry.NewAdaptiveMode(func(o *retry.AdaptiveModeOptions) {
-			o.StandardOptions = append(o.StandardOptions, func(so *retry.StandardOptions) {
-				so.MaxAttempts = 3
-				so.MaxBackoff = 20 * time.Second
-			})
-		})
-	}))
+
+	// configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
+	// 	return retry.NewAdaptiveMode(func(o *retry.AdaptiveModeOptions) {
+	// 		o.StandardOptions = append(o.StandardOptions, func(so *retry.StandardOptions) {
+	// 			so.MaxAttempts = 3
+	// 			so.MaxBackoff = 20 * time.Second
+	// 		})
+	// 	})
+	// }))
 
 	config, err := config.LoadDefaultConfig(context.Background(), configOptions...)
 

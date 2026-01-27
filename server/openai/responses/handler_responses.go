@@ -428,6 +428,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				for _, content := range event.Completion.Message.Content {
 					if content.Reasoning != nil {
 						reasoningID := event.ReasoningID
+
 						if reasoningID == "" {
 							reasoningID = "rs_" + uuid.NewString()
 						}

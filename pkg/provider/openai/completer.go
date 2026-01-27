@@ -131,15 +131,33 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		req.Messages = messages
 	}
 
-	switch options.Effort {
-	case provider.EffortMinimal:
-		req.ReasoningEffort = openai.ReasoningEffortMinimal
-	case provider.EffortLow:
-		req.ReasoningEffort = openai.ReasoningEffortLow
-	case provider.EffortMedium:
-		req.ReasoningEffort = openai.ReasoningEffortMedium
-	case provider.EffortHigh:
-		req.ReasoningEffort = openai.ReasoningEffortHigh
+	if options.Effort != "" {
+		switch options.Effort {
+		case provider.EffortMinimal:
+			req.ReasoningEffort = openai.ReasoningEffortMinimal
+
+		case provider.EffortLow:
+			req.ReasoningEffort = openai.ReasoningEffortLow
+
+		case provider.EffortMedium:
+			req.ReasoningEffort = openai.ReasoningEffortMedium
+
+		case provider.EffortHigh:
+			req.ReasoningEffort = openai.ReasoningEffortHigh
+		}
+	}
+
+	if options.Verbosity != "" {
+		switch options.Verbosity {
+		case provider.VerbosityLow:
+			req.Verbosity = openai.ChatCompletionNewParamsVerbosityLow
+
+		case provider.VerbosityMedium:
+			req.Verbosity = openai.ChatCompletionNewParamsVerbosityMedium
+
+		case provider.VerbosityHigh:
+			req.Verbosity = openai.ChatCompletionNewParamsVerbosityHigh
+		}
 	}
 
 	if options.Schema != nil {
