@@ -326,14 +326,26 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.Temperature = anthropic.Float(float64(*options.Temperature))
 	}
 
+	// First pass: collect system messages
 	for _, m := range input {
-		switch m.Role {
-		case provider.MessageRoleSystem:
+		if m.Role == provider.MessageRoleSystem {
 			for _, c := range m.Content {
 				if c.Text != "" {
 					system = append(system, anthropic.BetaTextBlockParam{Text: c.Text})
 				}
 			}
+		}
+	}
+
+	// Add cache control to the last system block
+	if len(system) > 0 {
+		system[len(system)-1].CacheControl = anthropic.NewBetaCacheControlEphemeralParam()
+	}
+
+	for _, m := range input {
+		switch m.Role {
+		case provider.MessageRoleSystem:
+			continue // Already processed above
 
 		case provider.MessageRoleUser:
 			var blocks []anthropic.BetaContentBlockParamUnion
@@ -383,6 +395,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 			message := anthropic.NewBetaUserMessage(blocks...)
 			messages = append(messages, message)
+
+			// Mark user messages for potential cache control (will be set on the last one)
+			// The cache point will be added after all messages are processed
 
 		case provider.MessageRoleAssistant:
 			var blocks []anthropic.BetaContentBlockParamUnion
@@ -449,6 +464,11 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		tools = append(tools, anthropic.BetaToolUnionParam{OfTool: &tool})
 	}
 
+	// Add cache control to the last tool
+	if len(tools) > 0 {
+		tools[len(tools)-1].OfTool.CacheControl = anthropic.NewBetaCacheControlEphemeralParam()
+	}
+
 	if options.Schema != nil {
 		req.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(options.Schema.Schema)
 	}
@@ -462,10 +482,37 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if len(messages) > 0 {
+		// Add cache control to the last content block of the last user message
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == anthropic.BetaMessageParamRoleUser {
+				if len(messages[i].Content) > 0 {
+					lastBlock := &messages[i].Content[len(messages[i].Content)-1]
+					setCacheControl(lastBlock)
+				}
+				break
+			}
+		}
+
 		req.Messages = messages
 	}
 
 	return req, nil
+}
+
+// setCacheControl sets the cache control on a content block
+func setCacheControl(block *anthropic.BetaContentBlockParamUnion) {
+	cacheControl := anthropic.NewBetaCacheControlEphemeralParam()
+
+	switch {
+	case block.OfText != nil:
+		block.OfText.CacheControl = cacheControl
+	case block.OfImage != nil:
+		block.OfImage.CacheControl = cacheControl
+	case block.OfDocument != nil:
+		block.OfDocument.CacheControl = cacheControl
+	case block.OfToolResult != nil:
+		block.OfToolResult.CacheControl = cacheControl
+	}
 }
 
 func toUsage(usage anthropic.BetaUsage) *provider.Usage {
@@ -476,5 +523,8 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 	return &provider.Usage{
 		InputTokens:  int(usage.InputTokens),
 		OutputTokens: int(usage.OutputTokens),
+
+		CacheReadInputTokens:     int(usage.CacheReadInputTokens),
+		CacheCreationInputTokens: int(usage.CacheCreationInputTokens),
 	}
 }

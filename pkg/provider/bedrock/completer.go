@@ -417,13 +417,13 @@ func convertError(err error) error {
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
-	messages, err := convertMessages(input)
+	messages, err := c.convertMessages(input)
 
 	if err != nil {
 		return nil, err
 	}
 
-	toolConfig := convertToolConfig(options.Tools)
+	toolConfig := c.convertToolConfig(options.Tools)
 
 	// Schema mode: create a tool with the schema and force ToolChoice
 	if options.Schema != nil {
@@ -458,12 +458,12 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 
 		Messages: messages,
 
-		System:     convertSystem(input),
+		System:     c.convertSystem(input),
 		ToolConfig: toolConfig,
 	}, nil
 }
 
-func convertSystem(messages []provider.Message) []types.SystemContentBlock {
+func (c *Completer) convertSystem(messages []provider.Message) []types.SystemContentBlock {
 	var result []types.SystemContentBlock
 
 	for _, m := range messages {
@@ -471,13 +471,13 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 			continue
 		}
 
-		for _, c := range m.Content {
-			if c.Text == "" {
+		for _, content := range m.Content {
+			if content.Text == "" {
 				continue
 			}
 
 			system := &types.SystemContentBlockMemberText{
-				Value: c.Text,
+				Value: content.Text,
 			}
 
 			result = append(result, system)
@@ -488,10 +488,19 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 		return nil
 	}
 
+	// Add cache point after system messages for Claude models
+	if isClaudeModel(c.model) {
+		result = append(result, &types.SystemContentBlockMemberCachePoint{
+			Value: types.CachePointBlock{
+				Type: types.CachePointTypeDefault,
+			},
+		})
+	}
+
 	return result
 }
 
-func convertMessages(messages []provider.Message) ([]types.Message, error) {
+func (c *Completer) convertMessages(messages []provider.Message) ([]types.Message, error) {
 	var result []types.Message
 
 	// Pre-process: merge consecutive messages with the same role (required by Bedrock API)
@@ -540,6 +549,20 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 			Role:    role,
 			Content: content,
 		})
+	}
+
+	// Add cache point to the last user message for Claude models
+	if isClaudeModel(c.model) && len(result) > 0 {
+		for i := len(result) - 1; i >= 0; i-- {
+			if result[i].Role == types.ConversationRoleUser {
+				result[i].Content = append(result[i].Content, &types.ContentBlockMemberCachePoint{
+					Value: types.CachePointBlock{
+						Type: types.CachePointTypeDefault,
+					},
+				})
+				break
+			}
+		}
 	}
 
 	return result, nil
@@ -627,7 +650,7 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 	return content, nil
 }
 
-func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
+func (c *Completer) convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -650,6 +673,15 @@ func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
 		}
 
 		result.Tools = append(result.Tools, &types.ToolMemberToolSpec{Value: tool})
+	}
+
+	// Add cache point after tool definitions for Claude models
+	if isClaudeModel(c.model) {
+		result.Tools = append(result.Tools, &types.ToolMemberCachePoint{
+			Value: types.CachePointBlock{
+				Type: types.CachePointTypeDefault,
+			},
+		})
 	}
 
 	return result
@@ -739,8 +771,22 @@ func toUsage(val *types.TokenUsage) *provider.Usage {
 		return nil
 	}
 
+	inputTokens := int(aws.ToInt32(val.InputTokens))
+	outputTokens := int(aws.ToInt32(val.OutputTokens))
+
+	cacheReadInputTokens := int(aws.ToInt32(val.CacheReadInputTokens))
+	cacheWriteInputTokens := int(aws.ToInt32(val.CacheWriteInputTokens))
+
+	// Normalize InputTokens to include cached tokens (like OpenAI does)
+	// Bedrock reports InputTokens as only new/non-cached tokens
+	// OpenAI reports prompt_tokens as total (cached + non-cached)
+	totalInputTokens := inputTokens + cacheReadInputTokens
+
 	return &provider.Usage{
-		InputTokens:  int(aws.ToInt32(val.InputTokens)),
-		OutputTokens: int(aws.ToInt32(val.OutputTokens)),
+		InputTokens:  totalInputTokens,
+		OutputTokens: outputTokens,
+
+		CacheReadInputTokens:     cacheReadInputTokens,
+		CacheCreationInputTokens: cacheWriteInputTokens,
 	}
 }
