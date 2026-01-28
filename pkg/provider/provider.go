@@ -40,4 +40,7 @@ type Schema struct {
 type Usage struct {
 	InputTokens  int
 	OutputTokens int
+
+	CacheReadInputTokens     int
+	CacheCreationInputTokens int
 }

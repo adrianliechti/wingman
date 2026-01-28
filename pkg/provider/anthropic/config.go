@@ -30,8 +30,8 @@ func WithToken(token string) Option {
 	}
 }
 
-func (c *Config) Options() []option.RequestOption {
-	url := c.url
+func (cfg *Config) Options() []option.RequestOption {
+	url := cfg.url
 
 	if url == "" {
 		url = "https://api.anthropic.com/"
@@ -43,12 +43,12 @@ func (c *Config) Options() []option.RequestOption {
 		option.WithBaseURL(url),
 	}
 
-	if c.client != nil {
-		options = append(options, option.WithHTTPClient(c.client))
+	if cfg.client != nil {
+		options = append(options, option.WithHTTPClient(cfg.client))
 	}
 
-	if c.token != "" {
-		options = append(options, option.WithAPIKey(c.token))
+	if cfg.token != "" {
+		options = append(options, option.WithAPIKey(cfg.token))
 	}
 
 	return options

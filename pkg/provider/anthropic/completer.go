@@ -95,6 +95,29 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case anthropic.BetaRawContentBlockStartEvent:
 				switch event := event.ContentBlock.AsAny().(type) {
+				case anthropic.BetaThinkingBlock:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ReasoningContent(provider.Reasoning{
+									Text:      event.Thinking,
+									Signature: event.Signature,
+								}),
+							},
+						},
+
+						Usage: toUsage(message.Usage),
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
 				case anthropic.BetaTextBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -147,6 +170,26 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case anthropic.BetaRawContentBlockDeltaEvent:
 				switch event := event.Delta.AsAny().(type) {
+				case anthropic.BetaThinkingDelta:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ReasoningContent(provider.Reasoning{
+									Text: event.Thinking,
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
 				case anthropic.BetaTextDelta:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -250,16 +293,21 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		},
 	}
 
-	// switch options.Effort {
-	// case provider.EffortMinimal, provider.EffortLow:
-	// 	req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortLow
+	if strings.Contains(c.model, "opus-4-5") || strings.Contains(c.model, "opus-4.5") {
+		switch options.Effort {
+		case provider.EffortMinimal, provider.EffortLow:
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortLow
+			req.Betas = append(req.Betas, "effort-2025-11-24")
 
-	// case provider.EffortMedium:
-	// 	req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMedium
+		case provider.EffortMedium:
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMedium
+			req.Betas = append(req.Betas, "effort-2025-11-24")
 
-	// case provider.EffortHigh:
-	// 	req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
-	// }
+		case provider.EffortHigh:
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
+			req.Betas = append(req.Betas, "effort-2025-11-24")
+		}
+	}
 
 	var system []anthropic.BetaTextBlockParam
 
@@ -278,14 +326,26 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.Temperature = anthropic.Float(float64(*options.Temperature))
 	}
 
+	// First pass: collect system messages
 	for _, m := range input {
-		switch m.Role {
-		case provider.MessageRoleSystem:
+		if m.Role == provider.MessageRoleSystem {
 			for _, c := range m.Content {
 				if c.Text != "" {
 					system = append(system, anthropic.BetaTextBlockParam{Text: c.Text})
 				}
 			}
+		}
+	}
+
+	// Add cache control to the last system block
+	if len(system) > 0 {
+		system[len(system)-1].CacheControl = anthropic.NewBetaCacheControlEphemeralParam()
+	}
+
+	for _, m := range input {
+		switch m.Role {
+		case provider.MessageRoleSystem:
+			continue // Already processed above
 
 		case provider.MessageRoleUser:
 			var blocks []anthropic.BetaContentBlockParamUnion
@@ -336,12 +396,20 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			message := anthropic.NewBetaUserMessage(blocks...)
 			messages = append(messages, message)
 
+			// Mark user messages for potential cache control (will be set on the last one)
+			// The cache point will be added after all messages are processed
+
 		case provider.MessageRoleAssistant:
 			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
+				}
+
+				if c.Reasoning != nil {
+					// Include thinking blocks for conversation continuity
+					blocks = append(blocks, anthropic.NewBetaThinkingBlock(c.Reasoning.Signature, c.Reasoning.Text))
 				}
 
 				if c.ToolCall != nil {
@@ -396,6 +464,11 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		tools = append(tools, anthropic.BetaToolUnionParam{OfTool: &tool})
 	}
 
+	// Add cache control to the last tool
+	if len(tools) > 0 {
+		tools[len(tools)-1].OfTool.CacheControl = anthropic.NewBetaCacheControlEphemeralParam()
+	}
+
 	if options.Schema != nil {
 		req.OutputFormat = anthropic.BetaJSONSchemaOutputFormat(options.Schema.Schema)
 	}
@@ -409,10 +482,37 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if len(messages) > 0 {
+		// Add cache control to the last content block of the last user message
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == anthropic.BetaMessageParamRoleUser {
+				if len(messages[i].Content) > 0 {
+					lastBlock := &messages[i].Content[len(messages[i].Content)-1]
+					setCacheControl(lastBlock)
+				}
+				break
+			}
+		}
+
 		req.Messages = messages
 	}
 
 	return req, nil
+}
+
+// setCacheControl sets the cache control on a content block
+func setCacheControl(block *anthropic.BetaContentBlockParamUnion) {
+	cacheControl := anthropic.NewBetaCacheControlEphemeralParam()
+
+	switch {
+	case block.OfText != nil:
+		block.OfText.CacheControl = cacheControl
+	case block.OfImage != nil:
+		block.OfImage.CacheControl = cacheControl
+	case block.OfDocument != nil:
+		block.OfDocument.CacheControl = cacheControl
+	case block.OfToolResult != nil:
+		block.OfToolResult.CacheControl = cacheControl
+	}
 }
 
 func toUsage(usage anthropic.BetaUsage) *provider.Usage {
@@ -423,5 +523,8 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 	return &provider.Usage{
 		InputTokens:  int(usage.InputTokens),
 		OutputTokens: int(usage.OutputTokens),
+
+		CacheReadInputTokens:     int(usage.CacheReadInputTokens),
+		CacheCreationInputTokens: int(usage.CacheCreationInputTokens),
 	}
 }

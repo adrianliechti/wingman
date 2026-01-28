@@ -1,6 +1,8 @@
 package responses
 
 import (
+	"strings"
+
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -24,6 +26,18 @@ const (
 	StreamEventFunctionCallArgumentsDelta StreamEventType = "function_call_arguments.delta"
 	StreamEventFunctionCallArgumentsDone  StreamEventType = "function_call_arguments.done"
 	StreamEventFunctionCallDone           StreamEventType = "function_call.done"
+
+	// Reasoning events
+	StreamEventReasoningItemAdded        StreamEventType = "reasoning_item.added"
+	StreamEventReasoningItemDone         StreamEventType = "reasoning_item.done"
+	StreamEventReasoningSummaryPartAdded StreamEventType = "reasoning_summary_part.added"
+	StreamEventReasoningSummaryPartDone  StreamEventType = "reasoning_summary_part.done"
+	StreamEventReasoningSummaryDelta     StreamEventType = "reasoning_summary_text.delta"
+	StreamEventReasoningSummaryDone      StreamEventType = "reasoning_summary_text.done"
+	StreamEventReasoningTextDelta        StreamEventType = "reasoning_text.delta"
+	StreamEventReasoningTextDone         StreamEventType = "reasoning_text.done"
+	StreamEventReasoningContentPartAdded StreamEventType = "reasoning_content_part.added"
+	StreamEventReasoningContentPartDone  StreamEventType = "reasoning_content_part.done"
 )
 
 // StreamEvent represents a streaming event with its data
@@ -42,6 +56,14 @@ type StreamEvent struct {
 	Arguments    string
 	OutputIndex  int
 
+	// For reasoning events
+	ReasoningID        string
+	ReasoningText      string
+	ReasoningSummary   string
+	ReasoningSignature string
+	SummaryIndex       int
+	ContentIndex       int
+
 	// For error events
 	Error error
 
@@ -59,16 +81,30 @@ type StreamingAccumulator struct {
 	handler StreamEventHandler
 
 	// Track state for event emission
-	started        bool
-	hasOutputItem  bool // True if we emitted output_item.added for message
-	hasContentPart bool // True if we have actual text content
-	hasTextContent bool // True if we received any text delta
+	started            bool
+	hasOutputItem      bool // True if we emitted output_item.added for message
+	hasContentPart     bool // True if we emitted content_part.added
+	messageOutputIndex int  // Output index for the message item
+	streamedText       strings.Builder
 
 	// Track tool calls - map from tool call ID to output index
 	toolCallIndices map[string]int
 	toolCallStarted map[string]bool
 	lastToolCallID  string // Track the last tool call ID for chunks without ID
 	nextOutputIndex int    // Next available output index
+
+	// Track reasoning state
+	reasoningID              string
+	reasoningSignature       string
+	hasReasoningItem         bool
+	hasReasoningTextPart     bool
+	hasReasoningText         bool
+	hasReasoningSummaryPart  bool
+	hasReasoningSummary      bool
+	reasoningOutputIndex     int
+	reasoningClosed          bool
+	streamedReasoningText    strings.Builder
+	streamedReasoningSummary strings.Builder
 }
 
 // NewStreamingAccumulator creates a new StreamingAccumulator with an event handler
@@ -79,6 +115,80 @@ func NewStreamingAccumulator(handler StreamEventHandler) *StreamingAccumulator {
 		toolCallStarted: make(map[string]bool),
 		nextOutputIndex: 0,
 	}
+}
+
+// closeReasoning emits all the "done" events for reasoning if reasoning was in progress
+// This should be called before starting the message output
+func (s *StreamingAccumulator) closeReasoning() error {
+	if !s.hasReasoningItem || s.reasoningClosed {
+		return nil
+	}
+	s.reasoningClosed = true
+
+	reasoningText := s.streamedReasoningText.String()
+	reasoningSummary := s.streamedReasoningSummary.String()
+
+	// Emit reasoning text done if we had text
+	if s.hasReasoningText {
+		if err := s.emitEvent(StreamEvent{
+			Type:          StreamEventReasoningTextDone,
+			ReasoningID:   s.reasoningID,
+			ReasoningText: reasoningText,
+			OutputIndex:   s.reasoningOutputIndex,
+			ContentIndex:  0,
+		}); err != nil {
+			return err
+		}
+
+		// content_part.done for reasoning
+		if err := s.emitEvent(StreamEvent{
+			Type:          StreamEventReasoningContentPartDone,
+			ReasoningID:   s.reasoningID,
+			ReasoningText: reasoningText,
+			OutputIndex:   s.reasoningOutputIndex,
+			ContentIndex:  0,
+		}); err != nil {
+			return err
+		}
+	}
+
+	// Emit summary done if we had summary
+	if s.hasReasoningSummary {
+		if err := s.emitEvent(StreamEvent{
+			Type:             StreamEventReasoningSummaryDone,
+			ReasoningID:      s.reasoningID,
+			ReasoningSummary: reasoningSummary,
+			OutputIndex:      s.reasoningOutputIndex,
+			SummaryIndex:     0,
+		}); err != nil {
+			return err
+		}
+
+		// summary_part.done
+		if err := s.emitEvent(StreamEvent{
+			Type:             StreamEventReasoningSummaryPartDone,
+			ReasoningID:      s.reasoningID,
+			ReasoningSummary: reasoningSummary,
+			OutputIndex:      s.reasoningOutputIndex,
+			SummaryIndex:     0,
+		}); err != nil {
+			return err
+		}
+	}
+
+	// output_item.done for reasoning
+	if err := s.emitEvent(StreamEvent{
+		Type:               StreamEventReasoningItemDone,
+		ReasoningID:        s.reasoningID,
+		ReasoningText:      reasoningText,
+		ReasoningSummary:   reasoningSummary,
+		ReasoningSignature: s.reasoningSignature,
+		OutputIndex:        s.reasoningOutputIndex,
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Add processes a completion chunk and emits appropriate events
@@ -107,13 +217,22 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		// Process text content
 		for _, content := range c.Message.Content {
 			if content.Text != "" {
+				s.streamedText.WriteString(content.Text)
+
 				// Emit output_item.added on first text (message container)
 				if !s.hasOutputItem {
+					// Close reasoning first if it was in progress
+					if err := s.closeReasoning(); err != nil {
+						return err
+					}
+
 					s.hasOutputItem = true
-					s.nextOutputIndex = 1 // Message takes index 0, next tool call starts at 1
+					s.messageOutputIndex = s.nextOutputIndex
+					s.nextOutputIndex++ // Increment for next item
 
 					if err := s.emitEvent(StreamEvent{
-						Type: StreamEventOutputItemAdded,
+						Type:        StreamEventOutputItemAdded,
+						OutputIndex: s.messageOutputIndex,
 					}); err != nil {
 						return err
 					}
@@ -124,18 +243,18 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					s.hasContentPart = true
 
 					if err := s.emitEvent(StreamEvent{
-						Type: StreamEventContentPartAdded,
+						Type:        StreamEventContentPartAdded,
+						OutputIndex: s.messageOutputIndex,
 					}); err != nil {
 						return err
 					}
 				}
 
-				s.hasTextContent = true
-
 				// Emit text delta
 				if err := s.emitEvent(StreamEvent{
-					Type:  StreamEventTextDelta,
-					Delta: content.Text,
+					Type:        StreamEventTextDelta,
+					Delta:       content.Text,
+					OutputIndex: s.messageOutputIndex,
 				}); err != nil {
 					return err
 				}
@@ -194,6 +313,110 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					}
 				}
 			}
+
+			// Process reasoning content
+			if content.Reasoning != nil {
+				reasoning := content.Reasoning
+
+				// Capture signature/encrypted_content for conversation continuity
+				if reasoning.Signature != "" {
+					s.reasoningSignature = reasoning.Signature
+				}
+
+				// Handle reasoning text
+				if reasoning.Text != "" {
+					// Emit reasoning item added on first reasoning content
+					if !s.hasReasoningItem {
+						s.hasReasoningItem = true
+						s.reasoningOutputIndex = s.nextOutputIndex
+						s.nextOutputIndex++
+						s.reasoningID = reasoning.ID
+
+						if err := s.emitEvent(StreamEvent{
+							Type:        StreamEventReasoningItemAdded,
+							ReasoningID: s.reasoningID,
+							OutputIndex: s.reasoningOutputIndex,
+						}); err != nil {
+							return err
+						}
+					}
+
+					// Emit content_part.added on first reasoning text
+					if !s.hasReasoningTextPart {
+						s.hasReasoningTextPart = true
+
+						if err := s.emitEvent(StreamEvent{
+							Type:         StreamEventReasoningContentPartAdded,
+							ReasoningID:  s.reasoningID,
+							OutputIndex:  s.reasoningOutputIndex,
+							ContentIndex: 0,
+						}); err != nil {
+							return err
+						}
+					}
+
+					s.hasReasoningText = true
+					s.streamedReasoningText.WriteString(reasoning.Text)
+
+					// Emit reasoning text delta
+					if err := s.emitEvent(StreamEvent{
+						Type:         StreamEventReasoningTextDelta,
+						ReasoningID:  s.reasoningID,
+						Delta:        reasoning.Text,
+						OutputIndex:  s.reasoningOutputIndex,
+						ContentIndex: 0,
+					}); err != nil {
+						return err
+					}
+				}
+
+				// Handle reasoning summary
+				if reasoning.Summary != "" {
+					// Emit reasoning item added if not already done
+					if !s.hasReasoningItem {
+						s.hasReasoningItem = true
+						s.reasoningOutputIndex = s.nextOutputIndex
+						s.nextOutputIndex++
+						s.reasoningID = reasoning.ID
+
+						if err := s.emitEvent(StreamEvent{
+							Type:        StreamEventReasoningItemAdded,
+							ReasoningID: s.reasoningID,
+							OutputIndex: s.reasoningOutputIndex,
+						}); err != nil {
+							return err
+						}
+					}
+
+					// Emit summary_part.added on first summary
+					if !s.hasReasoningSummaryPart {
+						s.hasReasoningSummaryPart = true
+
+						if err := s.emitEvent(StreamEvent{
+							Type:         StreamEventReasoningSummaryPartAdded,
+							ReasoningID:  s.reasoningID,
+							OutputIndex:  s.reasoningOutputIndex,
+							SummaryIndex: 0,
+						}); err != nil {
+							return err
+						}
+					}
+
+					s.hasReasoningSummary = true
+					s.streamedReasoningSummary.WriteString(reasoning.Summary)
+
+					// Emit reasoning summary delta
+					if err := s.emitEvent(StreamEvent{
+						Type:         StreamEventReasoningSummaryDelta,
+						ReasoningID:  s.reasoningID,
+						Delta:        reasoning.Summary,
+						OutputIndex:  s.reasoningOutputIndex,
+						SummaryIndex: 0,
+					}); err != nil {
+						return err
+					}
+				}
+			}
 		}
 	}
 
@@ -206,39 +429,44 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 // Complete signals that streaming is done and emits final events
 func (s *StreamingAccumulator) Complete() error {
 	result := s.accumulator.Result()
-	fullText := ""
-
-	if result.Message != nil {
-		fullText = result.Message.Text()
-	}
+	text := s.streamedText.String()
 
 	// Only emit text/content done events if we actually had text content
-	if s.hasTextContent {
+	if s.streamedText.Len() > 0 {
 		// text.done
 		if err := s.emitEvent(StreamEvent{
-			Type:       StreamEventTextDone,
-			Text:       fullText,
-			Completion: result,
+			Type:        StreamEventTextDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+			Completion:  result,
 		}); err != nil {
 			return err
 		}
 
 		// content_part.done
 		if err := s.emitEvent(StreamEvent{
-			Type:       StreamEventContentPartDone,
-			Text:       fullText,
-			Completion: result,
+			Type:        StreamEventContentPartDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+			Completion:  result,
 		}); err != nil {
 			return err
 		}
 
 		// output_item.done for message
 		if err := s.emitEvent(StreamEvent{
-			Type:       StreamEventOutputItemDone,
-			Completion: result,
+			Type:        StreamEventOutputItemDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+			Completion:  result,
 		}); err != nil {
 			return err
 		}
+	}
+
+	// Emit reasoning done events if reasoning wasn't already closed
+	if err := s.closeReasoning(); err != nil {
+		return err
 	}
 
 	// Emit function_call_arguments.done and function_call.done for each tool call
@@ -273,8 +501,11 @@ func (s *StreamingAccumulator) Complete() error {
 
 	// response.completed
 	if err := s.emitEvent(StreamEvent{
-		Type:       StreamEventResponseCompleted,
-		Completion: result,
+		Type:               StreamEventResponseCompleted,
+		Text:               text,
+		ReasoningID:        s.reasoningID,
+		ReasoningSignature: s.reasoningSignature,
+		Completion:         result,
 	}); err != nil {
 		return err
 	}

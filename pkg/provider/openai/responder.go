@@ -82,6 +82,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 				}
+
 			case responses.ResponseContentPartAddedEvent:
 			case responses.ResponseTextDeltaEvent:
 				delta := &provider.Completion{
@@ -100,7 +101,54 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+
+			case responses.ResponseReasoningTextDeltaEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.ReasoningContent(provider.Reasoning{
+								ID:   event.ItemID,
+								Text: event.Delta,
+							}),
+						},
+					},
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+
+			case responses.ResponseReasoningSummaryTextDeltaEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.ReasoningContent(provider.Reasoning{
+								ID:      event.ItemID,
+								Summary: event.Delta,
+							}),
+						},
+					},
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+
 			case responses.ResponseTextDoneEvent:
+			case responses.ResponseReasoningTextDoneEvent:
+			case responses.ResponseReasoningSummaryPartAddedEvent:
+			case responses.ResponseReasoningSummaryTextDoneEvent:
+			case responses.ResponseReasoningSummaryPartDoneEvent:
 			case responses.ResponseFunctionCallArgumentsDeltaEvent:
 				delta := &provider.Completion{
 					ID:    data.Response.ID,
@@ -120,9 +168,35 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+
 			case responses.ResponseFunctionCallArgumentsDoneEvent:
 			case responses.ResponseContentPartDoneEvent:
 			case responses.ResponseOutputItemDoneEvent:
+				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseReasoningItem:
+					// Capture encrypted_content for conversation continuity
+					if item.EncryptedContent != "" {
+						delta := &provider.Completion{
+							ID:    data.Response.ID,
+							Model: data.Response.Model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.ReasoningContent(provider.Reasoning{
+										Signature: item.EncryptedContent,
+									}),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+					}
+				}
+
 			case responses.ResponseCompletedEvent:
 				delta := &provider.Completion{
 					ID:    data.Response.ID,
@@ -134,6 +208,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+
 			default:
 				println("unknown event", data.Type)
 			}
@@ -192,42 +267,61 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		req.Truncation = ""
 	}
 
-	switch options.Effort {
-	case provider.EffortMinimal:
-		req.Reasoning.Effort = responses.ReasoningEffortMinimal
-	case provider.EffortLow:
-		req.Reasoning.Effort = responses.ReasoningEffortLow
-	case provider.EffortMedium:
-		req.Reasoning.Effort = responses.ReasoningEffortMedium
-	case provider.EffortHigh:
-		req.Reasoning.Effort = responses.ReasoningEffortHigh
+	if options.Effort != "" && slices.Contains(ReasoningModels, r.model) {
+		req.Reasoning.Summary = responses.ReasoningSummaryAuto
+
+		switch options.Effort {
+		case provider.EffortMinimal:
+			req.Reasoning.Effort = responses.ReasoningEffortMinimal
+
+		case provider.EffortLow:
+			req.Reasoning.Effort = responses.ReasoningEffortLow
+
+		case provider.EffortMedium:
+			req.Reasoning.Effort = responses.ReasoningEffortMedium
+
+		case provider.EffortHigh:
+			req.Reasoning.Effort = responses.ReasoningEffortHigh
+		}
+
+		req.Include = append(req.Include, responses.ResponseIncludableReasoningEncryptedContent)
 	}
 
-	switch options.Verbosity {
-	case provider.VerbosityLow:
-		req.Text.Verbosity = responses.ResponseTextConfigVerbosityLow
-	case provider.VerbosityMedium:
-		req.Text.Verbosity = responses.ResponseTextConfigVerbosityMedium
-	case provider.VerbosityHigh:
-		req.Text.Verbosity = responses.ResponseTextConfigVerbosityHigh
+	if options.Verbosity != "" {
+		switch options.Verbosity {
+		case provider.VerbosityLow:
+			req.Text.Verbosity = responses.ResponseTextConfigVerbosityLow
+
+		case provider.VerbosityMedium:
+			req.Text.Verbosity = responses.ResponseTextConfigVerbosityMedium
+
+		case provider.VerbosityHigh:
+			req.Text.Verbosity = responses.ResponseTextConfigVerbosityHigh
+		}
 	}
 
 	if options.Schema != nil {
-		schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
-			Name:   options.Schema.Name,
-			Schema: options.Schema.Schema,
-		}
+		if options.Schema.Name == "json_object" {
+			req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+				OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
+			}
+		} else {
+			schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
+				Name:   options.Schema.Name,
+				Schema: options.Schema.Schema,
+			}
 
-		if options.Schema.Strict != nil {
-			schema.Strict = openai.Bool(*options.Schema.Strict)
-		}
+			if options.Schema.Strict != nil {
+				schema.Strict = openai.Bool(*options.Schema.Strict)
+			}
 
-		if options.Schema.Description != "" {
-			schema.Description = openai.String(options.Schema.Description)
-		}
+			if options.Schema.Description != "" {
+				schema.Description = openai.String(options.Schema.Description)
+			}
 
-		req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
-			OfJSONSchema: schema,
+			req.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+				OfJSONSchema: schema,
+			}
 		}
 	}
 
@@ -354,6 +448,40 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 					})
 				}
 
+				if c.Reasoning != nil {
+					reasoning := &responses.ResponseReasoningItemParam{
+						ID: c.Reasoning.ID,
+					}
+
+					if c.Reasoning.Text != "" {
+						reasoning.Content = append(reasoning.Content, responses.ResponseReasoningItemContentParam{
+							Text: c.Reasoning.Text,
+						})
+					}
+
+					if c.Reasoning.Summary != "" {
+						reasoning.Summary = append(reasoning.Summary, responses.ResponseReasoningItemSummaryParam{
+							Text: c.Reasoning.Summary,
+						})
+					}
+
+					if c.Reasoning.Signature != "" {
+						reasoning.EncryptedContent = openai.String(c.Reasoning.Signature)
+					}
+
+					if len(reasoning.Summary) == 0 && len(reasoning.Content) == 0 {
+						reasoning.Summary = []responses.ResponseReasoningItemSummaryParam{
+							{
+								Text: "",
+							},
+						}
+					}
+
+					result = append(result, responses.ResponseInputItemUnionParam{
+						OfReasoning: reasoning,
+					})
+				}
+
 				if c.ToolCall != nil {
 					call := &responses.ResponseFunctionToolCallParam{
 						CallID: c.ToolCall.ID,
@@ -419,5 +547,7 @@ func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
 	return &provider.Usage{
 		InputTokens:  int(usage.InputTokens),
 		OutputTokens: int(usage.OutputTokens),
+
+		CacheReadInputTokens: int(usage.InputTokensDetails.CachedTokens),
 	}
 }

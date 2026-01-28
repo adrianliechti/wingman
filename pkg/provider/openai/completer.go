@@ -131,35 +131,59 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		req.Messages = messages
 	}
 
-	switch options.Effort {
-	case provider.EffortMinimal:
-		req.ReasoningEffort = openai.ReasoningEffortMinimal
-	case provider.EffortLow:
-		req.ReasoningEffort = openai.ReasoningEffortLow
-	case provider.EffortMedium:
-		req.ReasoningEffort = openai.ReasoningEffortMedium
-	case provider.EffortHigh:
-		req.ReasoningEffort = openai.ReasoningEffortHigh
+	if options.Effort != "" {
+		switch options.Effort {
+		case provider.EffortMinimal:
+			req.ReasoningEffort = openai.ReasoningEffortMinimal
+
+		case provider.EffortLow:
+			req.ReasoningEffort = openai.ReasoningEffortLow
+
+		case provider.EffortMedium:
+			req.ReasoningEffort = openai.ReasoningEffortMedium
+
+		case provider.EffortHigh:
+			req.ReasoningEffort = openai.ReasoningEffortHigh
+		}
+	}
+
+	if options.Verbosity != "" {
+		switch options.Verbosity {
+		case provider.VerbosityLow:
+			req.Verbosity = openai.ChatCompletionNewParamsVerbosityLow
+
+		case provider.VerbosityMedium:
+			req.Verbosity = openai.ChatCompletionNewParamsVerbosityMedium
+
+		case provider.VerbosityHigh:
+			req.Verbosity = openai.ChatCompletionNewParamsVerbosityHigh
+		}
 	}
 
 	if options.Schema != nil {
-		schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
-			Name:   options.Schema.Name,
-			Schema: options.Schema.Schema,
-		}
+		if options.Schema.Name == "json_object" {
+			req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+			}
+		} else {
+			schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
+				Name:   options.Schema.Name,
+				Schema: options.Schema.Schema,
+			}
 
-		if options.Schema.Description != "" {
-			schema.Description = openai.String(options.Schema.Description)
-		}
+			if options.Schema.Description != "" {
+				schema.Description = openai.String(options.Schema.Description)
+			}
 
-		if options.Schema.Strict != nil {
-			schema.Strict = openai.Bool(*options.Schema.Strict)
-		}
+			if options.Schema.Strict != nil {
+				schema.Strict = openai.Bool(*options.Schema.Strict)
+			}
 
-		req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
-				JSONSchema: schema,
-			},
+			req.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+					JSONSchema: schema,
+				},
+			}
 		}
 	}
 
@@ -341,5 +365,7 @@ func toUsage(metadata openai.CompletionUsage) *provider.Usage {
 	return &provider.Usage{
 		InputTokens:  int(metadata.PromptTokens),
 		OutputTokens: int(metadata.CompletionTokens),
+
+		CacheReadInputTokens: int(metadata.PromptTokensDetails.CachedTokens),
 	}
 }

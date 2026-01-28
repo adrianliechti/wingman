@@ -77,10 +77,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 
 	if req.ResponseFormat != nil {
 		if req.ResponseFormat.Type == ResponseFormatJSONObject {
-			// Convert json_object to minimal json_schema
 			options.Schema = &provider.Schema{
-				Name:   "json_object",
-				Schema: map[string]any{"type": "object"},
+				Name: "json_object",
 			}
 		}
 

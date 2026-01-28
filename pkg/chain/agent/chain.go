@@ -96,6 +96,10 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			options.Effort = c.effort
 		}
 
+		if options.Verbosity == "" {
+			options.Verbosity = c.verbosity
+		}
+
 		if options.Temperature == nil {
 			options.Temperature = c.temperature
 		}
@@ -153,7 +157,8 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		}
 
 		inputOptions := &provider.CompleteOptions{
-			Effort: options.Effort,
+			Effort:    options.Effort,
+			Verbosity: options.Verbosity,
 
 			Stop:  options.Stop,
 			Tools: slices.Collect(maps.Values(inputTools)),
@@ -166,8 +171,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 		accID := uuid.New().String()
 
-		var lastToolID string
-		var lastToolName string
+		toolNamesByID := map[string]string{}
 
 		for {
 			acc := provider.CompletionAccumulator{}
@@ -193,32 +197,23 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 					}
 
 					for _, cnt := range completion.Message.Content {
-						if cnt.Text != "" {
-							message.Content = append(message.Content, provider.TextContent(cnt.Text))
-						}
-
 						if cnt.ToolCall != nil {
-							if cnt.ToolCall.ID != "" {
-								lastToolID = cnt.ToolCall.ID
+							id := cnt.ToolCall.ID
+							name := cnt.ToolCall.Name
+
+							if id != "" && name != "" {
+								toolNamesByID[id] = name
+							} else if id != "" && name == "" {
+								name = toolNamesByID[id]
 							}
 
-							if cnt.ToolCall.Name != "" {
-								lastToolName = cnt.ToolCall.Name
-							}
-
-							if lastToolName != "" {
-								if _, found := agentTools[lastToolName]; found {
-									continue
-								}
-
-								message.Content = append(message.Content, provider.ToolCallContent(provider.ToolCall{
-									ID:   lastToolID,
-									Name: lastToolName,
-
-									Arguments: cnt.ToolCall.Arguments,
-								}))
+							// Skip content for agent-handled tools
+							if _, found := agentTools[name]; found {
+								continue
 							}
 						}
+
+						message.Content = append(message.Content, cnt)
 					}
 
 					delta.Message = message

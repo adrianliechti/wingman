@@ -8,14 +8,12 @@ import (
 	"iter"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
@@ -49,14 +47,15 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 
 	// Configure adaptive retry mode for throttle-based rate limiting
 	// Keep attempts low to reduce the risk of duplicate billing on retries for streaming requests
-	configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
-		return retry.NewAdaptiveMode(func(o *retry.AdaptiveModeOptions) {
-			o.StandardOptions = append(o.StandardOptions, func(so *retry.StandardOptions) {
-				so.MaxAttempts = 3
-				so.MaxBackoff = 20 * time.Second
-			})
-		})
-	}))
+
+	// configOptions = append(configOptions, config.WithRetryer(func() aws.Retryer {
+	// 	return retry.NewAdaptiveMode(func(o *retry.AdaptiveModeOptions) {
+	// 		o.StandardOptions = append(o.StandardOptions, func(so *retry.StandardOptions) {
+	// 			so.MaxAttempts = 3
+	// 			so.MaxBackoff = 20 * time.Second
+	// 		})
+	// 	})
+	// }))
 
 	config, err := config.LoadDefaultConfig(context.Background(), configOptions...)
 
@@ -110,6 +109,27 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			InferenceConfig: config,
 		}
+
+		// var budgetTokens int
+		// switch options.Effort {
+		// case provider.EffortMinimal:
+		// 	budgetTokens = 1024
+		// case provider.EffortLow:
+		// 	budgetTokens = 2048
+		// case provider.EffortMedium:
+		// 	budgetTokens = 8192
+		// case provider.EffortHigh:
+		// 	budgetTokens = 32000
+		// }
+
+		// if budgetTokens > 0 {
+		// 	params.AdditionalModelRequestFields = document.NewLazyDocument(map[string]any{
+		// 		"thinking": map[string]any{
+		// 			"type":          "enabled",
+		// 			"budget_tokens": budgetTokens,
+		// 		},
+		// 	})
+		// }
 
 		resp, err := c.client.ConverseStream(ctx, params)
 
@@ -172,6 +192,49 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			case *types.ConverseStreamOutputMemberContentBlockDelta:
 				switch b := v.Value.Delta.(type) {
+				case *types.ContentBlockDeltaMemberReasoningContent:
+					switch r := b.Value.(type) {
+					case *types.ReasoningContentBlockDeltaMemberText:
+						delta := &provider.Completion{
+							ID:    id,
+							Model: c.model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.ReasoningContent(provider.Reasoning{
+										Text: r.Value,
+									}),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+
+					case *types.ReasoningContentBlockDeltaMemberSignature:
+						delta := &provider.Completion{
+							ID:    id,
+							Model: c.model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.ReasoningContent(provider.Reasoning{
+										Signature: r.Value,
+									}),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+					}
+
 				case *types.ContentBlockDeltaMemberText:
 					delta := &provider.Completion{
 						ID:    id,
@@ -354,13 +417,13 @@ func convertError(err error) error {
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
-	messages, err := convertMessages(input)
+	messages, err := c.convertMessages(input)
 
 	if err != nil {
 		return nil, err
 	}
 
-	toolConfig := convertToolConfig(options.Tools)
+	toolConfig := c.convertToolConfig(options.Tools)
 
 	// Schema mode: create a tool with the schema and force ToolChoice
 	if options.Schema != nil {
@@ -395,12 +458,12 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 
 		Messages: messages,
 
-		System:     convertSystem(input),
+		System:     c.convertSystem(input),
 		ToolConfig: toolConfig,
 	}, nil
 }
 
-func convertSystem(messages []provider.Message) []types.SystemContentBlock {
+func (c *Completer) convertSystem(messages []provider.Message) []types.SystemContentBlock {
 	var result []types.SystemContentBlock
 
 	for _, m := range messages {
@@ -408,13 +471,13 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 			continue
 		}
 
-		for _, c := range m.Content {
-			if c.Text == "" {
+		for _, content := range m.Content {
+			if content.Text == "" {
 				continue
 			}
 
 			system := &types.SystemContentBlockMemberText{
-				Value: c.Text,
+				Value: content.Text,
 			}
 
 			result = append(result, system)
@@ -425,10 +488,19 @@ func convertSystem(messages []provider.Message) []types.SystemContentBlock {
 		return nil
 	}
 
+	// Add cache point after system messages for Claude models
+	if isClaudeModel(c.model) {
+		result = append(result, &types.SystemContentBlockMemberCachePoint{
+			Value: types.CachePointBlock{
+				Type: types.CachePointTypeDefault,
+			},
+		})
+	}
+
 	return result
 }
 
-func convertMessages(messages []provider.Message) ([]types.Message, error) {
+func (c *Completer) convertMessages(messages []provider.Message) ([]types.Message, error) {
 	var result []types.Message
 
 	// Pre-process: merge consecutive messages with the same role (required by Bedrock API)
@@ -477,6 +549,20 @@ func convertMessages(messages []provider.Message) ([]types.Message, error) {
 			Role:    role,
 			Content: content,
 		})
+	}
+
+	// Add cache point to the last user message for Claude models
+	if isClaudeModel(c.model) && len(result) > 0 {
+		for i := len(result) - 1; i >= 0; i-- {
+			if result[i].Role == types.ConversationRoleUser {
+				result[i].Content = append(result[i].Content, &types.ContentBlockMemberCachePoint{
+					Value: types.CachePointBlock{
+						Type: types.CachePointTypeDefault,
+					},
+				})
+				break
+			}
+		}
 	}
 
 	return result, nil
@@ -532,6 +618,17 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 			content = append(content, &types.ContentBlockMemberText{Value: text})
 		}
 
+		if c.Reasoning != nil {
+			content = append(content, &types.ContentBlockMemberReasoningContent{
+				Value: &types.ReasoningContentBlockMemberReasoningText{
+					Value: types.ReasoningTextBlock{
+						Text:      aws.String(c.Reasoning.Text),
+						Signature: aws.String(c.Reasoning.Signature),
+					},
+				},
+			})
+		}
+
 		if c.ToolCall != nil {
 			var data map[string]any
 
@@ -553,7 +650,7 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 	return content, nil
 }
 
-func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
+func (c *Completer) convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -576,6 +673,15 @@ func convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
 		}
 
 		result.Tools = append(result.Tools, &types.ToolMemberToolSpec{Value: tool})
+	}
+
+	// Add cache point after tool definitions for Claude models
+	if isClaudeModel(c.model) {
+		result.Tools = append(result.Tools, &types.ToolMemberCachePoint{
+			Value: types.CachePointBlock{
+				Type: types.CachePointTypeDefault,
+			},
+		})
 	}
 
 	return result
@@ -665,8 +771,22 @@ func toUsage(val *types.TokenUsage) *provider.Usage {
 		return nil
 	}
 
+	inputTokens := int(aws.ToInt32(val.InputTokens))
+	outputTokens := int(aws.ToInt32(val.OutputTokens))
+
+	cacheReadInputTokens := int(aws.ToInt32(val.CacheReadInputTokens))
+	cacheWriteInputTokens := int(aws.ToInt32(val.CacheWriteInputTokens))
+
+	// Normalize InputTokens to include cached tokens (like OpenAI does)
+	// Bedrock reports InputTokens as only new/non-cached tokens
+	// OpenAI reports prompt_tokens as total (cached + non-cached)
+	totalInputTokens := inputTokens + cacheReadInputTokens
+
 	return &provider.Usage{
-		InputTokens:  int(aws.ToInt32(val.InputTokens)),
-		OutputTokens: int(aws.ToInt32(val.OutputTokens)),
+		InputTokens:  totalInputTokens,
+		OutputTokens: outputTokens,
+
+		CacheReadInputTokens:     cacheReadInputTokens,
+		CacheCreationInputTokens: cacheWriteInputTokens,
 	}
 }

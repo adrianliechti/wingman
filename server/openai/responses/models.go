@@ -386,6 +386,70 @@ type ResponseOutput struct {
 
 	*OutputMessage
 	*FunctionCallOutputItem
+	*ReasoningOutputItem
+}
+
+// MarshalJSON implements custom JSON marshaling to avoid field conflicts
+// between embedded structs (ID, Type, Status fields exist in multiple embedded types)
+func (r ResponseOutput) MarshalJSON() ([]byte, error) {
+	switch r.Type {
+	case ResponseOutputTypeMessage:
+		if r.OutputMessage != nil {
+			return json.Marshal(struct {
+				Type     ResponseOutputType `json:"type"`
+				ID       string             `json:"id,omitempty"`
+				Role     MessageRole        `json:"role,omitempty"`
+				Status   string             `json:"status,omitempty"`
+				Contents []OutputContent    `json:"content"`
+			}{
+				Type:     r.Type,
+				ID:       r.OutputMessage.ID,
+				Role:     r.OutputMessage.Role,
+				Status:   r.OutputMessage.Status,
+				Contents: r.OutputMessage.Contents,
+			})
+		}
+	case ResponseOutputTypeFunctionCall:
+		if r.FunctionCallOutputItem != nil {
+			return json.Marshal(struct {
+				Type      ResponseOutputType `json:"type"`
+				ID        string             `json:"id"`
+				Status    string             `json:"status"`
+				Name      string             `json:"name"`
+				CallID    string             `json:"call_id"`
+				Arguments string             `json:"arguments"`
+			}{
+				Type:      r.Type,
+				ID:        r.FunctionCallOutputItem.ID,
+				Status:    r.FunctionCallOutputItem.Status,
+				Name:      r.FunctionCallOutputItem.Name,
+				CallID:    r.FunctionCallOutputItem.CallID,
+				Arguments: r.FunctionCallOutputItem.Arguments,
+			})
+		}
+	case ResponseOutputTypeReasoning:
+		if r.ReasoningOutputItem != nil {
+			return json.Marshal(struct {
+				Type             ResponseOutputType           `json:"type"`
+				ID               string                       `json:"id"`
+				Status           string                       `json:"status"`
+				Summary          []ReasoningOutputSummary     `json:"summary,omitempty"`
+				Content          []ReasoningOutputContentPart `json:"content,omitempty"`
+				EncryptedContent string                       `json:"encrypted_content,omitempty"`
+			}{
+				Type:             r.Type,
+				ID:               r.ReasoningOutputItem.ID,
+				Status:           r.ReasoningOutputItem.Status,
+				Summary:          r.ReasoningOutputItem.Summary,
+				Content:          r.ReasoningOutputItem.Content,
+				EncryptedContent: r.ReasoningOutputItem.EncryptedContent,
+			})
+		}
+	}
+	// Fallback: just marshal the type
+	return json.Marshal(struct {
+		Type ResponseOutputType `json:"type,omitempty"`
+	}{Type: r.Type})
 }
 
 type ResponseOutputType string
@@ -393,6 +457,7 @@ type ResponseOutputType string
 var (
 	ResponseOutputTypeMessage      ResponseOutputType = "message"
 	ResponseOutputTypeFunctionCall ResponseOutputType = "function_call"
+	ResponseOutputTypeReasoning    ResponseOutputType = "reasoning"
 )
 
 type OutputMessage struct {
@@ -402,7 +467,7 @@ type OutputMessage struct {
 
 	Status string `json:"status,omitempty"` // completed
 
-	Contents []OutputContent `json:"content,omitempty"`
+	Contents []OutputContent `json:"content"`
 }
 
 type OutputContent struct {
@@ -545,4 +610,124 @@ type FunctionCallOutputItemDoneEvent struct {
 	SequenceNumber int                     `json:"sequence_number"`
 	OutputIndex    int                     `json:"output_index"`
 	Item           *FunctionCallOutputItem `json:"item"`
+}
+
+// ReasoningOutputItem represents a reasoning item in the output
+type ReasoningOutputItem struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`   // reasoning
+	Status string `json:"status"` // in_progress, completed
+
+	Summary []ReasoningOutputSummary     `json:"summary,omitempty"`
+	Content []ReasoningOutputContentPart `json:"content,omitempty"`
+
+	EncryptedContent string `json:"encrypted_content,omitempty"`
+}
+
+// ReasoningOutputSummary represents a summary part in reasoning output
+type ReasoningOutputSummary struct {
+	Type string `json:"type"` // summary_text
+	Text string `json:"text"`
+}
+
+// ReasoningOutputContentPart represents a content part in reasoning output
+type ReasoningOutputContentPart struct {
+	Type string `json:"type"` // reasoning_text
+	Text string `json:"text"`
+}
+
+// ReasoningOutputItemAddedEvent is emitted when a reasoning item is added
+type ReasoningOutputItemAddedEvent struct {
+	Type           string               `json:"type"` // response.output_item.added
+	SequenceNumber int                  `json:"sequence_number"`
+	OutputIndex    int                  `json:"output_index"`
+	Item           *ReasoningOutputItem `json:"item"`
+}
+
+// ReasoningOutputItemDoneEvent is emitted when a reasoning item is done
+type ReasoningOutputItemDoneEvent struct {
+	Type           string               `json:"type"` // response.output_item.done
+	SequenceNumber int                  `json:"sequence_number"`
+	OutputIndex    int                  `json:"output_index"`
+	Item           *ReasoningOutputItem `json:"item"`
+}
+
+// ReasoningSummaryPartAddedEvent is emitted when a reasoning summary part is added
+type ReasoningSummaryPartAddedEvent struct {
+	Type           string                  `json:"type"` // response.reasoning_summary_part.added
+	SequenceNumber int                     `json:"sequence_number"`
+	ItemID         string                  `json:"item_id"`
+	OutputIndex    int                     `json:"output_index"`
+	SummaryIndex   int                     `json:"summary_index"`
+	Part           *ReasoningOutputSummary `json:"part"`
+}
+
+// ReasoningSummaryPartDoneEvent is emitted when a reasoning summary part is done
+type ReasoningSummaryPartDoneEvent struct {
+	Type           string                  `json:"type"` // response.reasoning_summary_part.done
+	SequenceNumber int                     `json:"sequence_number"`
+	ItemID         string                  `json:"item_id"`
+	OutputIndex    int                     `json:"output_index"`
+	SummaryIndex   int                     `json:"summary_index"`
+	Part           *ReasoningOutputSummary `json:"part"`
+}
+
+// ReasoningSummaryTextDeltaEvent is emitted when reasoning summary text delta is received
+type ReasoningSummaryTextDeltaEvent struct {
+	Type           string `json:"type"` // response.reasoning_summary_text.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	SummaryIndex   int    `json:"summary_index"`
+	Delta          string `json:"delta"`
+}
+
+// ReasoningSummaryTextDoneEvent is emitted when reasoning summary text is done
+type ReasoningSummaryTextDoneEvent struct {
+	Type           string `json:"type"` // response.reasoning_summary_text.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	SummaryIndex   int    `json:"summary_index"`
+	Text           string `json:"text"`
+}
+
+// ReasoningContentPartAddedEvent is emitted when a reasoning content part is added
+type ReasoningContentPartAddedEvent struct {
+	Type           string                      `json:"type"` // response.content_part.added
+	SequenceNumber int                         `json:"sequence_number"`
+	ItemID         string                      `json:"item_id"`
+	OutputIndex    int                         `json:"output_index"`
+	ContentIndex   int                         `json:"content_index"`
+	Part           *ReasoningOutputContentPart `json:"part"`
+}
+
+// ReasoningContentPartDoneEvent is emitted when a reasoning content part is done
+type ReasoningContentPartDoneEvent struct {
+	Type           string                      `json:"type"` // response.content_part.done
+	SequenceNumber int                         `json:"sequence_number"`
+	ItemID         string                      `json:"item_id"`
+	OutputIndex    int                         `json:"output_index"`
+	ContentIndex   int                         `json:"content_index"`
+	Part           *ReasoningOutputContentPart `json:"part"`
+}
+
+// ReasoningTextDeltaEvent is emitted when reasoning text delta is received
+type ReasoningTextDeltaEvent struct {
+	Type           string `json:"type"` // response.reasoning_text.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Delta          string `json:"delta"`
+}
+
+// ReasoningTextDoneEvent is emitted when reasoning text is done
+type ReasoningTextDoneEvent struct {
+	Type           string `json:"type"` // response.reasoning_text.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Text           string `json:"text"`
 }
