@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/router/adaptive"
 	"github.com/adrianliechti/wingman/pkg/router/roundrobin"
 )
 
@@ -70,6 +71,9 @@ func createRouter(cfg routerConfig, context routerContext) (any, error) {
 	case "roundrobin":
 		return roundrobinRouter(cfg, context)
 
+	case "adaptive":
+		return adaptiveRouter(cfg, context)
+
 	default:
 		return nil, errors.New("invalid router type: " + cfg.Type)
 	}
@@ -77,4 +81,8 @@ func createRouter(cfg routerConfig, context routerContext) (any, error) {
 
 func roundrobinRouter(cfg routerConfig, context routerContext) (any, error) {
 	return roundrobin.NewCompleter(context.Completers...)
+}
+
+func adaptiveRouter(cfg routerConfig, context routerContext) (any, error) {
+	return adaptive.NewCompleter(context.Completers...)
 }

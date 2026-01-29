@@ -4,7 +4,6 @@ version: "3"
 
 vars:
   REPOSITORY: ghcr.io/adrianliechti/wingman-platform
-  #REPOSITORY: ghcr.io/adrianliechti/wingman-platform:nightly
 
 tasks:
   publish:
