@@ -36,7 +36,7 @@ func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.C
 
 	token := strings.TrimPrefix(header, "Bearer ")
 
-	if !strings.EqualFold(token, p.token) {
+	if token != p.token {
 		return ctx, errors.New("invalid token")
 	}
 
