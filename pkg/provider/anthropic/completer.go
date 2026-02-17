@@ -276,9 +276,10 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		MaxTokens: 64000,
 	}
 
-	isOpus46 := strings.Contains(c.model, "opus-4-6") || strings.Contains(c.model, "opus-4.6")
+	isOpus46 := strings.Contains(c.model, "opus-4-6")
+	isSonnet46 := strings.Contains(c.model, "sonnet-4-6")
 
-	if isOpus46 {
+	if isOpus46 || isSonnet46 {
 		req.MaxTokens = 128000
 
 		req.Thinking = anthropic.ThinkingConfigParamUnion{
