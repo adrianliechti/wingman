@@ -127,6 +127,10 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		req.Tools = tools
 	}
 
+	if options.ToolOptions != nil {
+		req.ToolChoice = convertToolChoice(options.ToolOptions)
+	}
+
 	if len(messages) > 0 {
 		req.Messages = messages
 	}
@@ -355,6 +359,44 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 	}
 
 	return result, nil
+}
+
+func convertToolChoice(opts *provider.ToolOptions) openai.ChatCompletionToolChoiceOptionUnionParam {
+	if len(opts.Allowed) == 0 {
+		modes := map[provider.ToolChoice]string{
+			provider.ToolChoiceNone: "none",
+			provider.ToolChoiceAuto: "auto",
+			provider.ToolChoiceAny:  "required",
+		}
+
+		return openai.ChatCompletionToolChoiceOptionUnionParam{
+			OfAuto: openai.String(modes[opts.Choice]),
+		}
+	}
+
+	var tools []map[string]any
+
+	for _, name := range opts.Allowed {
+		tools = append(tools, map[string]any{
+			"type":     "function",
+			"function": map[string]any{"name": name},
+		})
+	}
+
+	mode := openai.ChatCompletionAllowedToolsModeRequired
+
+	if opts.Choice == provider.ToolChoiceAuto {
+		mode = openai.ChatCompletionAllowedToolsModeAuto
+	}
+
+	return openai.ChatCompletionToolChoiceOptionUnionParam{
+		OfAllowedTools: &openai.ChatCompletionAllowedToolChoiceParam{
+			AllowedTools: openai.ChatCompletionAllowedToolsParam{
+				Mode:  mode,
+				Tools: tools,
+			},
+		},
+	}
 }
 
 func toUsage(metadata openai.CompletionUsage) *provider.Usage {

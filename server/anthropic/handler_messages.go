@@ -45,6 +45,22 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		Temperature: req.Temperature,
 	}
 
+	if req.ToolChoice != nil {
+		switch req.ToolChoice.Type {
+		case "auto":
+			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAuto}
+
+		case "any":
+			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAny}
+
+		case "tool":
+			options.ToolOptions = &provider.ToolOptions{
+				Choice:  provider.ToolChoiceAny,
+				Allowed: []string{req.ToolChoice.Name},
+			}
+		}
+	}
+
 	if req.MaxTokens > 0 {
 		options.MaxTokens = &req.MaxTokens
 	}

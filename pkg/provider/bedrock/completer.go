@@ -423,12 +423,12 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		return nil, err
 	}
 
-	toolConfig := c.convertToolConfig(options.Tools)
+	config := c.convertToolConfig(options.Tools, options.ToolOptions)
 
 	// Schema mode: create a tool with the schema and force ToolChoice
 	if options.Schema != nil {
-		if toolConfig == nil {
-			toolConfig = &types.ToolConfiguration{}
+		if config == nil {
+			config = &types.ToolConfiguration{}
 		}
 
 		tool := types.ToolSpecification{
@@ -445,8 +445,8 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 			}
 		}
 
-		toolConfig.Tools = append(toolConfig.Tools, &types.ToolMemberToolSpec{Value: tool})
-		toolConfig.ToolChoice = &types.ToolChoiceMemberTool{
+		config.Tools = append(config.Tools, &types.ToolMemberToolSpec{Value: tool})
+		config.ToolChoice = &types.ToolChoiceMemberTool{
 			Value: types.SpecificToolChoice{
 				Name: aws.String(options.Schema.Name),
 			},
@@ -459,7 +459,7 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		Messages: messages,
 
 		System:     c.convertSystem(input),
-		ToolConfig: toolConfig,
+		ToolConfig: config,
 	}, nil
 }
 
@@ -650,7 +650,7 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 	return content, nil
 }
 
-func (c *Completer) convertToolConfig(tools []provider.Tool) *types.ToolConfiguration {
+func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.ToolOptions) *types.ToolConfiguration {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -682,6 +682,31 @@ func (c *Completer) convertToolConfig(tools []provider.Tool) *types.ToolConfigur
 				Type: types.CachePointTypeDefault,
 			},
 		})
+	}
+
+	if options != nil {
+		switch options.Choice {
+		case provider.ToolChoiceNone:
+			return nil
+
+		case provider.ToolChoiceAuto:
+			result.ToolChoice = &types.ToolChoiceMemberAuto{
+				Value: types.AutoToolChoice{},
+			}
+
+		case provider.ToolChoiceAny:
+			if len(options.Allowed) == 1 {
+				result.ToolChoice = &types.ToolChoiceMemberTool{
+					Value: types.SpecificToolChoice{
+						Name: aws.String(options.Allowed[0]),
+					},
+				}
+			} else {
+				result.ToolChoice = &types.ToolChoiceMemberAny{
+					Value: types.AnyToolChoice{},
+				}
+			}
+		}
 	}
 
 	return result

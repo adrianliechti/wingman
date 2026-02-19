@@ -453,7 +453,6 @@ func TestChatCompletionStructuredOutput(t *testing.T) {
 	client := newTestClient()
 
 	for _, model := range testModels {
-		model := model
 		t.Run(model, func(t *testing.T) {
 			tests := []struct {
 				name   string

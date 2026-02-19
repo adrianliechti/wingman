@@ -267,6 +267,10 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		req.Truncation = ""
 	}
 
+	if options.ToolOptions != nil {
+		req.ToolChoice = convertResponsesToolChoice(options.ToolOptions)
+	}
+
 	if options.Effort != "" && slices.Contains(ReasoningModels, r.model) {
 		req.Reasoning.Summary = responses.ReasoningSummaryAuto
 
@@ -549,5 +553,38 @@ func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
 		OutputTokens: int(usage.OutputTokens),
 
 		CacheReadInputTokens: int(usage.InputTokensDetails.CachedTokens),
+	}
+}
+
+func convertResponsesToolChoice(opts *provider.ToolOptions) responses.ResponseNewParamsToolChoiceUnion {
+	if len(opts.Allowed) == 0 {
+		modes := map[provider.ToolChoice]responses.ToolChoiceOptions{
+			provider.ToolChoiceNone: responses.ToolChoiceOptionsNone,
+			provider.ToolChoiceAuto: responses.ToolChoiceOptionsAuto,
+			provider.ToolChoiceAny:  responses.ToolChoiceOptionsRequired,
+		}
+
+		return responses.ResponseNewParamsToolChoiceUnion{
+			OfToolChoiceMode: openai.Opt(modes[opts.Choice]),
+		}
+	}
+
+	var tools []map[string]any
+
+	for _, name := range opts.Allowed {
+		tools = append(tools, map[string]any{"type": "function", "name": name})
+	}
+
+	mode := responses.ToolChoiceAllowedModeRequired
+
+	if opts.Choice == provider.ToolChoiceAuto {
+		mode = responses.ToolChoiceAllowedModeAuto
+	}
+
+	return responses.ResponseNewParamsToolChoiceUnion{
+		OfAllowedTools: &responses.ToolChoiceAllowedParam{
+			Mode:  mode,
+			Tools: tools,
+		},
 	}
 }

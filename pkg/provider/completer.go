@@ -303,26 +303,42 @@ type ToolCall struct {
 	Arguments string
 }
 
+type ToolChoice string
+
+const (
+	ToolChoiceAuto ToolChoice = "auto"
+	ToolChoiceAny  ToolChoice = "any"
+	ToolChoiceNone ToolChoice = "none"
+)
+
+type ToolOptions struct {
+	Allowed []string
+
+	Choice ToolChoice
+}
+
 type CompleteOptions struct {
 	Effort    Effort
 	Verbosity Verbosity
 
-	Stop  []string
-	Tools []Tool
+	Stop []string
 
 	MaxTokens   *int
 	Temperature *float32
+
+	Tools       []Tool
+	ToolOptions *ToolOptions
 
 	Schema *Schema
 }
 
 type Completion struct {
-	ID    string
+	ID string
+
 	Model string
+	Usage *Usage
 
 	Message *Message
-
-	Usage *Usage
 }
 
 type Effort string
@@ -343,8 +359,10 @@ const (
 )
 
 type Reasoning struct {
-	ID        string
-	Text      string
-	Summary   string
+	ID string
+
+	Text    string
+	Summary string
+
 	Signature string
 }

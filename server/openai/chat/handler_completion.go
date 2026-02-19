@@ -51,6 +51,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		Stop:  stops,
 		Tools: tools,
 
+		ToolOptions: toToolOptions(req.ToolChoice),
+
 		MaxTokens:   req.MaxCompletionTokens,
 		Temperature: req.Temperature,
 	}

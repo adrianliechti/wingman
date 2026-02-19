@@ -470,6 +470,33 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.Tools = tools
 	}
 
+	if options.ToolOptions != nil {
+		switch options.ToolOptions.Choice {
+		case provider.ToolChoiceNone:
+			req.ToolChoice = anthropic.ToolChoiceUnionParam{
+				OfNone: anthropic.Ptr(anthropic.NewToolChoiceNoneParam()),
+			}
+
+		case provider.ToolChoiceAuto:
+			req.ToolChoice = anthropic.ToolChoiceUnionParam{
+				OfAuto: &anthropic.ToolChoiceAutoParam{},
+			}
+
+		case provider.ToolChoiceAny:
+			if len(options.ToolOptions.Allowed) == 1 {
+				req.ToolChoice = anthropic.ToolChoiceUnionParam{
+					OfTool: &anthropic.ToolChoiceToolParam{
+						Name: options.ToolOptions.Allowed[0],
+					},
+				}
+			} else {
+				req.ToolChoice = anthropic.ToolChoiceUnionParam{
+					OfAny: &anthropic.ToolChoiceAnyParam{},
+				}
+			}
+		}
+	}
+
 	if len(messages) > 0 {
 		// Add cache control to the last content block of the last user message
 		for i := len(messages) - 1; i >= 0; i-- {

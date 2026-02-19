@@ -143,16 +143,34 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 	if len(options.Tools) > 0 {
 		config.Tools = convertTools(options.Tools)
 
-		// Check if any tool has Strict=true, if so use VALIDATED mode
-		for _, t := range options.Tools {
-			if t.Strict != nil && *t.Strict {
-				config.ToolConfig = &genai.ToolConfig{
-					FunctionCallingConfig: &genai.FunctionCallingConfig{
-						Mode: genai.FunctionCallingConfigModeValidated,
-					},
-				}
-				break
+		fcc := &genai.FunctionCallingConfig{}
+
+		if options.ToolOptions != nil {
+			switch options.ToolOptions.Choice {
+			case provider.ToolChoiceNone:
+				fcc.Mode = genai.FunctionCallingConfigModeNone
+
+			case provider.ToolChoiceAuto:
+				fcc.Mode = genai.FunctionCallingConfigModeAuto
+
+			case provider.ToolChoiceAny:
+				fcc.Mode = genai.FunctionCallingConfigModeAny
+				fcc.AllowedFunctionNames = options.ToolOptions.Allowed
 			}
+		}
+
+		// Upgrade to VALIDATED mode if any tool has Strict=true (schema enforcement)
+		if fcc.Mode == "" || fcc.Mode == genai.FunctionCallingConfigModeAuto {
+			for _, t := range options.Tools {
+				if t.Strict != nil && *t.Strict {
+					fcc.Mode = genai.FunctionCallingConfigModeValidated
+					break
+				}
+			}
+		}
+
+		config.ToolConfig = &genai.ToolConfig{
+			FunctionCallingConfig: fcc,
 		}
 	}
 

@@ -156,12 +156,19 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 			inputTools[t.Name] = t
 		}
 
+		var inputToolOptions *provider.ToolOptions
+
+		if len(agentTools) == 0 {
+			inputToolOptions = options.ToolOptions
+		}
+
 		inputOptions := &provider.CompleteOptions{
 			Effort:    options.Effort,
 			Verbosity: options.Verbosity,
 
-			Stop:  options.Stop,
-			Tools: slices.Collect(maps.Values(inputTools)),
+			Stop:        options.Stop,
+			Tools:       slices.Collect(maps.Values(inputTools)),
+			ToolOptions: inputToolOptions,
 
 			MaxTokens:   options.MaxTokens,
 			Temperature: options.Temperature,

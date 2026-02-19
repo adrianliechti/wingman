@@ -47,6 +47,8 @@ type ChatCompletionRequest struct {
 	Stop   any    `json:"stop,omitempty"`
 	Tools  []Tool `json:"tools,omitempty"`
 
+	ToolChoice *ToolChoice `json:"tool_choice,omitempty"`
+
 	Temperature         *float32 `json:"temperature,omitempty"`
 	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
 
@@ -66,8 +68,6 @@ type ChatCompletionRequest struct {
 	// seed *int
 
 	// top_p *float32
-
-	// tool_choice string: none, auto
 
 	// user string
 }
@@ -244,6 +244,59 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	return nil
+}
+
+type ToolChoice struct {
+	Mode string `json:"mode,omitempty"`
+
+	AllowedTools []ToolChoiceAllowedTool `json:"allowed_tools,omitempty"`
+}
+
+type ToolChoiceAllowedTool struct {
+	Type     string                         `json:"type"`
+	Function *ToolChoiceAllowedToolFunction `json:"function,omitempty"`
+}
+
+type ToolChoiceAllowedToolFunction struct {
+	Name string `json:"name"`
+}
+
+func (t *ToolChoice) UnmarshalJSON(data []byte) error {
+	// string: "none", "auto", "required"
+	var mode string
+
+	if err := json.Unmarshal(data, &mode); err == nil {
+		t.Mode = mode
+		return nil
+	}
+
+	// object: {"type": "function", "function": {"name": "X"}}
+	var legacy struct {
+		Type     string                         `json:"type"`
+		Function *ToolChoiceAllowedToolFunction `json:"function,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &legacy); err == nil && legacy.Type == "function" && legacy.Function != nil {
+		t.Mode = "required"
+
+		t.AllowedTools = []ToolChoiceAllowedTool{
+			{Type: legacy.Type, Function: legacy.Function},
+		}
+
+		return nil
+	}
+
+	// object: {"type": "allowed_tools", "mode": "...", "allowed_tools": [...]}
+	type Alias ToolChoice
+
+	var alias Alias
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	*t = ToolChoice(alias)
 	return nil
 }
 

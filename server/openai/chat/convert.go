@@ -22,6 +22,40 @@ func streamUsage(req ChatCompletionRequest) bool {
 	return *req.StreamOptions.IncludeUsage
 }
 
+func toToolOptions(v *ToolChoice) *provider.ToolOptions {
+	if v == nil {
+		return nil
+	}
+
+	choice := provider.ToolChoiceAuto
+
+	switch v.Mode {
+	case "none":
+		choice = provider.ToolChoiceNone
+	case "auto":
+		choice = provider.ToolChoiceAuto
+	case "required":
+		choice = provider.ToolChoiceAny
+	}
+
+	if len(v.AllowedTools) == 0 {
+		return &provider.ToolOptions{Choice: choice}
+	}
+
+	var allowed []string
+
+	for _, t := range v.AllowedTools {
+		if t.Function != nil && t.Function.Name != "" {
+			allowed = append(allowed, t.Function.Name)
+		}
+	}
+
+	return &provider.ToolOptions{
+		Choice:  choice,
+		Allowed: allowed,
+	}
+}
+
 func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
