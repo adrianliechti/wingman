@@ -11,10 +11,12 @@ type Client struct {
 	Completions CompletionService
 
 	Syntheses      SynthesisService
-	Transcriptions TranscriptionService
 	Renderings     RenderingService
+	Transcriptions TranscriptionService
 
-	Searches SearchService
+	Scrapes    ScrapeService
+	Searches   SearchService
+	Researches ResearchService
 
 	Segments    SegmentService
 	Extractions ExtractionService
@@ -32,14 +34,15 @@ func New(url string, opts ...RequestOption) *Client {
 		Completions: NewCompletionService(opts...),
 
 		Syntheses:      NewSynthesisService(opts...),
+		Renderings:     NewRenderingService(opts...),
 		Transcriptions: NewTranscriptionService(opts...),
 
-		Renderings:  NewRenderingService(opts...),
+		Scrapes:    NewScrapeService(opts...),
+		Searches:   NewSearchService(opts...),
+		Researches: NewResearchService(opts...),
+
+		Segments:    NewSegmentService(opts...),
 		Extractions: NewExtractionService(opts...),
-
-		Searches: NewSearchService(opts...),
-
-		Segments: NewSegmentService(opts...),
 
 		Summaries: NewSummaryService(opts...),
 	}
