@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
+	"github.com/google/uuid"
 )
 
 // StreamEventType represents the type of streaming event
@@ -335,7 +337,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						s.hasReasoningItem = true
 						s.reasoningOutputIndex = s.nextOutputIndex
 						s.nextOutputIndex++
-						s.reasoningID = reasoning.ID
+
+						if s.reasoningID == "" {
+							s.reasoningID = "rs_" + uuid.NewString()
+						}
 
 						if err := s.emitEvent(StreamEvent{
 							Type:        StreamEventReasoningItemAdded,
@@ -382,7 +387,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						s.hasReasoningItem = true
 						s.reasoningOutputIndex = s.nextOutputIndex
 						s.nextOutputIndex++
-						s.reasoningID = reasoning.ID
+
+						if s.reasoningID == "" {
+							s.reasoningID = "rs_" + uuid.NewString()
+						}
 
 						if err := s.emitEvent(StreamEvent{
 							Type:        StreamEventReasoningItemAdded,
