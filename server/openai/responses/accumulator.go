@@ -318,6 +318,11 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			if content.Reasoning != nil {
 				reasoning := content.Reasoning
 
+				// Update reasoning ID if we receive one (may arrive in later chunks)
+				if reasoning.ID != "" && s.reasoningID == "" {
+					s.reasoningID = reasoning.ID
+				}
+
 				// Capture signature/encrypted_content for conversation continuity
 				if reasoning.Signature != "" {
 					s.reasoningSignature = reasoning.Signature

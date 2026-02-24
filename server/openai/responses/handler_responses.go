@@ -609,8 +609,14 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		// Add reasoning output first if present
 		for _, content := range completion.Message.Content {
 			if content.Reasoning != nil {
+				reasoningID := content.Reasoning.ID
+
+				if reasoningID == "" {
+					reasoningID = "rs_" + uuid.NewString()
+				}
+
 				reasoningItem := &ReasoningOutputItem{
-					ID:     "rs_" + uuid.NewString(),
+					ID:     reasoningID,
 					Type:   "reasoning",
 					Status: "completed",
 
