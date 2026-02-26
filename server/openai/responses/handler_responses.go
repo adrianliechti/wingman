@@ -427,14 +427,8 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				// Add reasoning output if present
 				for _, content := range event.Completion.Message.Content {
 					if content.Reasoning != nil {
-						reasoningID := event.ReasoningID
-
-						if reasoningID == "" {
-							reasoningID = "rs_" + uuid.NewString()
-						}
-
 						reasoningItem := &ReasoningOutputItem{
-							ID:               reasoningID,
+							ID:               event.ReasoningID,
 							Type:             "reasoning",
 							Status:           "completed",
 							Summary:          []ReasoningOutputSummary{},
@@ -583,11 +577,10 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 	completion := acc.Result()
 
 	responseID := completion.ID
+
 	if responseID == "" {
 		responseID = "resp_" + uuid.NewString()
 	}
-
-	messageID := "msg_" + uuid.NewString()
 
 	result := Response{
 		Object: "response",
@@ -609,8 +602,14 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		// Add reasoning output first if present
 		for _, content := range completion.Message.Content {
 			if content.Reasoning != nil {
+				reasoningID := content.Reasoning.ID
+
+				if reasoningID == "" {
+					reasoningID = "rs_" + uuid.NewString()
+				}
+
 				reasoningItem := &ReasoningOutputItem{
-					ID:     "rs_" + uuid.NewString(),
+					ID:     reasoningID,
 					Type:   "reasoning",
 					Status: "completed",
 
@@ -661,7 +660,9 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 
 		// Add message output only if there's text content
 		if text := completion.Message.Text(); text != "" {
-			output := ResponseOutput{
+			messageID := "msg_" + uuid.NewString()
+
+			result.Output = append(result.Output, ResponseOutput{
 				Type: ResponseOutputTypeMessage,
 				OutputMessage: &OutputMessage{
 					ID:   messageID,
@@ -676,9 +677,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 						},
 					},
 				},
-			}
-
-			result.Output = append(result.Output, output)
+			})
 		}
 	}
 
