@@ -4,13 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
 )
-
-var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
 type Provider struct {
 	userHeader  string
