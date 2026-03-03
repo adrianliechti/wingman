@@ -7,7 +7,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/semconv/v1.38.0/genaiconv"
+	"go.opentelemetry.io/otel/semconv/v1.39.0/genaiconv"
 )
 
 type Embedder interface {

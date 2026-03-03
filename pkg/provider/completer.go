@@ -109,9 +109,7 @@ type CompletionAccumulator struct {
 
 	content strings.Builder
 
-	summary   strings.Builder
-	reasoning strings.Builder
-	signature string
+	reasoning *Reasoning
 
 	toolCalls      []ToolCall
 	lastToolCallID string
@@ -139,16 +137,19 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			}
 
 			if c.Reasoning != nil {
-				if c.Reasoning.Summary != "" {
-					a.summary.WriteString(c.Reasoning.Summary)
+				if a.reasoning == nil {
+					a.reasoning = &Reasoning{}
 				}
 
-				if c.Reasoning.Text != "" {
-					a.reasoning.WriteString(c.Reasoning.Text)
+				if c.Reasoning.ID != "" {
+					a.reasoning.ID = c.Reasoning.ID
 				}
+
+				a.reasoning.Text += c.Reasoning.Text
+				a.reasoning.Summary += c.Reasoning.Summary
 
 				if c.Reasoning.Signature != "" {
-					a.signature = c.Reasoning.Signature
+					a.reasoning.Signature = c.Reasoning.Signature
 				}
 			}
 
@@ -218,12 +219,8 @@ func (a *CompletionAccumulator) Add(c Completion) {
 func (a *CompletionAccumulator) Result() *Completion {
 	var content []Content
 
-	if a.reasoning.Len() > 0 || a.summary.Len() > 0 || a.signature != "" {
-		content = append(content, ReasoningContent(Reasoning{
-			Text:      a.reasoning.String(),
-			Summary:   a.summary.String(),
-			Signature: a.signature,
-		}))
+	if a.reasoning != nil {
+		content = append(content, ReasoningContent(*a.reasoning))
 	}
 
 	if a.content.Len() > 0 {

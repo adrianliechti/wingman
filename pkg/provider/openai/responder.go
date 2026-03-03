@@ -185,6 +185,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 								Content: []provider.Content{
 									provider.ReasoningContent(provider.Reasoning{
+										ID:        item.ID,
 										Signature: item.EncryptedContent,
 									}),
 								},

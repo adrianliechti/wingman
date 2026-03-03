@@ -121,6 +121,9 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 		result.Usage = Usage{
 			InputTokens:  completion.Usage.InputTokens,
 			OutputTokens: completion.Usage.OutputTokens,
+
+			CacheReadInputTokens:     completion.Usage.CacheReadInputTokens,
+			CacheCreationInputTokens: completion.Usage.CacheCreationInputTokens,
 		}
 	}
 

@@ -11,12 +11,31 @@ import (
 
 type Provider struct {
 	token string
+
+	userHeader  string
+	emailHeader string
 }
 
-func New(token string) (*Provider, error) {
-	return &Provider{
+type Option func(*Provider)
+
+func New(token string, opts ...Option) (*Provider, error) {
+	p := &Provider{
 		token: token,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	if p.userHeader == "" {
+		p.userHeader = "X-Forwarded-User"
+	}
+
+	if p.emailHeader == "" {
+		p.emailHeader = "X-Forwarded-Email"
+	}
+
+	return p, nil
 }
 
 func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.Context, error) {
@@ -41,6 +60,21 @@ func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.C
 	}
 
 	ctx = context.WithValue(ctx, auth.UserContextKey, token)
+
+	user := strings.TrimSpace(r.Header.Get(p.userHeader))
+	email := strings.TrimSpace(r.Header.Get(p.emailHeader))
+
+	if email == "" && emailRegex.MatchString(user) {
+		email = user
+	}
+
+	if user != "" {
+		ctx = context.WithValue(ctx, auth.UserContextKey, user)
+	}
+
+	if email != "" {
+		ctx = context.WithValue(ctx, auth.EmailContextKey, email)
+	}
 
 	return ctx, nil
 }

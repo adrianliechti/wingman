@@ -92,9 +92,12 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 		// Get input tokens from first chunk if available
 		inputTokens := 0
+		var cacheReadInputTokens, cacheCreationInputTokens int
 		if c.Usage != nil && c.Usage.InputTokens > 0 {
 			inputTokens = c.Usage.InputTokens
 			s.inputTokens = inputTokens
+			cacheReadInputTokens = c.Usage.CacheReadInputTokens
+			cacheCreationInputTokens = c.Usage.CacheCreationInputTokens
 		}
 
 		if err := s.emitEvent(StreamEvent{
@@ -110,6 +113,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				Usage: Usage{
 					InputTokens:  inputTokens,
 					OutputTokens: 0,
+
+					CacheReadInputTokens:     cacheReadInputTokens,
+					CacheCreationInputTokens: cacheCreationInputTokens,
 				},
 			},
 		}); err != nil {
@@ -295,6 +301,7 @@ func (s *StreamingAccumulator) Complete() error {
 	// Get final usage from accumulated result (prefer accumulated result over tracked values)
 	inputTokens := s.inputTokens
 	outputTokens := s.outputTokens
+	var cacheReadInputTokens, cacheCreationInputTokens int
 	if result.Usage != nil {
 		if result.Usage.InputTokens > inputTokens {
 			inputTokens = result.Usage.InputTokens
@@ -302,6 +309,8 @@ func (s *StreamingAccumulator) Complete() error {
 		if result.Usage.OutputTokens > outputTokens {
 			outputTokens = result.Usage.OutputTokens
 		}
+		cacheReadInputTokens = result.Usage.CacheReadInputTokens
+		cacheCreationInputTokens = result.Usage.CacheCreationInputTokens
 	}
 
 	// Send message_delta with stop_reason and usage
@@ -313,6 +322,9 @@ func (s *StreamingAccumulator) Complete() error {
 		DeltaUsage: &DeltaUsage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
+
+			CacheReadInputTokens:     cacheReadInputTokens,
+			CacheCreationInputTokens: cacheCreationInputTokens,
 		},
 		Completion: result,
 	}); err != nil {
