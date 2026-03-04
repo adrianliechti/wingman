@@ -5,6 +5,7 @@ import (
 	"mime"
 	"net/http"
 
+	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -16,6 +17,11 @@ func (h *Handler) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
+		writeError(w, http.StatusNotFound, err)
 		return
 	}
 

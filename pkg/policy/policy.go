@@ -11,6 +11,7 @@ type Resource string
 
 const (
 	ResourceModel Resource = "model"
+	ResourceMCP   Resource = "mcp"
 )
 
 type Action string

@@ -15,6 +15,7 @@ func (h *Handler) handleGenerateContent(w http.ResponseWriter, r *http.Request) 
 	model := r.PathValue("model")
 
 	completer, messages, options, err := h.parseGenerateRequest(r)
+
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -70,6 +71,7 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 	model := r.PathValue("model")
 
 	completer, messages, options, err := h.parseGenerateRequest(r)
+
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
