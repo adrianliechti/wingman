@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -129,6 +130,10 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 
 	completer, err := h.Completer(model)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
 		return nil, nil, nil, err
 	}
 
