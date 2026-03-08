@@ -47,13 +47,23 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 		fileName = strings.TrimSuffix(fileName, ".weba") + ".webm"
 	}
 
-	transcription, err := t.transcriptions.New(ctx, openai.AudioTranscriptionNewParams{
+	body := openai.AudioTranscriptionNewParams{
 		Model: t.model,
 
 		File: openai.File(bytes.NewReader(input.Content), fileName, input.ContentType),
 
 		ResponseFormat: openai.AudioResponseFormatJSON,
-	})
+	}
+
+	if options.Language != "" {
+		body.Language = openai.String(options.Language)
+	}
+
+	if options.Instructions != "" {
+		body.Prompt = openai.String(options.Instructions)
+	}
+
+	transcription, err := t.transcriptions.New(ctx, body)
 
 	if err != nil {
 		return nil, convertError(err)

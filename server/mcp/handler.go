@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/policy"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -31,6 +32,11 @@ func (h *Handler) handleMCP(w http.ResponseWriter, r *http.Request) {
 	handler, err := h.MCP(id)
 
 	if err != nil {
+		http.Error(w, "MCP not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.Policy.Verify(r.Context(), policy.ResourceMCP, id, policy.ActionAccess); err != nil {
 		http.Error(w, "MCP not found", http.StatusNotFound)
 		return
 	}

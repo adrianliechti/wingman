@@ -34,6 +34,10 @@ var CodingModels = []string{
 }
 
 var ReasoningModels = []string{
+	// GPT 5.4 Family
+	"gpt-5.4",
+	"gpt-5.4-pro",
+
 	// GPT 5.3 Family
 	"gpt-5.3-codex",
 

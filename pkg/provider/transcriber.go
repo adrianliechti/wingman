@@ -9,8 +9,8 @@ type Transcriber interface {
 }
 
 type TranscribeOptions struct {
-	Language    string
-	Temperature *float32
+	Language     string
+	Instructions string
 }
 
 type Transcription struct {

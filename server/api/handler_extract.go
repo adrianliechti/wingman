@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 )
@@ -35,6 +36,11 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
+			writeError(w, http.StatusNotFound, err)
+			return
+		}
+
 		options := &scraper.ScrapeOptions{}
 
 		result, err := p.Scrape(r.Context(), url, options)
@@ -60,6 +66,11 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
+			writeError(w, http.StatusNotFound, err)
 			return
 		}
 

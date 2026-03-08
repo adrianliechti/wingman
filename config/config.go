@@ -8,6 +8,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/chain"
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/mcp"
+	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/scraper"
@@ -24,6 +25,7 @@ import (
 type Config struct {
 	Address string
 
+	Policy      policy.Provider
 	Authorizers []auth.Provider
 
 	models map[string]provider.Model
@@ -62,6 +64,10 @@ func Parse(path string) (*Config, error) {
 	}
 
 	if err := c.registerAuthorizer(file); err != nil {
+		return nil, err
+	}
+
+	if err := c.registerPolicies(file); err != nil {
 		return nil, err
 	}
 
@@ -118,6 +124,8 @@ func Parse(path string) (*Config, error) {
 
 type configFile struct {
 	Authorizers []authorizerConfig `yaml:"authorizers"`
+
+	Policy *policyConfig `yaml:"policy"`
 
 	Providers []providerConfig `yaml:"providers"`
 

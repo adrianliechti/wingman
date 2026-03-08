@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -14,6 +15,7 @@ func (h *Handler) handleGenerateContent(w http.ResponseWriter, r *http.Request) 
 	model := r.PathValue("model")
 
 	completer, messages, options, err := h.parseGenerateRequest(r)
+
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -69,6 +71,7 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 	model := r.PathValue("model")
 
 	completer, messages, options, err := h.parseGenerateRequest(r)
+
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -129,6 +132,10 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 
 	completer, err := h.Completer(model)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
 		return nil, nil, nil, err
 	}
 

@@ -11,9 +11,6 @@ import (
 
 type Provider struct {
 	token string
-
-	userHeader  string
-	emailHeader string
 }
 
 type Option func(*Provider)
@@ -25,14 +22,6 @@ func New(token string, opts ...Option) (*Provider, error) {
 
 	for _, opt := range opts {
 		opt(p)
-	}
-
-	if p.userHeader == "" {
-		p.userHeader = "X-Forwarded-User"
-	}
-
-	if p.emailHeader == "" {
-		p.emailHeader = "X-Forwarded-Email"
 	}
 
 	return p, nil
@@ -49,32 +38,17 @@ func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.C
 		return ctx, errors.New("missing authorization header")
 	}
 
-	if !strings.HasPrefix(header, "Bearer ") {
+	token, ok := strings.CutPrefix(header, "Bearer ")
+
+	if !ok {
 		return ctx, errors.New("invalid authorization header")
 	}
-
-	token := strings.TrimPrefix(header, "Bearer ")
 
 	if token != p.token {
 		return ctx, errors.New("invalid token")
 	}
 
 	ctx = context.WithValue(ctx, auth.UserContextKey, token)
-
-	user := strings.TrimSpace(r.Header.Get(p.userHeader))
-	email := strings.TrimSpace(r.Header.Get(p.emailHeader))
-
-	if email == "" && emailRegex.MatchString(user) {
-		email = user
-	}
-
-	if user != "" {
-		ctx = context.WithValue(ctx, auth.UserContextKey, user)
-	}
-
-	if email != "" {
-		ctx = context.WithValue(ctx, auth.EmailContextKey, email)
-	}
 
 	return ctx, nil
 }

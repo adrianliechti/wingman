@@ -42,11 +42,11 @@ func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.C
 		return ctx, errors.New("missing authorization header")
 	}
 
-	if !strings.HasPrefix(header, "Bearer ") {
+	token, ok := strings.CutPrefix(header, "Bearer ")
+
+	if !ok {
 		return ctx, errors.New("invalid authorization header")
 	}
-
-	token := strings.TrimPrefix(header, "Bearer ")
 
 	idtoken, err := p.verifier.Verify(ctx, token)
 

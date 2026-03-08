@@ -65,11 +65,12 @@ List available models.
 
 **Endpoint:** `POST /v1/audio/transcriptions`
 
-| Parameter   | Type   | Description     |
-|-------------|--------|-----------------|
-| `model`     | String | Model ID        |
-| `file`      | File   | Audio file      |
-| `language`  | String | Audio language  |
+| Parameter   | Type   | Description                                      |
+|-------------|--------|--------------------------------------------------|
+| `model`     | String | Model ID                                         |
+| `file`      | File   | Audio file                                       |
+| `language`  | String | Audio language                                   |
+| `prompt`    | String | Optional text to guide transcription style/vocab |
 
 ## Image Generation
 
@@ -307,11 +308,12 @@ Transcribe audio files to text.
 
 **Endpoint:** `POST /v1/transcribe`
 
-| Parameter   | Type   | Description                |
-|-------------|--------|----------------------------|
-| `model`     | String | Model/provider to use      |
-| `file`      | File   | Audio file to transcribe   |
-| `language`  | String | Audio language (optional)  |
+| Parameter      | Type   | Description                                      |
+|----------------|--------|--------------------------------------------------|
+| `model`        | String | Model/provider to use                            |
+| `file`         | File   | Audio file to transcribe                         |
+| `language`     | String | Audio language (optional)                        |
+| `instructions` | String | Optional text to guide transcription style/vocab |
 
 ```bash
 curl -X POST -F "file=@audio.mp3" http://localhost:8080/v1/transcribe

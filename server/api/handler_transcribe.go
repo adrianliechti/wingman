@@ -5,17 +5,25 @@ import (
 	"mime"
 	"net/http"
 
+	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 func (h *Handler) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	model := valueModel(r)
+
 	language := valueLanguage(r)
+	instructions := valueInput(r)
 
 	p, err := h.Transcriber(model)
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
+		writeError(w, http.StatusNotFound, err)
 		return
 	}
 
@@ -49,7 +57,8 @@ func (h *Handler) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	options := &provider.TranscribeOptions{
-		Language: language,
+		Language:     language,
+		Instructions: instructions,
 	}
 
 	transcription, err := p.Transcribe(r.Context(), input, options)

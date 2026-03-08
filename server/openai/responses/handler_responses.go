@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
@@ -22,6 +23,11 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := h.Policy.Verify(r.Context(), policy.ResourceModel, req.Model, policy.ActionAccess); err != nil {
+		writeError(w, http.StatusNotFound, err)
 		return
 	}
 
