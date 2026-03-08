@@ -20,7 +20,7 @@ const (
 
 // Test models covering different providers
 var testModels = []string{
-	"gpt-5.2",           // OpenAI
+	"gpt-5.4",           // OpenAI
 	"claude-sonnet-4-5", // Anthropic
 	"gemini-2.5-pro",    // Google
 	"mistral-medium",    // Mistral (OpenAI-compatible)
@@ -966,7 +966,7 @@ func TestResponsesJSONObjectFormat(t *testing.T) {
 
 // Models that support reasoning/thinking
 var reasoningModels = []string{
-	"gpt-5.2", // OpenAI reasoning model
+	"gpt-5.4", // OpenAI reasoning model
 }
 
 func TestResponsesWithReasoning(t *testing.T) {

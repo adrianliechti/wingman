@@ -105,6 +105,8 @@ type CompletionAccumulator struct {
 	id    string
 	model string
 
+	status CompletionStatus
+
 	role MessageRole
 
 	content strings.Builder
@@ -124,6 +126,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Model != "" {
 		a.model = c.Model
+	}
+
+	if c.Status != "" {
+		a.status = c.Status
 	}
 
 	if c.Message != nil {
@@ -235,6 +241,8 @@ func (a *CompletionAccumulator) Result() *Completion {
 		ID:    a.id,
 		Model: a.model,
 
+		Status: a.status,
+
 		Message: &Message{
 			Role:    a.role,
 			Content: content,
@@ -331,12 +339,21 @@ type CompleteOptions struct {
 	Schema *Schema
 }
 
+type CompletionStatus string
+
+const (
+	CompletionStatusCompleted  CompletionStatus = "completed"
+	CompletionStatusIncomplete CompletionStatus = "incomplete"
+	CompletionStatusFailed     CompletionStatus = "failed"
+)
+
 type Completion struct {
 	ID string
 
-	Model string
-	Usage *Usage
+	Model  string
+	Status CompletionStatus
 
+	Usage   *Usage
 	Message *Message
 }
 

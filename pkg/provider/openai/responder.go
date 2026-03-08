@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"iter"
 	"slices"
 
@@ -159,6 +160,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 						Content: []provider.Content{
 							provider.ToolCallContent(provider.ToolCall{
+								ID:        event.ItemID,
 								Arguments: event.Delta,
 							}),
 						},
@@ -199,11 +201,41 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case responses.ResponseCompletedEvent:
+				status := provider.CompletionStatusCompleted
+
+				if event.Response.Status == responses.ResponseStatusIncomplete {
+					status = provider.CompletionStatusIncomplete
+				}
+
 				delta := &provider.Completion{
 					ID:    data.Response.ID,
 					Model: data.Response.Model,
 
-					Usage: toResponseUsage(event.Response.Usage),
+					Status: status,
+					Usage:  toResponseUsage(event.Response.Usage),
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+
+			case responses.ResponseFailedEvent:
+				msg := "response failed"
+
+				if event.Response.Error.Message != "" {
+					msg = event.Response.Error.Message
+				}
+
+				yield(nil, errors.New(msg))
+				return
+
+			case responses.ResponseIncompleteEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Status: provider.CompletionStatusIncomplete,
+					Usage:  toResponseUsage(event.Response.Usage),
 				}
 
 				if !yield(delta, nil) {
@@ -211,7 +243,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			default:
-				println("unknown event", data.Type)
+				// Tolerate unknown/vendor-extension events silently
 			}
 		}
 
@@ -223,8 +255,10 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {
-	if slices.Contains(ReasoningModels, r.model) {
-		options.Temperature = nil
+	if slices.Contains(ReasoningModels, r.model) && options.Temperature != nil {
+		optsCopy := *options
+		optsCopy.Temperature = nil
+		options = &optsCopy
 	}
 
 	input, err := r.convertResponsesInput(messages)
@@ -292,7 +326,9 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		case provider.EffortHigh:
 			req.Reasoning.Effort = responses.ReasoningEffortHigh
 		}
+	}
 
+	if slices.Contains(ReasoningModels, r.model) {
 		req.Include = append(req.Include, responses.ResponseIncludableReasoningEncryptedContent)
 	}
 
@@ -420,7 +456,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						})
 
 					default:
-						return responses.ResponseNewParamsInputUnion{}, errors.New("unsupported content type")
+						return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("unsupported content type: %s", c.File.ContentType)
 					}
 				}
 

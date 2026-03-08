@@ -187,6 +187,21 @@ func TestStreamingAccumulatorReasoningSignature(t *testing.T) {
 	require.Equal(t, "encrypted_signature_data", reasoningItemDoneEvent.ReasoningSignature)
 }
 
+func TestStreamingAccumulatorSignatureOnlyReasoning(t *testing.T) {
+	acc, events := newTestAccumulator()
+
+	require.NoError(t, acc.Add(reasoningChunk("", "", "encrypted_signature_data")))
+	require.NoError(t, acc.Complete())
+
+	reasoningAddedEvent := findEvent(*events, StreamEventReasoningItemAdded)
+	require.NotNil(t, reasoningAddedEvent, "should have reasoning_item.added event")
+
+	reasoningItemDoneEvent := findEvent(*events, StreamEventReasoningItemDone)
+	require.NotNil(t, reasoningItemDoneEvent)
+	require.Equal(t, "encrypted_signature_data", reasoningItemDoneEvent.ReasoningSignature)
+	require.Equal(t, reasoningAddedEvent.OutputIndex, reasoningItemDoneEvent.OutputIndex)
+}
+
 func TestStreamingAccumulatorReasoningAndText(t *testing.T) {
 	acc, events := newTestAccumulator()
 
@@ -255,4 +270,26 @@ func TestStreamingAccumulatorReasoningOutputIndex(t *testing.T) {
 	outputItemDoneEvent := findEvent(*events, StreamEventOutputItemDone)
 	require.NotNil(t, outputItemDoneEvent)
 	require.Equal(t, 1, outputItemDoneEvent.OutputIndex, "output_item.done should reference output_index 1")
+}
+
+func TestStreamingAccumulatorIncompleteTerminalEvent(t *testing.T) {
+	acc, events := newTestAccumulator()
+
+	require.NoError(t, acc.Add(provider.Completion{
+		Status: provider.CompletionStatusIncomplete,
+		Usage: &provider.Usage{
+			InputTokens:  3,
+			OutputTokens: 5,
+		},
+	}))
+	require.NoError(t, acc.Complete())
+
+	require.Nil(t, findEvent(*events, StreamEventResponseCompleted))
+	incompleteEvent := findEvent(*events, StreamEventResponseIncomplete)
+	require.NotNil(t, incompleteEvent, "should have response.incomplete event")
+	require.NotNil(t, incompleteEvent.Completion)
+	require.Equal(t, provider.CompletionStatusIncomplete, incompleteEvent.Completion.Status)
+	require.NotNil(t, incompleteEvent.Completion.Usage)
+	require.Equal(t, 3, incompleteEvent.Completion.Usage.InputTokens)
+	require.Equal(t, 5, incompleteEvent.Completion.Usage.OutputTokens)
 }

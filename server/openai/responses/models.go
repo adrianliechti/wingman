@@ -550,6 +550,13 @@ type ResponseCompletedEvent struct {
 	Response       *Response `json:"response"`
 }
 
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/incomplete
+type ResponseIncompleteEvent struct {
+	Type           string    `json:"type"` // response.incomplete
+	SequenceNumber int       `json:"sequence_number"`
+	Response       *Response `json:"response"`
+}
+
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/failed
 type ResponseFailedEvent struct {
 	Type           string    `json:"type"` // response.failed
