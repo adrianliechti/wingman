@@ -30,11 +30,11 @@ func toToolOptions(v *ToolChoice) *provider.ToolOptions {
 	choice := provider.ToolChoiceAuto
 
 	switch v.Mode {
-	case "none":
+	case ToolChoiceModeNone:
 		choice = provider.ToolChoiceNone
-	case "auto":
+	case ToolChoiceModeAuto:
 		choice = provider.ToolChoiceAuto
-	case "required":
+	case ToolChoiceModeRequired:
 		choice = provider.ToolChoiceAny
 	}
 

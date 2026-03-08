@@ -25,8 +25,8 @@ type ResponsesRequest struct {
 
 	Reasoning *ReasoningConfig `json:"reasoning,omitempty"`
 
-	//ToolChoice        any  `json:"tool_choice,omitempty"`
-	//ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
+	ToolChoice        *ToolChoice `json:"tool_choice,omitempty"`
+	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
 }
 
 // ReasoningConfig contains configuration options for reasoning models
@@ -90,6 +90,60 @@ type Tool struct {
 
 	// For custom tools (like apply_patch)
 	Format *CustomToolFormat `json:"format,omitempty"`
+}
+
+type ToolChoice struct {
+	Mode ToolChoiceMode `json:"mode,omitempty"`
+
+	AllowedTools []ToolChoiceAllowedTool `json:"allowed_tools,omitempty"`
+}
+
+type ToolChoiceMode string
+
+const (
+	ToolChoiceModeNone     ToolChoiceMode = "none"
+	ToolChoiceModeAuto     ToolChoiceMode = "auto"
+	ToolChoiceModeRequired ToolChoiceMode = "required"
+)
+
+type ToolChoiceAllowedTool struct {
+	Type string `json:"type"`
+	Name string `json:"name,omitempty"`
+}
+
+func (t *ToolChoice) UnmarshalJSON(data []byte) error {
+	var mode string
+
+	if err := json.Unmarshal(data, &mode); err == nil {
+		t.Mode = ToolChoiceMode(mode)
+		return nil
+	}
+
+	var function struct {
+		Type string `json:"type"`
+		Name string `json:"name,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &function); err == nil && function.Type == "function" && function.Name != "" {
+		t.Mode = ToolChoiceModeRequired
+		t.AllowedTools = []ToolChoiceAllowedTool{{
+			Type: function.Type,
+			Name: function.Name,
+		}}
+		return nil
+	}
+
+	type alias ToolChoice
+
+	var value alias
+
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+
+	*t = ToolChoice(value)
+
+	return nil
 }
 
 // CustomToolFormat describes the format for custom tools

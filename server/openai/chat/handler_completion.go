@@ -63,6 +63,14 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		Temperature: req.Temperature,
 	}
 
+	if req.ParallelToolCalls != nil {
+		if options.ToolOptions == nil {
+			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAuto}
+		}
+
+		options.ToolOptions.ParallelToolCalls = req.ParallelToolCalls
+	}
+
 	switch req.ReasoningEffort {
 	case ReasoningEffortMinimal:
 		options.Effort = provider.EffortMinimal

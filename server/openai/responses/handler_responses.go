@@ -46,10 +46,19 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	options := &provider.CompleteOptions{
-		Tools: tools,
+		Tools:       tools,
+		ToolOptions: toToolOptions(req.ToolChoice),
 
 		MaxTokens:   req.MaxOutputTokens,
 		Temperature: req.Temperature,
+	}
+
+	if req.ParallelToolCalls != nil {
+		if options.ToolOptions == nil {
+			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAuto}
+		}
+
+		options.ToolOptions.ParallelToolCalls = req.ParallelToolCalls
 	}
 
 	if req.Reasoning != nil && req.Reasoning.Effort != nil {

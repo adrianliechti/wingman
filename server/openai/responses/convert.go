@@ -11,6 +11,40 @@ import (
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
 
+func toToolOptions(v *ToolChoice) *provider.ToolOptions {
+	if v == nil {
+		return nil
+	}
+
+	choice := provider.ToolChoiceAuto
+
+	switch v.Mode {
+	case ToolChoiceModeNone:
+		choice = provider.ToolChoiceNone
+	case ToolChoiceModeAuto:
+		choice = provider.ToolChoiceAuto
+	case ToolChoiceModeRequired:
+		choice = provider.ToolChoiceAny
+	}
+
+	if len(v.AllowedTools) == 0 {
+		return &provider.ToolOptions{Choice: choice}
+	}
+
+	allowed := make([]string, 0, len(v.AllowedTools))
+
+	for _, tool := range v.AllowedTools {
+		if tool.Type == string(ToolTypeFunction) && tool.Name != "" {
+			allowed = append(allowed, tool.Name)
+		}
+	}
+
+	return &provider.ToolOptions{
+		Choice:  choice,
+		Allowed: allowed,
+	}
+}
+
 func toMessages(items []InputItem, instructions string) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 

@@ -129,6 +129,10 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 
 	if options.ToolOptions != nil {
 		req.ToolChoice = convertToolChoice(options.ToolOptions)
+
+		if options.ToolOptions.ParallelToolCalls != nil {
+			req.ParallelToolCalls = openai.Bool(*options.ToolOptions.ParallelToolCalls)
+		}
 	}
 
 	if len(messages) > 0 {

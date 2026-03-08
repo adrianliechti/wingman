@@ -312,6 +312,8 @@ type ToolOptions struct {
 	Allowed []string
 
 	Choice ToolChoice
+
+	ParallelToolCalls *bool
 }
 
 type CompleteOptions struct {
