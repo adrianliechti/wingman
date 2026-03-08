@@ -52,6 +52,11 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 		stream := r.responses.NewStreaming(ctx, *req)
 
+		// Maps item ID → call ID for function tool calls.
+		// ResponseFunctionCallArgumentsDeltaEvent uses item_id, but downstream
+		// consumers identify tool calls by call_id (used in function_call_output).
+		itemToCallID := make(map[string]string)
+
 		for stream.Next() {
 			data := stream.Current()
 
@@ -61,6 +66,8 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseOutputItemAddedEvent:
 				switch item := event.Item.AsAny().(type) {
 				case responses.ResponseFunctionToolCall:
+					itemToCallID[item.ID] = item.CallID
+
 					delta := &provider.Completion{
 						ID:    data.Response.ID,
 						Model: data.Response.Model,
@@ -70,10 +77,8 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.ToolCallContent(provider.ToolCall{
-									ID: item.CallID,
-
-									Name:      item.Name,
-									Arguments: item.Arguments,
+									ID:   item.CallID,
+									Name: item.Name,
 								}),
 							},
 						},
@@ -151,6 +156,10 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseReasoningSummaryTextDoneEvent:
 			case responses.ResponseReasoningSummaryPartDoneEvent:
 			case responses.ResponseFunctionCallArgumentsDeltaEvent:
+				callID := itemToCallID[event.ItemID]
+				if callID == "" {
+					callID = event.ItemID
+				}
 				delta := &provider.Completion{
 					ID:    data.Response.ID,
 					Model: data.Response.Model,
@@ -160,7 +169,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 						Content: []provider.Content{
 							provider.ToolCallContent(provider.ToolCall{
-								ID:        event.ItemID,
+								ID:        callID,
 								Arguments: event.Delta,
 							}),
 						},
@@ -273,19 +282,6 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		return nil, err
 	}
 
-	// tools = append(tools, responses.ToolUnionParam{
-	// 	OfCodeInterpreter: &responses.ToolCodeInterpreterParam{
-	// 		Container: responses.ToolCodeInterpreterContainerUnionParam{
-	// 			OfCodeInterpreterContainerAuto: &responses.ToolCodeInterpreterContainerCodeInterpreterContainerAutoParam{},
-	// 		},
-	// 	},
-	// })
-
-	// tools = append(tools, responses.ToolUnionParam{
-	// 	OfWebSearch: &responses.WebSearchToolParam{
-	// 		Type: responses.WebSearchToolTypeWebSearch,
-	// 	},
-	// })
 
 	req := &responses.ResponseNewParams{
 		Model: r.model,

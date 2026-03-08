@@ -471,6 +471,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.ToolOptions != nil {
+		disableParallel := options.ToolOptions.ParallelToolCalls != nil && !*options.ToolOptions.ParallelToolCalls
+
 		switch options.ToolOptions.Choice {
 		case provider.ToolChoiceNone:
 			req.ToolChoice = anthropic.ToolChoiceUnionParam{
@@ -478,9 +480,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			}
 
 		case provider.ToolChoiceAuto:
-			req.ToolChoice = anthropic.ToolChoiceUnionParam{
-				OfAuto: &anthropic.ToolChoiceAutoParam{},
+			p := &anthropic.ToolChoiceAutoParam{}
+
+			if disableParallel {
+				p.DisableParallelToolUse = anthropic.Bool(true)
 			}
+
+			req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAuto: p}
 
 		case provider.ToolChoiceAny:
 			if len(options.ToolOptions.Allowed) == 1 {
@@ -490,9 +496,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					},
 				}
 			} else {
-				req.ToolChoice = anthropic.ToolChoiceUnionParam{
-					OfAny: &anthropic.ToolChoiceAnyParam{},
+				p := &anthropic.ToolChoiceAnyParam{}
+
+				if disableParallel {
+					p.DisableParallelToolUse = anthropic.Bool(true)
 				}
+
+				req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAny: p}
 			}
 		}
 	}

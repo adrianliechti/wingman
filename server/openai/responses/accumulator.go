@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/google/uuid"
 )
 
 // StreamEventType represents the type of streaming event
@@ -99,9 +100,7 @@ type StreamingAccumulator struct {
 	reasoningSignature       string
 	hasReasoningItem         bool
 	hasReasoningTextPart     bool
-	hasReasoningText         bool
 	hasReasoningSummaryPart  bool
-	hasReasoningSummary      bool
 	reasoningOutputIndex     int
 	reasoningClosed          bool
 	streamedReasoningText    strings.Builder
@@ -114,7 +113,6 @@ func NewStreamingAccumulator(handler StreamEventHandler) *StreamingAccumulator {
 		handler:         handler,
 		toolCallIndices: make(map[string]int),
 		toolCallStarted: make(map[string]bool),
-		nextOutputIndex: 0,
 	}
 }
 
@@ -214,6 +212,10 @@ func (s *StreamingAccumulator) ensureReasoningItem() error {
 	s.hasReasoningItem = true
 	s.reasoningOutputIndex = s.reserveOutputIndex()
 
+	if s.reasoningID == "" {
+		s.reasoningID = "rs_" + uuid.NewString()
+	}
+
 	return s.emitEvent(StreamEvent{
 		Type:        StreamEventReasoningItemAdded,
 		ReasoningID: s.reasoningID,
@@ -263,7 +265,7 @@ func (s *StreamingAccumulator) closeReasoning() error {
 	reasoningSummary := s.streamedReasoningSummary.String()
 
 	// Emit reasoning text done if we had text
-	if s.hasReasoningText {
+	if s.streamedReasoningText.Len() > 0 {
 		if err := s.emitEvent(StreamEvent{
 			Type:          StreamEventReasoningTextDone,
 			ReasoningID:   s.reasoningID,
@@ -287,7 +289,7 @@ func (s *StreamingAccumulator) closeReasoning() error {
 	}
 
 	// Emit summary done if we had summary
-	if s.hasReasoningSummary {
+	if s.streamedReasoningSummary.Len() > 0 {
 		if err := s.emitEvent(StreamEvent{
 			Type:             StreamEventReasoningSummaryDone,
 			ReasoningID:      s.reasoningID,
@@ -406,7 +408,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						return err
 					}
 
-					s.hasReasoningText = true
 					s.streamedReasoningText.WriteString(reasoning.Text)
 
 					// Emit reasoning text delta
@@ -430,7 +431,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						return err
 					}
 
-					s.hasReasoningSummary = true
 					s.streamedReasoningSummary.WriteString(reasoning.Summary)
 
 					// Emit reasoning summary delta

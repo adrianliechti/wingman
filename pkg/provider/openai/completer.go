@@ -241,10 +241,8 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 			result = append(result, message)
 
 		case provider.MessageRoleUser:
-			parts := []openai.ChatCompletionContentPartUnionParam{}
-
-			var tool string
-			var toolData string
+			var parts []openai.ChatCompletionContentPartUnionParam
+			var toolResults []*provider.ToolResult
 
 			for _, c := range m.Content {
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
@@ -279,14 +277,16 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				}
 
 				if c.ToolResult != nil {
-					tool = c.ToolResult.ID
-					toolData = c.ToolResult.Data
+					toolResults = append(toolResults, c.ToolResult)
 				}
 			}
 
-			if tool != "" {
-				result = append(result, openai.ToolMessage(toolData, tool))
-			} else {
+			// Each tool result becomes a separate tool message (OpenAI Chat Completions format)
+			for _, tr := range toolResults {
+				result = append(result, openai.ToolMessage(tr.Data, tr.ID))
+			}
+
+			if len(toolResults) == 0 {
 				result = append(result, openai.UserMessage(parts))
 			}
 

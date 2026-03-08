@@ -133,6 +133,19 @@ func (t *ToolChoice) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	// Handle {"type":"allowed_tools","mode":"...","tools":[...]} format from OpenAI SDK
+	var allowedTools struct {
+		Type  string                 `json:"type"`
+		Mode  ToolChoiceMode         `json:"mode"`
+		Tools []ToolChoiceAllowedTool `json:"tools"`
+	}
+
+	if err := json.Unmarshal(data, &allowedTools); err == nil && allowedTools.Type == "allowed_tools" {
+		t.Mode = allowedTools.Mode
+		t.AllowedTools = allowedTools.Tools
+		return nil
+	}
+
 	type alias ToolChoice
 
 	var value alias

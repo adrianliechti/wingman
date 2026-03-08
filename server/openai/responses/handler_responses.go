@@ -38,12 +38,7 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tools, err := toTools(req.Tools)
-
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
+	tools := toTools(req.Tools)
 
 	options := &provider.CompleteOptions{
 		Tools:       tools,
@@ -119,15 +114,14 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 }
 
 func responseStatus(status provider.CompletionStatus) string {
-	if status == provider.CompletionStatusIncomplete {
+	switch status {
+	case provider.CompletionStatusIncomplete:
 		return "incomplete"
-	}
-
-	if status == provider.CompletionStatusFailed {
+	case provider.CompletionStatusFailed:
 		return "failed"
+	default:
+		return "completed"
 	}
-
-	return "completed"
 }
 
 func responseModel(defaultModel string, completion *provider.Completion) string {
@@ -136,22 +130,6 @@ func responseModel(defaultModel string, completion *provider.Completion) string 
 	}
 
 	return defaultModel
-}
-
-func responseMessage(completion *provider.Completion) *provider.Message {
-	if completion == nil {
-		return nil
-	}
-
-	return completion.Message
-}
-
-func responseText(message *provider.Message) string {
-	if message == nil {
-		return ""
-	}
-
-	return message.Text()
 }
 
 func responseUsage(usage *provider.Usage) *Usage {
@@ -603,7 +581,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				CreatedAt: createdAt,
 				Status:    "completed",
 				Model:     responseModel(req.Model, event.Completion),
-				Output:    responseOutputs(responseMessage(event.Completion), messageID, "completed", event.Text, event.ReasoningSignature),
+				Output:    responseOutputs(event.Completion.Message, messageID, "completed", event.Text, event.ReasoningSignature),
 			}
 
 			response.Usage = responseUsage(event.Completion.Usage)
@@ -621,7 +599,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				CreatedAt: createdAt,
 				Status:    "incomplete",
 				Model:     responseModel(req.Model, event.Completion),
-				Output:    responseOutputs(responseMessage(event.Completion), messageID, "incomplete", event.Text, event.ReasoningSignature),
+				Output:    responseOutputs(event.Completion.Message, messageID, "incomplete", event.Text, event.ReasoningSignature),
 			}
 
 			response.Usage = responseUsage(event.Completion.Usage)
@@ -678,12 +656,8 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	// Send done marker to signal end of stream
 	_, _ = w.Write([]byte("data: [DONE]\n\n"))
-
-	if rc := http.NewResponseController(w); rc != nil {
-		rc.Flush()
-	}
+	http.NewResponseController(w).Flush()
 }
 
 func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
@@ -715,7 +689,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		Model:     completion.Model,
 		CreatedAt: time.Now().Unix(),
 
-		Output: responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status), responseText(completion.Message), ""),
+		Output: responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status), completion.Message.Text(), ""),
 	}
 
 	if result.Model == "" {
