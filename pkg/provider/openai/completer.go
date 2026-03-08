@@ -366,40 +366,28 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 }
 
 func convertToolChoice(opts *provider.ToolOptions) openai.ChatCompletionToolChoiceOptionUnionParam {
-	if len(opts.Allowed) == 0 {
-		modes := map[provider.ToolChoice]string{
-			provider.ToolChoiceNone: "none",
-			provider.ToolChoiceAuto: "auto",
-			provider.ToolChoiceAny:  "required",
-		}
-
+	// Force a specific function when exactly one tool is required — universally supported format.
+	if len(opts.Allowed) == 1 && opts.Choice == provider.ToolChoiceAny {
 		return openai.ChatCompletionToolChoiceOptionUnionParam{
-			OfAuto: openai.String(modes[opts.Choice]),
+			OfFunctionToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
+				Function: openai.ChatCompletionNamedToolChoiceFunctionParam{
+					Name: opts.Allowed[0],
+				},
+			},
 		}
 	}
 
-	var tools []map[string]any
-
-	for _, name := range opts.Allowed {
-		tools = append(tools, map[string]any{
-			"type":     "function",
-			"function": map[string]any{"name": name},
-		})
-	}
-
-	mode := openai.ChatCompletionAllowedToolsModeRequired
-
-	if opts.Choice == provider.ToolChoiceAuto {
-		mode = openai.ChatCompletionAllowedToolsModeAuto
+	// For all other cases use the simple string mode. When multiple tools are in
+	// the allowed list we can't restrict universally across OpenAI-compatible
+	// providers, so we fall back to the plain required/auto/none mode.
+	modes := map[provider.ToolChoice]string{
+		provider.ToolChoiceNone: "none",
+		provider.ToolChoiceAuto: "auto",
+		provider.ToolChoiceAny:  "required",
 	}
 
 	return openai.ChatCompletionToolChoiceOptionUnionParam{
-		OfAllowedTools: &openai.ChatCompletionAllowedToolChoiceParam{
-			AllowedTools: openai.ChatCompletionAllowedToolsParam{
-				Mode:  mode,
-				Tools: tools,
-			},
-		},
+		OfAuto: openai.String(modes[opts.Choice]),
 	}
 }
 

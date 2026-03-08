@@ -66,8 +66,7 @@ func New(cfg *config.Config) (*Server, error) {
 			http.MethodOptions,
 		},
 
-		AllowedHeaders:   []string{"*"},
-		AllowCredentials: true,
+		AllowedHeaders: []string{"*"},
 
 		MaxAge: 300,
 	}))
