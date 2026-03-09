@@ -301,8 +301,8 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	if options.ToolOptions != nil {
 		req.ToolChoice = convertResponsesToolChoice(options.ToolOptions)
 
-		if options.ToolOptions.ParallelToolCalls != nil {
-			req.ParallelToolCalls = openai.Bool(*options.ToolOptions.ParallelToolCalls)
+		if options.ToolOptions.DisableParallelToolCalls {
+			req.ParallelToolCalls = openai.Bool(false)
 		}
 	}
 

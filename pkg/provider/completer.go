@@ -321,7 +321,7 @@ type ToolOptions struct {
 
 	Choice ToolChoice
 
-	ParallelToolCalls *bool
+	DisableParallelToolCalls bool
 }
 
 type CompleteOptions struct {
@@ -364,6 +364,7 @@ const (
 	EffortLow     Effort = "low"
 	EffortMedium  Effort = "medium"
 	EffortHigh    Effort = "high"
+	EffortMax     Effort = "max"
 )
 
 type Verbosity string

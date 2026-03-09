@@ -303,7 +303,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 //     fire, but restrict Allowed to only agent tool names so user tools remain uncallable.
 //   - If the user restricted the allowed list, we union it with agent tool names so the
 //     model can still invoke agent tools while respecting the user's restrictions.
-//   - ParallelToolCalls is always forwarded as-is.
+//   - DisableParallelToolCalls is always forwarded as-is.
 func mergeToolOptions(opts *provider.ToolOptions, agentToolNames []string) *provider.ToolOptions {
 	if len(agentToolNames) == 0 {
 		return opts

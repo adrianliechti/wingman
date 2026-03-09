@@ -53,16 +53,26 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	if req.ToolChoice != nil {
 		switch req.ToolChoice.Type {
+		case "none":
+			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceNone}
+
 		case "auto":
-			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAuto}
+			options.ToolOptions = &provider.ToolOptions{
+				Choice:                   provider.ToolChoiceAuto,
+				DisableParallelToolCalls: req.ToolChoice.DisableParallelToolUse,
+			}
 
 		case "any":
-			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAny}
+			options.ToolOptions = &provider.ToolOptions{
+				Choice:                   provider.ToolChoiceAny,
+				DisableParallelToolCalls: req.ToolChoice.DisableParallelToolUse,
+			}
 
 		case "tool":
 			options.ToolOptions = &provider.ToolOptions{
-				Choice:  provider.ToolChoiceAny,
-				Allowed: []string{req.ToolChoice.Name},
+				Choice:                   provider.ToolChoiceAny,
+				Allowed:                  []string{req.ToolChoice.Name},
+				DisableParallelToolCalls: req.ToolChoice.DisableParallelToolUse,
 			}
 		}
 	}

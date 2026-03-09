@@ -138,6 +138,9 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
+				case anthropic.RedactedThinkingBlock:
+					// Redacted thinking blocks are silently skipped
+
 				case anthropic.ToolUseBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -295,6 +298,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 		case provider.EffortHigh:
 			req.OutputConfig.Effort = anthropic.OutputConfigEffortHigh
+
+		case provider.EffortMax:
+			req.OutputConfig.Effort = anthropic.OutputConfigEffortMax
 		}
 	}
 
@@ -471,8 +477,6 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.ToolOptions != nil {
-		disableParallel := options.ToolOptions.ParallelToolCalls != nil && !*options.ToolOptions.ParallelToolCalls
-
 		switch options.ToolOptions.Choice {
 		case provider.ToolChoiceNone:
 			req.ToolChoice = anthropic.ToolChoiceUnionParam{
@@ -482,7 +486,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		case provider.ToolChoiceAuto:
 			p := &anthropic.ToolChoiceAutoParam{}
 
-			if disableParallel {
+			if options.ToolOptions.DisableParallelToolCalls {
 				p.DisableParallelToolUse = anthropic.Bool(true)
 			}
 
@@ -498,7 +502,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			} else {
 				p := &anthropic.ToolChoiceAnyParam{}
 
-				if disableParallel {
+				if options.ToolOptions.DisableParallelToolCalls {
 					p.DisableParallelToolUse = anthropic.Bool(true)
 				}
 

@@ -48,12 +48,12 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		Temperature: req.Temperature,
 	}
 
-	if req.ParallelToolCalls != nil {
+	if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {
 		if options.ToolOptions == nil {
 			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAuto}
 		}
 
-		options.ToolOptions.ParallelToolCalls = req.ParallelToolCalls
+		options.ToolOptions.DisableParallelToolCalls = true
 	}
 
 	if req.Reasoning != nil && req.Reasoning.Effort != nil {

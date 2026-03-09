@@ -86,8 +86,10 @@ type ToolParam struct {
 }
 
 type ToolChoice struct {
-	Type string `json:"type"` // "auto", "any", "tool"
+	Type string `json:"type"` // "auto", "any", "tool", "none"
 	Name string `json:"name,omitempty"`
+
+	DisableParallelToolUse bool `json:"disable_parallel_tool_use,omitempty"`
 }
 
 type Metadata struct {
