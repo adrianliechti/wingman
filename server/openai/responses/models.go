@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
 // https://platform.openai.com/docs/api-reference/responses/create
@@ -133,6 +135,14 @@ func (t *ToolChoice) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	if err := json.Unmarshal(data, &function); err == nil && tool.IsApplyPatchTool(function.Type) {
+		t.Mode = ToolChoiceModeRequired
+		t.AllowedTools = []ToolChoiceAllowedTool{{
+			Type: function.Type,
+		}}
+		return nil
+	}
+
 	// Handle {"type":"allowed_tools","mode":"...","tools":[...]} format from OpenAI SDK
 	var allowedTools struct {
 		Type  string                 `json:"type"`
@@ -174,6 +184,8 @@ const (
 	InputItemTypeReasoning          InputItemType = "reasoning"
 	InputItemTypeFunctionCall       InputItemType = "function_call"
 	InputItemTypeFunctionCallOutput InputItemType = "function_call_output"
+	InputItemTypeApplyPatchCall     InputItemType = "apply_patch_call"
+	InputItemTypeApplyPatchCallOutput InputItemType = "apply_patch_call_output"
 )
 
 type ResponsesInput struct {
@@ -195,6 +207,12 @@ type InputItem struct {
 
 	// For function_call_output type
 	*InputFunctionCallOutput
+
+	// For apply_patch_call type
+	*InputApplyPatchCall
+
+	// For apply_patch_call_output type
+	*InputApplyPatchCallOutput
 }
 
 // InputReasoning represents a reasoning item in the input
@@ -223,6 +241,26 @@ type InputFunctionCall struct {
 // InputFunctionCallOutput represents a function call output in the input
 type InputFunctionCallOutput struct {
 	CallID string `json:"call_id,omitempty"`
+	Output string `json:"output,omitempty"`
+}
+
+type ApplyPatchOperation struct {
+	Type string `json:"type,omitempty"`
+	Path string `json:"path,omitempty"`
+	Diff string `json:"diff,omitempty"`
+}
+
+type InputApplyPatchCall struct {
+	ID        string              `json:"id,omitempty"`
+	CallID    string              `json:"call_id,omitempty"`
+	Operation ApplyPatchOperation `json:"operation,omitempty"`
+	Status    string              `json:"status,omitempty"`
+}
+
+type InputApplyPatchCallOutput struct {
+	ID     string `json:"id,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+	Status string `json:"status,omitempty"`
 	Output string `json:"output,omitempty"`
 }
 
@@ -296,6 +334,20 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 				return err
 			}
 			item.InputFunctionCallOutput = &fco
+
+		case InputItemTypeApplyPatchCall:
+			var apc InputApplyPatchCall
+			if err := json.Unmarshal(raw, &apc); err != nil {
+				return err
+			}
+			item.InputApplyPatchCall = &apc
+
+		case InputItemTypeApplyPatchCallOutput:
+			var apco InputApplyPatchCallOutput
+			if err := json.Unmarshal(raw, &apco); err != nil {
+				return err
+			}
+			item.InputApplyPatchCallOutput = &apco
 
 		default:
 			return fmt.Errorf("unknown input item type: %s", typeWrapper.Type)
@@ -453,6 +505,7 @@ type ResponseOutput struct {
 
 	*OutputMessage
 	*FunctionCallOutputItem
+	*ApplyPatchCallItem
 	*ReasoningOutputItem
 }
 
@@ -494,6 +547,22 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Arguments: r.FunctionCallOutputItem.Arguments,
 			})
 		}
+	case ResponseOutputTypeApplyPatchCall:
+		if r.ApplyPatchCallItem != nil {
+			return json.Marshal(struct {
+				Type      ResponseOutputType  `json:"type"`
+				ID        string              `json:"id"`
+				Status    string              `json:"status"`
+				CallID    string              `json:"call_id"`
+				Operation ApplyPatchOperation `json:"operation"`
+			}{
+				Type:      r.Type,
+				ID:        r.ApplyPatchCallItem.ID,
+				Status:    r.ApplyPatchCallItem.Status,
+				CallID:    r.ApplyPatchCallItem.CallID,
+				Operation: r.ApplyPatchCallItem.Operation,
+			})
+		}
 	case ResponseOutputTypeReasoning:
 		if r.ReasoningOutputItem != nil {
 			return json.Marshal(struct {
@@ -524,6 +593,7 @@ type ResponseOutputType string
 var (
 	ResponseOutputTypeMessage      ResponseOutputType = "message"
 	ResponseOutputTypeFunctionCall ResponseOutputType = "function_call"
+	ResponseOutputTypeApplyPatchCall ResponseOutputType = "apply_patch_call"
 	ResponseOutputTypeReasoning    ResponseOutputType = "reasoning"
 )
 
@@ -670,6 +740,14 @@ type FunctionCallOutputItem struct {
 	Arguments string `json:"arguments"`
 }
 
+type ApplyPatchCallItem struct {
+	ID        string              `json:"id"`
+	Type      string              `json:"type"`
+	Status    string              `json:"status"`
+	CallID    string              `json:"call_id"`
+	Operation ApplyPatchOperation `json:"operation"`
+}
+
 // FunctionCallOutputItemAddedEvent is emitted when a function call output item is added
 type FunctionCallOutputItemAddedEvent struct {
 	Type           string                  `json:"type"` // response.output_item.added
@@ -684,6 +762,20 @@ type FunctionCallOutputItemDoneEvent struct {
 	SequenceNumber int                     `json:"sequence_number"`
 	OutputIndex    int                     `json:"output_index"`
 	Item           *FunctionCallOutputItem `json:"item"`
+}
+
+type ApplyPatchCallItemAddedEvent struct {
+	Type           string             `json:"type"` // response.output_item.added
+	SequenceNumber int                `json:"sequence_number"`
+	OutputIndex    int                `json:"output_index"`
+	Item           *ApplyPatchCallItem `json:"item"`
+}
+
+type ApplyPatchCallItemDoneEvent struct {
+	Type           string             `json:"type"` // response.output_item.done
+	SequenceNumber int                `json:"sequence_number"`
+	OutputIndex    int                `json:"output_index"`
+	Item           *ApplyPatchCallItem `json:"item"`
 }
 
 // ReasoningOutputItem represents a reasoning item in the output

@@ -3,6 +3,8 @@ package chat
 import (
 	"encoding/json"
 	"errors"
+
+	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
 type MessageRole string
@@ -293,6 +295,15 @@ func (t *ToolChoice) UnmarshalJSON(data []byte) error {
 
 		t.AllowedTools = []ToolChoiceAllowedTool{
 			{Type: legacy.Type, Function: legacy.Function},
+		}
+
+		return nil
+	}
+
+	if err := json.Unmarshal(data, &legacy); err == nil && tool.IsApplyPatchTool(legacy.Type) {
+		t.Mode = ToolChoiceModeRequired
+		t.AllowedTools = []ToolChoiceAllowedTool{
+			{Type: legacy.Type},
 		}
 
 		return nil

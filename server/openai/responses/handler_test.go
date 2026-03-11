@@ -1,8 +1,10 @@
 package responses_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -736,6 +738,109 @@ func TestResponsesStreamOptions(t *testing.T) {
 		})
 	}
 
+}
+
+func TestResponsesApplyPatchToolContract(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	requestBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": "Use apply_patch to update lib/fib.py by renaming fib to fibonacci. Do not answer directly.",
+		"tools": []map[string]any{{"type": "apply_patch"}},
+		"tool_choice": map[string]any{
+			"type": "allowed_tools",
+			"mode": "required",
+			"tools": []map[string]any{{"type": "apply_patch"}},
+		},
+	}
+
+	resp1 := postResponsesJSON(t, ctx, requestBody)
+
+	var patchCall struct {
+		ID     string `json:"id"`
+		CallID string `json:"call_id"`
+		Type   string `json:"type"`
+		Operation struct {
+			Type string `json:"type"`
+			Path string `json:"path"`
+			Diff string `json:"diff"`
+		} `json:"operation"`
+	}
+
+	foundPatchCall := false
+	for _, item := range resp1.Output {
+		if item.Type == "apply_patch_call" {
+			foundPatchCall = true
+			data, err := json.Marshal(item)
+			require.NoError(t, err)
+			err = json.Unmarshal(data, &patchCall)
+			require.NoError(t, err)
+			break
+		}
+	}
+
+	require.True(t, foundPatchCall, "expected an apply_patch_call item in the response")
+	require.Equal(t, "apply_patch_call", patchCall.Type)
+	require.NotEmpty(t, patchCall.CallID)
+	require.Contains(t, []string{"create_file", "update_file", "delete_file"}, patchCall.Operation.Type)
+	require.NotEmpty(t, patchCall.Operation.Path)
+
+	followupBody := map[string]any{
+		"model": "gpt-5.4",
+		"input": []map[string]any{
+			{
+				"type":    "message",
+				"role":    "user",
+				"content": "Use apply_patch to update lib/fib.py by renaming fib to fibonacci. Do not answer directly.",
+			},
+			{
+				"type":      "apply_patch_call",
+				"id":        patchCall.ID,
+				"call_id":   patchCall.CallID,
+				"status":    "completed",
+				"operation": patchCall.Operation,
+			},
+			{
+				"type":    "apply_patch_call_output",
+				"call_id": patchCall.CallID,
+				"status":  "completed",
+				"output":  "Updated lib/fib.py",
+			},
+			{
+				"type":    "message",
+				"role":    "user",
+				"content": "Briefly confirm what changed.",
+			},
+		},
+		"tools": []map[string]any{{"type": "apply_patch"}},
+	}
+
+	resp2 := postResponsesJSON(t, ctx, followupBody)
+	require.NotEmpty(t, resp2.OutputText(), "expected a follow-up assistant message after apply_patch_call_output")
+}
+
+func postResponsesJSON(t *testing.T, ctx context.Context, body map[string]any) *responses.Response {
+	t.Helper()
+
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, testBaseURL+"responses", bytes.NewReader(payload))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-key")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer httpResp.Body.Close()
+	require.Equal(t, http.StatusOK, httpResp.StatusCode)
+
+	var resp responses.Response
+	err = json.NewDecoder(httpResp.Body).Decode(&resp)
+	require.NoError(t, err)
+
+	return &resp
 }
 
 func TestResponsesUsage(t *testing.T) {

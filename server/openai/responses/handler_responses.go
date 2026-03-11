@@ -195,6 +195,20 @@ func responseOutputs(message *provider.Message, messageID, status, text, reasoni
 	}
 
 	for _, call := range message.ToolCalls() {
+		if operation, ok := parseApplyPatchOperation(call); ok {
+			output = append(output, ResponseOutput{
+				Type: ResponseOutputTypeApplyPatchCall,
+				ApplyPatchCallItem: &ApplyPatchCallItem{
+					ID:        call.ID,
+					Type:      "apply_patch_call",
+					Status:    status,
+					CallID:    call.ID,
+					Operation: operation,
+				},
+			})
+			continue
+		}
+
 		output = append(output, ResponseOutput{
 			Type: ResponseOutputTypeFunctionCall,
 			FunctionCallOutputItem: &FunctionCallOutputItem{
@@ -337,6 +351,21 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallAdded:
+			if event.ToolCallName == "apply_patch" {
+				return writeEvent(w, "response.output_item.added", ApplyPatchCallItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &ApplyPatchCallItem{
+						ID:        event.ToolCallID,
+						Type:      "apply_patch_call",
+						Status:    "in_progress",
+						CallID:    event.ToolCallID,
+						Operation: ApplyPatchOperation{},
+					},
+				})
+			}
+
 			return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
 				Type:           "response.output_item.added",
 				SequenceNumber: nextSeq(),
@@ -352,6 +381,10 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallArgumentsDelta:
+			if event.ToolCallName == "apply_patch" {
+				return nil
+			}
+
 			return writeEvent(w, "response.function_call_arguments.delta", FunctionCallArgumentsDeltaEvent{
 				Type:           "response.function_call_arguments.delta",
 				SequenceNumber: nextSeq(),
@@ -361,6 +394,10 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallArgumentsDone:
+			if event.ToolCallName == "apply_patch" {
+				return nil
+			}
+
 			return writeEvent(w, "response.function_call_arguments.done", FunctionCallArgumentsDoneEvent{
 				Type:           "response.function_call_arguments.done",
 				SequenceNumber: nextSeq(),
@@ -371,6 +408,23 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallDone:
+			if event.ToolCallName == "apply_patch" {
+				if operation, ok := parseApplyPatchArguments(event.Arguments); ok {
+					return writeEvent(w, "response.output_item.done", ApplyPatchCallItemDoneEvent{
+						Type:           "response.output_item.done",
+						SequenceNumber: nextSeq(),
+						OutputIndex:    event.OutputIndex,
+						Item: &ApplyPatchCallItem{
+							ID:        event.ToolCallID,
+							Type:      "apply_patch_call",
+							Status:    "completed",
+							CallID:    event.ToolCallID,
+							Operation: operation,
+						},
+					})
+				}
+			}
+
 			return writeEvent(w, "response.output_item.done", FunctionCallOutputItemDoneEvent{
 				Type:           "response.output_item.done",
 				SequenceNumber: nextSeq(),
@@ -664,6 +718,35 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 
 	_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	http.NewResponseController(w).Flush()
+}
+
+func parseApplyPatchOperation(call provider.ToolCall) (ApplyPatchOperation, bool) {
+	if call.Name != "apply_patch" {
+		return ApplyPatchOperation{}, false
+	}
+
+	return parseApplyPatchArguments(call.Arguments)
+}
+
+func parseApplyPatchArguments(arguments string) (ApplyPatchOperation, bool) {
+	if arguments == "" {
+		return ApplyPatchOperation{}, false
+	}
+
+	var payload struct {
+		Operation ApplyPatchOperation `json:"operation"`
+	}
+
+	if err := json.Unmarshal([]byte(arguments), &payload); err == nil && payload.Operation.Type != "" {
+		return payload.Operation, true
+	}
+
+	var operation ApplyPatchOperation
+	if err := json.Unmarshal([]byte(arguments), &operation); err == nil && operation.Type != "" {
+		return operation, true
+	}
+
+	return ApplyPatchOperation{}, false
 }
 
 func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {

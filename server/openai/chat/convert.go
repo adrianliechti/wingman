@@ -47,6 +47,8 @@ func toToolOptions(v *ToolChoice) *provider.ToolOptions {
 	for _, t := range v.AllowedTools {
 		if t.Function != nil && t.Function.Name != "" {
 			allowed = append(allowed, t.Function.Name)
+		} else if tool.IsApplyPatchTool(t.Type) {
+			allowed = append(allowed, "apply_patch")
 		}
 	}
 
@@ -174,6 +176,11 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 	var result []provider.Tool
 
 	for _, t := range tools {
+		if tool.IsApplyPatchTool(string(t.Type)) {
+			result = append(result, tool.ApplyPatchTool())
+			continue
+		}
+
 		if t.Type == ToolTypeFunction && t.ToolFunction != nil {
 			function := provider.Tool{
 				Name:        t.ToolFunction.Name,

@@ -198,6 +198,16 @@ func toTools(tools []ToolParam) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
+		if tool.IsTextEditorTool(t.Type) {
+			result = append(result, tool.TextEditorTool(t.Name, t.Type, t.MaxCharacters))
+			continue
+		}
+
+		if tool.IsApplyPatchTool(t.Type) {
+			result = append(result, tool.ApplyPatchTool())
+			continue
+		}
+
 		result = append(result, provider.Tool{
 			Name:        t.Name,
 			Description: t.Description,

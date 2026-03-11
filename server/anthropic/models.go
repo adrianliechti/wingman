@@ -82,6 +82,7 @@ type ToolParam struct {
 	Type        string         `json:"type,omitempty"` // "custom" for regular tools
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
+	MaxCharacters *int         `json:"max_characters,omitempty"`
 	InputSchema map[string]any `json:"input_schema,omitempty"`
 }
 

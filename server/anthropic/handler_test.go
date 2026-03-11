@@ -1,8 +1,10 @@
 package anthropic_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -596,4 +598,191 @@ func TestMessagesStructuredOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMessagesTextEditorTool(t *testing.T) {
+	client := newTestClient()
+
+	// The text_editor tool is sent as a built-in type (schema-less).
+	// Wingman converts it to a regular function tool, so the model
+	// returns a regular tool_use block with the tool name.
+	textEditorTool := anthropic.ToolUnionParam{
+		OfTextEditor20250429: &anthropic.ToolTextEditor20250429Param{},
+	}
+
+	tools := []anthropic.ToolUnionParam{textEditorTool}
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			t.Run("non-streaming multi-turn", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				messages := []anthropic.MessageParam{
+					anthropic.NewUserMessage(anthropic.NewTextBlock(
+						"Use the str_replace_based_edit_tool to view the file at /tmp/example.py",
+					)),
+				}
+
+				var finalContent string
+				maxIterations := 10
+
+				for i := 0; i < maxIterations; i++ {
+					message, err := client.Messages.New(ctx, anthropic.MessageNewParams{
+						Model:     anthropic.Model(model),
+						MaxTokens: 1024,
+						Messages:  messages,
+						Tools:     tools,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, message)
+
+					if message.StopReason != anthropic.StopReasonToolUse {
+						for _, block := range message.Content {
+							if text := block.AsText(); text.Text != "" {
+								finalContent += text.Text
+							}
+						}
+						break
+					}
+
+					messages = append(messages, message.ToParam())
+
+					var toolResults []anthropic.ContentBlockParamUnion
+					for _, block := range message.Content {
+						if toolUse := block.AsToolUse(); toolUse.ID != "" {
+							// Verify the tool was called with expected structure
+							var input map[string]any
+							err := json.Unmarshal(toolUse.Input, &input)
+							require.NoError(t, err)
+							require.Contains(t, input, "command")
+							require.Contains(t, input, "path")
+
+							// Return a simulated file content
+							toolResults = append(toolResults, anthropic.NewToolResultBlock(
+								toolUse.ID,
+								"1: def hello():\n2:     print('Hello, world!')\n",
+								false,
+							))
+						}
+					}
+
+					messages = append(messages, anthropic.NewUserMessage(toolResults...))
+				}
+
+				require.NotEmpty(t, finalContent, "expected final response after tool execution")
+			})
+
+			t.Run("streaming multi-turn", func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+				defer cancel()
+
+				messages := []anthropic.MessageParam{
+					anthropic.NewUserMessage(anthropic.NewTextBlock(
+						"Use the str_replace_based_edit_tool to view the file at /tmp/example.py",
+					)),
+				}
+
+				var finalContent string
+				maxIterations := 10
+
+				for i := 0; i < maxIterations; i++ {
+					message := anthropic.Message{}
+					stream := client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
+						Model:     anthropic.Model(model),
+						MaxTokens: 1024,
+						Messages:  messages,
+						Tools:     tools,
+					})
+
+					for stream.Next() {
+						event := stream.Current()
+						err := message.Accumulate(event)
+						require.NoError(t, err)
+					}
+					require.NoError(t, stream.Err())
+
+					if message.StopReason != anthropic.StopReasonToolUse {
+						for _, block := range message.Content {
+							if text := block.AsText(); text.Text != "" {
+								finalContent += text.Text
+							}
+						}
+						break
+					}
+
+					messages = append(messages, message.ToParam())
+
+					var toolResults []anthropic.ContentBlockParamUnion
+					for _, block := range message.Content {
+						if toolUse := block.AsToolUse(); toolUse.ID != "" {
+							toolResults = append(toolResults, anthropic.NewToolResultBlock(
+								toolUse.ID,
+								"1: def hello():\n2:     print('Hello, world!')\n",
+								false,
+							))
+						}
+					}
+
+					messages = append(messages, anthropic.NewUserMessage(toolResults...))
+				}
+
+				require.NotEmpty(t, finalContent, "expected final response after tool execution")
+			})
+		})
+	}
+}
+
+func TestMessagesTextEditorTool20250728Raw(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	body := map[string]any{
+		"model":      "claude-sonnet-4-5",
+		"max_tokens": 1024,
+		"tools": []map[string]any{{
+			"type":           "text_editor_20250728",
+			"name":           "str_replace_based_edit_tool",
+			"max_characters": 256,
+		}},
+		"messages": []map[string]any{{
+			"role":    "user",
+			"content": "Use the str_replace_based_edit_tool to view the file at /tmp/example.py",
+		}},
+	}
+
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, testBaseURL+"/v1/messages", bytes.NewReader(payload))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", "test-key")
+
+	httpResp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer httpResp.Body.Close()
+	require.Equal(t, http.StatusOK, httpResp.StatusCode)
+
+	var resp anthropic.Message
+	err = json.NewDecoder(httpResp.Body).Decode(&resp)
+	require.NoError(t, err)
+	require.Equal(t, anthropic.StopReasonToolUse, resp.StopReason)
+
+	var foundToolUse bool
+	for _, block := range resp.Content {
+		if toolUse := block.AsToolUse(); toolUse.ID != "" {
+			foundToolUse = true
+			require.Equal(t, "str_replace_based_edit_tool", toolUse.Name)
+
+			var input map[string]any
+			err := json.Unmarshal(toolUse.Input, &input)
+			require.NoError(t, err)
+			require.Contains(t, input, "command")
+			require.Contains(t, input, "path")
+		}
+	}
+
+	require.True(t, foundToolUse, "expected a text editor tool_use block")
 }

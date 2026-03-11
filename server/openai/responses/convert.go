@@ -3,6 +3,7 @@ package responses
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"mime"
 	"path"
 
@@ -30,6 +31,8 @@ func toToolOptions(v *ToolChoice) *provider.ToolOptions {
 	for _, t := range v.AllowedTools {
 		if t.Type == string(ToolTypeFunction) && t.Name != "" {
 			allowed = append(allowed, t.Name)
+		} else if tool.IsApplyPatchTool(t.Type) {
+			allowed = append(allowed, "apply_patch")
 		}
 	}
 
@@ -180,6 +183,44 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				ID:   output.CallID,
 				Data: output.Output,
 			}))
+
+		case InputItemTypeApplyPatchCall:
+			if item.InputApplyPatchCall == nil {
+				continue
+			}
+
+			flushResults()
+
+			call := item.InputApplyPatchCall
+			arguments, err := toApplyPatchArguments(call.Operation)
+			if err != nil {
+				return nil, err
+			}
+
+			callID := call.CallID
+			if callID == "" {
+				callID = call.ID
+			}
+
+			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+				ID:        callID,
+				Name:      "apply_patch",
+				Arguments: arguments,
+			}))
+
+		case InputItemTypeApplyPatchCallOutput:
+			if item.InputApplyPatchCallOutput == nil {
+				continue
+			}
+
+			flushCalls()
+
+			output := item.InputApplyPatchCallOutput
+
+			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+				ID:   output.CallID,
+				Data: applyPatchResultText(output.Status, output.Output),
+			}))
 		}
 	}
 
@@ -193,6 +234,11 @@ func toTools(tools []Tool) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
+		if tool.IsApplyPatchTool(string(t.Type)) {
+			result = append(result, tool.ApplyPatchTool())
+			continue
+		}
+
 		if t.Type != ToolTypeFunction {
 			continue
 		}
@@ -206,6 +252,31 @@ func toTools(tools []Tool) []provider.Tool {
 	}
 
 	return result
+}
+
+func toApplyPatchArguments(operation ApplyPatchOperation) (string, error) {
+	payload := map[string]any{
+		"operation": operation,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+func applyPatchResultText(status, output string) string {
+	if status == "" || status == "completed" {
+		return output
+	}
+
+	if output == "" {
+		return fmt.Sprintf("apply_patch status: %s", status)
+	}
+
+	return fmt.Sprintf("apply_patch status: %s\n%s", status, output)
 }
 
 func toInputContent(items []InputContent) ([]provider.Content, error) {
