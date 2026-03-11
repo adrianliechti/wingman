@@ -256,3 +256,141 @@ func TestStreamingAccumulatorReasoningOutputIndex(t *testing.T) {
 	require.NotNil(t, outputItemDoneEvent)
 	require.Equal(t, 1, outputItemDoneEvent.OutputIndex, "output_item.done should reference output_index 1")
 }
+
+// applyPatchCallChunk creates a completion chunk with an apply_patch tool call
+func applyPatchCallChunk(id, name, args string) provider.Completion {
+	return provider.Completion{
+		Message: &provider.Message{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ToolCallContent(provider.ToolCall{
+					ID:        id,
+					Name:      name,
+					Arguments: args,
+				}),
+			},
+		},
+	}
+}
+
+func TestStreamingAccumulatorApplyPatchCall(t *testing.T) {
+	acc, events := newTestAccumulator()
+
+	// First chunk: tool call with ID and name
+	require.NoError(t, acc.Add(applyPatchCallChunk("call_1", "apply_patch", "")))
+	// Second chunk: patch content delta
+	require.NoError(t, acc.Add(provider.Completion{
+		Message: &provider.Message{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ToolCallContent(provider.ToolCall{
+					Arguments: "--- a/main.py\n",
+				}),
+			},
+		},
+	}))
+	// Third chunk: more patch content
+	require.NoError(t, acc.Add(provider.Completion{
+		Message: &provider.Message{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ToolCallContent(provider.ToolCall{
+					Arguments: "+++ b/main.py\n",
+				}),
+			},
+		},
+	}))
+	require.NoError(t, acc.Complete())
+
+	// Should emit apply_patch_call.added (not function_call.added)
+	applyPatchAddedEvent := findEvent(*events, StreamEventApplyPatchCallAdded)
+	require.NotNil(t, applyPatchAddedEvent, "should have apply_patch_call.added event")
+	require.Equal(t, "call_1", applyPatchAddedEvent.ToolCallID)
+
+	// Should NOT emit function_call.added
+	functionCallAddedEvent := findEvent(*events, StreamEventFunctionCallAdded)
+	require.Nil(t, functionCallAddedEvent, "should not have function_call.added for apply_patch")
+
+	// Should emit apply_patch_call.patch.delta events
+	var patchDeltas []StreamEvent
+	for _, e := range *events {
+		if e.Type == StreamEventApplyPatchCallPatchDelta {
+			patchDeltas = append(patchDeltas, e)
+		}
+	}
+	require.Len(t, patchDeltas, 2)
+	require.Equal(t, "--- a/main.py\n", patchDeltas[0].Delta)
+	require.Equal(t, "+++ b/main.py\n", patchDeltas[1].Delta)
+
+	// Should emit apply_patch_call.patch.done
+	patchDoneEvent := findEvent(*events, StreamEventApplyPatchCallPatchDone)
+	require.NotNil(t, patchDoneEvent)
+	require.Equal(t, "--- a/main.py\n+++ b/main.py\n", patchDoneEvent.Arguments)
+
+	// Should emit apply_patch_call.done
+	applyPatchDoneEvent := findEvent(*events, StreamEventApplyPatchCallDone)
+	require.NotNil(t, applyPatchDoneEvent)
+	require.Equal(t, "call_1", applyPatchDoneEvent.ToolCallID)
+}
+
+func TestStreamingAccumulatorApplyPatchCallOutputIndex(t *testing.T) {
+	acc, events := newTestAccumulator()
+
+	// Text first
+	require.NoError(t, acc.Add(textChunk("Let me fix that.")))
+	// Then apply_patch call
+	require.NoError(t, acc.Add(applyPatchCallChunk("call_1", "apply_patch", "patch content")))
+	require.NoError(t, acc.Complete())
+
+	// Message should be at output_index 0
+	outputItemAddedEvent := findEvent(*events, StreamEventOutputItemAdded)
+	require.NotNil(t, outputItemAddedEvent)
+	require.Equal(t, 0, outputItemAddedEvent.OutputIndex)
+
+	// Apply patch call should be at output_index 1
+	applyPatchAddedEvent := findEvent(*events, StreamEventApplyPatchCallAdded)
+	require.NotNil(t, applyPatchAddedEvent)
+	require.Equal(t, 1, applyPatchAddedEvent.OutputIndex)
+}
+
+func TestStreamingAccumulatorMixedFunctionAndApplyPatch(t *testing.T) {
+	acc, events := newTestAccumulator()
+
+	// Function call
+	require.NoError(t, acc.Add(provider.Completion{
+		Message: &provider.Message{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ToolCallContent(provider.ToolCall{
+					ID:        "call_func",
+					Name:      "get_weather",
+					Arguments: `{"location":"London"}`,
+				}),
+			},
+		},
+	}))
+	// Apply patch call
+	require.NoError(t, acc.Add(applyPatchCallChunk("call_patch", "apply_patch", "patch data")))
+	require.NoError(t, acc.Complete())
+
+	// Should have function_call.added for the function call
+	functionCallAddedEvent := findEvent(*events, StreamEventFunctionCallAdded)
+	require.NotNil(t, functionCallAddedEvent)
+	require.Equal(t, "call_func", functionCallAddedEvent.ToolCallID)
+	require.Equal(t, "get_weather", functionCallAddedEvent.ToolCallName)
+
+	// Should have apply_patch_call.added for the patch call
+	applyPatchAddedEvent := findEvent(*events, StreamEventApplyPatchCallAdded)
+	require.NotNil(t, applyPatchAddedEvent)
+	require.Equal(t, "call_patch", applyPatchAddedEvent.ToolCallID)
+
+	// Function call done should use function events
+	functionCallDoneEvent := findEvent(*events, StreamEventFunctionCallDone)
+	require.NotNil(t, functionCallDoneEvent)
+	require.Equal(t, "call_func", functionCallDoneEvent.ToolCallID)
+
+	// Apply patch done should use apply_patch events
+	applyPatchDoneEvent := findEvent(*events, StreamEventApplyPatchCallDone)
+	require.NotNil(t, applyPatchDoneEvent)
+	require.Equal(t, "call_patch", applyPatchDoneEvent.ToolCallID)
+}

@@ -331,6 +331,10 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 			continue
 		}
 
+		if t.Type == provider.ToolTypeTextEditor {
+			continue
+		}
+
 		function := openai.FunctionDefinitionParam{
 			Name: t.Name,
 

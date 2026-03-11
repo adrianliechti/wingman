@@ -432,6 +432,19 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			continue
 		}
 
+		if t.Type == provider.ToolTypeTextEditor {
+			switch t.Name {
+			case "text_editor_20250124":
+				tools = append(tools, anthropic.ToolUnionParam{OfTextEditor20250124: &anthropic.ToolTextEditor20250124Param{}})
+			case "text_editor_20250728":
+				tools = append(tools, anthropic.ToolUnionParam{OfTextEditor20250728: &anthropic.ToolTextEditor20250728Param{}})
+			default:
+				tools = append(tools, anthropic.ToolUnionParam{OfTextEditor20250429: &anthropic.ToolTextEditor20250429Param{}})
+			}
+
+			continue
+		}
+
 		var schema anthropic.ToolInputSchemaParam
 
 		schemaData, _ := json.Marshal(t.Parameters)
@@ -455,7 +468,18 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	// Add cache control to the last tool
 	if len(tools) > 0 {
-		tools[len(tools)-1].OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		lastTool := &tools[len(tools)-1]
+
+		switch {
+		case lastTool.OfTool != nil:
+			lastTool.OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		case lastTool.OfTextEditor20250124 != nil:
+			lastTool.OfTextEditor20250124.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		case lastTool.OfTextEditor20250429 != nil:
+			lastTool.OfTextEditor20250429.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		case lastTool.OfTextEditor20250728 != nil:
+			lastTool.OfTextEditor20250728.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		}
 	}
 
 	if options.Schema != nil {

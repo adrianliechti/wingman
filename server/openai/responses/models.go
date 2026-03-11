@@ -74,8 +74,9 @@ type TextFormat struct {
 type ToolType string
 
 const (
-	ToolTypeFunction ToolType = "function"
-	ToolTypeCustom   ToolType = "custom"
+	ToolTypeFunction   ToolType = "function"
+	ToolTypeCustom     ToolType = "custom"
+	ToolTypeApplyPatch ToolType = "apply_patch"
 )
 
 // Tool represents a tool in the request
@@ -103,10 +104,12 @@ type CustomToolFormat struct {
 type InputItemType string
 
 const (
-	InputItemTypeMessage            InputItemType = "message"
-	InputItemTypeReasoning          InputItemType = "reasoning"
-	InputItemTypeFunctionCall       InputItemType = "function_call"
-	InputItemTypeFunctionCallOutput InputItemType = "function_call_output"
+	InputItemTypeMessage                InputItemType = "message"
+	InputItemTypeReasoning              InputItemType = "reasoning"
+	InputItemTypeFunctionCall           InputItemType = "function_call"
+	InputItemTypeFunctionCallOutput     InputItemType = "function_call_output"
+	InputItemTypeApplyPatchCall         InputItemType = "apply_patch_call"
+	InputItemTypeApplyPatchCallOutput   InputItemType = "apply_patch_call_output"
 )
 
 type ResponsesInput struct {
@@ -128,6 +131,12 @@ type InputItem struct {
 
 	// For function_call_output type
 	*InputFunctionCallOutput
+
+	// For apply_patch_call type
+	*InputApplyPatchCall
+
+	// For apply_patch_call_output type
+	*InputApplyPatchCallOutput
 }
 
 // InputReasoning represents a reasoning item in the input
@@ -157,6 +166,21 @@ type InputFunctionCall struct {
 type InputFunctionCallOutput struct {
 	CallID string `json:"call_id,omitempty"`
 	Output string `json:"output,omitempty"`
+}
+
+// InputApplyPatchCall represents an apply_patch tool call in the input
+type InputApplyPatchCall struct {
+	ID     string `json:"id,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+	Patch  string `json:"patch,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+// InputApplyPatchCallOutput represents an apply_patch tool call output in the input
+type InputApplyPatchCallOutput struct {
+	CallID string `json:"call_id,omitempty"`
+	Output string `json:"output,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
@@ -229,6 +253,20 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 				return err
 			}
 			item.InputFunctionCallOutput = &fco
+
+		case InputItemTypeApplyPatchCall:
+			var apc InputApplyPatchCall
+			if err := json.Unmarshal(raw, &apc); err != nil {
+				return err
+			}
+			item.InputApplyPatchCall = &apc
+
+		case InputItemTypeApplyPatchCallOutput:
+			var apco InputApplyPatchCallOutput
+			if err := json.Unmarshal(raw, &apco); err != nil {
+				return err
+			}
+			item.InputApplyPatchCallOutput = &apco
 
 		default:
 			return fmt.Errorf("unknown input item type: %s", typeWrapper.Type)
@@ -387,6 +425,7 @@ type ResponseOutput struct {
 	*OutputMessage
 	*FunctionCallOutputItem
 	*ReasoningOutputItem
+	*ApplyPatchCallOutputItem
 }
 
 // MarshalJSON implements custom JSON marshaling to avoid field conflicts
@@ -427,6 +466,22 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Arguments: r.FunctionCallOutputItem.Arguments,
 			})
 		}
+	case ResponseOutputTypeApplyPatchCall:
+		if r.ApplyPatchCallOutputItem != nil {
+			return json.Marshal(struct {
+				Type   ResponseOutputType `json:"type"`
+				ID     string             `json:"id"`
+				Status string             `json:"status"`
+				CallID string             `json:"call_id"`
+				Patch  string             `json:"patch"`
+			}{
+				Type:   r.Type,
+				ID:     r.ApplyPatchCallOutputItem.ID,
+				Status: r.ApplyPatchCallOutputItem.Status,
+				CallID: r.ApplyPatchCallOutputItem.CallID,
+				Patch:  r.ApplyPatchCallOutputItem.Patch,
+			})
+		}
 	case ResponseOutputTypeReasoning:
 		if r.ReasoningOutputItem != nil {
 			return json.Marshal(struct {
@@ -455,9 +510,10 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 type ResponseOutputType string
 
 var (
-	ResponseOutputTypeMessage      ResponseOutputType = "message"
-	ResponseOutputTypeFunctionCall ResponseOutputType = "function_call"
-	ResponseOutputTypeReasoning    ResponseOutputType = "reasoning"
+	ResponseOutputTypeMessage        ResponseOutputType = "message"
+	ResponseOutputTypeFunctionCall   ResponseOutputType = "function_call"
+	ResponseOutputTypeReasoning      ResponseOutputType = "reasoning"
+	ResponseOutputTypeApplyPatchCall ResponseOutputType = "apply_patch_call"
 )
 
 type OutputMessage struct {
@@ -610,6 +666,49 @@ type FunctionCallOutputItemDoneEvent struct {
 	SequenceNumber int                     `json:"sequence_number"`
 	OutputIndex    int                     `json:"output_index"`
 	Item           *FunctionCallOutputItem `json:"item"`
+}
+
+// ApplyPatchCallOutputItem represents an apply_patch tool call in the output
+type ApplyPatchCallOutputItem struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`   // apply_patch_call
+	Status string `json:"status"` // completed
+	CallID string `json:"call_id"`
+	Patch  string `json:"patch"`
+}
+
+// ApplyPatchCallOutputItemAddedEvent is emitted when an apply_patch call is added
+type ApplyPatchCallOutputItemAddedEvent struct {
+	Type           string                    `json:"type"` // response.output_item.added
+	SequenceNumber int                       `json:"sequence_number"`
+	OutputIndex    int                       `json:"output_index"`
+	Item           *ApplyPatchCallOutputItem `json:"item"`
+}
+
+// ApplyPatchCallOutputItemDoneEvent is emitted when an apply_patch call is done
+type ApplyPatchCallOutputItemDoneEvent struct {
+	Type           string                    `json:"type"` // response.output_item.done
+	SequenceNumber int                       `json:"sequence_number"`
+	OutputIndex    int                       `json:"output_index"`
+	Item           *ApplyPatchCallOutputItem `json:"item"`
+}
+
+// ApplyPatchCallPatchDeltaEvent is emitted when apply_patch patch delta is received
+type ApplyPatchCallPatchDeltaEvent struct {
+	Type           string `json:"type"` // response.apply_patch_call.patch.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	Delta          string `json:"delta"`
+}
+
+// ApplyPatchCallPatchDoneEvent is emitted when apply_patch patch is done
+type ApplyPatchCallPatchDoneEvent struct {
+	Type           string `json:"type"` // response.apply_patch_call.patch.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	Patch          string `json:"patch"`
 }
 
 // ReasoningOutputItem represents a reasoning item in the output

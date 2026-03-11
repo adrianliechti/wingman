@@ -217,6 +217,52 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				},
 			})
 
+		case StreamEventApplyPatchCallAdded:
+			return writeEvent(w, "response.output_item.added", ApplyPatchCallOutputItemAddedEvent{
+				Type:           "response.output_item.added",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    event.OutputIndex,
+				Item: &ApplyPatchCallOutputItem{
+					ID:     event.ToolCallID,
+					Type:   "apply_patch_call",
+					Status: "in_progress",
+					CallID: event.ToolCallID,
+					Patch:  "",
+				},
+			})
+
+		case StreamEventApplyPatchCallPatchDelta:
+			return writeEvent(w, "response.apply_patch_call.patch.delta", ApplyPatchCallPatchDeltaEvent{
+				Type:           "response.apply_patch_call.patch.delta",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ToolCallID,
+				OutputIndex:    event.OutputIndex,
+				Delta:          event.Delta,
+			})
+
+		case StreamEventApplyPatchCallPatchDone:
+			return writeEvent(w, "response.apply_patch_call.patch.done", ApplyPatchCallPatchDoneEvent{
+				Type:           "response.apply_patch_call.patch.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         event.ToolCallID,
+				OutputIndex:    event.OutputIndex,
+				Patch:          event.Arguments,
+			})
+
+		case StreamEventApplyPatchCallDone:
+			return writeEvent(w, "response.output_item.done", ApplyPatchCallOutputItemDoneEvent{
+				Type:           "response.output_item.done",
+				SequenceNumber: nextSeq(),
+				OutputIndex:    event.OutputIndex,
+				Item: &ApplyPatchCallOutputItem{
+					ID:     event.ToolCallID,
+					Type:   "apply_patch_call",
+					Status: "completed",
+					CallID: event.ToolCallID,
+					Patch:  event.Arguments,
+				},
+			})
+
 		case StreamEventFunctionCallAdded:
 			return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
 				Type:           "response.output_item.added",
@@ -461,19 +507,32 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					}
 				}
 
-				// Add function call outputs (they appear before messages)
+				// Add tool call outputs (they appear before messages)
 				for _, call := range event.Completion.Message.ToolCalls() {
-					output = append(output, ResponseOutput{
-						Type: ResponseOutputTypeFunctionCall,
-						FunctionCallOutputItem: &FunctionCallOutputItem{
-							ID:        call.ID,
-							Type:      "function_call",
-							Status:    "completed",
-							Name:      call.Name,
-							CallID:    call.ID,
-							Arguments: call.Arguments,
-						},
-					})
+					if call.Name == "apply_patch" {
+						output = append(output, ResponseOutput{
+							Type: ResponseOutputTypeApplyPatchCall,
+							ApplyPatchCallOutputItem: &ApplyPatchCallOutputItem{
+								ID:     call.ID,
+								Type:   "apply_patch_call",
+								Status: "completed",
+								CallID: call.ID,
+								Patch:  call.Arguments,
+							},
+						})
+					} else {
+						output = append(output, ResponseOutput{
+							Type: ResponseOutputTypeFunctionCall,
+							FunctionCallOutputItem: &FunctionCallOutputItem{
+								ID:        call.ID,
+								Type:      "function_call",
+								Status:    "completed",
+								Name:      call.Name,
+								CallID:    call.ID,
+								Arguments: call.Arguments,
+							},
+						})
+					}
 				}
 
 				// Add message output only if there's text content
@@ -649,19 +708,32 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		// Add function call outputs
+		// Add tool call outputs
 		for _, call := range completion.Message.ToolCalls() {
-			result.Output = append(result.Output, ResponseOutput{
-				Type: ResponseOutputTypeFunctionCall,
-				FunctionCallOutputItem: &FunctionCallOutputItem{
-					ID:        call.ID,
-					Type:      "function_call",
-					Status:    "completed",
-					Name:      call.Name,
-					CallID:    call.ID,
-					Arguments: call.Arguments,
-				},
-			})
+			if call.Name == "apply_patch" {
+				result.Output = append(result.Output, ResponseOutput{
+					Type: ResponseOutputTypeApplyPatchCall,
+					ApplyPatchCallOutputItem: &ApplyPatchCallOutputItem{
+						ID:     call.ID,
+						Type:   "apply_patch_call",
+						Status: "completed",
+						CallID: call.ID,
+						Patch:  call.Arguments,
+					},
+				})
+			} else {
+				result.Output = append(result.Output, ResponseOutput{
+					Type: ResponseOutputTypeFunctionCall,
+					FunctionCallOutputItem: &FunctionCallOutputItem{
+						ID:        call.ID,
+						Type:      "function_call",
+						Status:    "completed",
+						Name:      call.Name,
+						CallID:    call.ID,
+						Arguments: call.Arguments,
+					},
+				})
+			}
 		}
 
 		// Add message output only if there's text content

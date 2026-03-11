@@ -198,6 +198,15 @@ func toTools(tools []ToolParam) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
+		if strings.HasPrefix(t.Type, "text_editor_") {
+			result = append(result, provider.Tool{
+				Type: provider.ToolTypeTextEditor,
+				Name: t.Type,
+			})
+
+			continue
+		}
+
 		result = append(result, provider.Tool{
 			Name:        t.Name,
 			Description: t.Description,

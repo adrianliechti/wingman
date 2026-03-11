@@ -658,6 +658,10 @@ func (c *Completer) convertToolConfig(tools []provider.Tool) *types.ToolConfigur
 	result := &types.ToolConfiguration{}
 
 	for _, t := range tools {
+		if t.Type == provider.ToolTypeTextEditor {
+			continue
+		}
+
 		tool := types.ToolSpecification{
 			Name: aws.String(t.Name),
 		}

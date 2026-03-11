@@ -29,6 +29,12 @@ const (
 	StreamEventFunctionCallArgumentsDone  StreamEventType = "function_call_arguments.done"
 	StreamEventFunctionCallDone           StreamEventType = "function_call.done"
 
+	// Apply patch call events
+	StreamEventApplyPatchCallAdded     StreamEventType = "apply_patch_call.added"
+	StreamEventApplyPatchCallPatchDelta StreamEventType = "apply_patch_call.patch.delta"
+	StreamEventApplyPatchCallPatchDone  StreamEventType = "apply_patch_call.patch.done"
+	StreamEventApplyPatchCallDone       StreamEventType = "apply_patch_call.done"
+
 	// Reasoning events
 	StreamEventReasoningItemAdded        StreamEventType = "reasoning_item.added"
 	StreamEventReasoningItemDone         StreamEventType = "reasoning_item.done"
@@ -90,10 +96,11 @@ type StreamingAccumulator struct {
 	streamedText       strings.Builder
 
 	// Track tool calls - map from tool call ID to output index
-	toolCallIndices map[string]int
-	toolCallStarted map[string]bool
-	lastToolCallID  string // Track the last tool call ID for chunks without ID
-	nextOutputIndex int    // Next available output index
+	toolCallIndices    map[string]int
+	toolCallStarted    map[string]bool
+	toolCallIsApplyPatch map[string]bool // Track which tool calls are apply_patch
+	lastToolCallID     string // Track the last tool call ID for chunks without ID
+	nextOutputIndex    int    // Next available output index
 
 	// Track reasoning state
 	reasoningID              string
@@ -112,10 +119,11 @@ type StreamingAccumulator struct {
 // NewStreamingAccumulator creates a new StreamingAccumulator with an event handler
 func NewStreamingAccumulator(handler StreamEventHandler) *StreamingAccumulator {
 	return &StreamingAccumulator{
-		handler:         handler,
-		toolCallIndices: make(map[string]int),
-		toolCallStarted: make(map[string]bool),
-		nextOutputIndex: 0,
+		handler:              handler,
+		toolCallIndices:      make(map[string]int),
+		toolCallStarted:      make(map[string]bool),
+		toolCallIsApplyPatch: make(map[string]bool),
+		nextOutputIndex:      0,
 	}
 }
 
@@ -274,6 +282,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						s.toolCallIndices[toolCall.ID] = outputIndex
 						s.nextOutputIndex++
 						s.lastToolCallID = toolCall.ID
+
+						if toolCall.Name == "apply_patch" {
+							s.toolCallIsApplyPatch[toolCall.ID] = true
+						}
 					}
 				}
 
@@ -287,30 +299,52 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 				if currentToolCallID != "" {
 					outputIndex := s.toolCallIndices[currentToolCallID]
+					isApplyPatch := s.toolCallIsApplyPatch[currentToolCallID]
 
-					// Emit function_call.added on first occurrence
+					// Emit added event on first occurrence
 					if !s.toolCallStarted[currentToolCallID] {
 						s.toolCallStarted[currentToolCallID] = true
 
-						if err := s.emitEvent(StreamEvent{
-							Type:         StreamEventFunctionCallAdded,
-							ToolCallID:   currentToolCallID,
-							ToolCallName: toolCall.Name,
-							OutputIndex:  outputIndex,
-						}); err != nil {
-							return err
+						if isApplyPatch {
+							if err := s.emitEvent(StreamEvent{
+								Type:        StreamEventApplyPatchCallAdded,
+								ToolCallID:  currentToolCallID,
+								OutputIndex: outputIndex,
+							}); err != nil {
+								return err
+							}
+						} else {
+							if err := s.emitEvent(StreamEvent{
+								Type:         StreamEventFunctionCallAdded,
+								ToolCallID:   currentToolCallID,
+								ToolCallName: toolCall.Name,
+								OutputIndex:  outputIndex,
+							}); err != nil {
+								return err
+							}
 						}
 					}
 
-					// Emit arguments delta if we have arguments
+					// Emit delta if we have arguments/patch
 					if toolCall.Arguments != "" {
-						if err := s.emitEvent(StreamEvent{
-							Type:        StreamEventFunctionCallArgumentsDelta,
-							ToolCallID:  currentToolCallID,
-							Delta:       toolCall.Arguments,
-							OutputIndex: outputIndex,
-						}); err != nil {
-							return err
+						if isApplyPatch {
+							if err := s.emitEvent(StreamEvent{
+								Type:        StreamEventApplyPatchCallPatchDelta,
+								ToolCallID:  currentToolCallID,
+								Delta:       toolCall.Arguments,
+								OutputIndex: outputIndex,
+							}); err != nil {
+								return err
+							}
+						} else {
+							if err := s.emitEvent(StreamEvent{
+								Type:        StreamEventFunctionCallArgumentsDelta,
+								ToolCallID:  currentToolCallID,
+								Delta:       toolCall.Arguments,
+								OutputIndex: outputIndex,
+							}); err != nil {
+								return err
+							}
 						}
 					}
 				}
@@ -482,32 +516,56 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
-	// Emit function_call_arguments.done and function_call.done for each tool call
+	// Emit done events for each tool call
 	if result.Message != nil {
 		for _, call := range result.Message.ToolCalls() {
 			outputIndex := s.toolCallIndices[call.ID]
+			isApplyPatch := s.toolCallIsApplyPatch[call.ID]
 
-			// function_call_arguments.done
-			if err := s.emitEvent(StreamEvent{
-				Type:         StreamEventFunctionCallArgumentsDone,
-				ToolCallID:   call.ID,
-				ToolCallName: call.Name,
-				Arguments:    call.Arguments,
-				OutputIndex:  outputIndex,
-			}); err != nil {
-				return err
-			}
+			if isApplyPatch {
+				// apply_patch_call.patch.done
+				if err := s.emitEvent(StreamEvent{
+					Type:        StreamEventApplyPatchCallPatchDone,
+					ToolCallID:  call.ID,
+					Arguments:   call.Arguments,
+					OutputIndex: outputIndex,
+				}); err != nil {
+					return err
+				}
 
-			// function_call.done (output_item.done for the function call)
-			if err := s.emitEvent(StreamEvent{
-				Type:         StreamEventFunctionCallDone,
-				ToolCallID:   call.ID,
-				ToolCallName: call.Name,
-				Arguments:    call.Arguments,
-				OutputIndex:  outputIndex,
-				Completion:   result,
-			}); err != nil {
-				return err
+				// output_item.done for apply_patch_call
+				if err := s.emitEvent(StreamEvent{
+					Type:        StreamEventApplyPatchCallDone,
+					ToolCallID:  call.ID,
+					Arguments:   call.Arguments,
+					OutputIndex: outputIndex,
+					Completion:  result,
+				}); err != nil {
+					return err
+				}
+			} else {
+				// function_call_arguments.done
+				if err := s.emitEvent(StreamEvent{
+					Type:         StreamEventFunctionCallArgumentsDone,
+					ToolCallID:   call.ID,
+					ToolCallName: call.Name,
+					Arguments:    call.Arguments,
+					OutputIndex:  outputIndex,
+				}); err != nil {
+					return err
+				}
+
+				// function_call.done (output_item.done for the function call)
+				if err := s.emitEvent(StreamEvent{
+					Type:         StreamEventFunctionCallDone,
+					ToolCallID:   call.ID,
+					ToolCallName: call.Name,
+					Arguments:    call.Arguments,
+					OutputIndex:  outputIndex,
+					Completion:   result,
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	}

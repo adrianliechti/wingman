@@ -13,7 +13,16 @@ type File struct {
 	ContentType string
 }
 
+type ToolType string
+
+const (
+	ToolTypeFunction   ToolType = ""
+	ToolTypeTextEditor ToolType = "text_editor"
+)
+
 type Tool struct {
+	Type ToolType
+
 	Name        string
 	Description string
 

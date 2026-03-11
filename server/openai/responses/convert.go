@@ -182,6 +182,41 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 					}),
 				},
 			})
+
+		case InputItemTypeApplyPatchCall:
+			if item.InputApplyPatchCall == nil {
+				continue
+			}
+
+			call := item.InputApplyPatchCall
+
+			result = append(result, provider.Message{
+				Role: provider.MessageRoleAssistant,
+				Content: []provider.Content{
+					provider.ToolCallContent(provider.ToolCall{
+						ID:        call.CallID,
+						Name:      "apply_patch",
+						Arguments: call.Patch,
+					}),
+				},
+			})
+
+		case InputItemTypeApplyPatchCallOutput:
+			if item.InputApplyPatchCallOutput == nil {
+				continue
+			}
+
+			output := item.InputApplyPatchCallOutput
+
+			result = append(result, provider.Message{
+				Role: provider.MessageRoleUser,
+				Content: []provider.Content{
+					provider.ToolResultContent(provider.ToolResult{
+						ID:   output.CallID,
+						Data: output.Output,
+					}),
+				},
+			})
 		}
 	}
 
@@ -196,8 +231,15 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 	result := make([]provider.Tool, 0, len(tools))
 
 	for _, t := range tools {
-		// Only support function tools for now
-		// Custom tools (like apply_patch) require special handling by the model
+		if t.Type == ToolTypeApplyPatch {
+			result = append(result, provider.Tool{
+				Type: provider.ToolTypeTextEditor,
+				Name: "apply_patch",
+			})
+
+			continue
+		}
+
 		if t.Type == ToolTypeFunction {
 			tool := provider.Tool{
 				Name:        t.Name,
@@ -207,8 +249,6 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 			}
 			result = append(result, tool)
 		}
-		// Note: Custom tools with grammar format are passed through to the model
-		// but may require special handling in the completer
 	}
 
 	return result, nil
