@@ -57,26 +57,47 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		Stop:  stops,
 		Tools: tools,
 
+		ToolOptions: toToolOptions(req.ToolChoice),
+
 		MaxTokens:   req.MaxCompletionTokens,
 		Temperature: req.Temperature,
 	}
 
+	if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {
+		if options.ToolOptions == nil {
+			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAuto}
+		}
+
+		options.ToolOptions.DisableParallelToolCalls = true
+	}
+
 	switch req.ReasoningEffort {
+	case ReasoningEffortNone:
+		options.Effort = provider.EffortNone
+
 	case ReasoningEffortMinimal:
 		options.Effort = provider.EffortMinimal
+
 	case ReasoningEffortLow:
 		options.Effort = provider.EffortLow
+
 	case ReasoningEffortMedium:
 		options.Effort = provider.EffortMedium
+
 	case ReasoningEffortHigh:
 		options.Effort = provider.EffortHigh
+
+	case ReasoningEffortXHigh:
+		options.Effort = provider.EffortMax
 	}
 
 	switch req.Verbosity {
 	case VerbosityLow:
 		options.Verbosity = provider.VerbosityLow
+
 	case VerbosityMedium:
 		options.Verbosity = provider.VerbosityMedium
+
 	case VerbosityHigh:
 		options.Verbosity = provider.VerbosityHigh
 	}

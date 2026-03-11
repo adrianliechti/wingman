@@ -138,6 +138,9 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
+				case anthropic.RedactedThinkingBlock:
+					// Redacted thinking blocks are silently skipped
+
 				case anthropic.ToolUseBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -295,6 +298,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 		case provider.EffortHigh:
 			req.OutputConfig.Effort = anthropic.OutputConfigEffortHigh
+
+		case provider.EffortMax:
+			req.OutputConfig.Effort = anthropic.OutputConfigEffortMax
 		}
 	}
 
@@ -492,6 +498,41 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	if len(tools) > 0 {
 		req.Tools = tools
+	}
+
+	if options.ToolOptions != nil {
+		switch options.ToolOptions.Choice {
+		case provider.ToolChoiceNone:
+			req.ToolChoice = anthropic.ToolChoiceUnionParam{
+				OfNone: anthropic.Ptr(anthropic.NewToolChoiceNoneParam()),
+			}
+
+		case provider.ToolChoiceAuto:
+			p := &anthropic.ToolChoiceAutoParam{}
+
+			if options.ToolOptions.DisableParallelToolCalls {
+				p.DisableParallelToolUse = anthropic.Bool(true)
+			}
+
+			req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAuto: p}
+
+		case provider.ToolChoiceAny:
+			if len(options.ToolOptions.Allowed) == 1 {
+				req.ToolChoice = anthropic.ToolChoiceUnionParam{
+					OfTool: &anthropic.ToolChoiceToolParam{
+						Name: options.ToolOptions.Allowed[0],
+					},
+				}
+			} else {
+				p := &anthropic.ToolChoiceAnyParam{}
+
+				if options.ToolOptions.DisableParallelToolCalls {
+					p.DisableParallelToolUse = anthropic.Bool(true)
+				}
+
+				req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAny: p}
+			}
+		}
 	}
 
 	if len(messages) > 0 {

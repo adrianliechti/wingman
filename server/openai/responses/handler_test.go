@@ -20,7 +20,7 @@ const (
 
 // Test models covering different providers
 var testModels = []string{
-	"gpt-5.2",           // OpenAI
+	"gpt-5.4",           // OpenAI
 	"claude-sonnet-4-5", // Anthropic
 	"gemini-2.5-pro",    // Google
 	"mistral-medium",    // Mistral (OpenAI-compatible)
@@ -555,6 +555,151 @@ func TestResponsesToolCallingMultiTurn(t *testing.T) {
 	}
 }
 
+func TestResponsesToolChoiceE2E(t *testing.T) {
+	client := newTestClient()
+
+	weatherTool := responses.FunctionToolParam{
+		Name:        "get_weather",
+		Description: openai.String("Get the current weather for a location"),
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"location": map[string]any{
+					"type": "string",
+				},
+			},
+			"required": []string{"location"},
+		},
+	}
+
+	calendarTool := responses.FunctionToolParam{
+		Name:        "get_calendar",
+		Description: openai.String("Look up calendar events"),
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"date": map[string]any{
+					"type": "string",
+				},
+			},
+			"required": []string{"date"},
+		},
+	}
+
+	tools := []responses.ToolUnionParam{
+		{OfFunction: &weatherTool},
+		{OfFunction: &calendarTool},
+	}
+
+	extractFunctionCalls := func(resp *responses.Response) []responses.ResponseFunctionToolCall {
+		calls := []responses.ResponseFunctionToolCall{}
+
+		for _, item := range resp.Output {
+			if item.Type == "function_call" {
+				calls = append(calls, item.AsFunctionCall())
+			}
+		}
+
+		return calls
+	}
+
+	for _, model := range testModels {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			tests := []struct {
+				name           string
+				input          string
+				toolChoice     responses.ResponseNewParamsToolChoiceUnion
+				wantCalls      bool
+				allowedNames   []string
+				forbiddenNames []string
+			}{
+				{
+					name:  "none",
+					input: "What is 2+2? Answer directly and do not call any tool.",
+					toolChoice: responses.ResponseNewParamsToolChoiceUnion{
+						OfToolChoiceMode: openai.Opt(responses.ToolChoiceOptionsNone),
+					},
+					wantCalls: false,
+				},
+				{
+					name:  "required",
+					input: "Call one of the provided tools right now. Do not answer directly.",
+					toolChoice: responses.ResponseNewParamsToolChoiceUnion{
+						OfToolChoiceMode: openai.Opt(responses.ToolChoiceOptionsRequired),
+					},
+					wantCalls:    true,
+					allowedNames: []string{"get_weather", "get_calendar"},
+				},
+				{
+					name:  "specific function",
+					input: "Use the tool to get the weather in London. Do not answer directly.",
+					toolChoice: responses.ResponseNewParamsToolChoiceUnion{
+						OfFunctionTool: &responses.ToolChoiceFunctionParam{
+							Name: "get_weather",
+						},
+					},
+					wantCalls:      true,
+					allowedNames:   []string{"get_weather"},
+					forbiddenNames: []string{"get_calendar"},
+				},
+				{
+					name:  "allowed tools required",
+					input: "Use a tool to get the weather in London. Do not answer directly.",
+					toolChoice: responses.ResponseNewParamsToolChoiceUnion{
+						OfAllowedTools: &responses.ToolChoiceAllowedParam{
+							Mode: responses.ToolChoiceAllowedModeRequired,
+							Tools: []map[string]any{
+								{"type": "function", "name": "get_weather"},
+							},
+						},
+					},
+					wantCalls:      true,
+					allowedNames:   []string{"get_weather"},
+					forbiddenNames: []string{"get_calendar"},
+				},
+			}
+
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+					defer cancel()
+
+					resp, err := client.Responses.New(ctx, responses.ResponseNewParams{
+						Model: model,
+						Input: responses.ResponseNewParamsInputUnion{
+							OfString: openai.String(tt.input),
+						},
+						Tools:      tools,
+						ToolChoice: tt.toolChoice,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+
+					calls := extractFunctionCalls(resp)
+
+					if !tt.wantCalls {
+						require.Empty(t, calls, "expected no function calls, got %#v", calls)
+						return
+					}
+
+					require.NotEmpty(t, calls, "expected at least one function call")
+
+					for _, call := range calls {
+						if len(tt.allowedNames) > 0 {
+							require.Contains(t, tt.allowedNames, call.Name)
+						}
+
+						for _, forbidden := range tt.forbiddenNames {
+							require.NotEqual(t, forbidden, call.Name)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestResponsesStreamOptions(t *testing.T) {
 	client := newTestClient()
 
@@ -821,7 +966,7 @@ func TestResponsesJSONObjectFormat(t *testing.T) {
 
 // Models that support reasoning/thinking
 var reasoningModels = []string{
-	"gpt-5.2", // OpenAI reasoning model
+	"gpt-5.4", // OpenAI reasoning model
 }
 
 func TestResponsesWithReasoning(t *testing.T) {

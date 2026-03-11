@@ -47,6 +47,9 @@ type ChatCompletionRequest struct {
 	Stop   any    `json:"stop,omitempty"`
 	Tools  []Tool `json:"tools,omitempty"`
 
+	ToolChoice        *ToolChoice `json:"tool_choice,omitempty"`
+	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
+
 	Temperature         *float32 `json:"temperature,omitempty"`
 	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
 
@@ -67,18 +70,18 @@ type ChatCompletionRequest struct {
 
 	// top_p *float32
 
-	// tool_choice string: none, auto
-
 	// user string
 }
 
 type ReasoningEffort string
 
 var (
+	ReasoningEffortNone    ReasoningEffort = "none"
 	ReasoningEffortMinimal ReasoningEffort = "minimal"
 	ReasoningEffortLow     ReasoningEffort = "low"
 	ReasoningEffortMedium  ReasoningEffort = "medium"
 	ReasoningEffortHigh    ReasoningEffort = "high"
+	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
 )
 
 type Verbosity string
@@ -244,6 +247,67 @@ func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	return nil
+}
+
+type ToolChoice struct {
+	Mode ToolChoiceMode `json:"mode,omitempty"`
+
+	AllowedTools []ToolChoiceAllowedTool `json:"allowed_tools,omitempty"`
+}
+
+type ToolChoiceMode string
+
+const (
+	ToolChoiceModeNone     ToolChoiceMode = "none"
+	ToolChoiceModeAuto     ToolChoiceMode = "auto"
+	ToolChoiceModeRequired ToolChoiceMode = "required"
+)
+
+type ToolChoiceAllowedTool struct {
+	Type     string                         `json:"type"`
+	Function *ToolChoiceAllowedToolFunction `json:"function,omitempty"`
+}
+
+type ToolChoiceAllowedToolFunction struct {
+	Name string `json:"name"`
+}
+
+func (t *ToolChoice) UnmarshalJSON(data []byte) error {
+	// string: "none", "auto", "required"
+	var mode string
+
+	if err := json.Unmarshal(data, &mode); err == nil {
+		t.Mode = ToolChoiceMode(mode)
+		return nil
+	}
+
+	// object: {"type": "function", "function": {"name": "X"}}
+	var legacy struct {
+		Type     string                         `json:"type"`
+		Function *ToolChoiceAllowedToolFunction `json:"function,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &legacy); err == nil && legacy.Type == "function" && legacy.Function != nil {
+		t.Mode = ToolChoiceModeRequired
+
+		t.AllowedTools = []ToolChoiceAllowedTool{
+			{Type: legacy.Type, Function: legacy.Function},
+		}
+
+		return nil
+	}
+
+	// object: {"type": "allowed_tools", "mode": "...", "allowed_tools": [...]}
+	type Alias ToolChoice
+
+	var alias Alias
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	*t = ToolChoice(alias)
 	return nil
 }
 

@@ -11,6 +11,31 @@ import (
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
 
+func toToolOptions(v *ToolChoice) *provider.ToolOptions {
+	if v == nil {
+		return nil
+	}
+
+	choice := provider.ToolChoiceAuto
+
+	switch v.Mode {
+	case ToolChoiceModeNone:
+		choice = provider.ToolChoiceNone
+	case ToolChoiceModeRequired:
+		choice = provider.ToolChoiceAny
+	}
+
+	var allowed []string
+
+	for _, t := range v.AllowedTools {
+		if t.Type == string(ToolTypeFunction) && t.Name != "" {
+			allowed = append(allowed, t.Name)
+		}
+	}
+
+	return &provider.ToolOptions{Choice: choice, Allowed: allowed}
+}
+
 func toMessages(items []InputItem, instructions string) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
@@ -21,8 +46,40 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 		})
 	}
 
-	// Track pending tool calls to merge with their results
-	var pendingToolCalls []provider.ToolCall
+	// Pending buffers to accumulate and merge consecutive same-type items.
+	// Consecutive function_call items map to one assistant message with multiple tool calls (parallel tool use).
+	// Consecutive function_call_output items map to one user message with multiple tool results.
+	// Reasoning items are merged into the following assistant message or function calls.
+	var pendingReasoning []provider.Content
+	var pendingCalls []provider.Content
+	var pendingResults []provider.Content
+
+	flushCalls := func() {
+		if len(pendingCalls) == 0 && len(pendingReasoning) == 0 {
+			return
+		}
+
+		result = append(result, provider.Message{
+			Role:    provider.MessageRoleAssistant,
+			Content: append(pendingReasoning, pendingCalls...),
+		})
+
+		pendingReasoning = nil
+		pendingCalls = nil
+	}
+
+	flushResults := func() {
+		if len(pendingResults) == 0 {
+			return
+		}
+
+		result = append(result, provider.Message{
+			Role:    provider.MessageRoleUser,
+			Content: pendingResults,
+		})
+
+		pendingResults = nil
+	}
 
 	for _, item := range items {
 		switch item.Type {
@@ -32,74 +89,34 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			}
 
 			m := item.InputMessage
-			var content []provider.Content
 
-			for _, c := range m.Content {
-				if c.Type == InputContentText {
-					content = append(content, provider.TextContent(c.Text))
-				}
-
-				if c.Type == InputContentImage {
-					file, err := shared.ToFile(c.ImageURL)
-
-					if err != nil {
-						return nil, err
-					}
-
-					content = append(content, provider.FileContent(file))
-				}
-
-				if c.Type == InputContentFile {
-					file := &provider.File{
-						Name: c.Filename,
-					}
-
-					if c.FileData != "" {
-						data, err := base64.StdEncoding.DecodeString(c.FileData)
-
-						if err != nil {
-							return nil, err
-						}
-
-						if mime := mime.TypeByExtension(path.Ext(c.Filename)); mime != "" {
-							file.ContentType = mime
-						}
-
-						file.Content = data
-					}
-
-					if c.FileURL != "" {
-						f, err := shared.ToFile(c.FileURL)
-
-						if err != nil {
-							return nil, err
-						}
-
-						if file.Name == "" {
-							file.Name = f.Name
-						}
-
-						file.Content = f.Content
-						file.ContentType = f.ContentType
-					}
-
-					content = append(content, provider.FileContent(file))
-				}
+			content, err := toInputContent(m.Content)
+			if err != nil {
+				return nil, err
 			}
 
-			if m.Role == MessageRoleAssistant && len(pendingToolCalls) > 0 {
-				for _, call := range pendingToolCalls {
-					content = append(content, provider.ToolCallContent(call))
+			if m.Role == MessageRoleAssistant {
+				flushResults()
+
+				content = append(pendingReasoning, content...)
+				pendingReasoning = nil
+
+				if len(content) > 0 {
+					result = append(result, provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: content,
+					})
 				}
+			} else {
+				flushCalls()
+				flushResults()
 
-				pendingToolCalls = nil
-			}
-
-			if len(content) > 0 {
-				result = append(result, provider.Message{
-					Role:    toMessageRole(m.Role),
-					Content: content,
-				})
+				if len(content) > 0 {
+					result = append(result, provider.Message{
+						Role:    toMessageRole(m.Role),
+						Content: content,
+					})
+				}
 			}
 
 		case InputItemTypeReasoning:
@@ -107,128 +124,102 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				continue
 			}
 
-			reasoning := item.InputReasoning
+			r := provider.Reasoning{
+				ID:        item.InputReasoning.ID,
+				Signature: item.InputReasoning.EncryptedContent,
+			}
 
-			// Build summary text from summary parts
-			var summaryText string
-			for _, part := range reasoning.Summary {
+			for _, part := range item.InputReasoning.Summary {
 				if part.Type == "summary_text" {
-					summaryText += part.Text
+					r.Summary += part.Text
 				}
 			}
 
-			// Parse reasoning content if present
-			var reasoningText string
-			if len(reasoning.Content) > 0 && string(reasoning.Content) != "null" {
-				// Content is an array of content parts with type and text
-				var contentParts []struct {
+			if len(item.InputReasoning.Content) > 0 && string(item.InputReasoning.Content) != "null" {
+				var parts []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
 				}
-				if err := json.Unmarshal(reasoning.Content, &contentParts); err == nil {
-					for _, part := range contentParts {
+
+				if err := json.Unmarshal(item.InputReasoning.Content, &parts); err == nil {
+					for _, part := range parts {
 						if part.Type == "reasoning_text" {
-							reasoningText += part.Text
+							r.Text += part.Text
 						}
 					}
 				}
 			}
 
-			result = append(result, provider.Message{
-				Role: provider.MessageRoleAssistant,
-				Content: []provider.Content{
-					provider.ReasoningContent(provider.Reasoning{
-						ID:        reasoning.ID,
-						Text:      reasoningText,
-						Summary:   summaryText,
-						Signature: reasoning.EncryptedContent,
-					}),
-				},
-			})
+			pendingReasoning = append(pendingReasoning, provider.ReasoningContent(r))
 
 		case InputItemTypeFunctionCall:
 			if item.InputFunctionCall == nil {
 				continue
 			}
 
+			flushResults()
+
 			call := item.InputFunctionCall
 
-			toolCall := provider.ToolCall{
+			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
 				ID:        call.CallID,
 				Name:      call.Name,
 				Arguments: call.Arguments,
-			}
-
-			result = append(result, provider.Message{
-				Role: provider.MessageRoleAssistant,
-				Content: []provider.Content{
-					provider.ToolCallContent(toolCall),
-				},
-			})
+			}))
 
 		case InputItemTypeFunctionCallOutput:
 			if item.InputFunctionCallOutput == nil {
 				continue
 			}
 
+			flushCalls()
+
 			output := item.InputFunctionCallOutput
 
-			result = append(result, provider.Message{
-				Role: provider.MessageRoleUser,
-				Content: []provider.Content{
-					provider.ToolResultContent(provider.ToolResult{
-						ID:   output.CallID,
-						Data: output.Output,
-					}),
-				},
-			})
+			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+				ID:   output.CallID,
+				Data: output.Output,
+			}))
 
 		case InputItemTypeApplyPatchCall:
 			if item.InputApplyPatchCall == nil {
 				continue
 			}
 
+			flushResults()
+
 			call := item.InputApplyPatchCall
 
-			result = append(result, provider.Message{
-				Role: provider.MessageRoleAssistant,
-				Content: []provider.Content{
-					provider.ToolCallContent(provider.ToolCall{
-						ID:        call.CallID,
-						Name:      "apply_patch",
-						Arguments: call.Patch,
-					}),
-				},
-			})
+			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+				ID:        call.CallID,
+				Name:      "apply_patch",
+				Arguments: call.Patch,
+			}))
 
 		case InputItemTypeApplyPatchCallOutput:
 			if item.InputApplyPatchCallOutput == nil {
 				continue
 			}
 
+			flushCalls()
+
 			output := item.InputApplyPatchCallOutput
 
-			result = append(result, provider.Message{
-				Role: provider.MessageRoleUser,
-				Content: []provider.Content{
-					provider.ToolResultContent(provider.ToolResult{
-						ID:   output.CallID,
-						Data: output.Output,
-					}),
-				},
-			})
+			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+				ID:   output.CallID,
+				Data: output.Output,
+			}))
 		}
 	}
+
+	flushCalls()
+	flushResults()
 
 	return result, nil
 }
 
-func toTools(tools []Tool) ([]provider.Tool, error) {
-	if len(tools) == 0 {
-		return nil, nil
-	}
-
-	result := make([]provider.Tool, 0, len(tools))
+func toTools(tools []Tool) []provider.Tool {
+	var result []provider.Tool
 
 	for _, t := range tools {
 		if t.Type == ToolTypeApplyPatch {
@@ -240,14 +231,68 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 			continue
 		}
 
-		if t.Type == ToolTypeFunction {
-			tool := provider.Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				Strict:      t.Strict,
-				Parameters:  tool.NormalizeSchema(t.Parameters),
+		if t.Type != ToolTypeFunction {
+			continue
+		}
+
+		result = append(result, provider.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			Strict:      t.Strict,
+			Parameters:  tool.NormalizeSchema(t.Parameters),
+		})
+	}
+
+	return result
+}
+
+func toInputContent(items []InputContent) ([]provider.Content, error) {
+	var result []provider.Content
+
+	for _, c := range items {
+		switch c.Type {
+		case InputContentText:
+			result = append(result, provider.TextContent(c.Text))
+
+		case InputContentImage:
+			file, err := shared.ToFile(c.ImageURL)
+			if err != nil {
+				return nil, err
 			}
-			result = append(result, tool)
+
+			result = append(result, provider.FileContent(file))
+
+		case InputContentFile:
+			file := &provider.File{Name: c.Filename}
+
+			if c.FileData != "" {
+				data, err := base64.StdEncoding.DecodeString(c.FileData)
+				if err != nil {
+					return nil, err
+				}
+
+				if mimeType := mime.TypeByExtension(path.Ext(c.Filename)); mimeType != "" {
+					file.ContentType = mimeType
+				}
+
+				file.Content = data
+			}
+
+			if c.FileURL != "" {
+				f, err := shared.ToFile(c.FileURL)
+				if err != nil {
+					return nil, err
+				}
+
+				if file.Name == "" {
+					file.Name = f.Name
+				}
+
+				file.Content = f.Content
+				file.ContentType = f.ContentType
+			}
+
+			result = append(result, provider.FileContent(file))
 		}
 	}
 
@@ -256,15 +301,12 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 
 func toMessageRole(r MessageRole) provider.MessageRole {
 	switch r {
-	case MessageRoleSystem:
+	case MessageRoleSystem, MessageRoleDeveloper:
 		return provider.MessageRoleSystem
-
-	case MessageRoleUser: // MessageRoleTool
+	case MessageRoleUser:
 		return provider.MessageRoleUser
-
 	case MessageRoleAssistant:
 		return provider.MessageRoleAssistant
-
 	default:
 		return ""
 	}

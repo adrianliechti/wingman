@@ -105,6 +105,8 @@ type CompletionAccumulator struct {
 	id    string
 	model string
 
+	status CompletionStatus
+
 	role MessageRole
 
 	content strings.Builder
@@ -124,6 +126,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Model != "" {
 		a.model = c.Model
+	}
+
+	if c.Status != "" {
+		a.status = c.Status
 	}
 
 	if c.Message != nil {
@@ -235,6 +241,8 @@ func (a *CompletionAccumulator) Result() *Completion {
 		ID:    a.id,
 		Model: a.model,
 
+		Status: a.status,
+
 		Message: &Message{
 			Role:    a.role,
 			Content: content,
@@ -300,35 +308,64 @@ type ToolCall struct {
 	Arguments string
 }
 
+type ToolChoice string
+
+const (
+	ToolChoiceAuto ToolChoice = "auto"
+	ToolChoiceAny  ToolChoice = "any"
+	ToolChoiceNone ToolChoice = "none"
+)
+
+type ToolOptions struct {
+	Allowed []string
+
+	Choice ToolChoice
+
+	DisableParallelToolCalls bool
+}
+
 type CompleteOptions struct {
 	Effort    Effort
 	Verbosity Verbosity
 
-	Stop  []string
-	Tools []Tool
+	Stop []string
 
 	MaxTokens   *int
 	Temperature *float32
 
+	Tools       []Tool
+	ToolOptions *ToolOptions
+
 	Schema *Schema
 }
 
+type CompletionStatus string
+
+const (
+	CompletionStatusCompleted  CompletionStatus = "completed"
+	CompletionStatusIncomplete CompletionStatus = "incomplete"
+	CompletionStatusFailed     CompletionStatus = "failed"
+)
+
 type Completion struct {
-	ID    string
-	Model string
+	ID string
 
+	Model  string
+	Status CompletionStatus
+
+	Usage   *Usage
 	Message *Message
-
-	Usage *Usage
 }
 
 type Effort string
 
 const (
+	EffortNone    Effort = "none"
 	EffortMinimal Effort = "minimal"
 	EffortLow     Effort = "low"
 	EffortMedium  Effort = "medium"
 	EffortHigh    Effort = "high"
+	EffortMax     Effort = "max"
 )
 
 type Verbosity string
@@ -340,8 +377,10 @@ const (
 )
 
 type Reasoning struct {
-	ID        string
-	Text      string
-	Summary   string
+	ID string
+
+	Text    string
+	Summary string
+
 	Signature string
 }

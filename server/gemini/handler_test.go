@@ -18,7 +18,7 @@ const (
 
 // Test models covering different providers
 var testModels = []string{
-	"gpt-5.2",           // OpenAI
+	"gpt-5.4",           // OpenAI
 	"claude-sonnet-4-5", // Anthropic
 	"gemini-2.5-pro",    // Google
 	"mistral-medium",    // Mistral
