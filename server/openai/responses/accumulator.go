@@ -87,6 +87,7 @@ type StreamingAccumulator struct {
 	started            bool
 	hasOutputItem      bool // True if we emitted output_item.added for message
 	hasContentPart     bool // True if we emitted content_part.added
+	messageClosed      bool // True if we emitted output_item.done for message
 	messageOutputIndex int  // Output index for the message item
 	streamedText       strings.Builder
 
@@ -339,6 +340,62 @@ func (s *StreamingAccumulator) closeReasoning() error {
 	return nil
 }
 
+// closeMessage emits all the "done" events for the message if it was in progress.
+// This should be called before starting function call output items so that the
+// client sees output_item.done for the message BEFORE output_item.added for tool calls.
+func (s *StreamingAccumulator) closeMessage() error {
+	if !s.hasOutputItem || s.messageClosed {
+		return nil
+	}
+
+	if s.streamedText.Len() == 0 {
+		return nil
+	}
+
+	s.messageClosed = true
+	text := s.streamedText.String()
+
+	// text.done
+	if err := s.emitEvent(StreamEvent{
+		Type:        StreamEventTextDone,
+		Text:        text,
+		OutputIndex: s.messageOutputIndex,
+	}); err != nil {
+		return err
+	}
+
+	// content_part.done
+	if err := s.emitEvent(StreamEvent{
+		Type:        StreamEventContentPartDone,
+		Text:        text,
+		OutputIndex: s.messageOutputIndex,
+	}); err != nil {
+		return err
+	}
+
+	// output_item.done for message
+	if err := s.emitEvent(StreamEvent{
+		Type:        StreamEventOutputItemDone,
+		Text:        text,
+		OutputIndex: s.messageOutputIndex,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// closePendingItems closes any in-progress reasoning and message items.
+// Must be called before emitting function call events so that the client
+// sees each output item completed before the next one starts.
+func (s *StreamingAccumulator) closePendingItems() error {
+	if err := s.closeReasoning(); err != nil {
+		return err
+	}
+
+	return s.closeMessage()
+}
+
 // Add processes a completion chunk and emits appropriate events
 func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if err := s.start(); err != nil {
@@ -373,6 +430,12 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			// Process tool calls
 			if content.ToolCall != nil {
 				toolCall := content.ToolCall
+
+				// Close any pending reasoning/message items before starting tool call events.
+				// The Responses API requires each output item to be completed before the next starts.
+				if err := s.closePendingItems(); err != nil {
+					return err
+				}
 
 				currentToolCallID, outputIndex, ok := s.trackToolCall(*toolCall)
 				if ok {
@@ -478,7 +541,11 @@ func (s *StreamingAccumulator) Complete() error {
 	text := s.streamedText.String()
 
 	// Only emit text/content done events if we actually had text content
-	if s.streamedText.Len() > 0 {
+	// and they weren't already emitted by closeMessage() (which fires when
+	// tool calls arrive after text).
+	if s.streamedText.Len() > 0 && !s.messageClosed {
+		s.messageClosed = true
+
 		// text.done
 		if err := s.emitEvent(StreamEvent{
 			Type:        StreamEventTextDone,

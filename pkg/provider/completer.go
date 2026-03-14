@@ -171,7 +171,8 @@ func (a *CompletionAccumulator) Add(c Completion) {
 					}
 					if !found {
 						a.toolCalls = append(a.toolCalls, ToolCall{
-							ID: c.ToolCall.ID,
+							ID:     c.ToolCall.ID,
+							CallID: c.ToolCall.CallID,
 						})
 					}
 					a.lastToolCallID = c.ToolCall.ID
@@ -201,6 +202,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 				if c.ToolCall.Name != "" {
 					a.toolCalls[toolCallIndex].Name = c.ToolCall.Name
+				}
+
+				if c.ToolCall.CallID != "" && a.toolCalls[toolCallIndex].CallID == "" {
+					a.toolCalls[toolCallIndex].CallID = c.ToolCall.CallID
 				}
 
 				a.toolCalls[toolCallIndex].Arguments += c.ToolCall.Arguments
@@ -302,7 +307,8 @@ const (
 )
 
 type ToolCall struct {
-	ID     string
+	ID string
+
 	CallID string
 
 	Name      string

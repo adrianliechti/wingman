@@ -401,6 +401,94 @@ func TestStreamingAccumulatorEventOrdering_TextFlow(t *testing.T) {
 	}, types)
 }
 
+func TestStreamingAccumulatorTextThenToolCall(t *testing.T) {
+	// When the model emits text first, then tool calls, the message output item
+	// must be completed (output_item.done) BEFORE the function_call output item
+	// starts (output_item.added). This matches the real OpenAI Responses API behavior.
+	acc, events := newTestAccumulator()
+
+	// Text first
+	require.NoError(t, acc.Add(textChunk("Let me check")))
+	// Then tool call
+	require.NoError(t, acc.Add(toolCallChunk("call_1", "get_weather", `{"city":"London"}`)))
+	require.NoError(t, acc.Complete())
+
+	types := make([]StreamEventType, len(*events))
+	for i, e := range *events {
+		types[i] = e.Type
+	}
+
+	require.Equal(t, []StreamEventType{
+		StreamEventResponseCreated,
+		StreamEventResponseInProgress,
+		// Message output item
+		StreamEventOutputItemAdded,
+		StreamEventContentPartAdded,
+		StreamEventTextDelta,
+		// Message closed BEFORE tool call starts
+		StreamEventTextDone,
+		StreamEventContentPartDone,
+		StreamEventOutputItemDone,
+		// Function call output item
+		StreamEventFunctionCallAdded,
+		StreamEventFunctionCallArgumentsDelta,
+		// Complete phase
+		StreamEventFunctionCallArgumentsDone,
+		StreamEventFunctionCallDone,
+		StreamEventResponseCompleted,
+	}, types)
+
+	// Verify output indices
+	msgAdded := findEvent(*events, StreamEventOutputItemAdded)
+	require.Equal(t, 0, msgAdded.OutputIndex, "message should be at output_index 0")
+
+	fcAdded := findEvent(*events, StreamEventFunctionCallAdded)
+	require.Equal(t, 1, fcAdded.OutputIndex, "function_call should be at output_index 1")
+}
+
+func TestStreamingAccumulatorReasoningThenToolCall(t *testing.T) {
+	// When reasoning comes first, then tool calls, reasoning must be completed
+	// before function call events start.
+	acc, events := newTestAccumulator()
+
+	// Reasoning first
+	require.NoError(t, acc.Add(provider.Completion{
+		Message: &provider.Message{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ReasoningContent(provider.Reasoning{
+					ID:   "rs_1",
+					Text: "thinking...",
+				}),
+			},
+		},
+	}))
+	// Then tool call
+	require.NoError(t, acc.Add(toolCallChunk("call_1", "get_weather", `{}`)))
+	require.NoError(t, acc.Complete())
+
+	types := make([]StreamEventType, len(*events))
+	for i, e := range *events {
+		types[i] = e.Type
+	}
+
+	// Find the indices of key events
+	reasoningDoneIdx := -1
+	fcAddedIdx := -1
+	for i, e := range *events {
+		if e.Type == StreamEventReasoningItemDone {
+			reasoningDoneIdx = i
+		}
+		if e.Type == StreamEventFunctionCallAdded {
+			fcAddedIdx = i
+		}
+	}
+
+	require.Greater(t, reasoningDoneIdx, -1, "should have reasoning_item.done")
+	require.Greater(t, fcAddedIdx, -1, "should have function_call.added")
+	require.Less(t, reasoningDoneIdx, fcAddedIdx, "reasoning must be done BEFORE function_call starts")
+}
+
 func TestStreamingAccumulatorIncompleteTerminalEvent(t *testing.T) {
 	acc, events := newTestAccumulator()
 

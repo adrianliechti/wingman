@@ -313,6 +313,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 
 				if c.ToolCall != nil {
 					callID := c.ToolCall.CallID
+
 					if callID == "" {
 						callID = c.ToolCall.ID
 					}
