@@ -53,9 +53,8 @@ type StreamEvent struct {
 	Text string
 
 	// For function call events
-	ToolCallID     string
-	ToolCallCallID string
-	ToolCallName   string
+	ToolCallID   string
+	ToolCallName string
 	Arguments      string
 	OutputIndex    int
 
@@ -79,8 +78,7 @@ type StreamEventHandler func(event StreamEvent) error
 
 // accumulatedToolCall holds per-tool-call state during streaming.
 type accumulatedToolCall struct {
-	ID     string // item ID
-	CallID string // effective call ID
+	ID string // call ID (e.g. call_xxx)
 
 	Name        string
 	Arguments   strings.Builder
@@ -184,17 +182,13 @@ func (s *StreamingAccumulator) ensureMessageContentPart() error {
 // trackToolCall ensures a tool call entry exists and returns its effective ID,
 // output index, and whether tracking succeeded.
 func (s *StreamingAccumulator) trackToolCall(toolCall provider.ToolCall) (string, int, bool) {
-	effectiveID := toolCall.CallID
-	if effectiveID == "" {
-		effectiveID = toolCall.ID
-	}
+	effectiveID := toolCall.ID
 
 	if effectiveID != "" {
 		if _, exists := s.toolCallByID[effectiveID]; !exists {
 			idx := len(s.toolCalls)
 			s.toolCalls = append(s.toolCalls, accumulatedToolCall{
-				ID:          toolCall.ID,
-				CallID:      effectiveID,
+				ID:          effectiveID,
 				OutputIndex: s.reserveOutputIndex(),
 			})
 			s.toolCallByID[effectiveID] = idx
@@ -227,17 +221,11 @@ func (s *StreamingAccumulator) ensureToolCallStarted(callID string, toolCall pro
 		tc.Name = toolCall.Name
 	}
 
-	itemID := tc.ID
-	if itemID == "" {
-		itemID = callID
-	}
-
 	return s.emitEvent(StreamEvent{
-		Type:           StreamEventFunctionCallAdded,
-		ToolCallID:     itemID,
-		ToolCallCallID: callID,
-		ToolCallName:   tc.Name,
-		OutputIndex:    outputIndex,
+		Type:         StreamEventFunctionCallAdded,
+		ToolCallID:   callID,
+		ToolCallName: tc.Name,
+		OutputIndex:  outputIndex,
 	})
 }
 
@@ -469,17 +457,11 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			if tc.Arguments != "" {
 				entry.Arguments.WriteString(tc.Arguments)
 
-				itemID := entry.ID
-				if itemID == "" {
-					itemID = currentID
-				}
-
 				if err := s.emitEvent(StreamEvent{
-					Type:           StreamEventFunctionCallArgumentsDelta,
-					ToolCallID:     itemID,
-					ToolCallCallID: currentID,
-					Delta:          tc.Arguments,
-					OutputIndex:    outputIndex,
+					Type:        StreamEventFunctionCallArgumentsDelta,
+					ToolCallID:  currentID,
+					Delta:       tc.Arguments,
+					OutputIndex: outputIndex,
 				}); err != nil {
 					return err
 				}
@@ -586,32 +568,25 @@ func (s *StreamingAccumulator) Complete() error {
 	for i := range s.toolCalls {
 		tc := &s.toolCalls[i]
 
-		itemID := tc.ID
-		if itemID == "" {
-			itemID = tc.CallID
-		}
-
 		args := tc.Arguments.String()
 
 		if err := s.emitEvent(StreamEvent{
-			Type:           StreamEventFunctionCallArgumentsDone,
-			ToolCallID:     itemID,
-			ToolCallCallID: tc.CallID,
-			ToolCallName:   tc.Name,
-			Arguments:      args,
-			OutputIndex:    tc.OutputIndex,
+			Type:         StreamEventFunctionCallArgumentsDone,
+			ToolCallID:   tc.ID,
+			ToolCallName: tc.Name,
+			Arguments:    args,
+			OutputIndex:  tc.OutputIndex,
 		}); err != nil {
 			return err
 		}
 
 		if err := s.emitEvent(StreamEvent{
-			Type:           StreamEventFunctionCallDone,
-			ToolCallID:     itemID,
-			ToolCallCallID: tc.CallID,
-			ToolCallName:   tc.Name,
-			Arguments:      args,
-			OutputIndex:    tc.OutputIndex,
-			Completion:     result,
+			Type:         StreamEventFunctionCallDone,
+			ToolCallID:   tc.ID,
+			ToolCallName: tc.Name,
+			Arguments:    args,
+			OutputIndex:  tc.OutputIndex,
+			Completion:   result,
 		}); err != nil {
 			return err
 		}
@@ -661,7 +636,6 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 		tc := &s.toolCalls[i]
 		content = append(content, provider.ToolCallContent(provider.ToolCall{
 			ID:        tc.ID,
-			CallID:    tc.CallID,
 			Name:      tc.Name,
 			Arguments: tc.Arguments.String(),
 		}))

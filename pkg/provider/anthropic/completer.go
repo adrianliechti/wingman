@@ -72,7 +72,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.ToolCallContent(provider.ToolCall{
-									CallID:    "",
 									Arguments: "{}",
 								}),
 							},
@@ -153,7 +152,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 							Content: []provider.Content{
 								provider.ToolCallContent(provider.ToolCall{
 									ID:     event.ID,
-									CallID: event.ID,
 									Name:   event.Name,
 								}),
 							},
@@ -223,7 +221,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.ToolCallContent(provider.ToolCall{
-									CallID:    message.Content[len(message.Content)-1].ID,
+									ID:        message.Content[len(message.Content)-1].ID,
 									Arguments: event.PartialJSON,
 								}),
 							},
@@ -417,14 +415,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						input = map[string]any{}
 					}
 
-					callID := c.ToolCall.CallID
-					if callID == "" {
-						callID = c.ToolCall.ID
-					}
-
 					blocks = append(blocks, anthropic.ContentBlockParamUnion{
 						OfToolUse: &anthropic.ToolUseBlockParam{
-							ID:    callID,
+							ID:    c.ToolCall.ID,
 							Name:  c.ToolCall.Name,
 							Input: input,
 						},

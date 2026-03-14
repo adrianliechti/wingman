@@ -356,8 +356,7 @@ func toContent(content *genai.Content) []provider.Content {
 			data, _ := json.Marshal(p.FunctionCall.Args)
 
 			call := provider.ToolCall{
-				ID:     formatToolID(p.FunctionCall.ID, p.FunctionCall.Name, p.ThoughtSignature),
-				CallID: formatToolID(p.FunctionCall.ID, p.FunctionCall.Name, p.ThoughtSignature),
+				ID: formatToolID(p.FunctionCall.ID, p.FunctionCall.Name, p.ThoughtSignature),
 
 				Name:      p.FunctionCall.Name,
 				Arguments: string(data),

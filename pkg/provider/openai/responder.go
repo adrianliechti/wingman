@@ -77,10 +77,8 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.ToolCallContent(provider.ToolCall{
-									ID: item.ID,
-
-									CallID: item.CallID,
-									Name:   item.Name,
+									ID:   item.CallID,
+									Name: item.Name,
 								}),
 							},
 						},
@@ -171,9 +169,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 						Content: []provider.Content{
 							provider.ToolCallContent(provider.ToolCall{
-								ID: event.ItemID,
-
-								CallID:    callID,
+								ID:        callID,
 								Arguments: event.Delta,
 							}),
 						},
@@ -537,21 +533,11 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				}
 
 				if c.ToolCall != nil {
-					callID := c.ToolCall.CallID
-
-					if callID == "" {
-						callID = c.ToolCall.ID
-					}
-
 					call := &responses.ResponseFunctionToolCallParam{
-						CallID: callID,
+						CallID: c.ToolCall.ID,
 
 						Name:      c.ToolCall.Name,
 						Arguments: c.ToolCall.Arguments,
-					}
-
-					if c.ToolCall.ID != "" {
-						call.ID = openai.String(c.ToolCall.ID)
 					}
 
 					result = append(result, responses.ResponseInputItemUnionParam{

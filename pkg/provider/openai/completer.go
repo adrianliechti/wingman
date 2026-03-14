@@ -74,8 +74,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 				for _, c := range choice.Delta.ToolCalls {
 					call := provider.ToolCall{
-						ID:     c.ID,
-						CallID: c.ID,
+						ID: c.ID,
 
 						Name:      c.Function.Name,
 						Arguments: c.Function.Arguments,
@@ -312,15 +311,9 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				}
 
 				if c.ToolCall != nil {
-					callID := c.ToolCall.CallID
-
-					if callID == "" {
-						callID = c.ToolCall.ID
-					}
-
 					call := openai.ChatCompletionMessageToolCallUnionParam{
 						OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-							ID: callID,
+							ID: c.ToolCall.ID,
 
 							Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
 								Name:      c.ToolCall.Name,

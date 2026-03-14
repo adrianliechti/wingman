@@ -1,8 +1,6 @@
 package provider
 
-import (
-	"strings"
-)
+import "strings"
 
 type CompletionAccumulator struct {
 	id    string
@@ -63,7 +61,6 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			}
 
 			if c.ToolCall != nil {
-				// Only create a new tool call if we have an ID and haven't seen it before
 				if c.ToolCall.ID != "" {
 					found := false
 					for i := range a.toolCalls {
@@ -74,8 +71,7 @@ func (a *CompletionAccumulator) Add(c Completion) {
 					}
 					if !found {
 						a.toolCalls = append(a.toolCalls, ToolCall{
-							ID:     c.ToolCall.ID,
-							CallID: c.ToolCall.CallID,
+							ID: c.ToolCall.ID,
 						})
 					}
 					a.lastToolCallID = c.ToolCall.ID
@@ -105,10 +101,6 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 				if c.ToolCall.Name != "" {
 					a.toolCalls[toolCallIndex].Name = c.ToolCall.Name
-				}
-
-				if c.ToolCall.CallID != "" && a.toolCalls[toolCallIndex].CallID == "" {
-					a.toolCalls[toolCallIndex].CallID = c.ToolCall.CallID
 				}
 
 				a.toolCalls[toolCallIndex].Arguments += c.ToolCall.Arguments

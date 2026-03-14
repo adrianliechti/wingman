@@ -456,9 +456,8 @@ func (x *Tool) GetProperties() string {
 type ToolCall struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	CallId        string                 `protobuf:"bytes,2,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	Arguments     string                 `protobuf:"bytes,4,opt,name=arguments,proto3" json:"arguments,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Arguments     string                 `protobuf:"bytes,3,opt,name=arguments,proto3" json:"arguments,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -496,13 +495,6 @@ func (*ToolCall) Descriptor() ([]byte, []int) {
 func (x *ToolCall) GetId() string {
 	if x != nil {
 		return x.Id
-	}
-	return ""
-}
-
-func (x *ToolCall) GetCallId() string {
-	if x != nil {
-		return x.CallId
 	}
 	return ""
 }
@@ -900,12 +892,11 @@ const file_provider_proto_rawDesc = "" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1e\n" +
 	"\n" +
 	"properties\x18\x03 \x01(\tR\n" +
-	"properties\"e\n" +
+	"properties\"L\n" +
 	"\bToolCall\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\acall_id\x18\x02 \x01(\tR\x06callId\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1c\n" +
-	"\targuments\x18\x04 \x01(\tR\targuments\"0\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
+	"\targuments\x18\x03 \x01(\tR\targuments\"0\n" +
 	"\n" +
 	"ToolResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +

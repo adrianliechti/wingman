@@ -135,8 +135,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 		for _, c := range m.ToolCalls {
 			if c.Type == ToolTypeFunction && c.Function != nil {
 				call := provider.ToolCall{
-					ID:     c.ID,
-					CallID: c.ID,
+					ID: c.ID,
 
 					Name:      c.Function.Name,
 					Arguments: c.Function.Arguments,
@@ -180,6 +179,8 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 				Name:        t.ToolFunction.Name,
 				Description: t.ToolFunction.Description,
 
+				Strict: t.ToolFunction.Strict,
+
 				Parameters: tool.NormalizeSchema(t.ToolFunction.Parameters),
 			}
 
@@ -199,13 +200,7 @@ func oaiToolCalls(content []provider.Content) []ToolCall {
 		}
 
 		call := ToolCall{
-			ID: func() string {
-				if c.ToolCall.CallID != "" {
-					return c.ToolCall.CallID
-				}
-
-				return c.ToolCall.ID
-			}(),
+			ID:    c.ToolCall.ID,
 			Index: len(result),
 
 			Type: ToolTypeFunction,

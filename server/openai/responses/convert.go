@@ -162,8 +162,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			call := item.InputFunctionCall
 
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
-				ID:        call.ID,
-				CallID:    call.CallID,
+				ID:        call.CallID,
 				Name:      call.Name,
 				Arguments: call.Arguments,
 			}))

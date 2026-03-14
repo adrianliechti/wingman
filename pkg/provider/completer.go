@@ -153,8 +153,6 @@ const (
 type ToolCall struct {
 	ID string
 
-	CallID string
-
 	Name      string
 	Arguments string
 }
