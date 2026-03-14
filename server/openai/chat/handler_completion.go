@@ -171,8 +171,6 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 
 		if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
 			reason = FinishReasonToolCalls
-
-			message.Content = nil
 			message.ToolCalls = calls
 		}
 

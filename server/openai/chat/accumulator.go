@@ -115,8 +115,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 
 			s.finishReason = FinishReasonToolCalls
-
-			message.Content = nil
 			message.ToolCalls = calls
 		}
 

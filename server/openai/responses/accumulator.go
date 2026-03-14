@@ -143,10 +143,6 @@ func (s *StreamingAccumulator) ensureMessageItem() error {
 		return nil
 	}
 
-	if err := s.closeReasoning(); err != nil {
-		return err
-	}
-
 	s.hasOutputItem = true
 	s.messageOutputIndex = s.reserveOutputIndex()
 

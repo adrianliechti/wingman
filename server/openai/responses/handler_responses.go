@@ -194,6 +194,23 @@ func responseOutputs(message *provider.Message, messageID, status, text, reasoni
 		}
 	}
 
+	if text != "" {
+		output = append(output, ResponseOutput{
+			Type: ResponseOutputTypeMessage,
+			OutputMessage: &OutputMessage{
+				ID:     messageID,
+				Role:   MessageRoleAssistant,
+				Status: status,
+				Contents: []OutputContent{
+					{
+						Type: "output_text",
+						Text: text,
+					},
+				},
+			},
+		})
+	}
+
 	for _, call := range message.ToolCalls() {
 		callID := call.CallID
 		if callID == "" {
@@ -213,23 +230,6 @@ func responseOutputs(message *provider.Message, messageID, status, text, reasoni
 				Name:      call.Name,
 				CallID:    callID,
 				Arguments: call.Arguments,
-			},
-		})
-	}
-
-	if text != "" {
-		output = append(output, ResponseOutput{
-			Type: ResponseOutputTypeMessage,
-			OutputMessage: &OutputMessage{
-				ID:     messageID,
-				Role:   MessageRoleAssistant,
-				Status: status,
-				Contents: []OutputContent{
-					{
-						Type: "output_text",
-						Text: text,
-					},
-				},
 			},
 		})
 	}
