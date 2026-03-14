@@ -195,14 +195,23 @@ func responseOutputs(message *provider.Message, messageID, status, text, reasoni
 	}
 
 	for _, call := range message.ToolCalls() {
+		callID := call.CallID
+		if callID == "" {
+			callID = call.ID
+		}
+		itemID := call.ID
+		if itemID == "" {
+			itemID = callID
+		}
+
 		output = append(output, ResponseOutput{
 			Type: ResponseOutputTypeFunctionCall,
 			FunctionCallOutputItem: &FunctionCallOutputItem{
-				ID:        call.ID,
+				ID:        itemID,
 				Type:      "function_call",
 				Status:    status,
 				Name:      call.Name,
-				CallID:    call.ID,
+				CallID:    callID,
 				Arguments: call.Arguments,
 			},
 		})
@@ -345,7 +354,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					ID:        event.ToolCallID,
 					Type:      "function_call",
 					Status:    "in_progress",
-					CallID:    event.ToolCallID,
+					CallID:    event.ToolCallCallID,
 					Name:      event.ToolCallName,
 					Arguments: "",
 				},
@@ -379,7 +388,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					ID:        event.ToolCallID,
 					Type:      "function_call",
 					Status:    "completed",
-					CallID:    event.ToolCallID,
+					CallID:    event.ToolCallCallID,
 					Name:      event.ToolCallName,
 					Arguments: event.Arguments,
 				},

@@ -71,8 +71,10 @@ message Tool {
 message ToolCall {
   string id = 1;
 
-  string name = 2;
-  string arguments = 3;
+  string call_id = 2;
+
+  string name = 3;
+  string arguments = 4;
 }
 
 message ToolResult {

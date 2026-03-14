@@ -201,7 +201,10 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 					for _, cnt := range completion.Message.Content {
 						if cnt.ToolCall != nil {
-							id := cnt.ToolCall.ID
+							id := cnt.ToolCall.CallID
+							if id == "" {
+								id = cnt.ToolCall.ID
+							}
 							name := cnt.ToolCall.Name
 
 							if id != "" && name != "" {
@@ -277,7 +280,13 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 					Content: []provider.Content{
 						provider.ToolResultContent(provider.ToolResult{
-							ID:   cnt.ToolCall.ID,
+							ID: func() string {
+								if cnt.ToolCall.CallID != "" {
+									return cnt.ToolCall.CallID
+								}
+
+								return cnt.ToolCall.ID
+							}(),
 							Data: string(data),
 						}),
 					},

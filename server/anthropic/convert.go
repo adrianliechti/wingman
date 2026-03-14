@@ -80,6 +80,7 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 
 			content = append(content, provider.ToolCallContent(provider.ToolCall{
 				ID:        block.ID,
+				CallID:    block.ID,
 				Name:      block.Name,
 				Arguments: args,
 			}))

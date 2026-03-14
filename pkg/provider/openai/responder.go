@@ -77,8 +77,9 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.ToolCallContent(provider.ToolCall{
-									ID:   item.CallID,
-									Name: item.Name,
+									ID:     item.ID,
+									CallID: item.CallID,
+									Name:   item.Name,
 								}),
 							},
 						},
@@ -169,7 +170,8 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 						Content: []provider.Content{
 							provider.ToolCallContent(provider.ToolCall{
-								ID:        callID,
+								ID:        event.ItemID,
+								CallID:    callID,
 								Arguments: event.Delta,
 							}),
 						},
@@ -533,8 +535,13 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				}
 
 				if c.ToolCall != nil {
+					callID := c.ToolCall.CallID
+					if callID == "" {
+						callID = c.ToolCall.ID
+					}
+
 					call := &responses.ResponseFunctionToolCallParam{
-						CallID: c.ToolCall.ID,
+						CallID: callID,
 
 						Name:      c.ToolCall.Name,
 						Arguments: c.ToolCall.Arguments,

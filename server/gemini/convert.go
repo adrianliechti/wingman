@@ -89,6 +89,7 @@ func toMessage(c Content) (*provider.Message, error) {
 
 			content = append(content, provider.ToolCallContent(provider.ToolCall{
 				ID:        id,
+				CallID:    id,
 				Name:      part.FunctionCall.Name,
 				Arguments: args,
 			}))

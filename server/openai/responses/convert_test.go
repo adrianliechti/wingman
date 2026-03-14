@@ -190,7 +190,7 @@ func TestToMessages_SingleFunctionCallRound(t *testing.T) {
 	require.Equal(t, provider.MessageRoleAssistant, msgs[1].Role)
 	require.Len(t, msgs[1].Content, 1)
 	require.NotNil(t, msgs[1].Content[0].ToolCall)
-	require.Equal(t, "call_1", msgs[1].Content[0].ToolCall.ID)
+	require.Equal(t, "call_1", msgs[1].Content[0].ToolCall.CallID)
 	require.Equal(t, "get_weather", msgs[1].Content[0].ToolCall.Name)
 
 	require.Equal(t, provider.MessageRoleUser, msgs[2].Role)
@@ -217,8 +217,8 @@ func TestToMessages_ParallelFunctionCalls(t *testing.T) {
 	// Single assistant message with both tool calls
 	require.Equal(t, provider.MessageRoleAssistant, msgs[1].Role)
 	require.Len(t, msgs[1].Content, 2)
-	require.Equal(t, "call_1", msgs[1].Content[0].ToolCall.ID)
-	require.Equal(t, "call_2", msgs[1].Content[1].ToolCall.ID)
+	require.Equal(t, "call_1", msgs[1].Content[0].ToolCall.CallID)
+	require.Equal(t, "call_2", msgs[1].Content[1].ToolCall.CallID)
 
 	// Single user message with both tool results
 	require.Equal(t, provider.MessageRoleUser, msgs[2].Role)

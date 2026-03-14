@@ -53,10 +53,11 @@ type StreamEvent struct {
 	Text string
 
 	// For function call events
-	ToolCallID   string
-	ToolCallName string
-	Arguments    string
-	OutputIndex  int
+	ToolCallID     string
+	ToolCallCallID string
+	ToolCallName   string
+	Arguments      string
+	OutputIndex    int
 
 	// For reasoning events
 	ReasoningID        string
@@ -89,10 +90,10 @@ type StreamingAccumulator struct {
 	messageOutputIndex int  // Output index for the message item
 	streamedText       strings.Builder
 
-	// Track tool calls - map from tool call ID to output index
+	// Track tool calls - map from effective call ID to output index
 	toolCallIndices map[string]int
 	toolCallStarted map[string]bool
-	lastToolCallID  string // Track the last tool call ID for chunks without ID
+	lastToolCallID  string // Track the last effective call ID for chunks without an explicit ID
 	nextOutputIndex int    // Next available output index
 
 	// Track reasoning state
@@ -168,14 +169,19 @@ func (s *StreamingAccumulator) ensureMessageContentPart() error {
 }
 
 func (s *StreamingAccumulator) trackToolCall(toolCall provider.ToolCall) (string, int, bool) {
-	if toolCall.ID != "" {
-		if _, exists := s.toolCallIndices[toolCall.ID]; !exists {
-			s.toolCallIndices[toolCall.ID] = s.reserveOutputIndex()
-		}
-		s.lastToolCallID = toolCall.ID
+	toolCallID := toolCall.CallID
+	if toolCallID == "" {
+		toolCallID = toolCall.ID
 	}
 
-	currentToolCallID := toolCall.ID
+	if toolCallID != "" {
+		if _, exists := s.toolCallIndices[toolCallID]; !exists {
+			s.toolCallIndices[toolCallID] = s.reserveOutputIndex()
+		}
+		s.lastToolCallID = toolCallID
+	}
+
+	currentToolCallID := toolCallID
 	if currentToolCallID == "" {
 		currentToolCallID = s.lastToolCallID
 	} else {
@@ -189,18 +195,24 @@ func (s *StreamingAccumulator) trackToolCall(toolCall provider.ToolCall) (string
 	return currentToolCallID, s.toolCallIndices[currentToolCallID], true
 }
 
-func (s *StreamingAccumulator) ensureToolCallStarted(toolCallID, toolCallName string, outputIndex int) error {
+func (s *StreamingAccumulator) ensureToolCallStarted(toolCallID string, toolCall provider.ToolCall, outputIndex int) error {
 	if s.toolCallStarted[toolCallID] {
 		return nil
 	}
 
 	s.toolCallStarted[toolCallID] = true
 
+	itemID := toolCall.ID
+	if itemID == "" {
+		itemID = toolCallID
+	}
+
 	return s.emitEvent(StreamEvent{
-		Type:         StreamEventFunctionCallAdded,
-		ToolCallID:   toolCallID,
-		ToolCallName: toolCallName,
-		OutputIndex:  outputIndex,
+		Type:           StreamEventFunctionCallAdded,
+		ToolCallID:     itemID,
+		ToolCallCallID: toolCallID,
+		ToolCallName:   toolCall.Name,
+		OutputIndex:    outputIndex,
 	})
 }
 
@@ -364,16 +376,22 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 				currentToolCallID, outputIndex, ok := s.trackToolCall(*toolCall)
 				if ok {
-					if err := s.ensureToolCallStarted(currentToolCallID, toolCall.Name, outputIndex); err != nil {
+					if err := s.ensureToolCallStarted(currentToolCallID, *toolCall, outputIndex); err != nil {
 						return err
 					}
 
 					if toolCall.Arguments != "" {
+						itemID := toolCall.ID
+						if itemID == "" {
+							itemID = currentToolCallID
+						}
+
 						if err := s.emitEvent(StreamEvent{
-							Type:        StreamEventFunctionCallArgumentsDelta,
-							ToolCallID:  currentToolCallID,
-							Delta:       toolCall.Arguments,
-							OutputIndex: outputIndex,
+							Type:           StreamEventFunctionCallArgumentsDelta,
+							ToolCallID:     itemID,
+							ToolCallCallID: currentToolCallID,
+							Delta:          toolCall.Arguments,
+							OutputIndex:    outputIndex,
 						}); err != nil {
 							return err
 						}
@@ -500,27 +518,38 @@ func (s *StreamingAccumulator) Complete() error {
 	// Emit function_call_arguments.done and function_call.done for each tool call
 	if result.Message != nil {
 		for _, call := range result.Message.ToolCalls() {
-			outputIndex := s.toolCallIndices[call.ID]
+			callID := call.CallID
+			if callID == "" {
+				callID = call.ID
+			}
+			itemID := call.ID
+			if itemID == "" {
+				itemID = callID
+			}
+
+			outputIndex := s.toolCallIndices[callID]
 
 			// function_call_arguments.done
 			if err := s.emitEvent(StreamEvent{
-				Type:         StreamEventFunctionCallArgumentsDone,
-				ToolCallID:   call.ID,
-				ToolCallName: call.Name,
-				Arguments:    call.Arguments,
-				OutputIndex:  outputIndex,
+				Type:           StreamEventFunctionCallArgumentsDone,
+				ToolCallID:     itemID,
+				ToolCallCallID: callID,
+				ToolCallName:   call.Name,
+				Arguments:      call.Arguments,
+				OutputIndex:    outputIndex,
 			}); err != nil {
 				return err
 			}
 
 			// function_call.done (output_item.done for the function call)
 			if err := s.emitEvent(StreamEvent{
-				Type:         StreamEventFunctionCallDone,
-				ToolCallID:   call.ID,
-				ToolCallName: call.Name,
-				Arguments:    call.Arguments,
-				OutputIndex:  outputIndex,
-				Completion:   result,
+				Type:           StreamEventFunctionCallDone,
+				ToolCallID:     itemID,
+				ToolCallCallID: callID,
+				ToolCallName:   call.Name,
+				Arguments:      call.Arguments,
+				OutputIndex:    outputIndex,
+				Completion:     result,
 			}); err != nil {
 				return err
 			}
