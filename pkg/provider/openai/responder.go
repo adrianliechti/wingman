@@ -483,6 +483,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 			}
 
 		case provider.MessageRoleAssistant:
+			calls := []responses.ResponseInputItemUnionParam{}
 			message := &responses.ResponseOutputMessageParam{}
 
 			for _, c := range m.Content {
@@ -540,7 +541,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						Arguments: c.ToolCall.Arguments,
 					}
 
-					result = append(result, responses.ResponseInputItemUnionParam{
+					calls = append(calls, responses.ResponseInputItemUnionParam{
 						OfFunctionCall: call,
 					})
 				}
@@ -550,6 +551,10 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				result = append(result, responses.ResponseInputItemUnionParam{
 					OfOutputMessage: message,
 				})
+			}
+
+			if len(calls) > 0 {
+				result = append(result, calls...)
 			}
 		}
 	}
