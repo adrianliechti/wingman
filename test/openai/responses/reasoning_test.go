@@ -8,28 +8,64 @@ import (
 	openaitest "github.com/adrianliechti/wingman/test/openai"
 )
 
+var reasoningTests = []struct {
+	name             string
+	body             map[string]any
+	requireReasoning bool // whether reasoning output must be present
+}{
+	{
+		name:             "reasoning with summary",
+		requireReasoning: true,
+		body: map[string]any{
+			"model": "gpt-5.4-mini",
+			"input": "How many r's are in strawberry?",
+			"reasoning": map[string]any{
+				"effort":  "low",
+				"summary": "auto",
+			},
+		},
+	},
+	{
+		name:             "reasoning multi-turn",
+		requireReasoning: true,
+		body: map[string]any{
+			"model": "gpt-5.4-mini",
+			"reasoning": map[string]any{
+				"effort":  "high",
+				"summary": "auto",
+			},
+			"input": []map[string]any{
+				{
+					"type": "message",
+					"role": "user",
+					"content": []map[string]any{
+						{"type": "input_text", "text": "Count the number of letter 'e' in the word 'nevertheless'."},
+					},
+				},
+				{
+					"type": "message",
+					"role": "assistant",
+					"content": []map[string]any{
+						{"type": "output_text", "text": "There are 3 letter e's in 'nevertheless'."},
+					},
+				},
+				{
+					"type": "message",
+					"role": "user",
+					"content": []map[string]any{
+						{"type": "input_text", "text": "Are you sure? Count again very carefully, letter by letter."},
+					},
+				},
+			},
+		},
+	},
+}
+
 func TestReasoningHTTP(t *testing.T) {
 	h := openaitest.New(t)
 	ctx := context.Background()
 
-	tests := []struct {
-		name string
-		body map[string]any
-	}{
-		{
-			name: "reasoning with summary",
-			body: map[string]any{
-				"model": "gpt-5.4-mini",
-				"input": "How many r's are in strawberry?",
-				"reasoning": map[string]any{
-					"effort":  "low",
-					"summary": "auto",
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range reasoningTests {
 		t.Run(tt.name, func(t *testing.T) {
 			openaiResp, err := h.Client.Post(ctx, h.OpenAI, "/responses", tt.body)
 			if err != nil {
@@ -48,8 +84,10 @@ func TestReasoningHTTP(t *testing.T) {
 				t.Fatalf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
 			}
 
-			requireReasoningOutput(t, "openai", openaiResp.Body)
-			requireReasoningOutput(t, "wingman", wingmanResp.Body)
+			if tt.requireReasoning {
+				requireReasoningOutput(t, "openai", openaiResp.Body)
+				requireReasoningOutput(t, "wingman", wingmanResp.Body)
+			}
 
 			rules := openaitest.DefaultResponseRules()
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
@@ -61,32 +99,20 @@ func TestReasoningSSE(t *testing.T) {
 	h := openaitest.New(t)
 	ctx := context.Background()
 
-	tests := []struct {
-		name string
-		body map[string]any
-	}{
-		{
-			name: "reasoning streaming with summary",
-			body: map[string]any{
-				"model":  "gpt-5.4-mini",
-				"stream": true,
-				"input":  "How many r's are in strawberry?",
-				"reasoning": map[string]any{
-					"effort":  "low",
-					"summary": "auto",
-				},
-			},
-		},
-	}
+	for _, tt := range reasoningTests {
+		streamBody := make(map[string]any)
+		for k, v := range tt.body {
+			streamBody[k] = v
+		}
+		streamBody["stream"] = true
 
-	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			openaiEvents, err := h.Client.PostSSE(ctx, h.OpenAI, "/responses", tt.body)
+			openaiEvents, err := h.Client.PostSSE(ctx, h.OpenAI, "/responses", streamBody)
 			if err != nil {
 				t.Fatalf("openai SSE request failed: %v", err)
 			}
 
-			wingmanEvents, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", tt.body)
+			wingmanEvents, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", streamBody)
 			if err != nil {
 				t.Fatalf("wingman SSE request failed: %v", err)
 			}
@@ -98,8 +124,10 @@ func TestReasoningSSE(t *testing.T) {
 				t.Fatal("wingman returned no SSE events")
 			}
 
-			requireReasoningSSEEvent(t, "openai", openaiEvents)
-			requireReasoningSSEEvent(t, "wingman", wingmanEvents)
+			if tt.requireReasoning {
+				requireReasoningSSEEvent(t, "openai", openaiEvents)
+				requireReasoningSSEEvent(t, "wingman", wingmanEvents)
+			}
 
 			harness.CompareSSEEventPattern(t, openaiEvents, wingmanEvents)
 

@@ -12,6 +12,7 @@ func DefaultResponseRules() map[string]harness.FieldRule {
 		"output.*.id":               harness.FieldPresence,
 		"output.*.content.*.text":   harness.FieldIgnore,
 		"output.*.encrypted_content": harness.FieldNonEmpty,
+		"output.*.summary":          harness.FieldPresence,
 		"output.*.summary.*.text":   harness.FieldIgnore,
 
 		"usage.input_tokens":                           harness.FieldNonEmpty,
@@ -37,6 +38,7 @@ func DefaultSSEEventRules() map[string]harness.FieldRule {
 		"response.model":                                        harness.FieldIgnore,
 		"response.output.*.id":                                  harness.FieldPresence,
 		"response.output.*.content.*.text":                      harness.FieldIgnore,
+		"response.output.*.summary":                             harness.FieldPresence,
 		"response.output.*.summary.*.text":                      harness.FieldIgnore,
 		"response.output.*.encrypted_content":                   harness.FieldNonEmpty,
 		"response.usage.input_tokens":                           harness.FieldNonEmpty,
