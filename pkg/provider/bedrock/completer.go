@@ -436,10 +436,14 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 			tool.Description = aws.String(options.Schema.Description)
 		}
 
-		if options.Schema.Schema != nil {
-			tool.InputSchema = &types.ToolInputSchemaMemberJson{
-				Value: document.NewLazyDocument(options.Schema.Schema),
-			}
+		schema := options.Schema.Schema
+		if schema == nil {
+			// json_object mode: use a permissive schema that accepts any JSON object
+			schema = map[string]any{"type": "object"}
+		}
+
+		tool.InputSchema = &types.ToolInputSchemaMemberJson{
+			Value: document.NewLazyDocument(schema),
 		}
 
 		config.Tools = append(config.Tools, &types.ToolMemberToolSpec{Value: tool})

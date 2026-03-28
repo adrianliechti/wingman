@@ -40,7 +40,7 @@ func compareHTTP(t *testing.T, h *openai.Harness, model openai.Model, body map[s
 		t.Fatalf("openai returned status %d: %s", openaiResp.StatusCode, string(openaiResp.RawBody))
 	}
 	if wingmanResp.StatusCode != 200 {
-		t.Skipf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
+		t.Fatalf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
 	}
 
 	return openaiResp, wingmanResp
