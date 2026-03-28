@@ -245,10 +245,15 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 	var result []ContentBlock
 
 	for _, c := range content {
-		if c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Signature != "") {
+		if c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "" || c.Reasoning.Signature != "") {
+			thinking := c.Reasoning.Text
+			if thinking == "" {
+				thinking = c.Reasoning.Summary
+			}
+
 			result = append(result, ContentBlock{
 				Type:      "thinking",
-				Thinking:  c.Reasoning.Text,
+				Thinking:  thinking,
 				Signature: c.Reasoning.Signature,
 			})
 		}

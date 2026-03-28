@@ -107,7 +107,10 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 			options.ReasoningOptions = &provider.ReasoningOptions{}
 		}
 
+		options.ReasoningOptions.IncludeSummary = true
 		options.ReasoningOptions.IncludeSignature = true
+
+		options.ReasoningOptions.Effort = provider.EffortMedium
 	}
 
 	if req.ContextManagement != nil {

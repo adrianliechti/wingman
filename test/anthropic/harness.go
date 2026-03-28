@@ -68,6 +68,7 @@ func DefaultModels() []Model {
 	return []Model{
 		{Name: "claude-sonnet-4-6", Capabilities: ModelCapabilities{Thinking: true, TextEditor: true, Compaction: true, ComputerUse: true}},
 		{Name: "bedrock-sonnet-4-6", Capabilities: ModelCapabilities{Thinking: true}},
+		{Name: "gpt-5.4-mini", Capabilities: ModelCapabilities{Thinking: true, Compaction: true}},
 	}
 }
 
