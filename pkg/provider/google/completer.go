@@ -116,30 +116,22 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 		SystemInstruction: instruction,
 	}
 
-	// // Configure thinking based on effort level
-	// if options.ReasoningOptions != nil {
-	// 	switch options.ReasoningOptions.Effort {
-	// case provider.EffortMinimal:
-	// 	config.ThinkingConfig = &genai.ThinkingConfig{
-	// 		IncludeThoughts: true,
-	// 		ThinkingLevel:   genai.ThinkingLevelMinimal,
-	// 	}
-	// case provider.EffortLow:
-	// 	config.ThinkingConfig = &genai.ThinkingConfig{
-	// 		IncludeThoughts: true,
-	// 		ThinkingLevel:   genai.ThinkingLevelLow,
-	// 	}
-	// case provider.EffortMedium:
-	// 	config.ThinkingConfig = &genai.ThinkingConfig{
-	// 		IncludeThoughts: true,
-	// 		ThinkingLevel:   genai.ThinkingLevelMedium,
-	// 	}
-	// case provider.EffortHigh:
-	// 	config.ThinkingConfig = &genai.ThinkingConfig{
-	// 		IncludeThoughts: true,
-	// 		ThinkingLevel:   genai.ThinkingLevelHigh,
-	// 	}
-	// }
+	if options.ReasoningOptions != nil {
+		config.ThinkingConfig = &genai.ThinkingConfig{
+			IncludeThoughts: true,
+		}
+
+		switch options.ReasoningOptions.Effort {
+		case provider.EffortMinimal:
+			config.ThinkingConfig.ThinkingLevel = genai.ThinkingLevelMinimal
+		case provider.EffortLow:
+			config.ThinkingConfig.ThinkingLevel = genai.ThinkingLevelLow
+		case provider.EffortMedium:
+			config.ThinkingConfig.ThinkingLevel = genai.ThinkingLevelMedium
+		case provider.EffortHigh, provider.EffortMax:
+			config.ThinkingConfig.ThinkingLevel = genai.ThinkingLevelHigh
+		}
+	}
 
 	if len(options.Tools) > 0 {
 		config.Tools = convertTools(options.Tools)

@@ -24,6 +24,12 @@ type GenerateContentRequest struct {
 	SafetySettings    []*SafetySetting  `json:"safetySettings,omitempty"`
 }
 
+type ThinkingConfig struct {
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
+	ThinkingBudget  *int   `json:"thinkingBudget,omitempty"`
+	IncludeThoughts bool   `json:"includeThoughts,omitempty"`
+}
+
 // Content represents a message with parts
 type Content struct {
 	Role  string  `json:"role,omitempty"`
@@ -33,6 +39,8 @@ type Content struct {
 // Part is a single piece of content
 type Part struct {
 	Text             string            `json:"text,omitempty"`
+	Thought          bool              `json:"thought,omitempty"`
+	ThoughtSignature string            `json:"thoughtSignature,omitempty"`
 	InlineData       *Blob             `json:"inlineData,omitempty"`
 	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`
@@ -100,6 +108,7 @@ type GenerationConfig struct {
 	ResponseMimeType   string   `json:"responseMimeType,omitempty"`
 	ResponseSchema     any      `json:"responseSchema,omitempty"`
 	ResponseJsonSchema any      `json:"responseJsonSchema,omitempty"`
+	ThinkingConfig     *ThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 // SafetySetting configures safety thresholds
@@ -138,6 +147,7 @@ type UsageMetadata struct {
 	PromptTokenCount     int `json:"promptTokenCount,omitempty"`
 	CandidatesTokenCount int `json:"candidatesTokenCount,omitempty"`
 	TotalTokenCount      int `json:"totalTokenCount,omitempty"`
+	ThoughtsTokenCount   int `json:"thoughtsTokenCount,omitempty"`
 }
 
 // PromptFeedback contains feedback about the prompt

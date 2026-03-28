@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -36,6 +37,12 @@ func writeJson(w http.ResponseWriter, v any) {
 func writeError(w http.ResponseWriter, code int, err error) {
 	if err != nil {
 		println("server error", err.Error())
+	}
+
+	code = provider.StatusCodeFromError(err, code)
+
+	if v := provider.RetryAfterHeaderValue(provider.RetryAfterFromError(err)); v != "" {
+		w.Header().Set("Retry-After", v)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

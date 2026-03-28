@@ -176,6 +176,24 @@ func toContent(content []provider.Content) *Content {
 	var parts []*Part
 
 	for _, c := range content {
+		if c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "") {
+			text := c.Reasoning.Text
+			if text == "" {
+				text = c.Reasoning.Summary
+			}
+
+			part := &Part{
+				Text:    text,
+				Thought: true,
+			}
+
+			if c.Reasoning.Signature != "" {
+				part.ThoughtSignature = c.Reasoning.Signature
+			}
+
+			parts = append(parts, part)
+		}
+
 		if c.Text != "" {
 			parts = append(parts, &Part{
 				Text: c.Text,

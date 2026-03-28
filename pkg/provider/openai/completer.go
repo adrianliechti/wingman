@@ -180,9 +180,15 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 				OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
 			}
 		} else {
+			schemaData := options.Schema.Schema
+
+			if options.Schema.Strict != nil && *options.Schema.Strict {
+				schemaData = ensureAdditionalPropertiesFalse(schemaData)
+			}
+
 			schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
 				Name:   options.Schema.Name,
-				Schema: options.Schema.Schema,
+				Schema: schemaData,
 			}
 
 			if options.Schema.Description != "" {

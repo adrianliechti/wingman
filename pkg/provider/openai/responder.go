@@ -513,9 +513,15 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 				OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
 			}
 		} else {
+			schemaData := options.Schema.Schema
+
+			if options.Schema.Strict != nil && *options.Schema.Strict {
+				schemaData = ensureAdditionalPropertiesFalse(schemaData)
+			}
+
 			schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
 				Name:   options.Schema.Name,
-				Schema: options.Schema.Schema,
+				Schema: schemaData,
 			}
 
 			if options.Schema.Strict != nil {

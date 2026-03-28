@@ -36,13 +36,13 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		ModelVersion: s.model,
 	}
 
-	// Add usage metadata if available
+	// Always include usage metadata
+	response.UsageMetadata = &UsageMetadata{}
+
 	if c.Usage != nil {
-		response.UsageMetadata = &UsageMetadata{
-			PromptTokenCount:     c.Usage.InputTokens,
-			CandidatesTokenCount: c.Usage.OutputTokens,
-			TotalTokenCount:      c.Usage.InputTokens + c.Usage.OutputTokens,
-		}
+		response.UsageMetadata.PromptTokenCount = c.Usage.InputTokens
+		response.UsageMetadata.CandidatesTokenCount = c.Usage.OutputTokens
+		response.UsageMetadata.TotalTokenCount = c.Usage.InputTokens + c.Usage.OutputTokens
 	}
 
 	// Convert content to Gemini format
@@ -50,7 +50,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if c.Message != nil && len(c.Message.Content) > 0 {
 		var textContent []provider.Content
 		for _, content := range c.Message.Content {
-			if content.Text != "" {
+			if content.Text != "" || (content.Reasoning != nil && content.Reasoning.Text != "") {
 				textContent = append(textContent, content)
 			}
 		}

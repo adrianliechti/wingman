@@ -159,11 +159,14 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 		options.MaxTokens = req.GenerationConfig.MaxOutputTokens
 
 		// Handle structured output via responseJsonSchema or responseSchema
+		strict := true
+
 		if req.GenerationConfig.ResponseJsonSchema != nil {
 			if schema, ok := req.GenerationConfig.ResponseJsonSchema.(map[string]any); ok {
 				options.Schema = &provider.Schema{
 					Name:   "response",
 					Schema: schema,
+					Strict: &strict,
 				}
 			}
 		} else if req.GenerationConfig.ResponseSchema != nil {
@@ -171,7 +174,29 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 				options.Schema = &provider.Schema{
 					Name:   "response",
 					Schema: schema,
+					Strict: &strict,
 				}
+			}
+		}
+	}
+
+	if req.GenerationConfig != nil && req.GenerationConfig.ThinkingConfig != nil {
+		tc := req.GenerationConfig.ThinkingConfig
+
+		if tc.IncludeThoughts {
+			options.ReasoningOptions = &provider.ReasoningOptions{
+				IncludeSummary: true,
+			}
+
+			switch tc.ThinkingLevel {
+			case "THINKING_LEVEL_LOW":
+				options.ReasoningOptions.Effort = provider.EffortLow
+			case "THINKING_LEVEL_MEDIUM":
+				options.ReasoningOptions.Effort = provider.EffortMedium
+			case "THINKING_LEVEL_HIGH":
+				options.ReasoningOptions.Effort = provider.EffortHigh
+			default:
+				options.ReasoningOptions.Effort = provider.EffortMedium
 			}
 		}
 	}
