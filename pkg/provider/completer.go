@@ -187,6 +187,7 @@ type OutputOptions struct {
 type ReasoningOptions struct {
 	Effort Effort
 
+	IncludeSummary   bool
 	IncludeSignature bool
 }
 

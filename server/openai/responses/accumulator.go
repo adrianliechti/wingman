@@ -100,6 +100,12 @@ type accumulatedToolCall struct {
 type StreamingAccumulator struct {
 	handler StreamEventHandler
 
+	// When true, incoming Reasoning.Text is emitted as summary events instead of text events.
+	ReasoningAsSummary bool
+
+	// When true, reasoning output is silently dropped (client didn't request reasoning).
+	SuppressReasoning bool
+
 	// Completion metadata (captured from chunks)
 	id     string
 	model  string
@@ -468,7 +474,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		}
 
 		// Reasoning — must be emitted before text or tool calls
-		if content.Reasoning != nil {
+		if content.Reasoning != nil && !s.SuppressReasoning {
 			r := content.Reasoning
 
 			if r.ID != "" && s.reasoningID == "" {
@@ -481,6 +487,12 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				if err := s.ensureReasoningItem(); err != nil {
 					return err
 				}
+			}
+
+			if r.Text != "" && s.ReasoningAsSummary {
+				// Redirect reasoning text to summary events when summary mode is active
+				r.Summary = r.Text
+				r.Text = ""
 			}
 
 			if r.Text != "" {

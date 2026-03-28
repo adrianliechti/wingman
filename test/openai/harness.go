@@ -1,8 +1,9 @@
-package openaitest
+package openai
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/harness"
@@ -15,12 +16,47 @@ const (
 	DefaultOpenAIURL  = "https://api.openai.com/v1"
 )
 
+// ModelCapabilities describes what features a model supports.
+type ModelCapabilities struct {
+	Reasoning  bool // model supports reasoning/thinking
+	Compaction bool // model supports server-side compaction
+}
+
+// Model represents a model to test with its provider context.
+type Model struct {
+	Name         string
+	Capabilities ModelCapabilities
+}
+
+// DefaultModels returns the list of models to test.
+// Override with TEST_MODELS env var (comma-separated; prefix with + for OpenAI models).
+func DefaultModels() []Model {
+	if v := os.Getenv("TEST_MODELS"); v != "" {
+		var models []Model
+		for _, m := range strings.Split(v, ",") {
+			m = strings.TrimSpace(m)
+			models = append(models, Model{Name: strings.TrimSpace(m)})
+		}
+		return models
+	}
+
+	return []Model{
+		{Name: "gpt-5.4-mini", Capabilities: ModelCapabilities{Reasoning: true, Compaction: true}},
+		{Name: "claude-sonnet-4-6", Capabilities: ModelCapabilities{Reasoning: true}},
+		{Name: "bedrock-sonnet-4-6", Capabilities: ModelCapabilities{Reasoning: true}},
+	}
+}
+
 // Harness holds the two endpoints and a shared HTTP client for comparing
 // wingman responses against the OpenAI API.
 type Harness struct {
 	Wingman harness.Endpoint
 	OpenAI  harness.Endpoint
 	Client  *harness.Client
+
+	// ReferenceModel is the model used for OpenAI API reference calls
+	// when testing non-OpenAI models through wingman.
+	ReferenceModel string
 }
 
 // New creates a Harness from environment variables.
@@ -44,9 +80,10 @@ func New(t *testing.T) *Harness {
 	openaiURL := envOr("OPENAI_BASE_URL", DefaultOpenAIURL)
 
 	return &Harness{
-		Wingman: harness.Endpoint{Name: "wingman", BaseURL: wingmanURL, APIKey: wingmanKey},
-		OpenAI:  harness.Endpoint{Name: "openai", BaseURL: openaiURL, APIKey: openaiKey},
-		Client:  harness.NewClient(),
+		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: wingmanURL, APIKey: wingmanKey},
+		OpenAI:         harness.Endpoint{Name: "openai", BaseURL: openaiURL, APIKey: openaiKey},
+		Client:         harness.NewClient(),
+		ReferenceModel: envOr("TEST_REFERENCE_MODEL", "gpt-5.4-mini"),
 	}
 }
 

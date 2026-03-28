@@ -333,7 +333,9 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 			req.Include = append(req.Include, responses.ResponseIncludableReasoningEncryptedContent)
 		}
 
-		req.Reasoning.Summary = responses.ReasoningSummaryAuto
+		if options.ReasoningOptions.IncludeSummary {
+			req.Reasoning.Summary = responses.ReasoningSummaryAuto
+		}
 
 		switch options.ReasoningOptions.Effort {
 		case provider.EffortNone:

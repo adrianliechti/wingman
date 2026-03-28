@@ -1,12 +1,11 @@
 package responses_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/harness"
-	openaitest "github.com/adrianliechti/wingman/test/openai"
+	"github.com/adrianliechti/wingman/test/openai"
 )
 
 func buildCompactionInput() []map[string]any {
@@ -38,84 +37,63 @@ func buildCompactionInput() []map[string]any {
 }
 
 func TestCompactionHTTP(t *testing.T) {
-	h := openaitest.New(t)
-	ctx := context.Background()
+	h := openai.New(t)
 
-	body := map[string]any{
-		"model": "gpt-5.4-mini",
-		"input": buildCompactionInput(),
-		"context_management": []map[string]any{
-			{
-				"type":              "compaction",
-				"compact_threshold": 1000,
-			},
-		},
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.Compaction {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"input": buildCompactionInput(),
+				"context_management": []map[string]any{
+					{
+						"type":              "compaction",
+						"compact_threshold": 1000,
+					},
+				},
+			}
+
+			openaiResp, wingmanResp := compareHTTP(t, h, model, body)
+
+			requireCompactionOutput(t, "openai", openaiResp.Body)
+			requireCompactionOutput(t, "wingman", wingmanResp.Body)
+
+			rules := openai.DefaultResponseRules()
+			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
+		})
 	}
-
-	openaiResp, err := h.Client.Post(ctx, h.OpenAI, "/responses", body)
-	if err != nil {
-		t.Fatalf("openai request failed: %v", err)
-	}
-
-	wingmanResp, err := h.Client.Post(ctx, h.Wingman, "/responses", body)
-	if err != nil {
-		t.Fatalf("wingman request failed: %v", err)
-	}
-
-	if openaiResp.StatusCode != 200 {
-		t.Fatalf("openai returned status %d: %s", openaiResp.StatusCode, string(openaiResp.RawBody))
-	}
-	if wingmanResp.StatusCode != 200 {
-		t.Fatalf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
-	}
-
-	requireCompactionOutput(t, "openai", openaiResp.Body)
-	requireCompactionOutput(t, "wingman", wingmanResp.Body)
-
-	rules := openaitest.DefaultResponseRules()
-	harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 }
 
 func TestCompactionSSE(t *testing.T) {
-	h := openaitest.New(t)
-	ctx := context.Background()
+	h := openai.New(t)
 
-	body := map[string]any{
-		"model":  "gpt-5.4-mini",
-		"stream": true,
-		"input":  buildCompactionInput(),
-		"context_management": []map[string]any{
-			{
-				"type":              "compaction",
-				"compact_threshold": 1000,
-			},
-		},
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.Compaction {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"input": buildCompactionInput(),
+				"context_management": []map[string]any{
+					{
+						"type":              "compaction",
+						"compact_threshold": 1000,
+					},
+				},
+			}
+
+			openaiEvents, wingmanEvents := compareSSE(t, h, model, body)
+
+			requireCompactionSSEEvent(t, "openai", openaiEvents)
+			requireCompactionSSEEvent(t, "wingman", wingmanEvents)
+
+			rules := openai.DefaultSSEEventRules()
+			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
+		})
 	}
-
-	openaiEvents, err := h.Client.PostSSE(ctx, h.OpenAI, "/responses", body)
-	if err != nil {
-		t.Fatalf("openai SSE request failed: %v", err)
-	}
-
-	wingmanEvents, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", body)
-	if err != nil {
-		t.Fatalf("wingman SSE request failed: %v", err)
-	}
-
-	if len(openaiEvents) == 0 {
-		t.Fatal("openai returned no SSE events")
-	}
-	if len(wingmanEvents) == 0 {
-		t.Fatal("wingman returned no SSE events")
-	}
-
-	requireCompactionSSEEvent(t, "openai", openaiEvents)
-	requireCompactionSSEEvent(t, "wingman", wingmanEvents)
-
-	harness.CompareSSEEventPattern(t, openaiEvents, wingmanEvents)
-
-	rules := openaitest.DefaultSSEEventRules()
-	harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 }
 
 func requireCompactionOutput(t *testing.T, label string, body map[string]any) {

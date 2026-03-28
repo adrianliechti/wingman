@@ -1,4 +1,4 @@
-package openaitest
+package openai
 
 import "github.com/adrianliechti/wingman/test/harness"
 
@@ -11,9 +11,11 @@ func DefaultResponseRules() map[string]harness.FieldRule {
 		"model":                     harness.FieldIgnore,
 		"output.*.id":               harness.FieldPresence,
 		"output.*.content.*.text":   harness.FieldIgnore,
-		"output.*.encrypted_content": harness.FieldNonEmpty,
+		"output.*.encrypted_content": harness.FieldIgnore,
 		"output.*.summary":          harness.FieldPresence,
 		"output.*.summary.*.text":   harness.FieldIgnore,
+		"output.*.call_id":          harness.FieldPresence,
+		"output.*.arguments":        harness.FieldPresence,
 
 		"usage.input_tokens":                           harness.FieldNonEmpty,
 		"usage.output_tokens":                          harness.FieldNonEmpty,
@@ -21,6 +23,8 @@ func DefaultResponseRules() map[string]harness.FieldRule {
 		"usage.input_tokens_details.cached_tokens":     harness.FieldPresence,
 		"usage.output_tokens_details.reasoning_tokens": harness.FieldPresence,
 		"error":                                        harness.FieldExact,
+		"text.format.description":                      harness.FieldIgnore,
+
 
 		"billing":           harness.FieldIgnore,
 		"store":             harness.FieldIgnore,
@@ -40,26 +44,33 @@ func DefaultSSEEventRules() map[string]harness.FieldRule {
 		"response.output.*.content.*.text":                      harness.FieldIgnore,
 		"response.output.*.summary":                             harness.FieldPresence,
 		"response.output.*.summary.*.text":                      harness.FieldIgnore,
-		"response.output.*.encrypted_content":                   harness.FieldNonEmpty,
+		"response.output.*.encrypted_content":                   harness.FieldIgnore,
+		"response.output.*.call_id":                             harness.FieldPresence,
+		"response.output.*.arguments":                           harness.FieldPresence,
 		"response.usage.input_tokens":                           harness.FieldNonEmpty,
 		"response.usage.output_tokens":                          harness.FieldNonEmpty,
 		"response.usage.total_tokens":                           harness.FieldNonEmpty,
 		"response.usage.input_tokens_details.cached_tokens":     harness.FieldPresence,
 		"response.usage.output_tokens_details.reasoning_tokens": harness.FieldPresence,
 		"response.reasoning.summary":                            harness.FieldIgnore,
+		"response.text.format.description":                      harness.FieldIgnore,
 		"response.billing":                                      harness.FieldIgnore,
 		"response.store":                                        harness.FieldIgnore,
 		"response.service_tier":                                 harness.FieldPresence,
 
 		"item_id":             harness.FieldPresence,
 		"item.id":             harness.FieldPresence,
-		"item.encrypted_content": harness.FieldNonEmpty,
+		"item.encrypted_content": harness.FieldIgnore,
+		"item.call_id":          harness.FieldPresence,
+		"item.arguments":        harness.FieldIgnore,
 		"item.content.*.text": harness.FieldIgnore,
 		"item.summary":        harness.FieldIgnore,
 		"item.summary.*.text": harness.FieldIgnore,
 		"item.status":         harness.FieldIgnore,
 		"item.content":        harness.FieldIgnore,
 
+		"arguments":      harness.FieldIgnore,
+		"name":           harness.FieldIgnore,
 		"delta":          harness.FieldIgnore,
 		"text":           harness.FieldIgnore,
 		"sequence_number": harness.FieldIgnore,

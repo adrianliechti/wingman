@@ -67,6 +67,16 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Reasoning != nil && req.Reasoning.Summary != nil {
+		if summary, ok := (*req.Reasoning.Summary).(string); ok && summary != "" && summary != "disabled" {
+			if options.ReasoningOptions == nil {
+				options.ReasoningOptions = &provider.ReasoningOptions{}
+			}
+
+			options.ReasoningOptions.IncludeSummary = true
+		}
+	}
+
 	if req.Reasoning != nil && req.Reasoning.Effort != nil {
 		if options.ReasoningOptions == nil {
 			options.ReasoningOptions = &provider.ReasoningOptions{}
@@ -237,8 +247,14 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 		resp.Text.Verbosity = VerbosityMedium
 	}
 
+
 	if req.ToolChoice != nil {
-		resp.ToolChoice = req.ToolChoice
+		// Echo tool_choice as a string when it's a simple mode (matching OpenAI behavior)
+		if len(req.ToolChoice.AllowedTools) == 0 && req.ToolChoice.Mode != "" {
+			resp.ToolChoice = string(req.ToolChoice.Mode)
+		} else {
+			resp.ToolChoice = req.ToolChoice
+		}
 	} else {
 		resp.ToolChoice = "auto"
 	}
@@ -246,6 +262,18 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	if len(req.Tools) > 0 {
 		tools := make([]any, len(req.Tools))
 		for i, t := range req.Tools {
+			// OpenAI echoes tools with strict=true and additionalProperties=false
+			if t.Strict == nil {
+				strict := true
+				t.Strict = &strict
+			}
+
+			if t.Parameters != nil {
+				if _, ok := t.Parameters["additionalProperties"]; !ok {
+					t.Parameters["additionalProperties"] = false
+				}
+			}
+
 			tools[i] = t
 		}
 		resp.Tools = tools
@@ -262,7 +290,29 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	}
 }
 
-func responseOutputs(message *provider.Message, messageID, status string) []ResponseOutput {
+// reasoningRequested returns true if the request explicitly asks for reasoning output.
+func reasoningRequested(req ResponsesRequest) bool {
+	if req.Reasoning == nil {
+		return false
+	}
+
+	if req.Reasoning.Effort != nil && *req.Reasoning.Effort != ReasoningEffortNone {
+		return true
+	}
+
+	if req.Reasoning.Summary != nil {
+		return true
+	}
+
+	return false
+}
+
+type responseOutputOptions struct {
+	IncludeSummary   bool
+	IncludeReasoning bool
+}
+
+func responseOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
 	if message == nil {
 		return []ResponseOutput{}
 	}
@@ -270,9 +320,18 @@ func responseOutputs(message *provider.Message, messageID, status string) []Resp
 	output := []ResponseOutput{}
 
 	for _, content := range message.Content {
-		if content.Reasoning != nil && content.Reasoning.ID != "" {
+		if content.Reasoning != nil && !opts.IncludeReasoning {
+			continue
+		}
+
+		if content.Reasoning != nil && (content.Reasoning.ID != "" || content.Reasoning.Text != "" || content.Reasoning.Summary != "" || content.Reasoning.Signature != "") {
+			reasoningID := content.Reasoning.ID
+			if reasoningID == "" {
+				reasoningID = "rs_" + uuid.NewString()
+			}
+
 			reasoningItem := &ReasoningOutputItem{
-				ID: content.Reasoning.ID,
+				ID: reasoningID,
 
 				Type:   "reasoning",
 				Status: status,
@@ -283,17 +342,25 @@ func responseOutputs(message *provider.Message, messageID, status string) []Resp
 				EncryptedContent: content.Reasoning.Signature,
 			}
 
-			if content.Reasoning.Summary != "" {
+			reasoningText := content.Reasoning.Text
+			reasoningSummary := content.Reasoning.Summary
+
+			if opts.IncludeSummary && reasoningText != "" && reasoningSummary == "" {
+				reasoningSummary = reasoningText
+				reasoningText = ""
+			}
+
+			if reasoningSummary != "" {
 				reasoningItem.Summary = append(reasoningItem.Summary, ReasoningOutputSummary{
 					Type: "summary_text",
-					Text: content.Reasoning.Summary,
+					Text: reasoningSummary,
 				})
 			}
 
-			if content.Reasoning.Text != "" {
+			if reasoningText != "" {
 				reasoningItem.Content = append(reasoningItem.Content, ReasoningOutputContentPart{
 					Type: "reasoning_text",
-					Text: content.Reasoning.Text,
+					Text: reasoningText,
 				})
 			}
 
@@ -373,6 +440,11 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		n := seqNum
 		seqNum++
 		return n
+	}
+
+	outputOpts := responseOutputOptions{
+		IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
+		IncludeReasoning: reasoningRequested(req),
 	}
 
 	// Create initial response template
@@ -751,7 +823,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				CompletedAt: &now,
 				Status:      "completed",
 				Model:       responseModel(event.Completion, req.Model),
-				Output:      responseOutputs(event.Completion.Message, messageID, "completed"),
+				Output:      responseOutputs(event.Completion.Message, messageID, "completed", outputOpts),
 				Usage:       responseUsage(event.Completion.Usage),
 			}
 			responseDefaults(response, req)
@@ -768,7 +840,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				CreatedAt: createdAt,
 				Status:    "incomplete",
 				Model:     responseModel(event.Completion, req.Model),
-				Output:    responseOutputs(event.Completion.Message, messageID, "incomplete"),
+				Output:    responseOutputs(event.Completion.Message, messageID, "incomplete", outputOpts),
 				Usage:     responseUsage(event.Completion.Usage),
 			}
 			responseDefaults(response, req)
@@ -802,6 +874,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 
 		return nil
 	})
+
+	accumulator.ReasoningAsSummary = outputOpts.IncludeSummary
+	accumulator.SuppressReasoning = !outputOpts.IncludeReasoning
 
 	failed := false
 
@@ -858,7 +933,10 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		CreatedAt: now,
 		Status:    responseStatus(completion.Status),
 		Model:     responseModel(completion, req.Model),
-		Output:    responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status)),
+		Output: responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status), responseOutputOptions{
+			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
+			IncludeReasoning: reasoningRequested(req),
+		}),
 		Usage:     responseUsage(completion.Usage),
 	}
 

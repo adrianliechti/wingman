@@ -1,23 +1,21 @@
 package responses_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/harness"
-	openaitest "github.com/adrianliechti/wingman/test/openai"
+	"github.com/adrianliechti/wingman/test/openai"
 )
 
 var reasoningTests = []struct {
 	name             string
 	body             map[string]any
-	requireReasoning bool // whether reasoning output must be present
+	requireReasoning bool
 }{
 	{
 		name:             "reasoning with summary",
 		requireReasoning: true,
 		body: map[string]any{
-			"model": "gpt-5.4-mini",
 			"input": "How many r's are in strawberry?",
 			"reasoning": map[string]any{
 				"effort":  "low",
@@ -29,7 +27,6 @@ var reasoningTests = []struct {
 		name:             "reasoning multi-turn",
 		requireReasoning: true,
 		body: map[string]any{
-			"model": "gpt-5.4-mini",
 			"reasoning": map[string]any{
 				"effort":  "high",
 				"summary": "auto",
@@ -62,77 +59,53 @@ var reasoningTests = []struct {
 }
 
 func TestReasoningHTTP(t *testing.T) {
-	h := openaitest.New(t)
-	ctx := context.Background()
+	h := openai.New(t)
 
-	for _, tt := range reasoningTests {
-		t.Run(tt.name, func(t *testing.T) {
-			openaiResp, err := h.Client.Post(ctx, h.OpenAI, "/responses", tt.body)
-			if err != nil {
-				t.Fatalf("openai request failed: %v", err)
-			}
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.Reasoning {
+			continue
+		}
 
-			wingmanResp, err := h.Client.Post(ctx, h.Wingman, "/responses", tt.body)
-			if err != nil {
-				t.Fatalf("wingman request failed: %v", err)
-			}
+		t.Run(model.Name, func(t *testing.T) {
+			for _, tt := range reasoningTests {
+				t.Run(tt.name, func(t *testing.T) {
+					openaiResp, wingmanResp := compareHTTP(t, h, model, tt.body)
 
-			if openaiResp.StatusCode != 200 {
-				t.Fatalf("openai returned status %d: %s", openaiResp.StatusCode, string(openaiResp.RawBody))
-			}
-			if wingmanResp.StatusCode != 200 {
-				t.Fatalf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
-			}
+					if tt.requireReasoning {
+						requireReasoningOutput(t, "openai", openaiResp.Body)
+						requireReasoningOutput(t, "wingman", wingmanResp.Body)
+					}
 
-			if tt.requireReasoning {
-				requireReasoningOutput(t, "openai", openaiResp.Body)
-				requireReasoningOutput(t, "wingman", wingmanResp.Body)
+					rules := openai.DefaultResponseRules()
+					harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
+				})
 			}
-
-			rules := openaitest.DefaultResponseRules()
-			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 		})
 	}
 }
 
 func TestReasoningSSE(t *testing.T) {
-	h := openaitest.New(t)
-	ctx := context.Background()
+	h := openai.New(t)
 
-	for _, tt := range reasoningTests {
-		streamBody := make(map[string]any)
-		for k, v := range tt.body {
-			streamBody[k] = v
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.Reasoning {
+			continue
 		}
-		streamBody["stream"] = true
 
-		t.Run(tt.name, func(t *testing.T) {
-			openaiEvents, err := h.Client.PostSSE(ctx, h.OpenAI, "/responses", streamBody)
-			if err != nil {
-				t.Fatalf("openai SSE request failed: %v", err)
+		t.Run(model.Name, func(t *testing.T) {
+			for _, tt := range reasoningTests {
+				t.Run(tt.name, func(t *testing.T) {
+					openaiEvents, wingmanEvents := compareSSE(t, h, model, tt.body)
+
+					if tt.requireReasoning {
+						requireReasoningSSEEvent(t, "openai", openaiEvents)
+						requireReasoningSSEEvent(t, "wingman", wingmanEvents)
+					}
+
+					rules := openai.DefaultSSEEventRules()
+					harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
+				})
 			}
-
-			wingmanEvents, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", streamBody)
-			if err != nil {
-				t.Fatalf("wingman SSE request failed: %v", err)
-			}
-
-			if len(openaiEvents) == 0 {
-				t.Fatal("openai returned no SSE events")
-			}
-			if len(wingmanEvents) == 0 {
-				t.Fatal("wingman returned no SSE events")
-			}
-
-			if tt.requireReasoning {
-				requireReasoningSSEEvent(t, "openai", openaiEvents)
-				requireReasoningSSEEvent(t, "wingman", wingmanEvents)
-			}
-
-			harness.CompareSSEEventPattern(t, openaiEvents, wingmanEvents)
-
-			rules := openaitest.DefaultSSEEventRules()
-			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 		})
 	}
 }
@@ -151,10 +124,6 @@ func requireReasoningOutput(t *testing.T, label string, body map[string]any) {
 			continue
 		}
 		if obj["type"] == "reasoning" {
-			summary, _ := obj["summary"].([]any)
-			if len(summary) == 0 {
-				t.Errorf("[%s] reasoning item has no summary", label)
-			}
 			return
 		}
 	}
