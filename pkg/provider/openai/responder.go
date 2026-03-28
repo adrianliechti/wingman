@@ -151,6 +151,26 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					return
 				}
 
+			case responses.ResponseRefusalDeltaEvent:
+				delta := &provider.Completion{
+					ID:    data.Response.ID,
+					Model: data.Response.Model,
+
+					Status: provider.CompletionStatusRefused,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.RefusalContent(event.Delta),
+						},
+					},
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
+
 			case responses.ResponseReasoningTextDeltaEvent:
 				delta := &provider.Completion{
 					ID:    data.Response.ID,

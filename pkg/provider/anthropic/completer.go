@@ -316,8 +316,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					Usage: toUsage(message.Usage),
 				}
 
-				if message.StopReason == anthropic.BetaStopReasonMaxTokens {
+				switch message.StopReason {
+				case anthropic.BetaStopReasonMaxTokens:
 					delta.Status = provider.CompletionStatusIncomplete
+				case anthropic.BetaStopReasonRefusal:
+					delta.Status = provider.CompletionStatusRefused
 				}
 
 				if !yield(delta, nil) {

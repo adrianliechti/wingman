@@ -356,8 +356,11 @@ func parseDiffOldNew(diff string) (string, string) {
 }
 
 func toStopReason(status provider.CompletionStatus, content []provider.Content) StopReason {
-	if status == provider.CompletionStatusIncomplete {
+	switch status {
+	case provider.CompletionStatusIncomplete:
 		return StopReasonMaxTokens
+	case provider.CompletionStatusRefused:
+		return StopReasonRefusal
 	}
 
 	for _, c := range content {

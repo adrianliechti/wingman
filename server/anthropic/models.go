@@ -172,6 +172,7 @@ const (
 	StopReasonMaxTokens    StopReason = "max_tokens"
 	StopReasonStopSequence StopReason = "stop_sequence"
 	StopReasonToolUse      StopReason = "tool_use"
+	StopReasonRefusal      StopReason = "refusal"
 )
 
 type Usage struct {

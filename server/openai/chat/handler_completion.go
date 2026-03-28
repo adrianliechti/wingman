@@ -182,7 +182,15 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 			message.Content = &content
 		}
 
+		if refusal := completion.Message.Refusal(); refusal != "" {
+			message.Refusal = &refusal
+		}
+
 		reason := FinishReasonStop
+
+		if completion.Status == provider.CompletionStatusRefused {
+			reason = FinishReasonStop
+		}
 
 		if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
 			reason = FinishReasonToolCalls

@@ -194,7 +194,7 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 		return json.Marshal(struct {
 			Role        MessageRole      `json:"role,omitempty"`
 			Contents    []MessageContent `json:"content,omitempty"`
-			Refusal     *string          `json:"refusal,omitempty"`
+			Refusal     *string          `json:"refusal,omitzero"`
 			ToolCalls   []ToolCall       `json:"tool_calls,omitempty"`
 			ToolCallID  string           `json:"tool_call_id,omitempty"`
 			Annotations []any            `json:"annotations,omitzero"`
@@ -211,7 +211,7 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Role        MessageRole `json:"role,omitempty"`
 		Content     *string     `json:"content,omitempty"`
-		Refusal     *string     `json:"refusal,omitempty"`
+		Refusal     *string     `json:"refusal"`
 		ToolCalls   []ToolCall  `json:"tool_calls,omitempty"`
 		ToolCallID  string      `json:"tool_call_id,omitempty"`
 		Annotations []any       `json:"annotations,omitzero"`

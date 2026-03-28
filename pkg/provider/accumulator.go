@@ -11,6 +11,7 @@ type CompletionAccumulator struct {
 	role MessageRole
 
 	content strings.Builder
+	refusal strings.Builder
 
 	reasoning  *Reasoning
 	compaction *Compaction
@@ -42,6 +43,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		for _, c := range c.Message.Content {
 			if c.Text != "" {
 				a.content.WriteString(c.Text)
+			}
+
+			if c.Refusal != "" {
+				a.refusal.WriteString(c.Refusal)
 			}
 
 			if c.Reasoning != nil {
@@ -141,6 +146,10 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 	if a.content.Len() > 0 {
 		content = append(content, TextContent(a.content.String()))
+	}
+
+	if a.refusal.Len() > 0 {
+		content = append(content, RefusalContent(a.refusal.String()))
 	}
 
 	for _, call := range a.toolCalls {

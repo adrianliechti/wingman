@@ -383,7 +383,23 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 		}
 	}
 
-	if text := message.Text(); text != "" {
+	if refusal := message.Refusal(); refusal != "" {
+		output = append(output, ResponseOutput{
+			Type: ResponseOutputTypeMessage,
+			OutputMessage: &OutputMessage{
+				ID:     messageID,
+				Role:   MessageRoleAssistant,
+				Status: status,
+				Phase:  "final_answer",
+				Contents: []OutputContent{
+					{
+						Type: "refusal",
+						Text: refusal,
+					},
+				},
+			},
+		})
+	} else if text := message.Text(); text != "" {
 		output = append(output, ResponseOutput{
 			Type: ResponseOutputTypeMessage,
 			OutputMessage: &OutputMessage{
