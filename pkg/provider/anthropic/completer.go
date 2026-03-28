@@ -545,6 +545,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.ComputerUseTool != nil {
+		req.Betas = append(req.Betas, "computer-use-2025-11-24")
+
 		w, h := int64(options.ComputerUseTool.DisplayWidth), int64(options.ComputerUseTool.DisplayHeight)
 		if w == 0 {
 			w = 1024

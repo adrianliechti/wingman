@@ -205,8 +205,8 @@ func toTools(tools []ToolParam) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
-		// Skip text_editor tools — handled separately via TextEditorTool option
-		if strings.HasPrefix(t.Type, "text_editor") {
+		// Skip special tools — handled separately via options
+		if strings.HasPrefix(t.Type, "text_editor") || strings.HasPrefix(t.Type, "computer") {
 			continue
 		}
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/anthropic"
@@ -42,8 +43,22 @@ func postAnthropic(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, body
 	req.Header.Set("x-api-key", ep.APIKey)
 	req.Header.Set("anthropic-version", anthropic.DefaultAnthropicVersion)
 
+	// Add beta headers for features that require them
+	var betas []string
 	if _, ok := body["context_management"]; ok {
-		req.Header.Set("anthropic-beta", "compact-2026-01-12")
+		betas = append(betas, "compact-2026-01-12")
+	}
+	if tools, ok := body["tools"].([]any); ok {
+		for _, t := range tools {
+			if tm, ok := t.(map[string]any); ok {
+				if tp, ok := tm["type"].(string); ok && strings.HasPrefix(tp, "computer") {
+					betas = append(betas, "computer-use-2025-11-24")
+				}
+			}
+		}
+	}
+	if len(betas) > 0 {
+		req.Header.Set("anthropic-beta", strings.Join(betas, ","))
 	}
 
 	resp, err := h.Client.HTTP.Do(req)
@@ -93,8 +108,22 @@ func postAnthropicSSE(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, b
 	req.Header.Set("x-api-key", ep.APIKey)
 	req.Header.Set("anthropic-version", anthropic.DefaultAnthropicVersion)
 
+	// Add beta headers for features that require them
+	var betas []string
 	if _, ok := body["context_management"]; ok {
-		req.Header.Set("anthropic-beta", "compact-2026-01-12")
+		betas = append(betas, "compact-2026-01-12")
+	}
+	if tools, ok := body["tools"].([]any); ok {
+		for _, t := range tools {
+			if tm, ok := t.(map[string]any); ok {
+				if tp, ok := tm["type"].(string); ok && strings.HasPrefix(tp, "computer") {
+					betas = append(betas, "computer-use-2025-11-24")
+				}
+			}
+		}
+	}
+	if len(betas) > 0 {
+		req.Header.Set("anthropic-beta", strings.Join(betas, ","))
 	}
 
 	resp, err := h.Client.HTTP.Do(req)
