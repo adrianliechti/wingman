@@ -235,6 +235,40 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				ID:   output.CallID,
 				Data: output.Output,
 			}))
+
+		case InputItemTypeComputerCall:
+			if item.InputComputerCall == nil {
+				continue
+			}
+
+			flushResults()
+
+			call := item.InputComputerCall
+			args, _ := json.Marshal(map[string]any{
+				"call_id": call.CallID,
+				"actions": call.Actions,
+			})
+
+			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+				ID:        call.CallID,
+				Name:      "computer",
+				Arguments: string(args),
+			}))
+
+		case InputItemTypeComputerCallOutput:
+			if item.InputComputerCallOutput == nil {
+				continue
+			}
+
+			flushCalls()
+
+			output := item.InputComputerCallOutput
+			data, _ := json.Marshal(output.Output)
+
+			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+				ID:   output.CallID,
+				Data: string(data),
+			}))
 		}
 	}
 
@@ -263,14 +297,45 @@ func toTools(tools []Tool) []provider.Tool {
 	return result
 }
 
-func hasApplyPatchTool(tools []Tool) bool {
+func toTextEditorToolOptions(tools []Tool) *provider.TextEditorOptions {
 	for _, t := range tools {
 		if t.Type == ToolTypeApplyPatch {
-			return true
+			return &provider.TextEditorOptions{}
 		}
 	}
-	return false
+	return nil
 }
+
+func toComputerUseToolOptions(tools []Tool) *provider.ComputerOptions {
+	for _, t := range tools {
+		if t.Type == ToolTypeComputer {
+			return &provider.ComputerOptions{}
+		}
+	}
+	return nil
+}
+
+func isComputerToolCall(call provider.ToolCall) bool {
+	return call.Name == "computer"
+}
+
+func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCallItem {
+	item := &ComputerCallItem{
+		ID:     "cu_" + call.ID,
+		CallID: call.ID,
+		Status: status,
+	}
+
+	var args map[string]any
+	json.Unmarshal([]byte(call.Arguments), &args)
+
+	if actions, ok := args["actions"].([]any); ok {
+		item.Actions = actions
+	}
+
+	return item
+}
+
 
 // isApplyPatchToolCall returns true if the tool call is an apply_patch or text_editor call.
 func isApplyPatchToolCall(call provider.ToolCall) bool {

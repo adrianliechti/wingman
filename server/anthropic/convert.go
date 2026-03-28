@@ -213,13 +213,25 @@ func toTools(tools []ToolParam) []provider.Tool {
 	return result
 }
 
-func hasTextEditorTool(tools []ToolParam) bool {
+func toTextEditorToolOptions(tools []ToolParam) *provider.TextEditorOptions {
 	for _, t := range tools {
 		if strings.HasPrefix(t.Type, "text_editor") {
-			return true
+			return &provider.TextEditorOptions{}
 		}
 	}
-	return false
+	return nil
+}
+
+func toComputerUseToolOptions(tools []ToolParam) *provider.ComputerOptions {
+	for _, t := range tools {
+		if strings.HasPrefix(t.Type, "computer") {
+			return &provider.ComputerOptions{
+				DisplayWidth:  1024,
+				DisplayHeight: 768,
+			}
+		}
+	}
+	return nil
 }
 
 func toContentBlocks(content []provider.Content) []ContentBlock {

@@ -17,7 +17,7 @@ var _ provider.Completer = (*Completer)(nil)
 
 type Completer struct {
 	*Config
-	messages anthropic.MessageService
+	messages anthropic.BetaMessageService
 }
 
 func NewCompleter(url, model string, options ...Option) (*Completer, error) {
@@ -32,7 +32,7 @@ func NewCompleter(url, model string, options ...Option) (*Completer, error) {
 
 	return &Completer{
 		Config:   cfg,
-		messages: anthropic.NewMessageService(cfg.Options()...),
+		messages: anthropic.NewBetaMessageService(cfg.Options()...),
 	}, nil
 }
 
@@ -49,7 +49,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 
-		message := anthropic.Message{}
+		message := anthropic.BetaMessage{}
 		stream := c.messages.NewStreaming(ctx, *req)
 
 		for stream.Next() {
@@ -57,7 +57,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			// HACK: handle empty tool use blocks
 			switch event.AsAny().(type) {
-			case anthropic.ContentBlockStopEvent:
+			case anthropic.BetaRawContentBlockStopEvent:
 				block := &message.Content[len(message.Content)-1]
 
 				if block.Type == "tool_use" && len(block.Input) == 0 {
@@ -90,12 +90,12 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			}
 
 			switch event := event.AsAny().(type) {
-			case anthropic.MessageStartEvent:
+			case anthropic.BetaRawMessageStartEvent:
 				break
 
-			case anthropic.ContentBlockStartEvent:
+			case anthropic.BetaRawContentBlockStartEvent:
 				switch event := event.ContentBlock.AsAny().(type) {
-				case anthropic.ThinkingBlock:
+				case anthropic.BetaThinkingBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -118,7 +118,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
-				case anthropic.TextBlock:
+				case anthropic.BetaTextBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -138,10 +138,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
-				case anthropic.RedactedThinkingBlock:
+				case anthropic.BetaRedactedThinkingBlock:
 					// Redacted thinking blocks are silently skipped
 
-				case anthropic.ToolUseBlock:
+				case anthropic.BetaToolUseBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -171,9 +171,9 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					}
 				}
 
-			case anthropic.ContentBlockDeltaEvent:
+			case anthropic.BetaRawContentBlockDeltaEvent:
 				switch event := event.Delta.AsAny().(type) {
-				case anthropic.ThinkingDelta:
+				case anthropic.BetaThinkingDelta:
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -193,7 +193,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
-				case anthropic.SignatureDelta:
+				case anthropic.BetaSignatureDelta:
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -213,7 +213,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
-				case anthropic.TextDelta:
+				case anthropic.BetaTextDelta:
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -231,7 +231,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
-				case anthropic.InputJSONDelta:
+				case anthropic.BetaInputJSONDelta:
 					currentBlock := message.Content[len(message.Content)-1]
 
 					delta := &provider.Completion{
@@ -261,10 +261,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					}
 				}
 
-			case anthropic.ContentBlockStopEvent:
+			case anthropic.BetaRawContentBlockStopEvent:
 				break
 
-			case anthropic.MessageStopEvent:
+			case anthropic.BetaRawMessageStopEvent:
 				delta := &provider.Completion{
 					ID:    message.ID,
 					Model: c.model,
@@ -276,7 +276,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					Usage: toUsage(message.Usage),
 				}
 
-				if message.StopReason == anthropic.StopReasonMaxTokens {
+				if message.StopReason == anthropic.BetaStopReasonMaxTokens {
 					delta.Status = provider.CompletionStatusIncomplete
 				}
 
@@ -293,16 +293,16 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 	}
 }
 
-func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.MessageNewParams, error) {
+func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.BetaMessageNewParams, error) {
 	if options == nil {
 		options = new(provider.CompleteOptions)
 	}
 
-	req := &anthropic.MessageNewParams{
+	req := &anthropic.BetaMessageNewParams{
 		Model: anthropic.Model(c.model),
 
 		MaxTokens:    64000,
-		CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 	}
 
 	isOpus46 := strings.Contains(c.model, "opus-4-6")
@@ -313,31 +313,31 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.ReasoningOptions != nil && (isOpus46 || isSonnet46) {
-		req.Thinking = anthropic.ThinkingConfigParamUnion{
-			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
-				Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
+		req.Thinking = anthropic.BetaThinkingConfigParamUnion{
+			OfAdaptive: &anthropic.BetaThinkingConfigAdaptiveParam{
+				Display: anthropic.BetaThinkingConfigAdaptiveDisplaySummarized,
 			},
 		}
 
 		switch options.ReasoningOptions.Effort {
 		case provider.EffortMinimal, provider.EffortLow:
-			req.OutputConfig.Effort = anthropic.OutputConfigEffortLow
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortLow
 
 		case provider.EffortMedium:
-			req.OutputConfig.Effort = anthropic.OutputConfigEffortMedium
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMedium
 
 		case provider.EffortHigh:
-			req.OutputConfig.Effort = anthropic.OutputConfigEffortHigh
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
 
 		case provider.EffortMax:
-			req.OutputConfig.Effort = anthropic.OutputConfigEffortMax
+			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMax
 		}
 	}
 
-	var system []anthropic.TextBlockParam
+	var system []anthropic.BetaTextBlockParam
 
-	var tools []anthropic.ToolUnionParam
-	var messages []anthropic.MessageParam
+	var tools []anthropic.BetaToolUnionParam
+	var messages []anthropic.BetaMessageParam
 
 	if options.Stop != nil {
 		req.StopSequences = options.Stop
@@ -356,16 +356,16 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		case provider.MessageRoleSystem:
 			for _, c := range m.Content {
 				if c.Text != "" {
-					system = append(system, anthropic.TextBlockParam{Text: c.Text})
+					system = append(system, anthropic.BetaTextBlockParam{Text: c.Text})
 				}
 			}
 
 		case provider.MessageRoleUser:
-			var blocks []anthropic.ContentBlockParamUnion
+			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
-					blocks = append(blocks, anthropic.NewTextBlock(text))
+					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
 				}
 
 				if c.File != nil {
@@ -374,13 +374,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 					switch mime {
 					case "image/jpeg", "image/png", "image/gif", "image/webp":
-						blocks = append(blocks, anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
+						blocks = append(blocks, anthropic.NewBetaImageBlock(anthropic.BetaBase64ImageSourceParam{
 							Data:      content,
-							MediaType: anthropic.Base64ImageSourceMediaType(mime),
+							MediaType: anthropic.BetaBase64ImageSourceMediaType(mime),
 						}))
 
 					case "application/pdf":
-						blocks = append(blocks, anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{
+						blocks = append(blocks, anthropic.NewBetaDocumentBlock(anthropic.BetaBase64PDFSourceParam{
 							Data: content,
 						}))
 
@@ -390,13 +390,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 
 				if c.ToolResult != nil {
-					blocks = append(blocks, anthropic.ContentBlockParamUnion{
-						OfToolResult: &anthropic.ToolResultBlockParam{
+					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
+						OfToolResult: &anthropic.BetaToolResultBlockParam{
 							ToolUseID: c.ToolResult.ID,
 
-							Content: []anthropic.ToolResultBlockParamContentUnion{
+							Content: []anthropic.BetaToolResultBlockParamContentUnion{
 								{
-									OfText: &anthropic.TextBlockParam{
+									OfText: &anthropic.BetaTextBlockParam{
 										Text: c.ToolResult.Data,
 									},
 								},
@@ -406,20 +406,20 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 			}
 
-			message := anthropic.NewUserMessage(blocks...)
+			message := anthropic.NewBetaUserMessage(blocks...)
 			messages = append(messages, message)
 
 		case provider.MessageRoleAssistant:
-			var blocks []anthropic.ContentBlockParamUnion
+			var blocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
-					blocks = append(blocks, anthropic.NewTextBlock(text))
+					blocks = append(blocks, anthropic.NewBetaTextBlock(text))
 				}
 
 				if c.Reasoning != nil && c.Reasoning.Signature != "" {
 					// Include thinking blocks for conversation continuity
-					blocks = append(blocks, anthropic.NewThinkingBlock(c.Reasoning.Signature, c.Reasoning.Text))
+					blocks = append(blocks, anthropic.NewBetaThinkingBlock(c.Reasoning.Signature, c.Reasoning.Text))
 				}
 
 				if c.ToolCall != nil {
@@ -429,8 +429,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						input = map[string]any{}
 					}
 
-					blocks = append(blocks, anthropic.ContentBlockParamUnion{
-						OfToolUse: &anthropic.ToolUseBlockParam{
+					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
+						OfToolUse: &anthropic.BetaToolUseBlockParam{
 							ID:    c.ToolCall.ID,
 							Name:  c.ToolCall.Name,
 							Input: input,
@@ -439,8 +439,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 			}
 
-			message := anthropic.MessageParam{
-				Role:    anthropic.MessageParamRoleAssistant,
+			message := anthropic.BetaMessageParam{
+				Role:    anthropic.BetaMessageParamRoleAssistant,
 				Content: blocks,
 			}
 
@@ -453,7 +453,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			continue
 		}
 
-		var schema anthropic.ToolInputSchemaParam
+		var schema anthropic.BetaToolInputSchemaParam
 
 		schemaData, _ := json.Marshal(t.Parameters)
 
@@ -461,7 +461,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			return nil, errors.New("invalid tool parameters schema")
 		}
 
-		tool := anthropic.ToolParam{
+		tool := anthropic.BetaToolParam{
 			Name: t.Name,
 
 			InputSchema: schema,
@@ -471,20 +471,37 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			tool.Description = anthropic.String(t.Description)
 		}
 
-		tools = append(tools, anthropic.ToolUnionParam{OfTool: &tool})
+		tools = append(tools, anthropic.BetaToolUnionParam{OfTool: &tool})
 	}
 
 	if options.Schema != nil {
-		req.OutputConfig.Format = anthropic.JSONOutputFormatParam{Schema: options.Schema.Schema}
+		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: options.Schema.Schema}
 	}
 
 	if len(system) > 0 {
 		req.System = system
 	}
 
-	if options.TextEditorTool {
-		req.Tools = append(req.Tools, anthropic.ToolUnionParam{
-			OfTextEditor20250728: &anthropic.ToolTextEditor20250728Param{},
+	if options.TextEditorTool != nil {
+		req.Tools = append(req.Tools, anthropic.BetaToolUnionParam{
+			OfTextEditor20250728: &anthropic.BetaToolTextEditor20250728Param{},
+		})
+	}
+
+	if options.ComputerUseTool != nil {
+		w, h := int64(options.ComputerUseTool.DisplayWidth), int64(options.ComputerUseTool.DisplayHeight)
+		if w == 0 {
+			w = 1024
+		}
+		if h == 0 {
+			h = 768
+		}
+
+		req.Tools = append(req.Tools, anthropic.BetaToolUnionParam{
+			OfComputerUseTool20251124: &anthropic.BetaToolComputerUse20251124Param{
+				DisplayWidthPx:  w,
+				DisplayHeightPx: h,
+			},
 		})
 	}
 
@@ -497,42 +514,42 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 		switch options.ToolOptions.Choice {
 		case provider.ToolChoiceNone:
-			req.ToolChoice = anthropic.ToolChoiceUnionParam{
-				OfNone: anthropic.Ptr(anthropic.NewToolChoiceNoneParam()),
+			req.ToolChoice = anthropic.BetaToolChoiceUnionParam{
+				OfNone: anthropic.Ptr(anthropic.NewBetaToolChoiceNoneParam()),
 			}
 
 		case provider.ToolChoiceAuto:
-			p := &anthropic.ToolChoiceAutoParam{}
+			p := &anthropic.BetaToolChoiceAutoParam{}
 
 			if options.ToolOptions.DisableParallelToolCalls {
 				p.DisableParallelToolUse = anthropic.Bool(true)
 			}
 
-			req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAuto: p}
+			req.ToolChoice = anthropic.BetaToolChoiceUnionParam{OfAuto: p}
 
 		case provider.ToolChoiceAny:
 			forcesTool = true
 
 			if len(options.ToolOptions.Allowed) == 1 {
-				req.ToolChoice = anthropic.ToolChoiceUnionParam{
-					OfTool: &anthropic.ToolChoiceToolParam{
+				req.ToolChoice = anthropic.BetaToolChoiceUnionParam{
+					OfTool: &anthropic.BetaToolChoiceToolParam{
 						Name: options.ToolOptions.Allowed[0],
 					},
 				}
 			} else {
-				p := &anthropic.ToolChoiceAnyParam{}
+				p := &anthropic.BetaToolChoiceAnyParam{}
 
 				if options.ToolOptions.DisableParallelToolCalls {
 					p.DisableParallelToolUse = anthropic.Bool(true)
 				}
 
-				req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAny: p}
+				req.ToolChoice = anthropic.BetaToolChoiceUnionParam{OfAny: p}
 			}
 		}
 
 		// Claude doesn't allow thinking with forced tool_choice
 		if forcesTool {
-			req.Thinking = anthropic.ThinkingConfigParamUnion{}
+			req.Thinking = anthropic.BetaThinkingConfigParamUnion{}
 		}
 	}
 
@@ -543,7 +560,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	return req, nil
 }
 
-func toUsage(usage anthropic.Usage) *provider.Usage {
+func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 	if usage.InputTokens == 0 && usage.OutputTokens == 0 {
 		return nil
 	}

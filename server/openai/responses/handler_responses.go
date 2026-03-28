@@ -44,7 +44,8 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		Tools:       tools,
 		ToolOptions: toToolOptions(req.ToolChoice),
 
-		TextEditorTool: hasApplyPatchTool(req.Tools),
+		TextEditorTool:  toTextEditorToolOptions(req.Tools),
+		ComputerUseTool: toComputerUseToolOptions(req.Tools),
 
 		MaxTokens:   req.MaxOutputTokens,
 		Temperature: req.Temperature,
@@ -215,7 +216,11 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	resp.FrequencyPenalty = 0.0
 	resp.PresencePenalty = 0.0
 	resp.TopLogprobs = 0
-	resp.Truncation = "disabled"
+	if req.Truncation != "" {
+		resp.Truncation = req.Truncation
+	} else {
+		resp.Truncation = "disabled"
+	}
 
 	if req.Instructions != "" {
 		resp.Instructions = &req.Instructions
@@ -312,9 +317,10 @@ func reasoningRequested(req ResponsesRequest) bool {
 }
 
 type responseOutputOptions struct {
-	IncludeSummary   bool
+	IncludeSummary  bool
 	IncludeReasoning bool
-	ApplyPatchTool   bool
+	ApplyPatchTool  bool
+	ComputerUseTool bool
 }
 
 func responseOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
@@ -403,6 +409,11 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 				Type:               ResponseOutputTypeApplyPatchCall,
 				ApplyPatchCallItem: toolCallToApplyPatchCall(call, status),
 			})
+		} else if opts.ComputerUseTool && isComputerToolCall(call) {
+			output = append(output, ResponseOutput{
+				Type:             ResponseOutputTypeComputerCall,
+				ComputerCallItem: toolCallToComputerCall(call, status),
+			})
 		} else {
 			output = append(output, ResponseOutput{
 				Type: ResponseOutputTypeFunctionCall,
@@ -457,7 +468,8 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	outputOpts := responseOutputOptions{
 		IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 		IncludeReasoning: reasoningRequested(req),
-		ApplyPatchTool:   options.TextEditorTool,
+		ApplyPatchTool:   options.TextEditorTool != nil,
+		ComputerUseTool:  options.ComputerUseTool != nil,
 	}
 
 	// Create initial response template
@@ -558,6 +570,10 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallAdded:
+			if outputOpts.ComputerUseTool && event.ToolCallName == "computer" {
+				return nil
+			}
+
 			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
 				// Emit as apply_patch_call — full item comes at FunctionCallDone
 				return nil
@@ -597,6 +613,41 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallDone:
+			if outputOpts.ComputerUseTool && event.ToolCallName == "computer" {
+				call := provider.ToolCall{
+					ID:        event.ToolCallID,
+					Name:      event.ToolCallName,
+					Arguments: event.Arguments,
+				}
+				item := toolCallToComputerCall(call, "completed")
+
+				if err := writeEvent(w, "response.output_item.added", map[string]any{
+					"type":            "response.output_item.added",
+					"sequence_number": nextSeq(),
+					"output_index":    event.OutputIndex,
+					"item": map[string]any{
+						"type":   "computer_call",
+						"id":     item.ID,
+						"status": "in_progress",
+					},
+				}); err != nil {
+					return err
+				}
+
+				return writeEvent(w, "response.output_item.done", map[string]any{
+					"type":            "response.output_item.done",
+					"sequence_number": nextSeq(),
+					"output_index":    event.OutputIndex,
+					"item": map[string]any{
+						"type":    "computer_call",
+						"id":      item.ID,
+						"status":  item.Status,
+						"call_id": item.CallID,
+						"actions": item.Actions,
+					},
+				})
+			}
+
 			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
 				call := provider.ToolCall{
 					ID:        event.ToolCallID,
@@ -989,7 +1040,8 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		Output: responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status), responseOutputOptions{
 			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 			IncludeReasoning: reasoningRequested(req),
-			ApplyPatchTool:   options.TextEditorTool,
+			ApplyPatchTool:   options.TextEditorTool != nil,
+			ComputerUseTool:  options.ComputerUseTool != nil,
 		}),
 		Usage:     responseUsage(completion.Usage),
 	}

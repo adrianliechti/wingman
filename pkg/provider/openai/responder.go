@@ -109,6 +109,27 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					if !yield(delta, nil) {
 						return
 					}
+
+				case responses.ResponseComputerToolCall:
+					delta := &provider.Completion{
+						ID:    data.Response.ID,
+						Model: data.Response.Model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									ID:   item.CallID,
+									Name: "computer",
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
 				}
 
 			case responses.ResponseContentPartAddedEvent:
@@ -224,6 +245,30 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 								provider.ToolCallContent(provider.ToolCall{
 									ID:        item.CallID,
 									Name:      "apply_patch",
+									Arguments: string(args),
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
+				case responses.ResponseComputerToolCall:
+					args, _ := json.Marshal(computerCallToArgs(item))
+
+					delta := &provider.Completion{
+						ID:    data.Response.ID,
+						Model: data.Response.Model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									ID:        item.CallID,
+									Name:      "computer",
 									Arguments: string(args),
 								}),
 							},
@@ -355,9 +400,15 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		return nil, err
 	}
 
-	if options.TextEditorTool {
+	if options.TextEditorTool != nil {
 		tools = append(tools, responses.ToolUnionParam{
 			OfApplyPatch: &responses.ApplyPatchToolParam{},
+		})
+	}
+
+	if options.ComputerUseTool != nil {
+		tools = append(tools, responses.ToolUnionParam{
+			OfComputer: &responses.ComputerToolParam{},
 		})
 	}
 
@@ -696,6 +747,54 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 	}
 
 	return result, nil
+}
+
+func computerCallToArgs(item responses.ResponseComputerToolCall) map[string]any {
+	result := map[string]any{
+		"call_id": item.CallID,
+	}
+
+	if len(item.Actions) > 0 {
+		var actions []map[string]any
+		for _, a := range item.Actions {
+			action := map[string]any{"type": a.Type}
+
+			switch v := a.AsAny().(type) {
+			case responses.ComputerActionClick:
+				action["x"] = v.X
+				action["y"] = v.Y
+				action["button"] = v.Button
+			case responses.ComputerActionDoubleClick:
+				action["x"] = v.X
+				action["y"] = v.Y
+			case responses.ComputerActionMove:
+				action["x"] = v.X
+				action["y"] = v.Y
+			case responses.ComputerActionType:
+				action["text"] = v.Text
+			case responses.ComputerActionKeypress:
+				action["keys"] = v.Keys
+			case responses.ComputerActionScroll:
+				action["x"] = v.X
+				action["y"] = v.Y
+				action["scroll_x"] = v.ScrollX
+				action["scroll_y"] = v.ScrollY
+			case responses.ComputerActionDrag:
+				if len(v.Path) > 0 {
+					var path []map[string]any
+					for _, p := range v.Path {
+						path = append(path, map[string]any{"x": p.X, "y": p.Y})
+					}
+					action["path"] = path
+				}
+			}
+
+			actions = append(actions, action)
+		}
+		result["actions"] = actions
+	}
+
+	return result
 }
 
 func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {

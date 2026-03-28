@@ -31,6 +31,8 @@ type ResponsesRequest struct {
 
 	ToolChoice        *ToolChoice `json:"tool_choice,omitempty"`
 	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
+
+	Truncation string `json:"truncation,omitempty"`
 }
 
 // ContextManagementConfig represents a context management entry
@@ -86,9 +88,10 @@ type TextFormat struct {
 type ToolType string
 
 const (
-	ToolTypeFunction   ToolType = "function"
-	ToolTypeCustom     ToolType = "custom"
-	ToolTypeApplyPatch ToolType = "apply_patch"
+	ToolTypeFunction    ToolType = "function"
+	ToolTypeCustom      ToolType = "custom"
+	ToolTypeApplyPatch  ToolType = "apply_patch"
+	ToolTypeComputer    ToolType = "computer"
 )
 
 // Tool represents a tool in the request
@@ -191,6 +194,8 @@ const (
 	InputItemTypeFunctionCallOutput   InputItemType = "function_call_output"
 	InputItemTypeApplyPatchCall       InputItemType = "apply_patch_call"
 	InputItemTypeApplyPatchCallOutput InputItemType = "apply_patch_call_output"
+	InputItemTypeComputerCall         InputItemType = "computer_call"
+	InputItemTypeComputerCallOutput   InputItemType = "computer_call_output"
 )
 
 type ResponsesInput struct {
@@ -221,6 +226,27 @@ type InputItem struct {
 
 	// For apply_patch_call_output type
 	*InputApplyPatchCallOutput
+
+	// For computer_call type
+	*InputComputerCall
+
+	// For computer_call_output type
+	*InputComputerCallOutput
+}
+
+// InputComputerCall represents a computer call in the input (for multi-turn)
+type InputComputerCall struct {
+	ID      string `json:"id,omitempty"`
+	CallID  string `json:"call_id,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Actions []any  `json:"actions,omitempty"`
+}
+
+// InputComputerCallOutput represents the result of a computer call
+type InputComputerCallOutput struct {
+	CallID string `json:"call_id,omitempty"`
+	Output any    `json:"output,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 // InputApplyPatchCall represents an apply_patch call in the input (for multi-turn)
@@ -364,6 +390,20 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 				return err
 			}
 			item.InputApplyPatchCallOutput = &apco
+
+		case InputItemTypeComputerCall:
+			var cc InputComputerCall
+			if err := json.Unmarshal(raw, &cc); err != nil {
+				return err
+			}
+			item.InputComputerCall = &cc
+
+		case InputItemTypeComputerCallOutput:
+			var cco InputComputerCallOutput
+			if err := json.Unmarshal(raw, &cco); err != nil {
+				return err
+			}
+			item.InputComputerCallOutput = &cco
 
 		default:
 			return fmt.Errorf("unknown input item type: %s", typeWrapper.Type)
@@ -577,6 +617,7 @@ type ResponseOutput struct {
 	*OutputMessage
 	*FunctionCallOutputItem
 	*ApplyPatchCallItem
+	*ComputerCallItem
 	*ReasoningOutputItem
 	*CompactionOutputItem
 }
@@ -619,6 +660,22 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Name:      r.FunctionCallOutputItem.Name,
 				CallID:    r.FunctionCallOutputItem.CallID,
 				Arguments: r.FunctionCallOutputItem.Arguments,
+			})
+		}
+	case ResponseOutputTypeComputerCall:
+		if r.ComputerCallItem != nil {
+			return json.Marshal(struct {
+				Type    ResponseOutputType `json:"type"`
+				ID      string             `json:"id"`
+				Status  string             `json:"status"`
+				CallID  string             `json:"call_id"`
+				Actions []any              `json:"actions"`
+			}{
+				Type:    r.Type,
+				ID:      r.ComputerCallItem.ID,
+				Status:  r.ComputerCallItem.Status,
+				CallID:  r.ComputerCallItem.CallID,
+				Actions: r.ComputerCallItem.Actions,
 			})
 		}
 	case ResponseOutputTypeApplyPatchCall:
@@ -676,9 +733,18 @@ var (
 	ResponseOutputTypeMessage        ResponseOutputType = "message"
 	ResponseOutputTypeFunctionCall   ResponseOutputType = "function_call"
 	ResponseOutputTypeApplyPatchCall ResponseOutputType = "apply_patch_call"
+	ResponseOutputTypeComputerCall   ResponseOutputType = "computer_call"
 	ResponseOutputTypeReasoning      ResponseOutputType = "reasoning"
 	ResponseOutputTypeCompaction     ResponseOutputType = "compaction"
 )
+
+// ComputerCallItem represents a computer use tool call in the output
+type ComputerCallItem struct {
+	ID      string `json:"id"`
+	CallID  string `json:"call_id"`
+	Status  string `json:"status"`
+	Actions []any  `json:"actions"`
+}
 
 // ApplyPatchCallItem represents an apply_patch tool call in the output
 type ApplyPatchCallItem struct {
