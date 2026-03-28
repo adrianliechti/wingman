@@ -18,8 +18,14 @@ type MessageRequest struct {
 	StopSequences []string       `json:"stop_sequences,omitempty"`
 	Tools         []ToolParam    `json:"tools,omitempty"`
 	ToolChoice    *ToolChoice    `json:"tool_choice,omitempty"`
-	Metadata      *Metadata      `json:"metadata,omitempty"`
-	OutputFormat  *OutputFormat  `json:"output_format,omitempty"`
+	Metadata      *Metadata       `json:"metadata,omitempty"`
+	OutputFormat  *OutputFormat   `json:"output_format,omitempty"`
+	Thinking      *ThinkingConfig `json:"thinking,omitempty"`
+}
+
+type ThinkingConfig struct {
+	Type         string `json:"type"`                    // "enabled" or "disabled"
+	BudgetTokens int    `json:"budget_tokens,omitempty"` // required when type is "enabled"
 }
 
 type OutputFormat struct {
@@ -117,21 +123,30 @@ type Message struct {
 	Role         string         `json:"role"` // "assistant"
 	Content      []ContentBlock `json:"content"`
 	Model        string         `json:"model"`
-	StopReason   StopReason     `json:"stop_reason"`
+	StopReason   *StopReason    `json:"stop_reason"`
 	StopSequence *string        `json:"stop_sequence"`
 	Usage        Usage          `json:"usage"`
 }
 
 type ContentBlock struct {
-	Type string `json:"type"` // "text" or "tool_use"
+	Type string `json:"type"` // "text", "tool_use", or "thinking"
 
 	// For text blocks
-	Text string `json:"text,omitempty"`
+	Text *string `json:"text,omitempty"`
+
+	// For thinking blocks
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
 
 	// For tool_use blocks
-	ID    string `json:"id,omitempty"`
-	Name  string `json:"name,omitempty"`
-	Input any    `json:"input,omitempty"`
+	ID     string       `json:"id,omitempty"`
+	Name   string       `json:"name,omitempty"`
+	Input  any          `json:"input,omitempty"`
+	Caller *BlockCaller `json:"caller,omitempty"`
+}
+
+type BlockCaller struct {
+	Type string `json:"type"` // "direct"
 }
 
 type StopReason string
@@ -147,8 +162,17 @@ type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 
-	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int            `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int            `json:"cache_creation_input_tokens"`
+	CacheCreation            *CacheCreation `json:"cache_creation,omitempty"`
+
+	ServiceTier  string `json:"service_tier,omitempty"`
+	InferenceGeo string `json:"inference_geo,omitempty"`
+}
+
+type CacheCreation struct {
+	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
 }
 
 // Streaming event types
@@ -171,9 +195,11 @@ type ContentBlockDeltaEvent struct {
 }
 
 type Delta struct {
-	Type        string `json:"type"` // "text_delta" or "input_json_delta"
+	Type        string `json:"type"` // "text_delta", "input_json_delta", "thinking_delta", or "signature_delta"
 	Text        string `json:"text,omitempty"`
 	PartialJSON string `json:"partial_json,omitempty"`
+	Thinking    string `json:"thinking,omitempty"`
+	Signature   string `json:"signature,omitempty"`
 }
 
 type ContentBlockStopEvent struct {

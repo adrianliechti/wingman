@@ -193,6 +193,26 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
+				case anthropic.SignatureDelta:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ReasoningContent(provider.Reasoning{
+									Signature: event.Signature,
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
 				case anthropic.TextDelta:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -254,6 +274,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					Usage: toUsage(message.Usage),
 				}
 
+				if message.StopReason == anthropic.StopReasonMaxTokens {
+					delta.Status = provider.CompletionStatusIncomplete
+				}
+
 				if !yield(delta, nil) {
 					return
 				}
@@ -284,27 +308,27 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	if isOpus46 || isSonnet46 {
 		req.MaxTokens = 128000
+	}
 
+	if options.ReasoningOptions != nil && (isOpus46 || isSonnet46) {
 		req.Thinking = anthropic.ThinkingConfigParamUnion{
 			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
 				Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
 			},
 		}
 
-		if options.ReasoningOptions != nil {
-			switch options.ReasoningOptions.Effort {
-			case provider.EffortMinimal, provider.EffortLow:
-				req.OutputConfig.Effort = anthropic.OutputConfigEffortLow
+		switch options.ReasoningOptions.Effort {
+		case provider.EffortMinimal, provider.EffortLow:
+			req.OutputConfig.Effort = anthropic.OutputConfigEffortLow
 
-			case provider.EffortMedium:
-				req.OutputConfig.Effort = anthropic.OutputConfigEffortMedium
+		case provider.EffortMedium:
+			req.OutputConfig.Effort = anthropic.OutputConfigEffortMedium
 
-			case provider.EffortHigh:
-				req.OutputConfig.Effort = anthropic.OutputConfigEffortHigh
+		case provider.EffortHigh:
+			req.OutputConfig.Effort = anthropic.OutputConfigEffortHigh
 
-			case provider.EffortMax:
-				req.OutputConfig.Effort = anthropic.OutputConfigEffortMax
-			}
+		case provider.EffortMax:
+			req.OutputConfig.Effort = anthropic.OutputConfigEffortMax
 		}
 	}
 
@@ -461,6 +485,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.ToolOptions != nil {
+		forcesTool := false
+
 		switch options.ToolOptions.Choice {
 		case provider.ToolChoiceNone:
 			req.ToolChoice = anthropic.ToolChoiceUnionParam{
@@ -477,6 +503,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAuto: p}
 
 		case provider.ToolChoiceAny:
+			forcesTool = true
+
 			if len(options.ToolOptions.Allowed) == 1 {
 				req.ToolChoice = anthropic.ToolChoiceUnionParam{
 					OfTool: &anthropic.ToolChoiceToolParam{
@@ -492,6 +520,11 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 				req.ToolChoice = anthropic.ToolChoiceUnionParam{OfAny: p}
 			}
+		}
+
+		// Claude doesn't allow thinking with forced tool_choice
+		if forcesTool {
+			req.Thinking = anthropic.ThinkingConfigParamUnion{}
 		}
 	}
 

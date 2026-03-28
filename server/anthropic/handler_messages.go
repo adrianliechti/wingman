@@ -8,6 +8,8 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
+func ptr[T any](v T) *T { return &v }
+
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	var req MessageRequest
 
@@ -96,6 +98,14 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Thinking != nil && req.Thinking.Type == "enabled" {
+		if options.ReasoningOptions == nil {
+			options.ReasoningOptions = &provider.ReasoningOptions{}
+		}
+
+		options.ReasoningOptions.IncludeSignature = true
+	}
+
 	if req.Stream {
 		h.handleMessagesStream(w, r, req, completer, messages, options)
 	} else {
@@ -126,7 +136,7 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 		Model:   completion.Model,
 		Content: []ContentBlock{},
 
-		StopReason: StopReasonEndTurn,
+		StopReason: ptr(StopReasonEndTurn),
 	}
 
 	if result.Model == "" {
@@ -145,7 +155,8 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 
 	if completion.Message != nil {
 		result.Content = toContentBlocks(completion.Message.Content)
-		result.StopReason = toStopReason(completion.Message.Content)
+		reason := toStopReason(completion.Status, completion.Message.Content)
+		result.StopReason = &reason
 	}
 
 	writeJson(w, result)

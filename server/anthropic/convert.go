@@ -212,10 +212,18 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 	var result []ContentBlock
 
 	for _, c := range content {
+		if c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Signature != "") {
+			result = append(result, ContentBlock{
+				Type:      "thinking",
+				Thinking:  c.Reasoning.Text,
+				Signature: c.Reasoning.Signature,
+			})
+		}
+
 		if c.Text != "" {
 			result = append(result, ContentBlock{
 				Type: "text",
-				Text: c.Text,
+				Text: &c.Text,
 			})
 		}
 
@@ -236,6 +244,8 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 				ID:    c.ToolCall.ID,
 				Name:  c.ToolCall.Name,
 				Input: input,
+
+				Caller: &BlockCaller{Type: "direct"},
 			})
 		}
 	}
@@ -243,7 +253,11 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 	return result
 }
 
-func toStopReason(content []provider.Content) StopReason {
+func toStopReason(status provider.CompletionStatus, content []provider.Content) StopReason {
+	if status == provider.CompletionStatusIncomplete {
+		return StopReasonMaxTokens
+	}
+
 	for _, c := range content {
 		if c.ToolCall != nil {
 			return StopReasonToolUse
