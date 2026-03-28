@@ -587,16 +587,12 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 			return json.Marshal(struct {
 				Type             ResponseOutputType           `json:"type"`
 				ID               string                       `json:"id"`
-				Status           string                       `json:"status"`
 				Summary          []ReasoningOutputSummary     `json:"summary,omitempty"`
-				Content          []ReasoningOutputContentPart `json:"content,omitempty"`
 				EncryptedContent string                       `json:"encrypted_content,omitempty"`
 			}{
 				Type:             r.Type,
 				ID:               r.ReasoningOutputItem.ID,
-				Status:           r.ReasoningOutputItem.Status,
 				Summary:          r.ReasoningOutputItem.Summary,
-				Content:          r.ReasoningOutputItem.Content,
 				EncryptedContent: r.ReasoningOutputItem.EncryptedContent,
 			})
 		}

@@ -305,20 +305,6 @@ func responseOutputs(message *provider.Message, messageID, status string) []Resp
 		}
 	}
 
-	for _, content := range message.Content {
-		if content.Compaction != nil && content.Compaction.Signature != "" {
-			output = append(output, ResponseOutput{
-				Type: ResponseOutputTypeCompaction,
-				CompactionOutputItem: &CompactionOutputItem{
-					ID: content.Compaction.ID,
-
-					Type:             "compaction",
-					EncryptedContent: content.Compaction.Signature,
-				},
-			})
-		}
-	}
-
 	if text := message.Text(); text != "" {
 		output = append(output, ResponseOutput{
 			Type: ResponseOutputTypeMessage,
@@ -351,6 +337,20 @@ func responseOutputs(message *provider.Message, messageID, status string) []Resp
 				Arguments: call.Arguments,
 			},
 		})
+	}
+
+	for _, content := range message.Content {
+		if content.Compaction != nil && content.Compaction.Signature != "" {
+			output = append(output, ResponseOutput{
+				Type: ResponseOutputTypeCompaction,
+				CompactionOutputItem: &CompactionOutputItem{
+					ID: content.Compaction.ID,
+
+					Type:             "compaction",
+					EncryptedContent: content.Compaction.Signature,
+				},
+			})
+		}
 	}
 
 	return output

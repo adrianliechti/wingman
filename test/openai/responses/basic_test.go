@@ -5,28 +5,26 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/harness"
+	openaitest "github.com/adrianliechti/wingman/test/openai"
 )
 
 func TestResponsesHTTP(t *testing.T) {
-	h := harness.New(t)
+	h := openaitest.New(t)
 	ctx := context.Background()
 
 	tests := []struct {
-		name  string
-		model string
-		body  map[string]any
+		name string
+		body map[string]any
 	}{
 		{
-			name:  "simple string input",
-			model: "gpt-5.4-mini",
+			name: "simple string input",
 			body: map[string]any{
 				"model": "gpt-5.4-mini",
 				"input": "Say hello and nothing else.",
 			},
 		},
 		{
-			name:  "input items with user message",
-			model: "gpt-5.4-mini",
+			name: "input items with user message",
 			body: map[string]any{
 				"model": "gpt-5.4-mini",
 				"input": []map[string]any{
@@ -54,7 +52,6 @@ func TestResponsesHTTP(t *testing.T) {
 				t.Fatalf("wingman request failed: %v", err)
 			}
 
-			// Both should return 200
 			if openaiResp.StatusCode != 200 {
 				t.Fatalf("openai returned status %d: %s", openaiResp.StatusCode, string(openaiResp.RawBody))
 			}
@@ -62,24 +59,22 @@ func TestResponsesHTTP(t *testing.T) {
 				t.Fatalf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
 			}
 
-			rules := harness.DefaultResponseRules()
+			rules := openaitest.DefaultResponseRules()
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 		})
 	}
 }
 
 func TestResponsesSSE(t *testing.T) {
-	h := harness.New(t)
+	h := openaitest.New(t)
 	ctx := context.Background()
 
 	tests := []struct {
-		name  string
-		model string
-		body  map[string]any
+		name string
+		body map[string]any
 	}{
 		{
-			name:  "simple string input streaming",
-			model: "gpt-5.4-mini",
+			name: "simple string input streaming",
 			body: map[string]any{
 				"model":  "gpt-5.4-mini",
 				"stream": true,
@@ -87,8 +82,7 @@ func TestResponsesSSE(t *testing.T) {
 			},
 		},
 		{
-			name:  "input items streaming",
-			model: "gpt-5.4-mini",
+			name: "input items streaming",
 			body: map[string]any{
 				"model":  "gpt-5.4-mini",
 				"stream": true,
@@ -124,12 +118,10 @@ func TestResponsesSSE(t *testing.T) {
 				t.Fatal("wingman returned no SSE events")
 			}
 
-			// Compare event type sequence
-			harness.CompareSSEEventTypes(t, openaiEvents, wingmanEvents)
+			harness.CompareSSEEventPattern(t, openaiEvents, wingmanEvents)
 
-			// Compare structural shape of each event
-			rules := harness.DefaultSSEEventRules()
-			harness.CompareSSEStructure(t, openaiEvents, wingmanEvents, rules)
+			rules := openaitest.DefaultSSEEventRules()
+			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 		})
 	}
 }

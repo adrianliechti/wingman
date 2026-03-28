@@ -10,13 +10,6 @@ import (
 	"time"
 )
 
-// Endpoint represents an API target (wingman or OpenAI).
-type Endpoint struct {
-	Name    string
-	BaseURL string // e.g. "http://localhost:8080/v1" or "https://api.openai.com/v1"
-	APIKey  string
-}
-
 // RawResponse holds the unmarshalled JSON body plus HTTP metadata.
 type RawResponse struct {
 	StatusCode int

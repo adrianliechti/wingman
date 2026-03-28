@@ -30,55 +30,6 @@ type CompareOption struct {
 	Rules map[string]FieldRule
 }
 
-// DefaultResponseRules returns comparison rules suitable for /v1/responses.
-func DefaultResponseRules() map[string]FieldRule {
-	return map[string]FieldRule{
-		"id":                        FieldPresence,
-		"created_at":                FieldPresence,
-		"completed_at":              FieldPresence,
-		"model":                     FieldIgnore,
-		"output.*.id":               FieldPresence,
-		"output.*.content.*.text":   FieldIgnore,
-		"usage.input_tokens":        FieldNonEmpty,
-		"usage.output_tokens":       FieldNonEmpty,
-		"usage.total_tokens":        FieldNonEmpty,
-		"error":                     FieldExact,
-
-		// OpenAI includes billing; wingman may omit it
-		"billing": FieldIgnore,
-		// OpenAI defaults store=true; wingman uses false as safe default
-		"store": FieldIgnore,
-		// OpenAI returns the resolved model name; wingman echoes the request model
-		"service_tier": FieldPresence,
-	}
-}
-
-// DefaultSSEEventRules returns comparison rules for SSE event structures.
-func DefaultSSEEventRules() map[string]FieldRule {
-	return map[string]FieldRule{
-		"response.id":                              FieldPresence,
-		"response.created_at":                      FieldPresence,
-		"response.completed_at":                    FieldPresence,
-		"response.model":                           FieldIgnore,
-		"response.output.*.id":                     FieldPresence,
-		"response.output.*.content.*.text":         FieldIgnore,
-		"response.usage.input_tokens":              FieldNonEmpty,
-		"response.usage.output_tokens":             FieldNonEmpty,
-		"response.usage.total_tokens":              FieldNonEmpty,
-		"response.billing":                         FieldIgnore,
-		"response.store":                           FieldIgnore,
-		"response.service_tier":                    FieldPresence,
-		"item_id":                                  FieldPresence,
-		"item.id":                                  FieldPresence,
-		"item.content.*.text":                      FieldIgnore,
-		"delta":                                    FieldIgnore,
-		"text":                                     FieldIgnore,
-		"sequence_number":                          FieldIgnore,
-		"part.text":                                FieldIgnore,
-		"obfuscation":                              FieldIgnore,
-	}
-}
-
 // CompareStructure compares two JSON objects structurally.
 // It checks that the same fields are set/unset in both, applying rules for specific paths.
 // Returns a list of differences found.
@@ -97,7 +48,6 @@ func CompareStructure(t *testing.T, label string, expected, actual map[string]an
 func compareMap(t *testing.T, diffs *[]string, prefix string, expected, actual map[string]any, opts CompareOption) {
 	t.Helper()
 
-	// Check all keys in expected exist in actual
 	for key, ev := range expected {
 		path := joinPath(prefix, key)
 		av, ok := actual[key]
@@ -115,7 +65,6 @@ func compareMap(t *testing.T, diffs *[]string, prefix string, expected, actual m
 
 		switch rule {
 		case FieldPresence:
-			// Both present — good enough
 			continue
 		case FieldNonEmpty:
 			if isEmpty(ev) {
@@ -128,12 +77,11 @@ func compareMap(t *testing.T, diffs *[]string, prefix string, expected, actual m
 			if jsonType(ev) != jsonType(av) {
 				*diffs = append(*diffs, fmt.Sprintf("field %q type mismatch: expected %s, actual %s", path, jsonType(ev), jsonType(av)))
 			}
-		default: // FieldExact or unspecified
+		default:
 			compareValues(t, diffs, path, ev, av, opts)
 		}
 	}
 
-	// Check for extra keys in actual
 	for key := range actual {
 		path := joinPath(prefix, key)
 		rule := resolveRule(path, opts.Rules)
@@ -181,13 +129,11 @@ func compareValues(t *testing.T, diffs *[]string, path string, expected, actual 
 	}
 }
 
-// resolveRule looks up the rule for a path, supporting wildcard "*" for array indices.
 func resolveRule(path string, rules map[string]FieldRule) FieldRule {
 	if rule, ok := rules[path]; ok {
 		return rule
 	}
 
-	// Try wildcard patterns: replace numeric segments with *
 	parts := strings.Split(path, ".")
 	for i, p := range parts {
 		if isNumeric(p) {
@@ -199,7 +145,6 @@ func resolveRule(path string, rules map[string]FieldRule) FieldRule {
 		return rule
 	}
 
-	// No rule found — default to exact comparison for leaf values
 	return FieldExact
 }
 
