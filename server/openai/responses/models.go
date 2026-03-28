@@ -42,7 +42,8 @@ type ContextManagementConfig struct {
 
 // ReasoningConfig contains configuration options for reasoning models
 type ReasoningConfig struct {
-	Effort *ReasoningEffort `json:"effort,omitempty"`
+	Effort  *ReasoningEffort `json:"effort"`
+	Summary *any             `json:"summary"`
 }
 
 type ReasoningEffort string
@@ -59,7 +60,7 @@ var (
 // TextConfig represents configuration options for text responses
 type TextConfig struct {
 	Format    *TextFormat `json:"format,omitempty"`
-	Verbosity *Verbosity  `json:"verbosity,omitempty"`
+	Verbosity Verbosity   `json:"verbosity,omitempty"`
 }
 
 type Verbosity string
@@ -447,28 +448,81 @@ const (
 )
 
 type Response struct {
-	ID string `json:"id,omitempty"`
+	ID     string `json:"id"`
+	Object string `json:"object"` // response
 
-	Object string `json:"object,omitempty"` // response
+	CreatedAt   int64  `json:"created_at"`
+	CompletedAt *int64 `json:"completed_at"`
 
-	CreatedAt int64 `json:"created_at"`
+	Model  string `json:"model"`
+	Status string `json:"status"` // completed, failed, in_progress, incomplete
 
-	Model string `json:"model,omitempty"`
-
-	Status string `json:"status,omitempty"` // completed, failed, in_progress, incomplete
+	Background bool `json:"background"`
 
 	Output []ResponseOutput `json:"output"`
 
-	Usage *Usage `json:"usage,omitempty"`
+	Error             *ResponseError `json:"error"`
+	IncompleteDetails *any           `json:"incomplete_details"`
 
-	Error *ResponseError `json:"error,omitempty"`
+	Instructions       *string `json:"instructions"`
+	MaxOutputTokens    *int    `json:"max_output_tokens"`
+	MaxToolCalls       *int    `json:"max_tool_calls"`
+	Metadata           any     `json:"metadata"`
+	ParallelToolCalls  bool    `json:"parallel_tool_calls"`
+	PreviousResponseID *string `json:"previous_response_id"`
+
+	Reasoning *ReasoningConfig `json:"reasoning"`
+
+	ServiceTier string  `json:"service_tier"`
+	Store       bool    `json:"store"`
+	Temperature float32 `json:"temperature"`
+
+	Text *TextConfig `json:"text"`
+
+	ToolChoice any   `json:"tool_choice"`
+	Tools      []any `json:"tools"`
+
+	TopLogprobs      int     `json:"top_logprobs"`
+	TopP             float32 `json:"top_p"`
+	Truncation       string  `json:"truncation"`
+	FrequencyPenalty float32 `json:"frequency_penalty"`
+	PresencePenalty  float32 `json:"presence_penalty"`
+
+	PromptCacheKey       *string `json:"prompt_cache_key"`
+	PromptCacheRetention *string `json:"prompt_cache_retention"`
+
+	Billing *ResponseBilling `json:"billing,omitempty"`
+
+	SafetyIdentifier *string `json:"safety_identifier"`
+
+	Usage *Usage `json:"usage"`
+	User  *any   `json:"user"`
+}
+
+// ResponseBilling represents billing information
+type ResponseBilling struct {
+	Payer string `json:"payer,omitempty"` // "developer"
 }
 
 // Usage contains token usage information
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens        int                     `json:"input_tokens"`
+	InputTokensDetails *InputTokensDetails     `json:"input_tokens_details"`
+
+	OutputTokens        int                    `json:"output_tokens"`
+	OutputTokensDetails *OutputTokensDetails   `json:"output_tokens_details"`
+
+	TotalTokens int `json:"total_tokens"`
+}
+
+// InputTokensDetails contains detailed input token breakdown
+type InputTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
+// OutputTokensDetails contains detailed output token breakdown
+type OutputTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 // ResponseError contains error details when a response fails
@@ -500,12 +554,14 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Role     MessageRole        `json:"role,omitempty"`
 				Status   string             `json:"status,omitempty"`
 				Contents []OutputContent    `json:"content"`
+				Phase    string             `json:"phase,omitempty"`
 			}{
 				Type:     r.Type,
 				ID:       r.OutputMessage.ID,
 				Role:     r.OutputMessage.Role,
 				Status:   r.OutputMessage.Status,
 				Contents: r.OutputMessage.Contents,
+				Phase:    r.OutputMessage.Phase,
 			})
 		}
 	case ResponseOutputTypeFunctionCall:
@@ -580,11 +636,15 @@ type OutputMessage struct {
 	Status string `json:"status,omitempty"` // completed
 
 	Contents []OutputContent `json:"content"`
+
+	Phase string `json:"phase,omitempty"` // final_answer
 }
 
 type OutputContent struct {
-	Type string `json:"type,omitempty"`
-	Text string `json:"text,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Text        string `json:"text,omitempty"`
+	Annotations []any  `json:"annotations"`
+	Logprobs    []any  `json:"logprobs"`
 }
 
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/created
@@ -643,6 +703,7 @@ type OutputItem struct {
 	Type    string          `json:"type"` // message
 	Status  string          `json:"status"`
 	Content []OutputContent `json:"content"`
+	Phase   string          `json:"phase,omitempty"`
 	Role    MessageRole     `json:"role,omitempty"`
 }
 
@@ -674,6 +735,7 @@ type OutputTextDeltaEvent struct {
 	OutputIndex    int    `json:"output_index"`
 	ContentIndex   int    `json:"content_index"`
 	Delta          string `json:"delta"`
+	Logprobs       []any  `json:"logprobs"`
 }
 
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/output_text/done
@@ -684,6 +746,7 @@ type OutputTextDoneEvent struct {
 	OutputIndex    int    `json:"output_index"`
 	ContentIndex   int    `json:"content_index"`
 	Text           string `json:"text"`
+	Logprobs       []any  `json:"logprobs"`
 }
 
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/function_call_arguments/delta
