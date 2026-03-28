@@ -142,32 +142,57 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					// Redacted thinking blocks are silently skipped
 
 				case anthropic.ToolUseBlock:
-					delta := &provider.Completion{
-						ID:    message.ID,
-						Model: c.model,
+					if event.Name == "str_replace_based_edit_tool" {
+						// Text editor tool — will be accumulated via InputJSONDelta
+						delta := &provider.Completion{
+							ID:    message.ID,
+							Model: c.model,
 
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
 
-							Content: []provider.Content{
-								provider.ToolCallContent(provider.ToolCall{
-									ID:   event.ID,
-									Name: event.Name,
-								}),
+								Content: []provider.Content{
+									provider.TextEditorCallContent(provider.TextEditorCall{
+										ID:     event.ID,
+										CallID: event.ID,
+									}),
+								},
 							},
-						},
 
-						Usage: toUsage(message.Usage),
-					}
-
-					if options.Schema != nil {
-						delta.Message.Content = []provider.Content{
-							provider.TextContent(""),
+							Usage: toUsage(message.Usage),
 						}
-					}
 
-					if !yield(delta, nil) {
-						return
+						if !yield(delta, nil) {
+							return
+						}
+					} else {
+						delta := &provider.Completion{
+							ID:    message.ID,
+							Model: c.model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.ToolCallContent(provider.ToolCall{
+										ID:   event.ID,
+										Name: event.Name,
+									}),
+								},
+							},
+
+							Usage: toUsage(message.Usage),
+						}
+
+						if options.Schema != nil {
+							delta.Message.Content = []provider.Content{
+								provider.TextContent(""),
+							}
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
 					}
 				}
 
@@ -232,6 +257,13 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					}
 
 				case anthropic.InputJSONDelta:
+					currentBlock := message.Content[len(message.Content)-1]
+
+					// Skip JSON deltas for text_editor — we handle it at ContentBlockStop
+					if currentBlock.Name == "str_replace_based_edit_tool" {
+						break
+					}
+
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -241,7 +273,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.ToolCallContent(provider.ToolCall{
-									ID:        message.Content[len(message.Content)-1].ID,
+									ID:        currentBlock.ID,
 									Arguments: event.PartialJSON,
 								}),
 							},
@@ -260,7 +292,30 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case anthropic.ContentBlockStopEvent:
-				break
+				// Check if the completed block is a text_editor tool use
+				if len(message.Content) > 0 {
+					block := message.Content[len(message.Content)-1]
+					if block.Type == "tool_use" && block.Name == "str_replace_based_edit_tool" {
+						call := parseTextEditorCall(block.ID, block.Input)
+
+						delta := &provider.Completion{
+							ID:    message.ID,
+							Model: c.model,
+
+							Message: &provider.Message{
+								Role: provider.MessageRoleAssistant,
+
+								Content: []provider.Content{
+									provider.TextEditorCallContent(call),
+								},
+							},
+						}
+
+						if !yield(delta, nil) {
+							return
+						}
+					}
+				}
 
 			case anthropic.MessageStopEvent:
 				delta := &provider.Completion{
@@ -289,6 +344,45 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 	}
+}
+
+func parseTextEditorCall(id string, input json.RawMessage) provider.TextEditorCall {
+	var args struct {
+		Command    string `json:"command"`
+		Path       string `json:"path"`
+		FileText   string `json:"file_text"`
+		OldStr     string `json:"old_str"`
+		NewStr     string `json:"new_str"`
+		InsertLine int    `json:"insert_line"`
+		ViewRange  []int  `json:"view_range"`
+	}
+
+	json.Unmarshal(input, &args)
+
+	call := provider.TextEditorCall{
+		ID:     id,
+		CallID: id,
+		Path:   args.Path,
+	}
+
+	switch args.Command {
+	case "create":
+		call.Command = provider.TextEditorCommandCreate
+		call.Content = args.FileText
+	case "str_replace":
+		call.Command = provider.TextEditorCommandStrReplace
+		call.OldText = args.OldStr
+		call.Content = args.NewStr
+	case "insert":
+		call.Command = provider.TextEditorCommandInsert
+		call.Content = args.NewStr
+		call.InsertLine = args.InsertLine
+	case "view":
+		call.Command = provider.TextEditorCommandView
+		call.ViewRange = args.ViewRange
+	}
+
+	return call
 }
 
 func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.MessageNewParams, error) {
@@ -480,8 +574,14 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.System = system
 	}
 
+	if options.TextEditorTool {
+		req.Tools = append(req.Tools, anthropic.ToolUnionParam{
+			OfTextEditor20250728: &anthropic.ToolTextEditor20250728Param{},
+		})
+	}
+
 	if len(tools) > 0 {
-		req.Tools = tools
+		req.Tools = append(req.Tools, tools...)
 	}
 
 	if options.ToolOptions != nil {

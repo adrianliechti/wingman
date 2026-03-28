@@ -18,6 +18,8 @@ type CompletionAccumulator struct {
 	toolCalls      []ToolCall
 	lastToolCallID string
 
+	textEditorCalls []TextEditorCall
+
 	usage *Usage
 }
 
@@ -110,6 +112,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 				a.toolCalls[toolCallIndex].Arguments += c.ToolCall.Arguments
 			}
+
+			if c.TextEditorCall != nil && c.TextEditorCall.Command != "" {
+				a.textEditorCalls = append(a.textEditorCalls, *c.TextEditorCall)
+			}
 		}
 	}
 
@@ -144,6 +150,10 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 	for _, call := range a.toolCalls {
 		content = append(content, ToolCallContent(call))
+	}
+
+	for _, call := range a.textEditorCalls {
+		content = append(content, TextEditorCallContent(call))
 	}
 
 	return &Completion{

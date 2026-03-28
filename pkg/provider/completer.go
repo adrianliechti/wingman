@@ -137,6 +137,18 @@ func CompactionContent(val Compaction) Content {
 	}
 }
 
+func TextEditorCallContent(val TextEditorCall) Content {
+	return Content{
+		TextEditorCall: &val,
+	}
+}
+
+func TextEditorCallResultContent(val TextEditorCallResult) Content {
+	return Content{
+		TextEditorCallResult: &val,
+	}
+}
+
 type Content struct {
 	Text string
 
@@ -147,6 +159,9 @@ type Content struct {
 
 	ToolCall   *ToolCall
 	ToolResult *ToolResult
+
+	TextEditorCall       *TextEditorCall
+	TextEditorCallResult *TextEditorCallResult
 }
 
 type MessageRole string
@@ -162,6 +177,34 @@ type ToolCall struct {
 
 	Name      string
 	Arguments string
+}
+
+// TextEditorCall represents a text editor / apply_patch operation.
+type TextEditorCall struct {
+	ID     string
+	CallID string
+
+	Command   TextEditorCommand
+	Path      string
+	Content   string // file_text for create, new_str for str_replace/insert
+	OldText   string // old_str for str_replace
+	InsertLine int   // for insert command
+	ViewRange []int  // for view command
+}
+
+type TextEditorCommand string
+
+const (
+	TextEditorCommandView       TextEditorCommand = "view"
+	TextEditorCommandCreate     TextEditorCommand = "create"
+	TextEditorCommandStrReplace TextEditorCommand = "str_replace"
+	TextEditorCommandInsert     TextEditorCommand = "insert"
+)
+
+// TextEditorCallResult represents the result of a text editor operation.
+type TextEditorCallResult struct {
+	CallID string
+	Output string
 }
 
 type ToolChoice string
@@ -203,6 +246,8 @@ type CompleteOptions struct {
 	OutputOptions     *OutputOptions
 	ReasoningOptions  *ReasoningOptions
 	CompactionOptions *CompactionOptions
+
+	TextEditorTool bool
 
 	Schema *Schema
 }

@@ -198,6 +198,11 @@ func toTools(tools []ToolParam) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
+		// Skip text_editor tools — handled separately via TextEditorTool option
+		if strings.HasPrefix(t.Type, "text_editor") {
+			continue
+		}
+
 		result = append(result, provider.Tool{
 			Name:        t.Name,
 			Description: t.Description,
@@ -206,6 +211,15 @@ func toTools(tools []ToolParam) []provider.Tool {
 	}
 
 	return result
+}
+
+func hasTextEditorTool(tools []ToolParam) bool {
+	for _, t := range tools {
+		if strings.HasPrefix(t.Type, "text_editor") {
+			return true
+		}
+	}
+	return false
 }
 
 func toContentBlocks(content []provider.Content) []ContentBlock {
@@ -248,9 +262,47 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 				Caller: &BlockCaller{Type: "direct"},
 			})
 		}
+
+		if c.TextEditorCall != nil {
+			input := textEditorCallToInput(c.TextEditorCall)
+
+			result = append(result, ContentBlock{
+				Type: "tool_use",
+
+				ID:    c.TextEditorCall.ID,
+				Name:  "str_replace_based_edit_tool",
+				Input: input,
+
+				Caller: &BlockCaller{Type: "direct"},
+			})
+		}
 	}
 
 	return result
+}
+
+func textEditorCallToInput(call *provider.TextEditorCall) map[string]any {
+	input := map[string]any{
+		"command": string(call.Command),
+		"path":    call.Path,
+	}
+
+	switch call.Command {
+	case provider.TextEditorCommandCreate:
+		input["file_text"] = call.Content
+	case provider.TextEditorCommandStrReplace:
+		input["old_str"] = call.OldText
+		input["new_str"] = call.Content
+	case provider.TextEditorCommandInsert:
+		input["new_str"] = call.Content
+		input["insert_line"] = call.InsertLine
+	case provider.TextEditorCommandView:
+		if len(call.ViewRange) > 0 {
+			input["view_range"] = call.ViewRange
+		}
+	}
+
+	return input
 }
 
 func toStopReason(status provider.CompletionStatus, content []provider.Content) StopReason {
@@ -259,7 +311,7 @@ func toStopReason(status provider.CompletionStatus, content []provider.Content) 
 	}
 
 	for _, c := range content {
-		if c.ToolCall != nil {
+		if c.ToolCall != nil || c.TextEditorCall != nil {
 			return StopReasonToolUse
 		}
 	}

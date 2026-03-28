@@ -22,7 +22,7 @@ func TestStructuredOutputHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 1024,
 				"messages": []map[string]any{
@@ -41,7 +41,7 @@ func TestStructuredOutputHTTP(t *testing.T) {
 				},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			requireToolUseWithName(t, "anthropic", anthropicResp.Body, "book_recommendation")
 			requireToolUseWithName(t, "wingman", wingmanResp.Body, "book_recommendation")
@@ -61,7 +61,7 @@ func TestStructuredOutputSSE(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 1024,
 				"messages": []map[string]any{
@@ -80,7 +80,7 @@ func TestStructuredOutputSSE(t *testing.T) {
 				},
 			}
 
-			anthropicEvents, wingmanEvents := compareSSE(t, h, model, body)
+			anthropicEvents, wingmanEvents := compareSSE(t, h, model.Name, body)
 
 			requireToolUseSSE(t, "anthropic", anthropicEvents)
 			requireToolUseSSE(t, "wingman", wingmanEvents)

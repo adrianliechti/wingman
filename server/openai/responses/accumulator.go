@@ -44,6 +44,10 @@ const (
 	// Compaction events
 	StreamEventCompactionItemAdded StreamEventType = "compaction_item.added"
 	StreamEventCompactionItemDone  StreamEventType = "compaction_item.done"
+
+	// Apply patch events
+	StreamEventApplyPatchCallAdded StreamEventType = "apply_patch_call.added"
+	StreamEventApplyPatchCallDone  StreamEventType = "apply_patch_call.done"
 )
 
 // StreamEvent represents a streaming event with its data
@@ -73,6 +77,9 @@ type StreamEvent struct {
 	// For compaction events
 	CompactionID      string
 	CompactionContent string
+
+	// For apply_patch events
+	TextEditorCall *provider.TextEditorCall
 
 	// For error events
 	Error error
@@ -602,6 +609,31 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				}); err != nil {
 					return err
 				}
+			}
+		}
+
+		// TextEditorCall — emit as apply_patch_call
+		if content.TextEditorCall != nil && content.TextEditorCall.Command != "" {
+			if err := s.closePendingItems(); err != nil {
+				return err
+			}
+
+			outputIndex := s.reserveOutputIndex()
+
+			if err := s.emitEvent(StreamEvent{
+				Type:           StreamEventApplyPatchCallAdded,
+				TextEditorCall: content.TextEditorCall,
+				OutputIndex:    outputIndex,
+			}); err != nil {
+				return err
+			}
+
+			if err := s.emitEvent(StreamEvent{
+				Type:           StreamEventApplyPatchCallDone,
+				TextEditorCall: content.TextEditorCall,
+				OutputIndex:    outputIndex,
+			}); err != nil {
+				return err
 			}
 		}
 	}

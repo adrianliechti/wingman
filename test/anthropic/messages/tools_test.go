@@ -26,7 +26,7 @@ func TestToolCallingHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 1024,
 				"messages": []map[string]any{
@@ -35,7 +35,7 @@ func TestToolCallingHTTP(t *testing.T) {
 				"tools": []any{weatherTool},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			requireToolUseWithName(t, "anthropic", anthropicResp.Body, "get_weather")
 			requireToolUseWithName(t, "wingman", wingmanResp.Body, "get_weather")
@@ -53,7 +53,7 @@ func TestToolCallingSSE(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			anthropicBody := withModel(map[string]any{
 				"max_tokens": 1024,
 				"stream":     true,
@@ -70,7 +70,7 @@ func TestToolCallingSSE(t *testing.T) {
 					{"role": "user", "content": "What's the weather in London?"},
 				},
 				"tools": []any{weatherTool},
-			}, model)
+			}, model.Name)
 
 			anthropicEvents := postAnthropicSSE(t, h, h.Anthropic, anthropicBody)
 			wingmanEvents := postAnthropicSSE(t, h, h.Wingman, wingmanBody)
@@ -85,7 +85,7 @@ func TestToolCallingMultiTurnHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 1024,
 				"messages": []map[string]any{
@@ -115,7 +115,7 @@ func TestToolCallingMultiTurnHTTP(t *testing.T) {
 				"tools": []any{weatherTool},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			requireTextContent(t, "anthropic", anthropicResp.Body)
 			requireTextContent(t, "wingman", wingmanResp.Body)

@@ -20,6 +20,7 @@ const (
 type ModelCapabilities struct {
 	Reasoning  bool // model supports reasoning/thinking
 	Compaction bool // model supports server-side compaction
+	TextEditor bool // model supports apply_patch / text_editor tool
 }
 
 // Model represents a model to test with its provider context.
@@ -41,8 +42,8 @@ func DefaultModels() []Model {
 	}
 
 	return []Model{
-		{Name: "gpt-5.4-mini", Capabilities: ModelCapabilities{Reasoning: true, Compaction: true}},
-		{Name: "claude-sonnet-4-6", Capabilities: ModelCapabilities{Reasoning: true}},
+		{Name: "gpt-5.4-mini", Capabilities: ModelCapabilities{Reasoning: true, Compaction: true, TextEditor: true}},
+		{Name: "claude-sonnet-4-6", Capabilities: ModelCapabilities{Reasoning: true, TextEditor: true}},
 		{Name: "bedrock-sonnet-4-6", Capabilities: ModelCapabilities{Reasoning: true}},
 	}
 }

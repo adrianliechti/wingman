@@ -49,11 +49,23 @@ func New(t *testing.T) *Harness {
 	}
 }
 
+// ModelCapabilities describes what features a model supports.
+type ModelCapabilities struct {
+	Thinking   bool
+	TextEditor bool
+}
+
+// Model represents a model to test with its provider context.
+type Model struct {
+	Name         string
+	Capabilities ModelCapabilities
+}
+
 // DefaultModels returns the list of models to test against the Anthropic API.
-func DefaultModels() []string {
-	return []string{
-		"claude-sonnet-4-6",
-		"bedrock-sonnet-4-6",
+func DefaultModels() []Model {
+	return []Model{
+		{Name: "claude-sonnet-4-6", Capabilities: ModelCapabilities{Thinking: true, TextEditor: true}},
+		{Name: "bedrock-sonnet-4-6", Capabilities: ModelCapabilities{Thinking: true}},
 	}
 }
 

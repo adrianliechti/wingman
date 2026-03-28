@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"mime"
 	"path"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -226,6 +227,62 @@ func toTools(tools []Tool) []provider.Tool {
 	}
 
 	return result
+}
+
+func hasApplyPatchTool(tools []Tool) bool {
+	for _, t := range tools {
+		if t.Type == ToolTypeApplyPatch {
+			return true
+		}
+	}
+	return false
+}
+
+// textEditorToApplyPatchOperation converts a TextEditorCall to an OpenAI ApplyPatchOperation.
+func textEditorToApplyPatchOperation(call *provider.TextEditorCall) ApplyPatchOperation {
+	switch call.Command {
+	case provider.TextEditorCommandCreate:
+		diff := ""
+		for _, line := range splitLines(call.Content) {
+			diff += "+" + line + "\n"
+		}
+		return ApplyPatchOperation{
+			Type: "create_file",
+			Path: call.Path,
+			Diff: diff,
+		}
+	case provider.TextEditorCommandStrReplace:
+		diff := "@@\n"
+		for _, line := range splitLines(call.OldText) {
+			diff += "-" + line + "\n"
+		}
+		for _, line := range splitLines(call.Content) {
+			diff += "+" + line + "\n"
+		}
+		return ApplyPatchOperation{
+			Type: "update_file",
+			Path: call.Path,
+			Diff: diff,
+		}
+	default:
+		return ApplyPatchOperation{
+			Type: "update_file",
+			Path: call.Path,
+			Diff: call.Content,
+		}
+	}
+}
+
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	// Remove trailing empty line from trailing newline
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func toInputContent(items []InputContent) ([]provider.Content, error) {

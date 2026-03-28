@@ -44,6 +44,8 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		Tools:       tools,
 		ToolOptions: toToolOptions(req.ToolChoice),
 
+		TextEditorTool: hasApplyPatchTool(req.Tools),
+
 		MaxTokens:   req.MaxOutputTokens,
 		Temperature: req.Temperature,
 	}
@@ -262,10 +264,12 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	if len(req.Tools) > 0 {
 		tools := make([]any, len(req.Tools))
 		for i, t := range req.Tools {
-			// OpenAI echoes tools with strict=true and additionalProperties=false
-			if t.Strict == nil {
-				strict := true
-				t.Strict = &strict
+			// OpenAI echoes function tools with strict=true and additionalProperties=false
+			if t.Type == ToolTypeFunction {
+				if t.Strict == nil {
+					strict := true
+					t.Strict = &strict
+				}
 			}
 
 			if t.Parameters != nil {
@@ -404,6 +408,20 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 				Arguments: call.Arguments,
 			},
 		})
+	}
+
+	for _, content := range message.Content {
+		if content.TextEditorCall != nil {
+			output = append(output, ResponseOutput{
+				Type: ResponseOutputTypeApplyPatchCall,
+				ApplyPatchCallItem: &ApplyPatchCallItem{
+					ID:     "apc_" + uuid.NewString(),
+					CallID: content.TextEditorCall.CallID,
+					Status: status,
+					Operation: textEditorToApplyPatchOperation(content.TextEditorCall),
+				},
+			})
+		}
 	}
 
 	for _, content := range message.Content {
@@ -814,6 +832,48 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Role:  MessageRoleAssistant,
 				},
 			})
+
+		case StreamEventApplyPatchCallAdded:
+			if event.TextEditorCall != nil {
+				item := &ApplyPatchCallItem{
+					ID:        "apc_" + uuid.NewString(),
+					CallID:    event.TextEditorCall.CallID,
+					Status:    "in_progress",
+					Operation: textEditorToApplyPatchOperation(event.TextEditorCall),
+				}
+				return writeEvent(w, "response.output_item.added", OutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &OutputItem{
+						ID:     item.ID,
+						Type:   "apply_patch_call",
+						Status: "in_progress",
+					},
+				})
+			}
+
+		case StreamEventApplyPatchCallDone:
+			if event.TextEditorCall != nil {
+				item := &ApplyPatchCallItem{
+					ID:        "apc_" + uuid.NewString(),
+					CallID:    event.TextEditorCall.CallID,
+					Status:    "completed",
+					Operation: textEditorToApplyPatchOperation(event.TextEditorCall),
+				}
+				return writeEvent(w, "response.output_item.done", map[string]any{
+					"type":            "response.output_item.done",
+					"sequence_number": nextSeq(),
+					"output_index":    event.OutputIndex,
+					"item": map[string]any{
+						"type":      "apply_patch_call",
+						"id":        item.ID,
+						"status":    item.Status,
+						"call_id":   item.CallID,
+						"operation": item.Operation,
+					},
+				})
+			}
 
 		case StreamEventResponseCompleted:
 			now := time.Now().Unix()

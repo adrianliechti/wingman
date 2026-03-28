@@ -49,6 +49,8 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	options := &provider.CompleteOptions{
 		Tools: tools,
 
+		TextEditorTool: hasTextEditorTool(req.Tools),
+
 		Stop:        req.StopSequences,
 		Temperature: req.Temperature,
 	}

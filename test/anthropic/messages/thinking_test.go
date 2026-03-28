@@ -11,7 +11,7 @@ func TestThinkingHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
@@ -23,7 +23,7 @@ func TestThinkingHTTP(t *testing.T) {
 				},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			requireThinkingBlock(t, "anthropic", anthropicResp.Body)
 			requireThinkingBlock(t, "wingman", wingmanResp.Body)
@@ -40,7 +40,7 @@ func TestThinkingSSE(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
@@ -52,7 +52,7 @@ func TestThinkingSSE(t *testing.T) {
 				},
 			}
 
-			anthropicEvents, wingmanEvents := compareSSE(t, h, model, body)
+			anthropicEvents, wingmanEvents := compareSSE(t, h, model.Name, body)
 
 			requireThinkingSSEEvent(t, "anthropic", anthropicEvents)
 			requireThinkingSSEEvent(t, "wingman", wingmanEvents)
@@ -64,7 +64,7 @@ func TestThinkingMultiTurnHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
@@ -78,7 +78,7 @@ func TestThinkingMultiTurnHTTP(t *testing.T) {
 				},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			requireThinkingBlock(t, "anthropic", anthropicResp.Body)
 			requireThinkingBlock(t, "wingman", wingmanResp.Body)
@@ -95,7 +95,7 @@ func TestStopReasonEndTurnHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 100,
 				"messages": []map[string]any{
@@ -103,7 +103,7 @@ func TestStopReasonEndTurnHTTP(t *testing.T) {
 				},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			requireStopReason(t, "anthropic", anthropicResp.Body, "end_turn")
 			requireStopReason(t, "wingman", wingmanResp.Body, "end_turn")
@@ -132,7 +132,7 @@ func TestStopReasonToolUseHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 1024,
 				"messages": []map[string]any{
@@ -141,7 +141,7 @@ func TestStopReasonToolUseHTTP(t *testing.T) {
 				"tools": []any{weatherTool},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			requireStopReason(t, "anthropic", anthropicResp.Body, "tool_use")
 			requireStopReason(t, "wingman", wingmanResp.Body, "tool_use")

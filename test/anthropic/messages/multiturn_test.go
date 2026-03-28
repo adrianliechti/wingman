@@ -11,7 +11,7 @@ func TestMultiTurnHTTP(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 100,
 				"messages": []map[string]any{
@@ -21,7 +21,7 @@ func TestMultiTurnHTTP(t *testing.T) {
 				},
 			}
 
-			anthropicResp, wingmanResp := compareHTTP(t, h, model, body)
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
 
 			rules := anthropic.DefaultMessagesResponseRules()
 			harness.CompareStructure(t, "response", anthropicResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
@@ -33,7 +33,7 @@ func TestMultiTurnSSE(t *testing.T) {
 	h := anthropic.New(t)
 
 	for _, model := range anthropic.DefaultModels() {
-		t.Run(model, func(t *testing.T) {
+		t.Run(model.Name, func(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 100,
 				"messages": []map[string]any{
@@ -43,7 +43,7 @@ func TestMultiTurnSSE(t *testing.T) {
 				},
 			}
 
-			anthropicEvents, wingmanEvents := compareSSE(t, h, model, body)
+			anthropicEvents, wingmanEvents := compareSSE(t, h, model.Name, body)
 
 			rules := anthropic.DefaultMessagesSSERules()
 			harness.CompareSSEStructureByType(t, anthropicEvents, wingmanEvents, rules)
