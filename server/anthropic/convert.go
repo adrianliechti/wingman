@@ -242,10 +242,17 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 		}
 
 		if c.ToolCall != nil {
+			name := c.ToolCall.Name
 			var input any
 
-			if c.ToolCall.Arguments != "" {
-				json.Unmarshal([]byte(c.ToolCall.Arguments), &input)
+			if name == "apply_patch" {
+				// Cross-provider: convert apply_patch args to text_editor input
+				input = applyPatchArgsToTextEditorInput(c.ToolCall.Arguments)
+				name = "str_replace_based_edit_tool"
+			} else {
+				if c.ToolCall.Arguments != "" {
+					json.Unmarshal([]byte(c.ToolCall.Arguments), &input)
+				}
 			}
 
 			if input == nil {
@@ -256,21 +263,7 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 				Type: "tool_use",
 
 				ID:    c.ToolCall.ID,
-				Name:  c.ToolCall.Name,
-				Input: input,
-
-				Caller: &BlockCaller{Type: "direct"},
-			})
-		}
-
-		if c.TextEditorCall != nil {
-			input := textEditorCallToInput(c.TextEditorCall)
-
-			result = append(result, ContentBlock{
-				Type: "tool_use",
-
-				ID:    c.TextEditorCall.ID,
-				Name:  "str_replace_based_edit_tool",
+				Name:  name,
 				Input: input,
 
 				Caller: &BlockCaller{Type: "direct"},
@@ -281,28 +274,59 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 	return result
 }
 
-func textEditorCallToInput(call *provider.TextEditorCall) map[string]any {
-	input := map[string]any{
-		"command": string(call.Command),
-		"path":    call.Path,
+// applyPatchArgsToTextEditorInput converts apply_patch JSON args to text_editor input format.
+func applyPatchArgsToTextEditorInput(args string) map[string]any {
+	var op struct {
+		Type string `json:"type"`
+		Path string `json:"path"`
+		Diff string `json:"diff"`
 	}
 
-	switch call.Command {
-	case provider.TextEditorCommandCreate:
-		input["file_text"] = call.Content
-	case provider.TextEditorCommandStrReplace:
-		input["old_str"] = call.OldText
-		input["new_str"] = call.Content
-	case provider.TextEditorCommandInsert:
-		input["new_str"] = call.Content
-		input["insert_line"] = call.InsertLine
-	case provider.TextEditorCommandView:
-		if len(call.ViewRange) > 0 {
-			input["view_range"] = call.ViewRange
+	json.Unmarshal([]byte(args), &op)
+
+	switch op.Type {
+	case "create_file":
+		return map[string]any{
+			"command":   "create",
+			"path":      op.Path,
+			"file_text": parseDiffAdded(op.Diff),
+		}
+	case "update_file":
+		old, new_ := parseDiffOldNew(op.Diff)
+		return map[string]any{
+			"command": "str_replace",
+			"path":    op.Path,
+			"old_str": old,
+			"new_str": new_,
+		}
+	default:
+		return map[string]any{
+			"command": "view",
+			"path":    op.Path,
 		}
 	}
+}
 
-	return input
+func parseDiffAdded(diff string) string {
+	var lines []string
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "+") {
+			lines = append(lines, line[1:])
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseDiffOldNew(diff string) (string, string) {
+	var oldLines, newLines []string
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "-") {
+			oldLines = append(oldLines, line[1:])
+		} else if strings.HasPrefix(line, "+") {
+			newLines = append(newLines, line[1:])
+		}
+	}
+	return strings.Join(oldLines, "\n"), strings.Join(newLines, "\n")
 }
 
 func toStopReason(status provider.CompletionStatus, content []provider.Content) StopReason {
@@ -311,7 +335,7 @@ func toStopReason(status provider.CompletionStatus, content []provider.Content) 
 	}
 
 	for _, c := range content {
-		if c.ToolCall != nil || c.TextEditorCall != nil {
+		if c.ToolCall != nil {
 			return StopReasonToolUse
 		}
 	}

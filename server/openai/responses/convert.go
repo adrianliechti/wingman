@@ -238,51 +238,78 @@ func hasApplyPatchTool(tools []Tool) bool {
 	return false
 }
 
-// textEditorToApplyPatchOperation converts a TextEditorCall to an OpenAI ApplyPatchOperation.
-func textEditorToApplyPatchOperation(call *provider.TextEditorCall) ApplyPatchOperation {
-	switch call.Command {
-	case provider.TextEditorCommandCreate:
-		diff := ""
-		for _, line := range splitLines(call.Content) {
-			diff += "+" + line + "\n"
-		}
-		return ApplyPatchOperation{
-			Type: "create_file",
-			Path: call.Path,
-			Diff: diff,
-		}
-	case provider.TextEditorCommandStrReplace:
-		diff := "@@\n"
-		for _, line := range splitLines(call.OldText) {
-			diff += "-" + line + "\n"
-		}
-		for _, line := range splitLines(call.Content) {
-			diff += "+" + line + "\n"
-		}
-		return ApplyPatchOperation{
-			Type: "update_file",
-			Path: call.Path,
-			Diff: diff,
-		}
-	default:
-		return ApplyPatchOperation{
-			Type: "update_file",
-			Path: call.Path,
-			Diff: call.Content,
-		}
-	}
+// isApplyPatchToolCall returns true if the tool call is an apply_patch or text_editor call.
+func isApplyPatchToolCall(call provider.ToolCall) bool {
+	return call.Name == "apply_patch" || call.Name == "str_replace_based_edit_tool"
 }
 
-func splitLines(s string) []string {
-	if s == "" {
-		return nil
+// toolCallToApplyPatchCall converts a ToolCall (from apply_patch or str_replace_based_edit_tool)
+// to an ApplyPatchCallItem for the OpenAI responses API.
+func toolCallToApplyPatchCall(call provider.ToolCall, status string) *ApplyPatchCallItem {
+	item := &ApplyPatchCallItem{
+		ID:     "apc_" + call.ID,
+		CallID: call.ID,
+		Status: status,
 	}
-	lines := strings.Split(s, "\n")
-	// Remove trailing empty line from trailing newline
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+
+	if call.Name == "apply_patch" {
+		// Native OpenAI format: arguments are {type, path, diff}
+		var op ApplyPatchOperation
+		json.Unmarshal([]byte(call.Arguments), &op)
+		item.Operation = op
+	} else if call.Name == "str_replace_based_edit_tool" {
+		// Anthropic format: arguments are {command, path, file_text, old_str, new_str, ...}
+		var args struct {
+			Command  string `json:"command"`
+			Path     string `json:"path"`
+			FileText string `json:"file_text"`
+			OldStr   string `json:"old_str"`
+			NewStr   string `json:"new_str"`
+		}
+		json.Unmarshal([]byte(call.Arguments), &args)
+
+		switch args.Command {
+		case "create":
+			item.Operation = ApplyPatchOperation{
+				Type: "create_file",
+				Path: args.Path,
+				Diff: toAddDiff(args.FileText),
+			}
+		case "str_replace":
+			item.Operation = ApplyPatchOperation{
+				Type: "update_file",
+				Path: args.Path,
+				Diff: toReplaceDiff(args.OldStr, args.NewStr),
+			}
+		default:
+			item.Operation = ApplyPatchOperation{
+				Type: "update_file",
+				Path: args.Path,
+			}
+		}
 	}
-	return lines
+
+	return item
+}
+
+func toAddDiff(content string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		b.WriteString("+" + line + "\n")
+	}
+	return b.String()
+}
+
+func toReplaceDiff(oldText, newText string) string {
+	var b strings.Builder
+	b.WriteString("@@\n")
+	for _, line := range strings.Split(strings.TrimRight(oldText, "\n"), "\n") {
+		b.WriteString("-" + line + "\n")
+	}
+	for _, line := range strings.Split(strings.TrimRight(newText, "\n"), "\n") {
+		b.WriteString("+" + line + "\n")
+	}
+	return b.String()
 }
 
 func toInputContent(items []InputContent) ([]provider.Content, error) {

@@ -397,28 +397,21 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 	}
 
 	for _, call := range message.ToolCalls() {
-		output = append(output, ResponseOutput{
-			Type: ResponseOutputTypeFunctionCall,
-			FunctionCallOutputItem: &FunctionCallOutputItem{
-				ID:        "fc_" + call.ID,
-				Type:      "function_call",
-				Status:    status,
-				Name:      call.Name,
-				CallID:    call.ID,
-				Arguments: call.Arguments,
-			},
-		})
-	}
-
-	for _, content := range message.Content {
-		if content.TextEditorCall != nil {
+		if isApplyPatchToolCall(call) {
 			output = append(output, ResponseOutput{
-				Type: ResponseOutputTypeApplyPatchCall,
-				ApplyPatchCallItem: &ApplyPatchCallItem{
-					ID:     "apc_" + uuid.NewString(),
-					CallID: content.TextEditorCall.CallID,
-					Status: status,
-					Operation: textEditorToApplyPatchOperation(content.TextEditorCall),
+				Type:               ResponseOutputTypeApplyPatchCall,
+				ApplyPatchCallItem: toolCallToApplyPatchCall(call, status),
+			})
+		} else {
+			output = append(output, ResponseOutput{
+				Type: ResponseOutputTypeFunctionCall,
+				FunctionCallOutputItem: &FunctionCallOutputItem{
+					ID:        "fc_" + call.ID,
+					Type:      "function_call",
+					Status:    status,
+					Name:      call.Name,
+					CallID:    call.ID,
+					Arguments: call.Arguments,
 				},
 			})
 		}
@@ -563,6 +556,11 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallAdded:
+			if event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool" {
+				// Emit as apply_patch_call — full item comes at FunctionCallDone
+				return nil
+			}
+
 			return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
 				Type:           "response.output_item.added",
 				SequenceNumber: nextSeq(),
@@ -597,6 +595,41 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallDone:
+			if event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool" {
+				call := provider.ToolCall{
+					ID:        event.ToolCallID,
+					Name:      event.ToolCallName,
+					Arguments: event.Arguments,
+				}
+				item := toolCallToApplyPatchCall(call, "completed")
+
+				if err := writeEvent(w, "response.output_item.added", map[string]any{
+					"type":            "response.output_item.added",
+					"sequence_number": nextSeq(),
+					"output_index":    event.OutputIndex,
+					"item": map[string]any{
+						"type":   "apply_patch_call",
+						"id":     item.ID,
+						"status": "in_progress",
+					},
+				}); err != nil {
+					return err
+				}
+
+				return writeEvent(w, "response.output_item.done", map[string]any{
+					"type":            "response.output_item.done",
+					"sequence_number": nextSeq(),
+					"output_index":    event.OutputIndex,
+					"item": map[string]any{
+						"type":      "apply_patch_call",
+						"id":        item.ID,
+						"status":    item.Status,
+						"call_id":   item.CallID,
+						"operation": item.Operation,
+					},
+				})
+			}
+
 			return writeEvent(w, "response.output_item.done", FunctionCallOutputItemDoneEvent{
 				Type:           "response.output_item.done",
 				SequenceNumber: nextSeq(),
@@ -832,48 +865,6 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Role:  MessageRoleAssistant,
 				},
 			})
-
-		case StreamEventApplyPatchCallAdded:
-			if event.TextEditorCall != nil {
-				item := &ApplyPatchCallItem{
-					ID:        "apc_" + uuid.NewString(),
-					CallID:    event.TextEditorCall.CallID,
-					Status:    "in_progress",
-					Operation: textEditorToApplyPatchOperation(event.TextEditorCall),
-				}
-				return writeEvent(w, "response.output_item.added", OutputItemAddedEvent{
-					Type:           "response.output_item.added",
-					SequenceNumber: nextSeq(),
-					OutputIndex:    event.OutputIndex,
-					Item: &OutputItem{
-						ID:     item.ID,
-						Type:   "apply_patch_call",
-						Status: "in_progress",
-					},
-				})
-			}
-
-		case StreamEventApplyPatchCallDone:
-			if event.TextEditorCall != nil {
-				item := &ApplyPatchCallItem{
-					ID:        "apc_" + uuid.NewString(),
-					CallID:    event.TextEditorCall.CallID,
-					Status:    "completed",
-					Operation: textEditorToApplyPatchOperation(event.TextEditorCall),
-				}
-				return writeEvent(w, "response.output_item.done", map[string]any{
-					"type":            "response.output_item.done",
-					"sequence_number": nextSeq(),
-					"output_index":    event.OutputIndex,
-					"item": map[string]any{
-						"type":      "apply_patch_call",
-						"id":        item.ID,
-						"status":    item.Status,
-						"call_id":   item.CallID,
-						"operation": item.Operation,
-					},
-				})
-			}
 
 		case StreamEventResponseCompleted:
 			now := time.Now().Unix()

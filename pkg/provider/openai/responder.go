@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"encoding/json"
 	"slices"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -90,7 +90,6 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}
 
 				case responses.ResponseApplyPatchToolCall:
-					// Emit initial empty TextEditorCall — will be populated at Done event
 					delta := &provider.Completion{
 						ID:    data.Response.ID,
 						Model: data.Response.Model,
@@ -99,9 +98,9 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								provider.TextEditorCallContent(provider.TextEditorCall{
-									ID:     item.ID,
-									CallID: item.CallID,
+								provider.ToolCallContent(provider.ToolCall{
+									ID:   item.CallID,
+									Name: "apply_patch",
 								}),
 							},
 						},
@@ -208,7 +207,11 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseOutputItemDoneEvent:
 				switch item := event.Item.AsAny().(type) {
 				case responses.ResponseApplyPatchToolCall:
-					call := applyPatchToTextEditorCall(item)
+					args, _ := json.Marshal(map[string]any{
+						"type": item.Operation.Type,
+						"path": item.Operation.Path,
+						"diff": item.Operation.Diff,
+					})
 
 					delta := &provider.Completion{
 						ID:    data.Response.ID,
@@ -218,7 +221,11 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								provider.TextEditorCallContent(call),
+								provider.ToolCallContent(provider.ToolCall{
+									ID:        item.CallID,
+									Name:      "apply_patch",
+									Arguments: string(args),
+								}),
 							},
 						},
 					}
@@ -689,39 +696,6 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 	}
 
 	return result, nil
-}
-
-func applyPatchToTextEditorCall(item responses.ResponseApplyPatchToolCall) provider.TextEditorCall {
-	call := provider.TextEditorCall{
-		ID:     item.ID,
-		CallID: item.CallID,
-	}
-
-	switch op := item.Operation.AsAny().(type) {
-	case responses.ResponseApplyPatchToolCallOperationCreateFile:
-		call.Command = provider.TextEditorCommandCreate
-		call.Path = op.Path
-		call.Content = parseDiffContent(op.Diff)
-	case responses.ResponseApplyPatchToolCallOperationUpdateFile:
-		call.Command = provider.TextEditorCommandStrReplace
-		call.Path = op.Path
-		call.Content = parseDiffContent(op.Diff)
-	case responses.ResponseApplyPatchToolCallOperationDeleteFile:
-		call.Path = op.Path
-	}
-
-	return call
-}
-
-// parseDiffContent extracts the added lines from a diff string.
-func parseDiffContent(diff string) string {
-	var lines []string
-	for _, line := range strings.Split(diff, "\n") {
-		if strings.HasPrefix(line, "+") {
-			lines = append(lines, strings.TrimPrefix(line, "+"))
-		}
-	}
-	return strings.Join(lines, "\n")
 }
 
 func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
