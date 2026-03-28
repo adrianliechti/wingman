@@ -79,6 +79,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				Delta: &ChatCompletionMessage{},
 			},
 		},
+		ServiceTier: "default",
 	}
 
 	if chunk.Model == "" {
@@ -106,9 +107,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					continue
 				}
 
+				idx := s.toolCallIndices[s.currentToolCallID]
 				calls[i] = ToolCall{
 					ID:       s.currentToolCallID,
-					Index:    s.toolCallIndices[s.currentToolCallID],
+					Index:    &idx,
 					Type:     call.Type,
 					Function: call.Function,
 				}

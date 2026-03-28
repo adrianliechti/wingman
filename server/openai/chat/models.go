@@ -122,7 +122,10 @@ type ChatCompletion struct {
 
 	Choices []ChatCompletionChoice `json:"choices"`
 
-	Usage *Usage `json:"usage"`
+	Usage *Usage `json:"usage,omitempty"`
+
+	ServiceTier       string  `json:"service_tier,omitempty"`
+	SystemFingerprint *string `json:"system_fingerprint"`
 }
 
 // https://platform.openai.com/docs/api-reference/chat/object
@@ -140,11 +143,13 @@ type ChatCompletionMessage struct {
 	Role MessageRole `json:"role,omitempty"`
 
 	Content *string `json:"content,omitempty"`
+	Refusal *string `json:"refusal,omitempty"`
 
 	Contents []MessageContent `json:"-"`
 
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls   []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID  string     `json:"tool_call_id,omitempty"`
+	Annotations []any      `json:"annotations,omitzero"`
 }
 
 type MessageContentType string
@@ -186,65 +191,81 @@ func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 	}
 
 	if len(m.Contents) > 0 {
-		type2 := struct {
-			Role MessageRole `json:"role,omitempty"`
-
-			Content *string `json:"-"`
-
-			Contents []MessageContent `json:"content,omitempty"`
-
-			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-			ToolCallID string     `json:"tool_call_id,omitempty"`
-		}(*m)
-
-		return json.Marshal(type2)
-	} else {
-		type1 := struct {
-			Role MessageRole `json:"role,omitempty"`
-
-			Content *string `json:"content,omitempty"`
-
-			Contents []MessageContent `json:"-"`
-
-			ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-			ToolCallID string     `json:"tool_call_id,omitempty"`
-		}(*m)
-
-		return json.Marshal(type1)
+		return json.Marshal(struct {
+			Role        MessageRole      `json:"role,omitempty"`
+			Contents    []MessageContent `json:"content,omitempty"`
+			Refusal     *string          `json:"refusal,omitempty"`
+			ToolCalls   []ToolCall       `json:"tool_calls,omitempty"`
+			ToolCallID  string           `json:"tool_call_id,omitempty"`
+			Annotations []any            `json:"annotations,omitzero"`
+		}{
+			Role:        m.Role,
+			Contents:    m.Contents,
+			Refusal:     m.Refusal,
+			ToolCalls:   m.ToolCalls,
+			ToolCallID:  m.ToolCallID,
+			Annotations: m.Annotations,
+		})
 	}
+
+	return json.Marshal(struct {
+		Role        MessageRole `json:"role,omitempty"`
+		Content     *string     `json:"content,omitempty"`
+		Refusal     *string     `json:"refusal,omitempty"`
+		ToolCalls   []ToolCall  `json:"tool_calls,omitempty"`
+		ToolCallID  string      `json:"tool_call_id,omitempty"`
+		Annotations []any       `json:"annotations,omitzero"`
+	}{
+		Role:        m.Role,
+		Content:     m.Content,
+		Refusal:     m.Refusal,
+		ToolCalls:   m.ToolCalls,
+		ToolCallID:  m.ToolCallID,
+		Annotations: m.Annotations,
+	})
 }
 
 func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
-	type1 := struct {
-		Role MessageRole `json:"role,omitempty"`
+	// Try string content first
+	type stringContent struct {
+		Role        MessageRole `json:"role,omitempty"`
+		Content     *string     `json:"content"`
+		Refusal     *string     `json:"refusal,omitempty"`
+		ToolCalls   []ToolCall  `json:"tool_calls,omitempty"`
+		ToolCallID  string      `json:"tool_call_id,omitempty"`
+		Annotations []any       `json:"annotations,omitzero"`
+	}
 
-		Content *string `json:"content"`
-
-		Contents []MessageContent
-
-		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-		ToolCallID string     `json:"tool_call_id,omitempty"`
-	}{}
-
-	if err := json.Unmarshal(data, &type1); err == nil {
-		*m = ChatCompletionMessage(type1)
+	var sc stringContent
+	if err := json.Unmarshal(data, &sc); err == nil {
+		m.Role = sc.Role
+		m.Content = sc.Content
+		m.Refusal = sc.Refusal
+		m.ToolCalls = sc.ToolCalls
+		m.ToolCallID = sc.ToolCallID
+		m.Annotations = sc.Annotations
 		return nil
 	}
 
-	type2 := struct {
-		Role MessageRole `json:"role,omitempty"`
+	// Try array content
+	type arrayContent struct {
+		Role        MessageRole      `json:"role,omitempty"`
+		Contents    []MessageContent `json:"content"`
+		Refusal     *string          `json:"refusal,omitempty"`
+		ToolCalls   []ToolCall       `json:"tool_calls,omitempty"`
+		ToolCallID  string           `json:"tool_call_id,omitempty"`
+		Annotations []any            `json:"annotations,omitzero"`
+	}
 
-		Content *string
-
-		Contents []MessageContent `json:"content"`
-
-		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-		ToolCallID string     `json:"tool_call_id,omitempty"`
-	}{}
-
-	if err := json.Unmarshal(data, &type2); err == nil {
-		*m = ChatCompletionMessage(type2)
-		return err
+	var ac arrayContent
+	if err := json.Unmarshal(data, &ac); err == nil {
+		m.Role = ac.Role
+		m.Contents = ac.Contents
+		m.Refusal = ac.Refusal
+		m.ToolCalls = ac.ToolCalls
+		m.ToolCallID = ac.ToolCallID
+		m.Annotations = ac.Annotations
+		return nil
 	}
 
 	return nil
@@ -330,7 +351,7 @@ type ToolCall struct {
 
 	Type ToolType `json:"type,omitempty"`
 
-	Index int `json:"index"`
+	Index *int `json:"index,omitempty"`
 
 	Function *FunctionCall `json:"function,omitempty"`
 }

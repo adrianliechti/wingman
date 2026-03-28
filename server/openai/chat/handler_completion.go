@@ -164,6 +164,8 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 		Created: time.Now().Unix(),
 
 		Choices: []ChatCompletionChoice{},
+
+		ServiceTier: "default",
 	}
 
 	if result.Model == "" {
@@ -172,7 +174,8 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 
 	if completion.Message != nil {
 		message := &ChatCompletionMessage{
-			Role: role,
+			Role:        role,
+			Annotations: []any{},
 		}
 
 		if content := completion.Message.Text(); content != "" {
@@ -210,10 +213,20 @@ func (h *Handler) handleChatCompletionStream(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	includeUsage := req.StreamOptions != nil && req.StreamOptions.IncludeUsage != nil && *req.StreamOptions.IncludeUsage
+
 	// Create streaming accumulator with event handler
 	accumulator := NewStreamingAccumulator(req.Model, func(event StreamEvent) error {
 		switch event.Type {
-		case StreamEventChunk, StreamEventFinish, StreamEventUsage:
+		case StreamEventUsage:
+			if !includeUsage {
+				return nil
+			}
+
+			event.Chunk.Created = time.Now().Unix()
+			return writeEvent(w, event.Chunk)
+
+		case StreamEventChunk, StreamEventFinish:
 			event.Chunk.Created = time.Now().Unix()
 			return writeEvent(w, event.Chunk)
 

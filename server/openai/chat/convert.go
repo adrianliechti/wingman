@@ -200,8 +200,7 @@ func oaiToolCalls(content []provider.Content) []ToolCall {
 		}
 
 		call := ToolCall{
-			ID:    c.ToolCall.ID,
-			Index: len(result),
+			ID: c.ToolCall.ID,
 
 			Type: ToolTypeFunction,
 
