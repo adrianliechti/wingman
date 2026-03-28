@@ -184,11 +184,13 @@ type CustomToolFormat struct {
 type InputItemType string
 
 const (
-	InputItemTypeMessage            InputItemType = "message"
-	InputItemTypeReasoning          InputItemType = "reasoning"
-	InputItemTypeCompaction         InputItemType = "compaction"
-	InputItemTypeFunctionCall       InputItemType = "function_call"
-	InputItemTypeFunctionCallOutput InputItemType = "function_call_output"
+	InputItemTypeMessage              InputItemType = "message"
+	InputItemTypeReasoning            InputItemType = "reasoning"
+	InputItemTypeCompaction           InputItemType = "compaction"
+	InputItemTypeFunctionCall         InputItemType = "function_call"
+	InputItemTypeFunctionCallOutput   InputItemType = "function_call_output"
+	InputItemTypeApplyPatchCall       InputItemType = "apply_patch_call"
+	InputItemTypeApplyPatchCallOutput InputItemType = "apply_patch_call_output"
 )
 
 type ResponsesInput struct {
@@ -213,6 +215,27 @@ type InputItem struct {
 
 	// For function_call_output type
 	*InputFunctionCallOutput
+
+	// For apply_patch_call type
+	*InputApplyPatchCall
+
+	// For apply_patch_call_output type
+	*InputApplyPatchCallOutput
+}
+
+// InputApplyPatchCall represents an apply_patch call in the input (for multi-turn)
+type InputApplyPatchCall struct {
+	ID        string              `json:"id,omitempty"`
+	CallID    string              `json:"call_id,omitempty"`
+	Status    string              `json:"status,omitempty"`
+	Operation ApplyPatchOperation `json:"operation,omitempty"`
+}
+
+// InputApplyPatchCallOutput represents the result of an apply_patch call
+type InputApplyPatchCallOutput struct {
+	CallID string `json:"call_id,omitempty"`
+	Output string `json:"output,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 // InputReasoning represents a reasoning item in the input
@@ -327,6 +350,20 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 				return err
 			}
 			item.InputFunctionCallOutput = &fco
+
+		case InputItemTypeApplyPatchCall:
+			var apc InputApplyPatchCall
+			if err := json.Unmarshal(raw, &apc); err != nil {
+				return err
+			}
+			item.InputApplyPatchCall = &apc
+
+		case InputItemTypeApplyPatchCallOutput:
+			var apco InputApplyPatchCallOutput
+			if err := json.Unmarshal(raw, &apco); err != nil {
+				return err
+			}
+			item.InputApplyPatchCallOutput = &apco
 
 		default:
 			return fmt.Errorf("unknown input item type: %s", typeWrapper.Type)

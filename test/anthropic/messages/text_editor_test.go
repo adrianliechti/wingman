@@ -103,6 +103,134 @@ func TestTextEditorEditHTTP(t *testing.T) {
 	}
 }
 
+func TestTextEditorSSE(t *testing.T) {
+	h := anthropic.New(t)
+
+	for _, model := range anthropic.DefaultModels() {
+		if !model.Capabilities.TextEditor {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			anthropicBody := withModel(map[string]any{
+				"max_tokens": 4096,
+				"stream":     true,
+				"messages": []map[string]any{
+					{"role": "user", "content": "Create a file called test.py with print('test')"},
+				},
+				"tools": []any{
+					map[string]any{
+						"type": "text_editor_20250728",
+						"name": "str_replace_based_edit_tool",
+					},
+				},
+			}, h.ReferenceModel)
+
+			wingmanBody := withModel(map[string]any{
+				"max_tokens": 4096,
+				"stream":     true,
+				"messages": []map[string]any{
+					{"role": "user", "content": "Create a file called test.py with print('test')"},
+				},
+				"tools": []any{
+					map[string]any{
+						"type": "text_editor_20250728",
+						"name": "str_replace_based_edit_tool",
+					},
+				},
+			}, model.Name)
+
+			anthropicEvents := postAnthropicSSE(t, h, h.Anthropic, anthropicBody)
+			wingmanEvents := postAnthropicSSE(t, h, h.Wingman, wingmanBody)
+
+			requireTextEditorSSEEvent(t, "anthropic", anthropicEvents)
+			requireTextEditorSSEEvent(t, "wingman", wingmanEvents)
+		})
+	}
+}
+
+func TestTextEditorMultiTurnHTTP(t *testing.T) {
+	h := anthropic.New(t)
+
+	for _, model := range anthropic.DefaultModels() {
+		if !model.Capabilities.TextEditor {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"max_tokens": 4096,
+				"messages": []map[string]any{
+					{"role": "user", "content": "Create hello.py with print(\"hi\")"},
+					{
+						"role": "assistant",
+						"content": []map[string]any{
+							{
+								"type": "tool_use",
+								"id":   "toolu_test123",
+								"name": "str_replace_based_edit_tool",
+								"input": map[string]any{
+									"command":   "create",
+									"path":      "hello.py",
+									"file_text": "print(\"hi\")\n",
+								},
+							},
+						},
+					},
+					{
+						"role": "user",
+						"content": []map[string]any{
+							{
+								"type":        "tool_result",
+								"tool_use_id": "toolu_test123",
+								"content":     "File created successfully.",
+							},
+						},
+					},
+					{"role": "user", "content": "Now change hi to bye. Apply the edit directly."},
+				},
+				"tools": []any{
+					map[string]any{
+						"type": "text_editor_20250728",
+						"name": "str_replace_based_edit_tool",
+					},
+				},
+			}
+
+			anthropicResp, wingmanResp := compareHTTP(t, h, model.Name, body)
+
+			requireTextEditorCall(t, "anthropic", anthropicResp.Body, "str_replace")
+			requireTextEditorCall(t, "wingman", wingmanResp.Body, "str_replace")
+		})
+	}
+}
+
+func requireTextEditorSSEEvent(t *testing.T, label string, events []*harness.SSEEvent) {
+	t.Helper()
+
+	for _, e := range events {
+		if e.Data == nil {
+			continue
+		}
+
+		eventType, _ := e.Data["type"].(string)
+		if eventType != "content_block_start" {
+			continue
+		}
+
+		block, ok := e.Data["content_block"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if block["type"] == "tool_use" && block["name"] == "str_replace_based_edit_tool" {
+			return
+		}
+	}
+
+	t.Fatalf("[%s] no str_replace_based_edit_tool SSE event found", label)
+}
+
 func requireTextEditorCall(t *testing.T, label string, body map[string]any, command string) {
 	t.Helper()
 

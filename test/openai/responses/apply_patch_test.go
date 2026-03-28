@@ -116,6 +116,86 @@ func TestApplyPatchSSE(t *testing.T) {
 	}
 }
 
+func TestApplyPatchMultiTurnHTTP(t *testing.T) {
+	h := openai.New(t)
+
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.TextEditor {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"input": []map[string]any{
+					{
+						"type": "message",
+						"role": "user",
+						"content": []map[string]any{
+							{"type": "input_text", "text": "Create hello.py with print(\"hi\")"},
+						},
+					},
+					{
+						"type":    "apply_patch_call",
+						"id":      "apc_test",
+						"call_id": "call_test",
+						"status":  "completed",
+						"operation": map[string]any{
+							"type": "create_file",
+							"path": "hello.py",
+							"diff": "+print(\"hi\")\n",
+						},
+					},
+					{
+						"type":    "apply_patch_call_output",
+						"call_id": "call_test",
+						"output":  "File created successfully",
+						"status":  "completed",
+					},
+					{
+						"type": "message",
+						"role": "user",
+						"content": []map[string]any{
+							{"type": "input_text", "text": "Now change it to print bye. Apply the patch directly."},
+						},
+					},
+				},
+				"tools": []any{
+					map[string]any{"type": "apply_patch"},
+				},
+			}
+
+			openaiResp, wingmanResp := compareHTTP(t, h, model, body)
+
+			requireApplyPatchCall(t, "openai", openaiResp.Body)
+			requireApplyPatchCall(t, "wingman", wingmanResp.Body)
+
+			// Verify the operation is an update_file
+			requireApplyPatchOperationType(t, "openai", openaiResp.Body, "update_file")
+			requireApplyPatchOperationType(t, "wingman", wingmanResp.Body, "update_file")
+		})
+	}
+}
+
+func requireApplyPatchOperationType(t *testing.T, label string, body map[string]any, opType string) {
+	t.Helper()
+
+	output, _ := body["output"].([]any)
+	for _, item := range output {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if obj["type"] == "apply_patch_call" {
+			op, _ := obj["operation"].(map[string]any)
+			if op["type"] == opType {
+				return
+			}
+		}
+	}
+
+	t.Errorf("[%s] no apply_patch_call with operation type %q found", label, opType)
+}
+
 func requireApplyPatchCall(t *testing.T, label string, body map[string]any) {
 	t.Helper()
 

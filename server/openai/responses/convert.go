@@ -201,6 +201,40 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				ID:   output.CallID,
 				Data: output.Output,
 			}))
+
+		case InputItemTypeApplyPatchCall:
+			if item.InputApplyPatchCall == nil {
+				continue
+			}
+
+			flushResults()
+
+			call := item.InputApplyPatchCall
+			args, _ := json.Marshal(map[string]any{
+				"type": call.Operation.Type,
+				"path": call.Operation.Path,
+				"diff": call.Operation.Diff,
+			})
+
+			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+				ID:        call.CallID,
+				Name:      "apply_patch",
+				Arguments: string(args),
+			}))
+
+		case InputItemTypeApplyPatchCallOutput:
+			if item.InputApplyPatchCallOutput == nil {
+				continue
+			}
+
+			flushCalls()
+
+			output := item.InputApplyPatchCallOutput
+
+			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+				ID:   output.CallID,
+				Data: output.Output,
+			}))
 		}
 	}
 

@@ -314,6 +314,7 @@ func reasoningRequested(req ResponsesRequest) bool {
 type responseOutputOptions struct {
 	IncludeSummary   bool
 	IncludeReasoning bool
+	ApplyPatchTool   bool
 }
 
 func responseOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
@@ -397,7 +398,7 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 	}
 
 	for _, call := range message.ToolCalls() {
-		if isApplyPatchToolCall(call) {
+		if opts.ApplyPatchTool && isApplyPatchToolCall(call) {
 			output = append(output, ResponseOutput{
 				Type:               ResponseOutputTypeApplyPatchCall,
 				ApplyPatchCallItem: toolCallToApplyPatchCall(call, status),
@@ -456,6 +457,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	outputOpts := responseOutputOptions{
 		IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 		IncludeReasoning: reasoningRequested(req),
+		ApplyPatchTool:   options.TextEditorTool,
 	}
 
 	// Create initial response template
@@ -556,7 +558,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallAdded:
-			if event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool" {
+			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
 				// Emit as apply_patch_call — full item comes at FunctionCallDone
 				return nil
 			}
@@ -595,7 +597,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallDone:
-			if event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool" {
+			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
 				call := provider.ToolCall{
 					ID:        event.ToolCallID,
 					Name:      event.ToolCallName,
@@ -987,6 +989,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		Output: responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status), responseOutputOptions{
 			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 			IncludeReasoning: reasoningRequested(req),
+			ApplyPatchTool:   options.TextEditorTool,
 		}),
 		Usage:     responseUsage(completion.Usage),
 	}
