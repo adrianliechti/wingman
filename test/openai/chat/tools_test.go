@@ -27,7 +27,7 @@ var weatherTool = map[string]any{
 	},
 }
 
-func TestChatToolCallingHTTP(t *testing.T) {
+func TestToolCallingHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -52,7 +52,7 @@ func TestChatToolCallingHTTP(t *testing.T) {
 	}
 }
 
-func TestChatToolCallingSSE(t *testing.T) {
+func TestToolCallingSSE(t *testing.T) {
 	h := openai.New(t)
 	ctx := context.Background()
 
@@ -90,7 +90,7 @@ func TestChatToolCallingSSE(t *testing.T) {
 	}
 }
 
-func TestChatToolCallingMultiTurnHTTP(t *testing.T) {
+func TestToolCallingMultiTurnHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -132,7 +132,7 @@ func TestChatToolCallingMultiTurnHTTP(t *testing.T) {
 	}
 }
 
-func TestChatToolChoiceNoneHTTP(t *testing.T) {
+func TestToolChoiceNoneHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {

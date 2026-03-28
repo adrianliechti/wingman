@@ -76,7 +76,7 @@ func TestReasoningHTTP(t *testing.T) {
 						requireReasoningOutput(t, "wingman", wingmanResp.Body)
 					}
 
-					rules := openai.DefaultResponseRules()
+					rules := openai.DefaultResponsesResponseRules()
 					harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 				})
 			}
@@ -102,7 +102,7 @@ func TestReasoningSSE(t *testing.T) {
 						requireReasoningSSEEvent(t, "wingman", wingmanEvents)
 					}
 
-					rules := openai.DefaultSSEEventRules()
+					rules := openai.DefaultResponsesSSERules()
 					harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 				})
 			}

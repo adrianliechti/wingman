@@ -7,7 +7,7 @@ import (
 	"github.com/adrianliechti/wingman/test/openai"
 )
 
-func TestChatCompletionHTTP(t *testing.T) {
+func TestBasicHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -47,7 +47,7 @@ func TestChatCompletionHTTP(t *testing.T) {
 	}
 }
 
-func TestChatCompletionSSE(t *testing.T) {
+func TestBasicSSE(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -60,7 +60,7 @@ func TestChatCompletionSSE(t *testing.T) {
 
 			openaiEvents, wingmanEvents := compareSSE(t, h, model, body)
 
-			rules := openai.DefaultChatSSEEventRules()
+			rules := openai.DefaultChatSSERules()
 			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 		})
 	}

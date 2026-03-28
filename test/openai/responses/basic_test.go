@@ -7,7 +7,7 @@ import (
 	"github.com/adrianliechti/wingman/test/openai"
 )
 
-func TestResponsesHTTP(t *testing.T) {
+func TestBasicHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -42,7 +42,7 @@ func TestResponsesHTTP(t *testing.T) {
 				t.Run(tt.name, func(t *testing.T) {
 					openaiResp, wingmanResp := compareHTTP(t, h, model, tt.body)
 
-					rules := openai.DefaultResponseRules()
+					rules := openai.DefaultResponsesResponseRules()
 					harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 				})
 			}
@@ -50,7 +50,7 @@ func TestResponsesHTTP(t *testing.T) {
 	}
 }
 
-func TestResponsesSSE(t *testing.T) {
+func TestBasicSSE(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -85,7 +85,7 @@ func TestResponsesSSE(t *testing.T) {
 				t.Run(tt.name, func(t *testing.T) {
 					openaiEvents, wingmanEvents := compareSSE(t, h, model, tt.body)
 
-					rules := openai.DefaultSSEEventRules()
+					rules := openai.DefaultResponsesSSERules()
 					harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 				})
 			}

@@ -79,7 +79,7 @@ func TestMultiTurnHTTP(t *testing.T) {
 				t.Run(tt.name, func(t *testing.T) {
 					openaiResp, wingmanResp := compareHTTP(t, h, model, tt.body)
 
-					rules := openai.DefaultResponseRules()
+					rules := openai.DefaultResponsesResponseRules()
 					harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 				})
 			}
@@ -120,7 +120,7 @@ func TestMultiTurnSSE(t *testing.T) {
 
 			openaiEvents, wingmanEvents := compareSSE(t, h, model, body)
 
-			rules := openai.DefaultSSEEventRules()
+			rules := openai.DefaultResponsesSSERules()
 			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 		})
 	}

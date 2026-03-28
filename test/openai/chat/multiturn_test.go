@@ -7,7 +7,7 @@ import (
 	"github.com/adrianliechti/wingman/test/openai"
 )
 
-func TestChatMultiTurnHTTP(t *testing.T) {
+func TestMultiTurnHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -28,7 +28,7 @@ func TestChatMultiTurnHTTP(t *testing.T) {
 	}
 }
 
-func TestChatMultiTurnSSE(t *testing.T) {
+func TestMultiTurnSSE(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -43,7 +43,7 @@ func TestChatMultiTurnSSE(t *testing.T) {
 
 			openaiEvents, wingmanEvents := compareSSE(t, h, model, body)
 
-			rules := openai.DefaultChatSSEEventRules()
+			rules := openai.DefaultChatSSERules()
 			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 		})
 	}

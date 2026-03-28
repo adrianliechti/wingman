@@ -46,7 +46,7 @@ func TestStructuredOutputHTTP(t *testing.T) {
 			requireValidBookJSON(t, "openai", openaiResp.Body)
 			requireValidBookJSON(t, "wingman", wingmanResp.Body)
 
-			rules := openai.DefaultResponseRules()
+			rules := openai.DefaultResponsesResponseRules()
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 		})
 	}
@@ -71,7 +71,7 @@ func TestStructuredOutputSSE(t *testing.T) {
 
 			openaiEvents, wingmanEvents := compareSSE(t, h, model, body)
 
-			rules := openai.DefaultSSEEventRules()
+			rules := openai.DefaultResponsesSSERules()
 			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 
 			// Validate the completed response contains valid JSON
@@ -102,7 +102,7 @@ func TestJSONObjectFormatHTTP(t *testing.T) {
 			requireValidJSON(t, "openai", openaiResp.Body)
 			requireValidJSON(t, "wingman", wingmanResp.Body)
 
-			rules := openai.DefaultResponseRules()
+			rules := openai.DefaultResponsesResponseRules()
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 		})
 	}

@@ -60,7 +60,7 @@ func TestCompactionHTTP(t *testing.T) {
 			requireCompactionOutput(t, "openai", openaiResp.Body)
 			requireCompactionOutput(t, "wingman", wingmanResp.Body)
 
-			rules := openai.DefaultResponseRules()
+			rules := openai.DefaultResponsesResponseRules()
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 		})
 	}
@@ -90,7 +90,7 @@ func TestCompactionSSE(t *testing.T) {
 			requireCompactionSSEEvent(t, "openai", openaiEvents)
 			requireCompactionSSEEvent(t, "wingman", wingmanEvents)
 
-			rules := openai.DefaultSSEEventRules()
+			rules := openai.DefaultResponsesSSERules()
 			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 		})
 	}

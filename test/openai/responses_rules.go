@@ -2,8 +2,8 @@ package openai
 
 import "github.com/adrianliechti/wingman/test/harness"
 
-// DefaultResponseRules returns comparison rules suitable for /v1/responses.
-func DefaultResponseRules() map[string]harness.FieldRule {
+// DefaultResponsesResponseRules returns comparison rules suitable for /v1/responses.
+func DefaultResponsesResponseRules() map[string]harness.FieldRule {
 	return map[string]harness.FieldRule{
 		"id":                        harness.FieldPresence,
 		"created_at":                harness.FieldPresence,
@@ -33,8 +33,8 @@ func DefaultResponseRules() map[string]harness.FieldRule {
 	}
 }
 
-// DefaultSSEEventRules returns comparison rules for SSE event structures.
-func DefaultSSEEventRules() map[string]harness.FieldRule {
+// DefaultResponsesSSERules returns comparison rules for SSE event structures.
+func DefaultResponsesSSERules() map[string]harness.FieldRule {
 	return map[string]harness.FieldRule{
 		"response.id":                                           harness.FieldPresence,
 		"response.created_at":                                   harness.FieldPresence,

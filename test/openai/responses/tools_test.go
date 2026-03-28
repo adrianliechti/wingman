@@ -41,7 +41,7 @@ func TestToolCallingHTTP(t *testing.T) {
 			requireFunctionCall(t, "openai", openaiResp.Body, "get_weather")
 			requireFunctionCall(t, "wingman", wingmanResp.Body, "get_weather")
 
-			rules := openai.DefaultResponseRules()
+			rules := openai.DefaultResponsesResponseRules()
 			// Some models return extra output items (e.g. message + function_call)
 			rules["output"] = harness.FieldPresence
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
@@ -124,7 +124,7 @@ func TestToolCallingMultiTurnHTTP(t *testing.T) {
 			requireMessageOutput(t, "openai", openaiResp.Body)
 			requireMessageOutput(t, "wingman", wingmanResp.Body)
 
-			rules := openai.DefaultResponseRules()
+			rules := openai.DefaultResponsesResponseRules()
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 		})
 	}
@@ -148,7 +148,7 @@ func TestToolChoiceNoneHTTP(t *testing.T) {
 			requireMessageOutput(t, "openai", openaiResp.Body)
 			requireMessageOutput(t, "wingman", wingmanResp.Body)
 
-			rules := openai.DefaultResponseRules()
+			rules := openai.DefaultResponsesResponseRules()
 			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 		})
 	}

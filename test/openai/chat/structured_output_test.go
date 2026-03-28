@@ -19,7 +19,7 @@ var bookSchema = map[string]any{
 	"additionalProperties": false,
 }
 
-func TestChatStructuredOutputHTTP(t *testing.T) {
+func TestStructuredOutputHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -49,7 +49,7 @@ func TestChatStructuredOutputHTTP(t *testing.T) {
 	}
 }
 
-func TestChatStructuredOutputSSE(t *testing.T) {
+func TestStructuredOutputSSE(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {
@@ -70,13 +70,13 @@ func TestChatStructuredOutputSSE(t *testing.T) {
 
 			openaiEvents, wingmanEvents := compareSSE(t, h, model, body)
 
-			rules := openai.DefaultChatSSEEventRules()
+			rules := openai.DefaultChatSSERules()
 			harness.CompareSSEStructureByType(t, openaiEvents, wingmanEvents, rules)
 		})
 	}
 }
 
-func TestChatJSONObjectFormatHTTP(t *testing.T) {
+func TestJSONObjectFormatHTTP(t *testing.T) {
 	h := openai.New(t)
 
 	for _, model := range openai.DefaultModels() {

@@ -23,8 +23,8 @@ func DefaultChatResponseRules() map[string]harness.FieldRule {
 	}
 }
 
-// DefaultChatSSEEventRules returns comparison rules for chat SSE events.
-func DefaultChatSSEEventRules() map[string]harness.FieldRule {
+// DefaultChatSSERules returns comparison rules for chat SSE events.
+func DefaultChatSSERules() map[string]harness.FieldRule {
 	return map[string]harness.FieldRule{
 		"id":         harness.FieldPresence,
 		"created":    harness.FieldPresence,
