@@ -18,9 +18,22 @@ type MessageRequest struct {
 	StopSequences []string       `json:"stop_sequences,omitempty"`
 	Tools         []ToolParam    `json:"tools,omitempty"`
 	ToolChoice    *ToolChoice    `json:"tool_choice,omitempty"`
-	Metadata      *Metadata       `json:"metadata,omitempty"`
-	OutputFormat  *OutputFormat   `json:"output_format,omitempty"`
-	Thinking      *ThinkingConfig `json:"thinking,omitempty"`
+	Metadata          *Metadata            `json:"metadata,omitempty"`
+	OutputFormat      *OutputFormat        `json:"output_format,omitempty"`
+	Thinking          *ThinkingConfig      `json:"thinking,omitempty"`
+	ContextManagement *ContextManagement   `json:"context_management,omitempty"`
+}
+
+type ContextManagement struct {
+	Edits []ContextManagementEdit `json:"edits,omitempty"`
+}
+
+type ContextManagementEdit struct {
+	Type    string `json:"type"` // "compact_20260112"
+	Trigger *struct {
+		Type  string `json:"type"`  // "input_tokens"
+		Value int    `json:"value"`
+	} `json:"trigger,omitempty"`
 }
 
 type ThinkingConfig struct {
@@ -129,7 +142,7 @@ type Message struct {
 }
 
 type ContentBlock struct {
-	Type string `json:"type"` // "text", "tool_use", or "thinking"
+	Type string `json:"type"` // "text", "tool_use", "thinking", or "compaction"
 
 	// For text blocks
 	Text *string `json:"text,omitempty"`
@@ -137,6 +150,9 @@ type ContentBlock struct {
 	// For thinking blocks
 	Thinking  string `json:"thinking,omitempty"`
 	Signature string `json:"signature,omitempty"`
+
+	// For compaction blocks
+	Content string `json:"content,omitempty"`
 
 	// For tool_use blocks
 	ID     string       `json:"id,omitempty"`

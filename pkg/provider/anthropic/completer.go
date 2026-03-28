@@ -141,6 +141,26 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				case anthropic.BetaRedactedThinkingBlock:
 					// Redacted thinking blocks are silently skipped
 
+				case anthropic.BetaCompactionBlock:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.CompactionContent(provider.Compaction{
+									Signature: event.Content,
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
 				case anthropic.BetaToolUseBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -204,6 +224,26 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 							Content: []provider.Content{
 								provider.ReasoningContent(provider.Reasoning{
 									Signature: event.Signature,
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
+				case anthropic.BetaCompactionContentBlockDelta:
+					delta := &provider.Completion{
+						ID:    message.ID,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.CompactionContent(provider.Compaction{
+									Signature: event.Content,
 								}),
 							},
 						},
@@ -476,6 +516,22 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	if options.Schema != nil {
 		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: options.Schema.Schema}
+	}
+
+	if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 {
+		req.Betas = append(req.Betas, "compact-2026-01-12")
+
+		req.ContextManagement = anthropic.BetaContextManagementConfigParam{
+			Edits: []anthropic.BetaContextManagementConfigEditUnionParam{
+				{
+					OfCompact20260112: &anthropic.BetaCompact20260112EditParam{
+						Trigger: anthropic.BetaInputTokensTriggerParam{
+							Value: int64(options.CompactionOptions.Threshold),
+						},
+					},
+				},
+			},
+		}
 	}
 
 	if len(system) > 0 {

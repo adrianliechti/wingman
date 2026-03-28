@@ -3,6 +3,7 @@ package anthropic
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -107,6 +108,17 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 
 		options.ReasoningOptions.IncludeSignature = true
+	}
+
+	if req.ContextManagement != nil {
+		for _, edit := range req.ContextManagement.Edits {
+			if strings.HasPrefix(edit.Type, "compact") && edit.Trigger != nil {
+				options.CompactionOptions = &provider.CompactionOptions{
+					Threshold: edit.Trigger.Value,
+				}
+				break
+			}
+		}
 	}
 
 	if req.Stream {

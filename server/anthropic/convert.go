@@ -96,6 +96,13 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 				ID:   block.ToolUseID,
 				Data: result,
 			}))
+
+		case "compaction":
+			if compactionContent, ok := block.Content.(string); ok {
+				content = append(content, provider.CompactionContent(provider.Compaction{
+					Signature: compactionContent,
+				}))
+			}
 		}
 	}
 
@@ -243,6 +250,13 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 				Type:      "thinking",
 				Thinking:  c.Reasoning.Text,
 				Signature: c.Reasoning.Signature,
+			})
+		}
+
+		if c.Compaction != nil && c.Compaction.Signature != "" {
+			result = append(result, ContentBlock{
+				Type:    "compaction",
+				Content: c.Compaction.Signature,
 			})
 		}
 

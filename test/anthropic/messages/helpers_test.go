@@ -42,6 +42,10 @@ func postAnthropic(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, body
 	req.Header.Set("x-api-key", ep.APIKey)
 	req.Header.Set("anthropic-version", anthropic.DefaultAnthropicVersion)
 
+	if _, ok := body["context_management"]; ok {
+		req.Header.Set("anthropic-beta", "compact-2026-01-12")
+	}
+
 	resp, err := h.Client.HTTP.Do(req)
 	if err != nil {
 		t.Fatalf("do request to %s: %v", ep.Name, err)
@@ -88,6 +92,10 @@ func postAnthropicSSE(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, b
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", ep.APIKey)
 	req.Header.Set("anthropic-version", anthropic.DefaultAnthropicVersion)
+
+	if _, ok := body["context_management"]; ok {
+		req.Header.Set("anthropic-beta", "compact-2026-01-12")
+	}
 
 	resp, err := h.Client.HTTP.Do(req)
 	if err != nil {
