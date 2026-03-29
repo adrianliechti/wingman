@@ -4,12 +4,13 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
-	"github.com/adrianliechti/wingman/pkg/otel"
+
 	"github.com/adrianliechti/wingman/server/anthropic"
 	"github.com/adrianliechti/wingman/server/api"
 	"github.com/adrianliechti/wingman/server/gemini"
 	"github.com/adrianliechti/wingman/server/mcp"
 	"github.com/adrianliechti/wingman/server/openai"
+	"github.com/adrianliechti/wingman/server/otel"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -22,8 +23,9 @@ type Server struct {
 	*config.Config
 	http.Handler
 
-	api *api.Handler
-	mcp *mcp.Handler
+	api  *api.Handler
+	mcp  *mcp.Handler
+	otel *otel.Handler
 
 	openai    *openai.Handler
 	anthropic *anthropic.Handler
@@ -33,6 +35,7 @@ type Server struct {
 func New(cfg *config.Config) (*Server, error) {
 	api := api.New(cfg)
 	mcp := mcp.New(cfg)
+	otel := otel.New()
 	openai := openai.New(cfg)
 	anthropic := anthropic.New(cfg)
 	gemini := gemini.New(cfg)
@@ -43,8 +46,9 @@ func New(cfg *config.Config) (*Server, error) {
 		Config:  cfg,
 		Handler: mux,
 
-		api: api,
-		mcp: mcp,
+		api:  api,
+		mcp:  mcp,
+		otel: otel,
 
 		openai:    openai,
 		anthropic: anthropic,
@@ -78,6 +82,7 @@ func New(cfg *config.Config) (*Server, error) {
 	mux.Route("/v1", func(r chi.Router) {
 		s.api.Attach(r)
 		s.mcp.Attach(r)
+		s.otel.Attach(r)
 		s.openai.Attach(r)
 		s.anthropic.Attach(r)
 	})
@@ -91,29 +96,4 @@ func New(cfg *config.Config) (*Server, error) {
 
 func (s *Server) ListenAndServe() error {
 	return http.ListenAndServe(s.Address, s)
-}
-
-func (s *Server) handleAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-
-		var authorized = len(s.Authorizers) == 0
-
-		for _, a := range s.Authorizers {
-			if authCtx, err := a.Authenticate(ctx, r); err == nil {
-				ctx = authCtx
-				authorized = true
-				break
-			}
-		}
-
-		if !authorized {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		otel.Label(ctx, otel.EndUserAttrs(ctx)...)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
 }
