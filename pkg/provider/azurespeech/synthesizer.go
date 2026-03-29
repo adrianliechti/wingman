@@ -46,12 +46,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 		options = new(provider.SynthesizeOptions)
 	}
 
-	language := options.Language
-	if language == "" {
-		language = detectLanguage(options.Instructions)
-	}
-
-	voice := mapVoice(options.Voice, language)
+	voice := mapVoice(options.Voice)
 
 	outputFormat := mapOutputFormat(options.Format)
 	contentType := mapContentType(options.Format)
@@ -97,205 +92,29 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 	}, nil
 }
 
-// voiceMap maps OpenAI voice names to Azure Speech voice names per locale.
-// The empty string key is the default (en-US) fallback.
-var voiceMap = map[string]map[string]string{
-	"alloy": {
-		"":      "en-US-AvaNeural",
-		"de-DE": "de-DE-AmalaNeural",
-		"fr-FR": "fr-FR-DeniseNeural",
-		"es-ES": "es-ES-ElviraNeural",
-		"it-IT": "it-IT-ElsaNeural",
-		"pt-BR": "pt-BR-FranciscaNeural",
-		"ja-JP": "ja-JP-NanamiNeural",
-		"ko-KR": "ko-KR-SunHiNeural",
-		"zh-CN": "zh-CN-XiaoxiaoNeural",
-	},
-	"ash": {
-		"":      "en-US-AndrewNeural",
-		"de-DE": "de-DE-ConradNeural",
-		"fr-FR": "fr-FR-HenriNeural",
-		"es-ES": "es-ES-AlvaroNeural",
-		"it-IT": "it-IT-DiegoNeural",
-		"pt-BR": "pt-BR-AntonioNeural",
-		"ja-JP": "ja-JP-KeitaNeural",
-		"ko-KR": "ko-KR-InJoonNeural",
-		"zh-CN": "zh-CN-YunxiNeural",
-	},
-	"ballad": {
-		"":      "en-US-BrianNeural",
-		"de-DE": "de-DE-FlorianMultilingualNeural",
-		"fr-FR": "fr-FR-RemyMultilingualNeural",
-		"es-ES": "es-ES-AlvaroNeural",
-		"it-IT": "it-IT-GiuseppeNeural",
-		"pt-BR": "pt-BR-AntonioNeural",
-		"ja-JP": "ja-JP-KeitaNeural",
-		"ko-KR": "ko-KR-InJoonNeural",
-		"zh-CN": "zh-CN-YunyangNeural",
-	},
-	"coral": {
-		"":      "en-US-JennyNeural",
-		"de-DE": "de-DE-KatjaNeural",
-		"fr-FR": "fr-FR-DeniseNeural",
-		"es-ES": "es-ES-ElviraNeural",
-		"it-IT": "it-IT-IsabellaNeural",
-		"pt-BR": "pt-BR-FranciscaNeural",
-		"ja-JP": "ja-JP-NanamiNeural",
-		"ko-KR": "ko-KR-SunHiNeural",
-		"zh-CN": "zh-CN-XiaoxiaoNeural",
-	},
-	"echo": {
-		"":      "en-US-ChristopherNeural",
-		"de-DE": "de-DE-ConradNeural",
-		"fr-FR": "fr-FR-HenriNeural",
-		"es-ES": "es-ES-AlvaroNeural",
-		"it-IT": "it-IT-DiegoNeural",
-		"pt-BR": "pt-BR-AntonioNeural",
-		"ja-JP": "ja-JP-KeitaNeural",
-		"ko-KR": "ko-KR-InJoonNeural",
-		"zh-CN": "zh-CN-YunxiNeural",
-	},
-	"fable": {
-		"":      "en-US-AriaNeural",
-		"de-DE": "de-DE-SeraphinaMultilingualNeural",
-		"fr-FR": "fr-FR-VivienneMultilingualNeural",
-		"es-ES": "es-ES-ElviraNeural",
-		"it-IT": "it-IT-ElsaNeural",
-		"pt-BR": "pt-BR-FranciscaNeural",
-		"ja-JP": "ja-JP-NanamiNeural",
-		"ko-KR": "ko-KR-SunHiNeural",
-		"zh-CN": "zh-CN-XiaomoNeural",
-	},
-	"nova": {
-		"":      "en-US-EmmaNeural",
-		"de-DE": "de-DE-AmalaNeural",
-		"fr-FR": "fr-FR-DeniseNeural",
-		"es-ES": "es-ES-ElviraNeural",
-		"it-IT": "it-IT-IsabellaNeural",
-		"pt-BR": "pt-BR-FranciscaNeural",
-		"ja-JP": "ja-JP-NanamiNeural",
-		"ko-KR": "ko-KR-SunHiNeural",
-		"zh-CN": "zh-CN-XiaohanNeural",
-	},
-	"onyx": {
-		"":      "en-US-DavisNeural",
-		"de-DE": "de-DE-ConradNeural",
-		"fr-FR": "fr-FR-HenriNeural",
-		"es-ES": "es-ES-AlvaroNeural",
-		"it-IT": "it-IT-DiegoNeural",
-		"pt-BR": "pt-BR-AntonioNeural",
-		"ja-JP": "ja-JP-KeitaNeural",
-		"ko-KR": "ko-KR-InJoonNeural",
-		"zh-CN": "zh-CN-YunjianNeural",
-	},
-	"sage": {
-		"":      "en-US-GuyNeural",
-		"de-DE": "de-DE-ConradNeural",
-		"fr-FR": "fr-FR-HenriNeural",
-		"es-ES": "es-ES-AlvaroNeural",
-		"it-IT": "it-IT-GiuseppeNeural",
-		"pt-BR": "pt-BR-AntonioNeural",
-		"ja-JP": "ja-JP-KeitaNeural",
-		"ko-KR": "ko-KR-InJoonNeural",
-		"zh-CN": "zh-CN-YunyangNeural",
-	},
-	"shimmer": {
-		"":      "en-US-AvaMultilingualNeural",
-		"de-DE": "de-DE-SeraphinaMultilingualNeural",
-		"fr-FR": "fr-FR-VivienneMultilingualNeural",
-		"es-ES": "es-ES-ElviraNeural",
-		"it-IT": "it-IT-ElsaNeural",
-		"pt-BR": "pt-BR-FranciscaNeural",
-		"ja-JP": "ja-JP-NanamiNeural",
-		"ko-KR": "ko-KR-SunHiNeural",
-		"zh-CN": "zh-CN-XiaoxiaoNeural",
-	},
+// voiceMap maps OpenAI voice names to Azure multilingual voices.
+// Turbo multilingual voices are direct Azure equivalents of OpenAI voices.
+// Multilingual voices auto-detect the language of the input text.
+var voiceMap = map[string]string{
+	"alloy":   "en-US-AlloyTurboMultilingualNeural",
+	"ash":     "en-US-AndrewMultilingualNeural",
+	"ballad":  "en-US-BrianMultilingualNeural",
+	"coral":   "en-US-EmmaMultilingualNeural",
+	"echo":    "en-US-EchoTurboMultilingualNeural",
+	"fable":   "en-US-FableTurboMultilingualNeural",
+	"nova":    "en-US-NovaTurboMultilingualNeural",
+	"onyx":    "en-US-OnyxTurboMultilingualNeural",
+	"sage":    "en-US-AndrewMultilingualNeural",
+	"shimmer": "en-US-ShimmerTurboMultilingualNeural",
 }
 
-// defaultVoices maps a locale to a sensible default voice when no voice is specified.
-var defaultVoices = map[string]string{
-	"de-DE": "de-DE-AmalaNeural",
-	"fr-FR": "fr-FR-DeniseNeural",
-	"es-ES": "es-ES-ElviraNeural",
-	"it-IT": "it-IT-IsabellaNeural",
-	"pt-BR": "pt-BR-FranciscaNeural",
-	"ja-JP": "ja-JP-NanamiNeural",
-	"ko-KR": "ko-KR-SunHiNeural",
-	"zh-CN": "zh-CN-XiaoxiaoNeural",
-}
-
-// languageMap maps language names found in instructions to Azure locale codes.
-var languageMap = map[string]string{
-	"english":    "en-US",
-	"german":     "de-DE",
-	"french":     "fr-FR",
-	"spanish":    "es-ES",
-	"italian":    "it-IT",
-	"portuguese": "pt-BR",
-	"japanese":   "ja-JP",
-	"korean":     "ko-KR",
-	"chinese":    "zh-CN",
-}
-
-func detectLanguage(instructions string) string {
-	lower := strings.ToLower(instructions)
-
-	for name, locale := range languageMap {
-		if strings.Contains(lower, name) {
-			return locale
-		}
-	}
-
-	return ""
-}
-
-// shortLocaleMap maps short language codes to full Azure locale codes.
-var shortLocaleMap = map[string]string{
-	"en": "en-US",
-	"de": "de-DE",
-	"fr": "fr-FR",
-	"es": "es-ES",
-	"it": "it-IT",
-	"pt": "pt-BR",
-	"ja": "ja-JP",
-	"ko": "ko-KR",
-	"zh": "zh-CN",
-}
-
-func normalizeLocale(language string) string {
-	language = strings.ToLower(strings.TrimSpace(language))
-
-	if locale, ok := shortLocaleMap[language]; ok {
-		return locale
-	}
-
-	return language
-}
-
-func mapVoice(voice, language string) string {
-	language = normalizeLocale(language)
-
-	// No voice specified — pick a default for the language
+func mapVoice(voice string) string {
 	if voice == "" {
-		if language != "" {
-			if v, ok := defaultVoices[language]; ok {
-				return v
-			}
-		}
-
-		return "en-US-AvaNeural"
+		return "en-US-AvaMultilingualNeural"
 	}
 
-	// Check if this is an OpenAI voice name
-	key := strings.ToLower(voice)
-	if locales, ok := voiceMap[key]; ok {
-		if language != "" {
-			if v, ok := locales[language]; ok {
-				return v
-			}
-		}
-
-		return locales[""]
+	if mapped, ok := voiceMap[strings.ToLower(voice)]; ok {
+		return mapped
 	}
 
 	// Already an Azure voice name — use as-is
