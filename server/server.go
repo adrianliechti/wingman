@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/server/anthropic"
 	"github.com/adrianliechti/wingman/server/api"
 	"github.com/adrianliechti/wingman/server/gemini"
@@ -71,9 +72,8 @@ func New(cfg *config.Config) (*Server, error) {
 		MaxAge: 300,
 	}))
 
-	mux.Use(s.handleAuth)
-
 	mux.Use(otelhttp.NewMiddleware("http"))
+	mux.Use(s.handleAuth)
 
 	mux.Route("/v1", func(r chi.Router) {
 		s.api.Attach(r)
@@ -111,6 +111,8 @@ func (s *Server) handleAuth(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+
+		otel.Label(ctx, otel.EndUserAttrs(ctx)...)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

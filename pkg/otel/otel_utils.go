@@ -5,6 +5,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/auth"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -26,6 +27,16 @@ func KeyValues(attrs ...[]KeyValue) []KeyValue {
 	}
 
 	return result
+}
+
+func Label(ctx context.Context, attrs ...KeyValue) {
+	labeler, ok := otelhttp.LabelerFromContext(ctx)
+
+	if !ok {
+		return
+	}
+
+	labeler.Add(attrs...)
 }
 
 func EndUserAttrs(ctx context.Context) []KeyValue {
