@@ -4,13 +4,12 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
+	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/translator"
 	"github.com/adrianliechti/wingman/pkg/translator/azure"
 	"github.com/adrianliechti/wingman/pkg/translator/custom"
 	"github.com/adrianliechti/wingman/pkg/translator/deepl"
-	"github.com/adrianliechti/wingman/pkg/translator/llm"
 
 	"golang.org/x/time/rate"
 )
@@ -43,8 +42,7 @@ type translatorConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
-	Model     string `yaml:"model"`
-	Extractor string `yaml:"extractor"`
+	Model string `yaml:"model"`
 
 	Vars map[string]string `yaml:"vars"`
 
@@ -53,7 +51,6 @@ type translatorConfig struct {
 
 type translatorContext struct {
 	Completer provider.Completer
-	Extractor extractor.Provider
 
 	Limiter *rate.Limiter
 }
@@ -64,6 +61,8 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 	if err := f.Translators.Decode(&configs); err != nil {
 		return err
 	}
+
+	defaultSet := false
 
 	for _, node := range f.Translators.Content {
 		id := node.Value
@@ -84,12 +83,6 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 			}
 		}
 
-		if config.Extractor != "" {
-			if p, err := cfg.Extractor(config.Extractor); err == nil {
-				context.Extractor = p
-			}
-		}
-
 		translator, err := createTranslator(config, context)
 
 		if err != nil {
@@ -97,6 +90,11 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 		}
 
 		cfg.RegisterTranslator(id, translator)
+
+		if !defaultSet {
+			cfg.translator[""] = translator
+			defaultSet = true
+		}
 	}
 
 	return nil
@@ -122,7 +120,7 @@ func createTranslator(cfg translatorConfig, context translatorContext) (translat
 }
 
 func llmTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
-	return llm.New(context.Completer, context.Extractor)
+	return adapter.FromCompleter(context.Completer), nil
 }
 
 func azureTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {

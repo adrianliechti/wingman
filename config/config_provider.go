@@ -8,12 +8,15 @@ import (
 	"github.com/adrianliechti/wingman/pkg/otel"
 
 	reranker "github.com/adrianliechti/wingman/pkg/provider/adapter/reranker"
-	summarizer "github.com/adrianliechti/wingman/pkg/summarizer/adapter"
+	summarizer "github.com/adrianliechti/wingman/pkg/provider/adapter/summarizer"
+	translator "github.com/adrianliechti/wingman/pkg/provider/adapter/translator"
 
 	"gopkg.in/yaml.v3"
 )
 
 func (cfg *Config) registerProviders(f *configFile) error {
+	defaultRerankerSet := false
+
 	for _, p := range f.Providers {
 		models := map[string]modelConfig{}
 
@@ -101,6 +104,7 @@ func (cfg *Config) registerProviders(f *configFile) error {
 
 				cfg.RegisterCompleter(id, completer)
 				cfg.RegisterSummarizer(id, summarizer.FromCompleter(completer))
+				cfg.RegisterTranslator(id, translator.FromCompleter(completer))
 
 			case ModelTypeEmbedder:
 				embedder, err := createEmbedder(p, context)
@@ -136,6 +140,11 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				}
 
 				cfg.RegisterReranker(id, reranker)
+
+				if !defaultRerankerSet {
+					cfg.reranker[""] = reranker
+					defaultRerankerSet = true
+				}
 
 			case ModelTypeRenderer:
 				renderer, err := createRenderer(p, context)

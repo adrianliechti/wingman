@@ -52,6 +52,8 @@ func (cfg *Config) registerSummarizers(f *configFile) error {
 		return err
 	}
 
+	defaultSet := false
+
 	for _, node := range f.Summarizers.Content {
 		id := node.Value
 
@@ -72,6 +74,11 @@ func (cfg *Config) registerSummarizers(f *configFile) error {
 		}
 
 		cfg.RegisterSummarizer(id, summarizer)
+
+		if !defaultSet {
+			cfg.summarizer[""] = summarizer
+			defaultSet = true
+		}
 	}
 
 	return nil
