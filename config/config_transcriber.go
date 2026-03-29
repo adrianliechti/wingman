@@ -6,7 +6,6 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/azurespeech"
-	"github.com/adrianliechti/wingman/pkg/provider/mistral"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
 
@@ -37,7 +36,11 @@ func (cfg *Config) Transcriber(id string) (provider.Transcriber, error) {
 func createTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
 	switch strings.ToLower(cfg.Type) {
 	case "mistral":
-		return mistralTranscriber(cfg, model)
+		if cfg.URL == "" {
+			cfg.URL = "https://api.mistral.ai/v1/"
+		}
+
+		return openaiTranscriber(cfg, model)
 
 	case "openai", "openai-compatible":
 		return openaiTranscriber(cfg, model)
@@ -48,20 +51,6 @@ func createTranscriber(cfg providerConfig, model modelContext) (provider.Transcr
 	default:
 		return nil, errors.New("invalid transcriber type: " + cfg.Type)
 	}
-}
-
-func mistralTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
-	var options []mistral.Option
-
-	if cfg.Token != "" {
-		options = append(options, mistral.WithToken(cfg.Token))
-	}
-
-	if model.Client != nil {
-		options = append(options, mistral.WithClient(model.Client))
-	}
-
-	return mistral.NewTranscriber(model.ID, options...)
 }
 
 func azureSpeechTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {

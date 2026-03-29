@@ -10,7 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/jina"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
-	"github.com/adrianliechti/wingman/pkg/provider/mistral"
 	"github.com/adrianliechti/wingman/pkg/provider/ollama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
@@ -54,7 +53,11 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 		return llamaEmbedder(cfg, model)
 
 	case "mistral":
-		return mistralEmbedder(cfg, model)
+		if cfg.URL == "" {
+			cfg.URL = "https://api.mistral.ai/v1/"
+		}
+
+		return openaiEmbedder(cfg, model)
 
 	case "ollama":
 		return ollamaEmbedder(cfg, model)
@@ -120,20 +123,6 @@ func llamaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, e
 	}
 
 	return llama.NewEmbedder(model.ID, cfg.URL, options...)
-}
-
-func mistralEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
-	var options []mistral.Option
-
-	if cfg.Token != "" {
-		options = append(options, mistral.WithToken(cfg.Token))
-	}
-
-	if model.Client != nil {
-		options = append(options, mistral.WithClient(model.Client))
-	}
-
-	return mistral.NewEmbedder(model.ID, options...)
 }
 
 func ollamaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {

@@ -11,7 +11,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
-	"github.com/adrianliechti/wingman/pkg/provider/mistral"
 	"github.com/adrianliechti/wingman/pkg/provider/ollama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
@@ -64,10 +63,17 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 		return llamaCompleter(cfg, model)
 
 	case "mistral":
-		return mistralCompleter(cfg, model)
+		if cfg.URL == "" {
+			cfg.URL = "https://api.mistral.ai/v1/"
+		}
+
+		return openaiCompleter(cfg, model, true)
 
 	case "ollama":
 		return ollamaCompleter(cfg, model)
+
+	case "nim", "nvidia":
+		return openaiCompleter(cfg, model, true)
 
 	case "openai":
 		return openaiCompleter(cfg, model, false)
@@ -143,20 +149,6 @@ func llamaCompleter(cfg providerConfig, model modelContext) (provider.Completer,
 	}
 
 	return llama.NewCompleter(model.ID, cfg.URL, options...)
-}
-
-func mistralCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []mistral.Option
-
-	if cfg.Token != "" {
-		options = append(options, mistral.WithToken(cfg.Token))
-	}
-
-	if model.Client != nil {
-		options = append(options, mistral.WithClient(model.Client))
-	}
-
-	return mistral.NewCompleter(model.ID, options...)
 }
 
 func ollamaCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
