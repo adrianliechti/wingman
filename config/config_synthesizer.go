@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/azurespeech"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
 
@@ -37,9 +38,26 @@ func createSynthesizer(cfg providerConfig, model modelContext) (provider.Synthes
 	case "openai", "openai-compatible":
 		return openaiSynthesizer(cfg, model)
 
+	case "azurespeech", "azure-speech":
+		return azureSpeechSynthesizer(cfg, model)
+
 	default:
 		return nil, errors.New("invalid synthesizer type: " + cfg.Type)
 	}
+}
+
+func azureSpeechSynthesizer(cfg providerConfig, model modelContext) (provider.Synthesizer, error) {
+	var options []azurespeech.Option
+
+	if cfg.Token != "" {
+		options = append(options, azurespeech.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, azurespeech.WithClient(model.Client))
+	}
+
+	return azurespeech.NewSynthesizer(cfg.URL, model.ID, options...)
 }
 
 func openaiSynthesizer(cfg providerConfig, model modelContext) (provider.Synthesizer, error) {

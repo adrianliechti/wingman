@@ -9,7 +9,9 @@ type Synthesizer interface {
 }
 
 type SynthesizeOptions struct {
-	Voice string
+	Voice    string
+	Language string
+
 	Speed *float32
 
 	Instructions string
