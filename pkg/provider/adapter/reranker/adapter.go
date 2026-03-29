@@ -25,7 +25,17 @@ func FromEmbedder(model string, embedder provider.Embedder) *Adapter {
 }
 
 func (a *Adapter) Rerank(ctx context.Context, query string, texts []string, options *provider.RerankOptions) ([]provider.Ranking, error) {
-	result, err := a.embedder.Embed(ctx, []string{query}, nil)
+	if options == nil {
+		options = new(provider.RerankOptions)
+	}
+
+	queryResult, err := a.embedder.Embed(ctx, []string{query}, nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	textsResult, err := a.embedder.Embed(ctx, texts, nil)
 
 	if err != nil {
 		return nil, err
@@ -33,21 +43,13 @@ func (a *Adapter) Rerank(ctx context.Context, query string, texts []string, opti
 
 	var results []provider.Ranking
 
-	for _, text := range texts {
-		embedding, err := a.embedder.Embed(ctx, []string{text}, nil)
+	for i, text := range texts {
+		score := cosineSimilarity(queryResult.Embeddings[0], textsResult.Embeddings[i])
 
-		if err != nil {
-			return nil, err
-		}
-
-		score := cosineSimilarity(result.Embeddings[0], embedding.Embeddings[0])
-
-		result := provider.Ranking{
+		results = append(results, provider.Ranking{
 			Text:  text,
 			Score: float64(score),
-		}
-
-		results = append(results, result)
+		})
 	}
 
 	sort.Slice(results, func(i, j int) bool {
