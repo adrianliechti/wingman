@@ -18,16 +18,14 @@ type Synthesizer struct {
 	*Config
 }
 
-func NewSynthesizer(url, model string, options ...Option) (*Synthesizer, error) {
-	if url == "" {
-		return nil, fmt.Errorf("azure speech url is required (e.g. https://eastus.tts.speech.microsoft.com)")
+func NewSynthesizer(region, model string, options ...Option) (*Synthesizer, error) {
+	if region == "" {
+		return nil, fmt.Errorf("azure speech region is required (e.g. eastus)")
 	}
 
-	url = strings.TrimRight(url, "/")
-
 	cfg := &Config{
-		url:   url,
-		model: model,
+		region: region,
+		model:  model,
 
 		client: http.DefaultClient,
 	}
@@ -53,7 +51,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 
 	ssml := buildSSML(voice, content)
 
-	endpoint := s.url + "/cognitiveservices/v1"
+	endpoint := s.ttsURL() + "/cognitiveservices/v1"
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(ssml))
 	if err != nil {

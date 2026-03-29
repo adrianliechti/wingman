@@ -28,8 +28,8 @@ The platform integrates with a wide range of LLM providers:
 
 **Media Processing:**
 - Image generation: OpenAI DALL-E, Replicate
-- Speech-to-text: OpenAI Whisper, Mistral
-- Text-to-speech: OpenAI TTS
+- Speech-to-text: OpenAI Whisper, Mistral, Azure Speech
+- Text-to-speech: OpenAI TTS, Azure Speech
 - Reranking: Jina
 
 ### Document Processing & RAG
@@ -287,6 +287,32 @@ providers:
       replicate-flux-pro:
         id: black-forest-labs/flux-pro
 ```
+
+
+#### Azure Speech
+
+https://learn.microsoft.com/en-us/azure/ai-services/speech-service/
+
+Text-to-speech and speech-to-text using Azure Cognitive Services Speech. Supports multilingual voices with automatic language detection. OpenAI voice names (alloy, echo, fable, nova, onyx, shimmer) are automatically mapped to Azure equivalents.
+
+```yaml
+providers:
+  - type: azurespeech
+    token: ${AZURE_SPEECH_KEY}
+    vars:
+      region: eastus
+    models:
+      azure-tts:
+        id: azure-tts
+        type: synthesizer
+      azure-stt:
+        id: azure-stt
+        type: transcriber
+```
+
+The `region` variable is used to construct the appropriate endpoints:
+- TTS: `https://{region}.tts.speech.microsoft.com`
+- STT: `https://{region}.api.cognitive.microsoft.com`
 
 
 #### Ollama

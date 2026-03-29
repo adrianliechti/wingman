@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/azurespeech"
 	"github.com/adrianliechti/wingman/pkg/provider/mistral"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
@@ -41,6 +42,9 @@ func createTranscriber(cfg providerConfig, model modelContext) (provider.Transcr
 	case "openai", "openai-compatible":
 		return openaiTranscriber(cfg, model)
 
+	case "azurespeech", "azure-speech":
+		return azureSpeechTranscriber(cfg, model)
+
 	default:
 		return nil, errors.New("invalid transcriber type: " + cfg.Type)
 	}
@@ -58,6 +62,22 @@ func mistralTranscriber(cfg providerConfig, model modelContext) (provider.Transc
 	}
 
 	return mistral.NewTranscriber(model.ID, options...)
+}
+
+func azureSpeechTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {
+	var options []azurespeech.Option
+
+	if cfg.Token != "" {
+		options = append(options, azurespeech.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, azurespeech.WithClient(model.Client))
+	}
+
+	region := cfg.Vars["region"]
+
+	return azurespeech.NewTranscriber(region, model.ID, options...)
 }
 
 func openaiTranscriber(cfg providerConfig, model modelContext) (provider.Transcriber, error) {

@@ -57,7 +57,9 @@ func azureSpeechSynthesizer(cfg providerConfig, model modelContext) (provider.Sy
 		options = append(options, azurespeech.WithClient(model.Client))
 	}
 
-	return azurespeech.NewSynthesizer(cfg.URL, model.ID, options...)
+	region := cfg.Vars["region"]
+
+	return azurespeech.NewSynthesizer(region, model.ID, options...)
 }
 
 func openaiSynthesizer(cfg providerConfig, model modelContext) (provider.Synthesizer, error) {

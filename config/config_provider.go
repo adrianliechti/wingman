@@ -205,5 +205,7 @@ type providerConfig struct {
 	Limit *int         `yaml:"limit"`
 	Proxy *proxyConfig `yaml:"proxy"`
 
+	Vars map[string]string `yaml:"vars"`
+
 	Models yaml.Node `yaml:"models"`
 }
