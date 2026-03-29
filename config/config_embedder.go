@@ -10,7 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/jina"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
-	"github.com/adrianliechti/wingman/pkg/provider/ollama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
 
@@ -60,7 +59,8 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 		return openaiEmbedder(cfg, model)
 
 	case "ollama":
-		return ollamaEmbedder(cfg, model)
+		cfg.URL = ollamaURL(cfg.URL)
+		return openaiEmbedder(cfg, model)
 
 	case "openai", "openai-compatible":
 		return openaiEmbedder(cfg, model)
@@ -123,16 +123,6 @@ func llamaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, e
 	}
 
 	return llama.NewEmbedder(model.ID, cfg.URL, options...)
-}
-
-func ollamaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
-	var options []ollama.Option
-
-	if model.Client != nil {
-		options = append(options, ollama.WithClient(model.Client))
-	}
-
-	return ollama.NewEmbedder(cfg.URL, model.ID, options...)
 }
 
 func openaiEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {

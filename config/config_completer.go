@@ -11,7 +11,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/llama"
-	"github.com/adrianliechti/wingman/pkg/provider/ollama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
 
@@ -70,7 +69,8 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 		return openaiCompleter(cfg, model, true)
 
 	case "ollama":
-		return ollamaCompleter(cfg, model)
+		cfg.URL = ollamaURL(cfg.URL)
+		return openaiCompleter(cfg, model, true)
 
 	case "nim", "nvidia":
 		return openaiCompleter(cfg, model, true)
@@ -149,16 +149,6 @@ func llamaCompleter(cfg providerConfig, model modelContext) (provider.Completer,
 	}
 
 	return llama.NewCompleter(model.ID, cfg.URL, options...)
-}
-
-func ollamaCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []ollama.Option
-
-	if model.Client != nil {
-		options = append(options, ollama.WithClient(model.Client))
-	}
-
-	return ollama.NewCompleter(cfg.URL, model.ID, options...)
 }
 
 func openaiCompleter(cfg providerConfig, model modelContext, useLegacy bool) (provider.Completer, error) {

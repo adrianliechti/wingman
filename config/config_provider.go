@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
@@ -208,4 +209,15 @@ type providerConfig struct {
 	Vars map[string]string `yaml:"vars"`
 
 	Models yaml.Node `yaml:"models"`
+}
+
+func ollamaURL(url string) string {
+	if url == "" {
+		url = "http://localhost:11434"
+	}
+
+	url = strings.TrimRight(url, "/")
+	url = strings.TrimSuffix(url, "/v1")
+
+	return url + "/v1"
 }
