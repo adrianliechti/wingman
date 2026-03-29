@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/router/adaptive"
 	"github.com/adrianliechti/wingman/pkg/router/roundrobin"
@@ -67,10 +66,6 @@ func (cfg *Config) registerRouters(f *configFile) error {
 		}
 
 		if completer, ok := router.(provider.Completer); ok {
-			if _, ok := completer.(otel.Completer); !ok {
-				completer = otel.NewCompleter(config.Type, id, completer)
-			}
-
 			cfg.RegisterCompleter(id, completer)
 		}
 	}

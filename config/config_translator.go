@@ -4,9 +4,13 @@ import (
 	"errors"
 	"strings"
 
+	"net/http"
+
+	"github.com/adrianliechti/wingman/pkg/limiter"
+	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/translator"
 	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/translator"
+	"github.com/adrianliechti/wingman/pkg/translator"
 	"github.com/adrianliechti/wingman/pkg/translator/azure"
 	"github.com/adrianliechti/wingman/pkg/translator/custom"
 	"github.com/adrianliechti/wingman/pkg/translator/deepl"
@@ -44,7 +48,8 @@ type translatorConfig struct {
 
 	Model string `yaml:"model"`
 
-	Vars map[string]string `yaml:"vars"`
+	Vars  map[string]string `yaml:"vars"`
+	Proxy *proxyConfig      `yaml:"proxy"`
 
 	Limit *int `yaml:"limit"`
 }
@@ -52,6 +57,7 @@ type translatorConfig struct {
 type translatorContext struct {
 	Completer provider.Completer
 
+	Client  *http.Client
 	Limiter *rate.Limiter
 }
 
@@ -61,8 +67,6 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 	if err := f.Translators.Decode(&configs); err != nil {
 		return err
 	}
-
-	defaultSet := false
 
 	for _, node := range f.Translators.Content {
 		id := node.Value
@@ -77,6 +81,16 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 			Limiter: createLimiter(config.Limit),
 		}
 
+		if config.Proxy != nil {
+			client, err := config.Proxy.proxyClient()
+
+			if err != nil {
+				return err
+			}
+
+			context.Client = client
+		}
+
 		if config.Model != "" {
 			if p, err := cfg.Completer(config.Model); err == nil {
 				context.Completer = p
@@ -89,12 +103,15 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 			return err
 		}
 
-		cfg.RegisterTranslator(id, translator)
-
-		if !defaultSet {
-			cfg.translator[""] = translator
-			defaultSet = true
+		if _, ok := translator.(limiter.Translator); !ok {
+			translator = limiter.NewTranslator(context.Limiter, translator)
 		}
+
+		if _, ok := translator.(otel.Translator); !ok {
+			translator = otel.NewTranslator(config.Type, id, translator)
+		}
+
+		cfg.RegisterTranslator(id, translator)
 	}
 
 	return nil
@@ -130,6 +147,10 @@ func azureTranslator(cfg translatorConfig, context translatorContext) (translato
 		options = append(options, azure.WithToken(cfg.Token))
 	}
 
+	if context.Client != nil {
+		options = append(options, azure.WithClient(context.Client))
+	}
+
 	if region := cfg.Vars["region"]; region != "" {
 		options = append(options, azure.WithRegion(region))
 	}
@@ -142,6 +163,10 @@ func deeplTranslator(cfg translatorConfig, context translatorContext) (translato
 
 	if cfg.Token != "" {
 		options = append(options, deepl.WithToken(cfg.Token))
+	}
+
+	if context.Client != nil {
+		options = append(options, deepl.WithClient(context.Client))
 	}
 
 	return deepl.New(cfg.URL, options...)

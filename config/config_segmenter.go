@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/limiter"
@@ -48,10 +49,14 @@ type segmenterConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
+	Vars  map[string]string `yaml:"vars"`
+	Proxy *proxyConfig      `yaml:"proxy"`
+
 	Limit *int `yaml:"limit"`
 }
 
 type segmenterContext struct {
+	Client  *http.Client
 	Limiter *rate.Limiter
 }
 
@@ -73,6 +78,16 @@ func (cfg *Config) registerSegmenters(f *configFile) error {
 
 		context := segmenterContext{
 			Limiter: createLimiter(config.Limit),
+		}
+
+		if config.Proxy != nil {
+			client, err := config.Proxy.proxyClient()
+
+			if err != nil {
+				return err
+			}
+
+			context.Client = client
 		}
 
 		segmenter, err := createSegmenter(config, context)
@@ -99,16 +114,16 @@ func createSegmenter(cfg segmenterConfig, context segmenterContext) (segmenter.P
 	switch strings.ToLower(cfg.Type) {
 
 	case "jina":
-		return jinaSegmenter(cfg)
+		return jinaSegmenter(cfg, context)
 
 	case "kreuzberg":
-		return kreuzbergSegmenter(cfg)
+		return kreuzbergSegmenter(cfg, context)
 
 	case "text":
 		return textSegmenter(cfg)
 
 	case "unstructured":
-		return unstructuredSegmenter(cfg)
+		return unstructuredSegmenter(cfg, context)
 
 	case "custom", "wingman-segmenter":
 		return customSegmenter(cfg)
@@ -118,21 +133,29 @@ func createSegmenter(cfg segmenterConfig, context segmenterContext) (segmenter.P
 	}
 }
 
-func jinaSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
+func jinaSegmenter(cfg segmenterConfig, context segmenterContext) (segmenter.Provider, error) {
 	var options []jina.Option
 
 	if cfg.Token != "" {
 		options = append(options, jina.WithToken(cfg.Token))
 	}
 
+	if context.Client != nil {
+		options = append(options, jina.WithClient(context.Client))
+	}
+
 	return jina.New(cfg.URL, options...)
 }
 
-func kreuzbergSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
+func kreuzbergSegmenter(cfg segmenterConfig, context segmenterContext) (segmenter.Provider, error) {
 	var options []kreuzberg.Option
 
 	if cfg.Token != "" {
 		options = append(options, kreuzberg.WithToken(cfg.Token))
+	}
+
+	if context.Client != nil {
+		options = append(options, kreuzberg.WithClient(context.Client))
 	}
 
 	return kreuzberg.New(cfg.URL, options...)
@@ -142,11 +165,15 @@ func textSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
 	return text.New()
 }
 
-func unstructuredSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
+func unstructuredSegmenter(cfg segmenterConfig, context segmenterContext) (segmenter.Provider, error) {
 	var options []unstructured.Option
 
 	if cfg.Token != "" {
 		options = append(options, unstructured.WithToken(cfg.Token))
+	}
+
+	if context.Client != nil {
+		options = append(options, unstructured.WithClient(context.Client))
 	}
 
 	return unstructured.New(cfg.URL, options...)

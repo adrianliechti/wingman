@@ -6,16 +6,14 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
-
+	"github.com/adrianliechti/wingman/pkg/provider"
 	reranker "github.com/adrianliechti/wingman/pkg/provider/adapter/reranker"
-	summarizer "github.com/adrianliechti/wingman/pkg/provider/adapter/summarizer"
-	translator "github.com/adrianliechti/wingman/pkg/provider/adapter/translator"
 
 	"gopkg.in/yaml.v3"
 )
 
 func (cfg *Config) registerProviders(f *configFile) error {
-	defaultRerankerSet := false
+	var firstReranker provider.Reranker
 
 	for _, p := range f.Providers {
 		models := map[string]modelConfig{}
@@ -103,8 +101,6 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				}
 
 				cfg.RegisterCompleter(id, completer)
-				cfg.RegisterSummarizer(id, summarizer.FromCompleter(completer))
-				cfg.RegisterTranslator(id, translator.FromCompleter(completer))
 
 			case ModelTypeEmbedder:
 				embedder, err := createEmbedder(p, context)
@@ -141,9 +137,8 @@ func (cfg *Config) registerProviders(f *configFile) error {
 
 				cfg.RegisterReranker(id, reranker)
 
-				if !defaultRerankerSet {
-					cfg.reranker[""] = reranker
-					defaultRerankerSet = true
+				if firstReranker == nil {
+					firstReranker = reranker
 				}
 
 			case ModelTypeRenderer:
@@ -203,6 +198,10 @@ func (cfg *Config) registerProviders(f *configFile) error {
 		}
 	}
 
+	if firstReranker != nil {
+		cfg.reranker[""] = firstReranker
+	}
+
 	return nil
 }
 
@@ -212,10 +211,10 @@ type providerConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
-	Limit *int         `yaml:"limit"`
-	Proxy *proxyConfig `yaml:"proxy"`
+	Vars  map[string]string `yaml:"vars"`
+	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Vars map[string]string `yaml:"vars"`
+	Limit *int `yaml:"limit"`
 
 	Models yaml.Node `yaml:"models"`
 }

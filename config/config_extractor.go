@@ -16,6 +16,8 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor/unstructured"
 	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
+	"github.com/adrianliechti/wingman/pkg/provider"
+	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/extractor"
 
 	"golang.org/x/time/rate"
 )
@@ -48,6 +50,8 @@ type extractorConfig struct {
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
 
+	Model string `yaml:"model"`
+
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
@@ -55,6 +59,8 @@ type extractorConfig struct {
 }
 
 type extractorContext struct {
+	Completer provider.Completer
+
 	Limiter *rate.Limiter
 }
 
@@ -80,6 +86,12 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 			Limiter: createLimiter(config.Limit),
 		}
 
+		if config.Model != "" {
+			if p, err := cfg.Completer(config.Model); err == nil {
+				context.Completer = p
+			}
+		}
+
 		extractor, err := createExtractor(config, context)
 
 		if err != nil {
@@ -99,13 +111,18 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 		cfg.RegisterExtractor(id, extractor)
 	}
 
-	cfg.RegisterExtractor("", multi.New(extractors...))
+	if len(extractors) > 0 {
+		cfg.extractor[""] = multi.New(extractors...)
+	}
 
 	return nil
 }
 
 func createExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
+	case "llm":
+		return llmExtractor(cfg, context)
+
 	case "azure":
 		return azureExtractor(cfg)
 
@@ -133,6 +150,10 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	default:
 		return nil, errors.New("invalid extractor type: " + cfg.Type)
 	}
+}
+
+func llmExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
+	return adapter.FromCompleter(context.Completer), nil
 }
 
 func azureExtractor(cfg extractorConfig) (extractor.Provider, error) {
