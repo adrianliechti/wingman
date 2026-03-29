@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/template"
 
@@ -119,6 +120,8 @@ func (cfg *Config) registerChains(f *configFile) error {
 		if err != nil {
 			return err
 		}
+
+		chain = otel.NewCompleterSpan("chain "+id, chain)
 
 		cfg.RegisterChain(id, chain)
 	}
