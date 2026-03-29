@@ -41,6 +41,10 @@ func createReranker(cfg providerConfig, model modelContext) (provider.Reranker, 
 	case "jina", "wingman-reranker":
 		return jinaReranker(cfg, model)
 
+	case "llama":
+		cfg.URL = normalizeURL(cfg.URL, "/v1")
+		return jinaReranker(cfg, model)
+
 	default:
 		return nil, errors.New("invalid reranker type: " + cfg.Type)
 	}

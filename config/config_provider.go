@@ -211,13 +211,9 @@ type providerConfig struct {
 	Models yaml.Node `yaml:"models"`
 }
 
-func ollamaURL(url string) string {
-	if url == "" {
-		url = "http://localhost:11434"
-	}
-
+func normalizeURL(url string, suffix string) string {
 	url = strings.TrimRight(url, "/")
-	url = strings.TrimSuffix(url, "/v1")
+	url = strings.TrimSuffix(url, suffix)
 
-	return url + "/v1"
+	return url + suffix
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
 	"github.com/adrianliechti/wingman/pkg/provider/jina"
-	"github.com/adrianliechti/wingman/pkg/provider/llama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
 
@@ -49,7 +48,8 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 		return jinaEmbedder(cfg, model)
 
 	case "llama":
-		return llamaEmbedder(cfg, model)
+		cfg.URL = normalizeURL(cfg.URL, "/v1")
+		return openaiEmbedder(cfg, model)
 
 	case "mistral":
 		if cfg.URL == "" {
@@ -59,7 +59,11 @@ func createEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 		return openaiEmbedder(cfg, model)
 
 	case "ollama":
-		cfg.URL = ollamaURL(cfg.URL)
+		if cfg.URL == "" {
+			cfg.URL = "http://localhost:11434"
+		}
+
+		cfg.URL = normalizeURL(cfg.URL, "/v1")
 		return openaiEmbedder(cfg, model)
 
 	case "openai", "openai-compatible":
@@ -113,16 +117,6 @@ func jinaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, er
 	}
 
 	return jina.NewEmbedder(cfg.URL, model.ID, options...)
-}
-
-func llamaEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {
-	var options []llama.Option
-
-	if model.Client != nil {
-		options = append(options, llama.WithClient(model.Client))
-	}
-
-	return llama.NewEmbedder(model.ID, cfg.URL, options...)
 }
 
 func openaiEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, error) {

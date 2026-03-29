@@ -10,7 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
-	"github.com/adrianliechti/wingman/pkg/provider/llama"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
 
@@ -59,7 +58,8 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 		return huggingfaceCompleter(cfg, model)
 
 	case "llama":
-		return llamaCompleter(cfg, model)
+		cfg.URL = normalizeURL(cfg.URL, "/v1")
+		return openaiCompleter(cfg, model, true)
 
 	case "mistral":
 		if cfg.URL == "" {
@@ -69,7 +69,11 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 		return openaiCompleter(cfg, model, true)
 
 	case "ollama":
-		cfg.URL = ollamaURL(cfg.URL)
+		if cfg.URL == "" {
+			cfg.URL = "http://localhost:11434"
+		}
+
+		cfg.URL = normalizeURL(cfg.URL, "/v1")
 		return openaiCompleter(cfg, model, true)
 
 	case "nim", "nvidia":
@@ -139,16 +143,6 @@ func huggingfaceCompleter(cfg providerConfig, model modelContext) (provider.Comp
 	}
 
 	return huggingface.NewCompleter(cfg.URL, model.ID, options...)
-}
-
-func llamaCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []llama.Option
-
-	if model.Client != nil {
-		options = append(options, llama.WithClient(model.Client))
-	}
-
-	return llama.NewCompleter(model.ID, cfg.URL, options...)
 }
 
 func openaiCompleter(cfg providerConfig, model modelContext, useLegacy bool) (provider.Completer, error) {
