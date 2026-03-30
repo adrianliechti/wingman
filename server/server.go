@@ -10,7 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/server/gemini"
 	"github.com/adrianliechti/wingman/server/mcp"
 	"github.com/adrianliechti/wingman/server/openai"
-	"github.com/adrianliechti/wingman/server/otel"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -23,9 +22,8 @@ type Server struct {
 	*config.Config
 	http.Handler
 
-	api  *api.Handler
-	mcp  *mcp.Handler
-	otel *otel.Handler
+	api *api.Handler
+	mcp *mcp.Handler
 
 	openai    *openai.Handler
 	anthropic *anthropic.Handler
@@ -35,7 +33,6 @@ type Server struct {
 func New(cfg *config.Config) (*Server, error) {
 	api := api.New(cfg)
 	mcp := mcp.New(cfg)
-	otel := otel.New()
 	openai := openai.New(cfg)
 	anthropic := anthropic.New(cfg)
 	gemini := gemini.New(cfg)
@@ -46,9 +43,8 @@ func New(cfg *config.Config) (*Server, error) {
 		Config:  cfg,
 		Handler: mux,
 
-		api:  api,
-		mcp:  mcp,
-		otel: otel,
+		api: api,
+		mcp: mcp,
 
 		openai:    openai,
 		anthropic: anthropic,
@@ -82,7 +78,6 @@ func New(cfg *config.Config) (*Server, error) {
 	mux.Route("/v1", func(r chi.Router) {
 		s.api.Attach(r)
 		s.mcp.Attach(r)
-		s.otel.Attach(r)
 		s.openai.Attach(r)
 		s.anthropic.Attach(r)
 	})
