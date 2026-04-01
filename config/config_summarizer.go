@@ -6,14 +6,12 @@ import (
 
 	"net/http"
 
-	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/summarizer"
 	"github.com/adrianliechti/wingman/pkg/summarizer"
 	"github.com/adrianliechti/wingman/pkg/summarizer/custom"
 
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterSummarizer(id string, p summarizer.Provider) {
@@ -49,14 +47,12 @@ type summarizerConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Limit *int `yaml:"limit"`
 }
 
 type summarizerContext struct {
 	Completer provider.Completer
 
-	Client  *http.Client
-	Limiter *rate.Limiter
+	Client *http.Client
 }
 
 func (cfg *Config) registerSummarizers(f *configFile) error {
@@ -75,9 +71,7 @@ func (cfg *Config) registerSummarizers(f *configFile) error {
 			continue
 		}
 
-		context := summarizerContext{
-			Limiter: createLimiter(config.Limit),
-		}
+		context := summarizerContext{}
 
 		if config.Proxy != nil {
 			client, err := config.Proxy.proxyClient()
@@ -99,10 +93,6 @@ func (cfg *Config) registerSummarizers(f *configFile) error {
 
 		if err != nil {
 			return err
-		}
-
-		if _, ok := summarizer.(limiter.Summarizer); !ok {
-			summarizer = limiter.NewSummarizer(context.Limiter, summarizer)
 		}
 
 		if _, ok := summarizer.(otel.Summarizer); !ok {

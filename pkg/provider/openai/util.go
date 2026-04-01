@@ -2,6 +2,9 @@ package openai
 
 import (
 	"errors"
+	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -19,7 +22,8 @@ func convertError(err error) error {
 		}
 
 		if apierr.Response != nil {
-			provErr.RetryAfter = provider.ParseRetryAfter(apierr.Response.Header.Get("Retry-After"))
+			h := apierr.Response.Header
+			provErr.RetryAfter = parseRetryAfter(h)
 		}
 
 		return provErr
@@ -27,6 +31,34 @@ func convertError(err error) error {
 
 	return err
 }
+
+// parseRetryAfter parses Retry-After (seconds, float, HTTP-date) with retry-after-ms as fallback (Azure OpenAI).
+func parseRetryAfter(h http.Header) time.Duration {
+	if v := h.Get("Retry-After"); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil {
+			return time.Duration(secs) * time.Second
+		}
+
+		if secs, err := strconv.ParseFloat(v, 64); err == nil {
+			return time.Duration(secs * float64(time.Second))
+		}
+
+		if t, err := http.ParseTime(v); err == nil {
+			if d := time.Until(t); d > 0 {
+				return d
+			}
+		}
+	}
+
+	if v := h.Get("retry-after-ms"); v != "" {
+		if ms, err := strconv.ParseFloat(v, 64); err == nil {
+			return time.Duration(ms * float64(time.Millisecond))
+		}
+	}
+
+	return 0
+}
+
 
 // ensureAdditionalPropertiesFalse recursively adds additionalProperties: false
 // to all object schemas. Required by OpenAI's strict JSON schema validation.

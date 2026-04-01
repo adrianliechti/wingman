@@ -77,6 +77,10 @@ func openaiRenderer(cfg providerConfig, model modelContext) (provider.Renderer, 
 		options = append(options, openai.WithClient(model.Client))
 	}
 
+	if model.MaxRetries != nil {
+		options = append(options, openai.WithMaxRetries(*model.MaxRetries))
+	}
+
 	return openai.NewRenderer(cfg.URL, model.ID, options...)
 }
 

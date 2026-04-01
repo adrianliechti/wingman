@@ -13,7 +13,8 @@ type Config struct {
 	token string
 	model string
 
-	client *http.Client
+	client     *http.Client
+	maxRetries *int
 }
 
 type Option func(*Config)
@@ -27,6 +28,12 @@ func WithClient(client *http.Client) Option {
 func WithToken(token string) Option {
 	return func(c *Config) {
 		c.token = token
+	}
+}
+
+func WithMaxRetries(retries int) Option {
+	return func(c *Config) {
+		c.maxRetries = &retries
 	}
 }
 
@@ -49,6 +56,10 @@ func (cfg *Config) Options() []option.RequestOption {
 
 	if cfg.token != "" {
 		options = append(options, option.WithAPIKey(cfg.token))
+	}
+
+	if cfg.maxRetries != nil {
+		options = append(options, option.WithMaxRetries(*cfg.maxRetries))
 	}
 
 	return options

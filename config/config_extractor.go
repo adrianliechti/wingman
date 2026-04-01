@@ -14,12 +14,9 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor/text"
 	"github.com/adrianliechti/wingman/pkg/extractor/tika"
 	"github.com/adrianliechti/wingman/pkg/extractor/unstructured"
-	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/extractor"
-
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterExtractor(id string, p extractor.Provider) {
@@ -55,13 +52,10 @@ type extractorConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Limit *int `yaml:"limit"`
 }
 
 type extractorContext struct {
 	Completer provider.Completer
-
-	Limiter *rate.Limiter
 }
 
 func (cfg *Config) registerExtractors(f *configFile) error {
@@ -82,9 +76,7 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 			continue
 		}
 
-		context := extractorContext{
-			Limiter: createLimiter(config.Limit),
-		}
+		context := extractorContext{}
 
 		if config.Model != "" {
 			if p, err := cfg.Completer(config.Model); err == nil {
@@ -96,10 +88,6 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 
 		if err != nil {
 			return err
-		}
-
-		if _, ok := extractor.(limiter.Extractor); !ok {
-			extractor = limiter.NewExtractor(context.Limiter, extractor)
 		}
 
 		if _, ok := extractor.(otel.Extractor); !ok {

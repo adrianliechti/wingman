@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -42,8 +41,7 @@ func StatusCodeFromError(err error, fallback int) int {
 
 // RetryAfterFromError extracts the Retry-After duration from a ProviderError.
 func RetryAfterFromError(err error) time.Duration {
-	var provErr *ProviderError
-	if errors.As(err, &provErr) {
+	if provErr, ok := errors.AsType[*ProviderError](err); ok {
 		return provErr.RetryAfter
 	}
 
@@ -62,31 +60,4 @@ func RetryAfterHeaderValue(d time.Duration) string {
 	}
 
 	return fmt.Sprintf("%d", secs)
-}
-
-// ParseRetryAfter parses a Retry-After header value (seconds or HTTP-date).
-func ParseRetryAfter(value string) time.Duration {
-	if value == "" {
-		return 0
-	}
-
-	// Try seconds first
-	if secs, err := strconv.Atoi(value); err == nil {
-		return time.Duration(secs) * time.Second
-	}
-
-	// Try seconds as float (some APIs send fractional seconds)
-	if secs, err := strconv.ParseFloat(value, 64); err == nil {
-		return time.Duration(secs * float64(time.Second))
-	}
-
-	// Try HTTP-date format
-	if t, err := http.ParseTime(value); err == nil {
-		d := time.Until(t)
-		if d > 0 {
-			return d
-		}
-	}
-
-	return 0
 }

@@ -130,6 +130,10 @@ func openaiEmbedder(cfg providerConfig, model modelContext) (provider.Embedder, 
 		options = append(options, openai.WithClient(model.Client))
 	}
 
+	if model.MaxRetries != nil {
+		options = append(options, openai.WithMaxRetries(*model.MaxRetries))
+	}
+
 	return openai.NewEmbedder(cfg.URL, model.ID, options...)
 }
 

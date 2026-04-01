@@ -104,6 +104,10 @@ func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Comple
 		options = append(options, anthropic.WithClient(model.Client))
 	}
 
+	if model.MaxRetries != nil {
+		options = append(options, anthropic.WithMaxRetries(*model.MaxRetries))
+	}
+
 	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
 }
 
@@ -154,6 +158,10 @@ func openaiCompleter(cfg providerConfig, model modelContext, useLegacy bool) (pr
 
 	if model.Client != nil {
 		options = append(options, openai.WithClient(model.Client))
+	}
+
+	if model.MaxRetries != nil {
+		options = append(options, openai.WithMaxRetries(*model.MaxRetries))
 	}
 
 	if useLegacy {

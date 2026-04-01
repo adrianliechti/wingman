@@ -18,7 +18,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/translator"
 
-	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v3"
 )
 
@@ -167,10 +166,3 @@ func parseFile(path string) (*configFile, error) {
 	return &config, nil
 }
 
-func createLimiter(limit *int) *rate.Limiter {
-	if limit == nil {
-		return nil
-	}
-
-	return rate.NewLimiter(rate.Limit(*limit), *limit)
-}

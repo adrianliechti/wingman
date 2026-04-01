@@ -16,7 +16,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/researcher/perplexity"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/searcher"
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterResearcher(id string, p researcher.Provider) {
@@ -58,7 +57,6 @@ type researcherConfig struct {
 	Effort    string `yaml:"effort"`
 	Verbosity string `yaml:"verbosity"`
 
-	Limit *int `yaml:"limit"`
 }
 
 type researcherContext struct {
@@ -72,7 +70,6 @@ type researcherContext struct {
 	Effort    provider.Effort
 	Verbosity provider.Verbosity
 
-	Limiter *rate.Limiter
 }
 
 func (cfg *Config) registerResearchers(f *configFile) error {
@@ -95,7 +92,6 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 			Effort:    provider.Effort(config.Effort),
 			Verbosity: provider.Verbosity(config.Verbosity),
 
-			Limiter: createLimiter(config.Limit),
 		}
 
 		if p, err := cfg.Completer(config.Model); err == nil {

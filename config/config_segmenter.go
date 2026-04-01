@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 	"github.com/adrianliechti/wingman/pkg/segmenter/custom"
@@ -14,7 +13,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/segmenter/text"
 	"github.com/adrianliechti/wingman/pkg/segmenter/unstructured"
 
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterSegmenter(id string, p segmenter.Provider) {
@@ -52,12 +50,10 @@ type segmenterConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Limit *int `yaml:"limit"`
 }
 
 type segmenterContext struct {
-	Client  *http.Client
-	Limiter *rate.Limiter
+	Client *http.Client
 }
 
 func (cfg *Config) registerSegmenters(f *configFile) error {
@@ -76,9 +72,7 @@ func (cfg *Config) registerSegmenters(f *configFile) error {
 			continue
 		}
 
-		context := segmenterContext{
-			Limiter: createLimiter(config.Limit),
-		}
+		context := segmenterContext{}
 
 		if config.Proxy != nil {
 			client, err := config.Proxy.proxyClient()
@@ -94,10 +88,6 @@ func (cfg *Config) registerSegmenters(f *configFile) error {
 
 		if err != nil {
 			return err
-		}
-
-		if _, ok := segmenter.(limiter.Segmenter); !ok {
-			segmenter = limiter.NewSegmenter(context.Limiter, segmenter)
 		}
 
 		if _, ok := segmenter.(otel.Segmenter); !ok {

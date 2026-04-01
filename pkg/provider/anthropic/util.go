@@ -2,6 +2,9 @@ package anthropic
 
 import (
 	"errors"
+	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -19,7 +22,8 @@ func convertError(err error) error {
 		}
 
 		if apierr.Response != nil {
-			provErr.RetryAfter = provider.ParseRetryAfter(apierr.Response.Header.Get("Retry-After"))
+			h := apierr.Response.Header
+			provErr.RetryAfter = parseRetryAfter(h)
 		}
 
 		return provErr
@@ -27,3 +31,28 @@ func convertError(err error) error {
 
 	return err
 }
+
+// parseRetryAfter parses Retry-After (seconds, float, HTTP-date).
+func parseRetryAfter(h http.Header) time.Duration {
+	v := h.Get("Retry-After")
+	if v == "" {
+		return 0
+	}
+
+	if secs, err := strconv.Atoi(v); err == nil {
+		return time.Duration(secs) * time.Second
+	}
+
+	if secs, err := strconv.ParseFloat(v, 64); err == nil {
+		return time.Duration(secs * float64(time.Second))
+	}
+
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+
+	return 0
+}
+

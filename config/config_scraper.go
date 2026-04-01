@@ -5,14 +5,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/scraper/custom"
 	"github.com/adrianliechti/wingman/pkg/scraper/exa"
 	"github.com/adrianliechti/wingman/pkg/scraper/jina"
 	"github.com/adrianliechti/wingman/pkg/scraper/tavily"
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterScraper(id string, p scraper.Provider) {
@@ -46,12 +44,10 @@ type scraperConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Limit *int `yaml:"limit"`
 }
 
 type scraperContext struct {
-	Client  *http.Client
-	Limiter *rate.Limiter
+	Client *http.Client
 }
 
 func (cfg *Config) registerScrapers(f *configFile) error {
@@ -70,9 +66,7 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 			continue
 		}
 
-		context := scraperContext{
-			Limiter: createLimiter(config.Limit),
-		}
+		context := scraperContext{}
 
 		if config.Proxy != nil {
 			client, err := config.Proxy.proxyClient()
@@ -88,10 +82,6 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 
 		if err != nil {
 			return err
-		}
-
-		if _, ok := scraper.(limiter.Scraper); !ok {
-			scraper = limiter.NewScraper(context.Limiter, scraper)
 		}
 
 		if _, ok := scraper.(otel.Scraper); !ok {

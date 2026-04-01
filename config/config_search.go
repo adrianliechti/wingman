@@ -11,7 +11,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/searcher/duckduckgo"
 	"github.com/adrianliechti/wingman/pkg/searcher/exa"
 	"github.com/adrianliechti/wingman/pkg/searcher/tavily"
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterSearcher(id string, p searcher.Provider) {
@@ -45,12 +44,10 @@ type searcherConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Limit *int `yaml:"limit"`
 }
 
 type searcherContext struct {
-	Client  *http.Client
-	Limiter *rate.Limiter
+	Client *http.Client
 }
 
 func (cfg *Config) registerSearchers(f *configFile) error {
@@ -69,9 +66,7 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 			continue
 		}
 
-		context := searcherContext{
-			Limiter: createLimiter(config.Limit),
-		}
+		context := searcherContext{}
 
 		if config.Proxy != nil {
 			client, err := config.Proxy.proxyClient()

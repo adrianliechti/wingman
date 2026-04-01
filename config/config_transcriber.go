@@ -80,5 +80,9 @@ func openaiTranscriber(cfg providerConfig, model modelContext) (provider.Transcr
 		options = append(options, openai.WithClient(model.Client))
 	}
 
+	if model.MaxRetries != nil {
+		options = append(options, openai.WithMaxRetries(*model.MaxRetries))
+	}
+
 	return openai.NewTranscriber(cfg.URL, model.ID, options...)
 }

@@ -6,7 +6,6 @@ import (
 
 	"net/http"
 
-	"github.com/adrianliechti/wingman/pkg/limiter"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/translator"
@@ -15,7 +14,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/translator/custom"
 	"github.com/adrianliechti/wingman/pkg/translator/deepl"
 
-	"golang.org/x/time/rate"
 )
 
 func (cfg *Config) RegisterTranslator(id string, p translator.Provider) {
@@ -51,14 +49,12 @@ type translatorConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Limit *int `yaml:"limit"`
 }
 
 type translatorContext struct {
 	Completer provider.Completer
 
-	Client  *http.Client
-	Limiter *rate.Limiter
+	Client *http.Client
 }
 
 func (cfg *Config) registerTranslators(f *configFile) error {
@@ -77,9 +73,7 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 			continue
 		}
 
-		context := translatorContext{
-			Limiter: createLimiter(config.Limit),
-		}
+		context := translatorContext{}
 
 		if config.Proxy != nil {
 			client, err := config.Proxy.proxyClient()
@@ -101,10 +95,6 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 
 		if err != nil {
 			return err
-		}
-
-		if _, ok := translator.(limiter.Translator); !ok {
-			translator = limiter.NewTranslator(context.Limiter, translator)
 		}
 
 		if _, ok := translator.(otel.Translator); !ok {

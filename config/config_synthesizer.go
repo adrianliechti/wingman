@@ -73,5 +73,9 @@ func openaiSynthesizer(cfg providerConfig, model modelContext) (provider.Synthes
 		options = append(options, openai.WithClient(model.Client))
 	}
 
+	if model.MaxRetries != nil {
+		options = append(options, openai.WithMaxRetries(*model.MaxRetries))
+	}
+
 	return openai.NewSynthesizer(cfg.URL, model.ID, options...)
 }
