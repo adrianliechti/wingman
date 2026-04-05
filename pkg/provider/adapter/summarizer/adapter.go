@@ -22,7 +22,7 @@ func FromCompleter(completer provider.Completer) *Adapter {
 }
 
 func (a *Adapter) Summarize(ctx context.Context, content string, options *summarizer.SummarizerOptions) (*summarizer.Summary, error) {
-	splitter := text.NewSplitter()
+	splitter := text.NewTextSplitter()
 	splitter.ChunkSize = 16000
 	splitter.ChunkOverlap = 0
 

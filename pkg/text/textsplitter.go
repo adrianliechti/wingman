@@ -1,13 +1,12 @@
 package text
 
 import (
-	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
-// SemanticLevel represents different levels of text segmentation
+// SemanticLevel represents different levels of text segmentation.
 type SemanticLevel int
 
 const (
@@ -17,460 +16,203 @@ const (
 	LevelLineBreak
 )
 
-// Boundary represents a semantic boundary in the text
+// Boundary represents a semantic boundary in the text.
 type Boundary struct {
 	Level SemanticLevel
 	Start int
 	End   int
 }
 
+// TextSplitter splits plain text at semantic boundaries
+// (paragraph breaks > sentences > words > characters).
 type TextSplitter struct {
 	SplitterOptions
-
-	Separators []string
 }
 
 func NewTextSplitter() TextSplitter {
-	s := TextSplitter{
+	return TextSplitter{
 		SplitterOptions: SplitterOptions{
 			ChunkSize:    1500,
 			ChunkOverlap: 0,
-
-			Trim:      true,
-			Normalize: false,
-
-			LenFunc: utf8.RuneCountInString,
-		},
-
-		Separators: []string{
-			"\n\n",
-			"\n",
-			" ",
-			"",
+			Trim:         true,
+			Normalize:    false,
+			LenFunc:      utf8.RuneCountInString,
 		},
 	}
-
-	return s
 }
 
-// NewSplitter creates a new TextSplitter (deprecated: use NewTextSplitter)
-func NewSplitter() TextSplitter {
-	return NewTextSplitter()
-}
-
-func (s *TextSplitter) Split(text string) []string {
+func (s *TextSplitter) Split(input string) []string {
 	if s.Normalize {
-		text = Normalize(text)
+		input = Normalize(input)
 	}
 
-	// Parse all semantic boundaries in the text
-	boundaries := s.parseBoundaries(text)
-
-	if len(boundaries) == 0 {
-		// No boundaries found, return single chunk or split by characters
-		if s.LenFunc(text) <= s.ChunkSize {
-			if s.Trim {
-				text = strings.TrimSpace(text)
-			}
-			if text != "" {
-				return []string{text}
-			}
-			return []string{}
+	if s.LenFunc(input) <= s.ChunkSize {
+		if s.Trim {
+			input = strings.TrimSpace(input)
 		}
-		return s.splitByCharacters(text)
+		if input == "" {
+			return nil
+		}
+		return []string{input}
 	}
 
-	return s.buildChunks(text, boundaries)
+	// Collect all split positions with their semantic level
+	positions := s.findSplitPositions(input)
+
+	return s.buildChunks(input, positions)
 }
 
-// parseBoundaries identifies all semantic boundaries in the text
-func (s *TextSplitter) parseBoundaries(text string) []Boundary {
-	var boundaries []Boundary
-
-	// Parse line breaks (highest semantic level)
-	boundaries = append(boundaries, s.parseLineBreaks(text)...)
-
-	// Parse sentence boundaries
-	boundaries = append(boundaries, s.parseSentences(text)...)
-
-	// Parse word boundaries
-	boundaries = append(boundaries, s.parseWords(text)...)
-
-	// Sort boundaries by position, then by level (higher level first for same position)
-	sort.Slice(boundaries, func(i, j int) bool {
-		if boundaries[i].Start != boundaries[j].Start {
-			return boundaries[i].Start < boundaries[j].Start
-		}
-		return boundaries[i].Level > boundaries[j].Level
-	})
-
-	return boundaries
+// splitPosition is a byte offset where we can split, with a semantic level.
+type splitPosition struct {
+	offset int
+	level  SemanticLevel
 }
 
-// parseLineBreaks finds line break sequences (multiple newlines)
-func (s *TextSplitter) parseLineBreaks(text string) []Boundary {
-	var boundaries []Boundary
-	inBreak := false
-	start := 0
+// findSplitPositions scans the text once and collects all potential split points.
+func (s *TextSplitter) findSplitPositions(text string) []splitPosition {
+	var positions []splitPosition
+	n := len(text)
 
-	for i := 0; i < len(text); i++ {
-		isNewline := text[i] == '\n' || text[i] == '\r'
+	for i := 0; i < n; i++ {
+		ch := text[i]
 
-		if isNewline && !inBreak {
-			start = i
-			inBreak = true
-		} else if !isNewline && inBreak {
-			// Count newlines in sequence
-			sequence := text[start:i]
-			newlineCount := 0
-			for _, ch := range sequence {
-				if ch == '\n' || ch == '\r' {
-					newlineCount++
+		if ch == '\n' || ch == '\r' {
+			// Count consecutive newlines
+			start := i
+			for i+1 < n && (text[i+1] == '\n' || text[i+1] == '\r') {
+				i++
+			}
+			end := i + 1
+			count := 0
+			for j := start; j < end; j++ {
+				if text[j] == '\n' {
+					count++
 				}
 			}
 
-			// Only consider multiple newlines as line breaks
-			if newlineCount >= 2 {
-				boundaries = append(boundaries, Boundary{
-					Level: LevelLineBreak,
-					Start: start,
-					End:   i,
-				})
-			}
-			inBreak = false
-		}
-	}
-
-	// Handle trailing line break
-	if inBreak {
-		sequence := text[start:]
-		newlineCount := 0
-		for _, ch := range sequence {
-			if ch == '\n' || ch == '\r' {
-				newlineCount++
-			}
-		}
-		if newlineCount >= 2 {
-			boundaries = append(boundaries, Boundary{
-				Level: LevelLineBreak,
-				Start: start,
-				End:   len(text),
-			})
-		}
-	}
-
-	return boundaries
-}
-
-// parseSentences finds sentence boundaries (. ! ? followed by space/newline)
-func (s *TextSplitter) parseSentences(text string) []Boundary {
-	var boundaries []Boundary
-
-	for i := 0; i < len(text)-1; i++ {
-		ch := text[i]
-		next := text[i+1]
-
-		// Sentence ends with . ! ? followed by space or newline
-		if (ch == '.' || ch == '!' || ch == '?') && (next == ' ' || next == '\n' || next == '\r' || next == '\t') {
-			// Include the punctuation and following whitespace
-			end := i + 2
-			for end < len(text) && unicode.IsSpace(rune(text[end])) {
-				end++
+			level := LevelWord // single newline = word-level break
+			if count >= 2 {
+				level = LevelLineBreak // paragraph break
 			}
 
-			boundaries = append(boundaries, Boundary{
-				Level: LevelSentence,
-				Start: i + 1,
-				End:   end,
-			})
-		}
-	}
-
-	return boundaries
-}
-
-// parseWords finds word boundaries (spaces, tabs)
-func (s *TextSplitter) parseWords(text string) []Boundary {
-	var boundaries []Boundary
-
-	for i := 0; i < len(text); i++ {
-		if unicode.IsSpace(rune(text[i])) {
-			start := i
+			positions = append(positions, splitPosition{offset: end, level: level})
+		} else if (ch == '.' || ch == '!' || ch == '?') && i+1 < n && unicode.IsSpace(rune(text[i+1])) {
+			// Sentence boundary: skip trailing whitespace
 			end := i + 1
-
-			// Extend to include consecutive whitespace
-			for end < len(text) && unicode.IsSpace(rune(text[end])) {
+			for end < n && unicode.IsSpace(rune(text[end])) {
 				end++
 			}
-
-			boundaries = append(boundaries, Boundary{
-				Level: LevelWord,
-				Start: start,
-				End:   end,
-			})
-
+			positions = append(positions, splitPosition{offset: end, level: LevelSentence})
+		} else if ch == ' ' || ch == '\t' {
+			// Word boundary
+			end := i + 1
+			for end < n && (text[end] == ' ' || text[end] == '\t') {
+				end++
+			}
+			positions = append(positions, splitPosition{offset: end, level: LevelWord})
 			i = end - 1
 		}
 	}
 
-	return boundaries
+	return positions
 }
 
-// buildChunks constructs chunks using semantic boundaries
-func (s *TextSplitter) buildChunks(text string, boundaries []Boundary) []string {
+// buildChunks greedily fills chunks by finding the farthest split point that fits.
+func (s *TextSplitter) buildChunks(text string, positions []splitPosition) []string {
 	var result []string
 	cursor := 0
-	lastCursor := -1
+	textLen := len(text)
 
-	for cursor < len(text) {
-		// Safety check to prevent infinite loops
-		if cursor == lastCursor {
-			cursor++
-			if cursor >= len(text) {
-				break
+	for cursor < textLen {
+		remaining := text[cursor:]
+		if s.LenFunc(remaining) <= s.ChunkSize {
+			if s.Trim {
+				remaining = strings.TrimSpace(remaining)
 			}
-		}
-		lastCursor = cursor
-
-		chunk, nextCursor := s.findOptimalChunk(text, boundaries, cursor)
-
-		if chunk == "" {
+			if remaining != "" {
+				result = append(result, remaining)
+			}
 			break
 		}
 
+		bestEnd := s.findBestSplit(text, positions, cursor)
+
+		chunk := text[cursor:bestEnd]
 		if s.Trim {
 			chunk = strings.TrimSpace(chunk)
 		}
-
 		if chunk != "" {
 			result = append(result, chunk)
 		}
 
-		// Calculate overlap position if needed
-		if s.ChunkOverlap > 0 && nextCursor < len(text) {
-			overlapStart := s.calculateOverlapStart(text, boundaries, cursor, nextCursor)
-			// Ensure we always make progress
-			if overlapStart <= cursor {
-				cursor = nextCursor
-			} else {
+		// Handle overlap
+		if s.ChunkOverlap > 0 && bestEnd < textLen {
+			overlapStart := s.findOverlapStart(text, positions, cursor, bestEnd)
+			if overlapStart > cursor {
 				cursor = overlapStart
+			} else {
+				cursor = bestEnd
 			}
 		} else {
-			cursor = nextCursor
+			cursor = bestEnd
 		}
 	}
 
 	return result
 }
 
-// findOptimalChunk uses binary search to find the largest chunk that fits
-func (s *TextSplitter) findOptimalChunk(text string, boundaries []Boundary, start int) (string, int) {
-	if start >= len(text) {
-		return "", len(text)
-	}
-
-	// Get boundaries after current position
-	var validBoundaries []Boundary
-	for _, b := range boundaries {
-		if b.Start >= start {
-			validBoundaries = append(validBoundaries, b)
-		}
-	}
-
-	// If no boundaries, check if remaining text fits, otherwise split by characters
-	if len(validBoundaries) == 0 {
-		remaining := text[start:]
-		if s.LenFunc(remaining) <= s.ChunkSize {
-			return remaining, len(text)
-		}
-		return s.splitByCharactersFrom(text, start)
-	}
-
-	// Try each semantic level from highest to lowest
-	for level := LevelLineBreak; level >= LevelChar; level-- {
-		chunk, end, found := s.findChunkAtLevel(text, validBoundaries, start, level)
-		if found {
-			return chunk, end
-		}
-	}
-
-	// If we couldn't find anything at semantic boundaries, check if all fits
-	remaining := text[start:]
-	if s.LenFunc(remaining) <= s.ChunkSize {
-		return remaining, len(text)
-	}
-
-	// Fallback: take at least one character
-	end := start + 1
-	for end < len(text) && !utf8.RuneStart(text[end]) {
-		end++
-	}
-	return text[start:end], end
-}
-
-// findChunkAtLevel attempts to find a chunk at a specific semantic level
-func (s *TextSplitter) findChunkAtLevel(text string, boundaries []Boundary, start int, level SemanticLevel) (string, int, bool) {
-	// Filter boundaries at this level or higher
-	var levelBoundaries []int
-	for _, b := range boundaries {
-		if b.Level >= level && b.Start >= start {
-			levelBoundaries = append(levelBoundaries, b.End)
-		}
-	}
-
-	if len(levelBoundaries) == 0 {
-		return "", 0, false
-	}
-
-	// Add end of text as a potential boundary
-	levelBoundaries = append(levelBoundaries, len(text))
-
-	// Binary search for the largest chunk that fits
-	low := 0
-	high := len(levelBoundaries) - 1
-	bestEnd := -1
-
-	for low <= high {
-		mid := (low + high) / 2
-		end := levelBoundaries[mid]
-		chunk := text[start:end]
-		size := s.LenFunc(chunk)
-
-		if size <= s.ChunkSize {
-			bestEnd = end
-			low = mid + 1
-		} else {
-			high = mid - 1
-		}
-	}
-
-	if bestEnd > start {
-		return text[start:bestEnd], bestEnd, true
-	}
-
-	return "", 0, false
-}
-
-// calculateOverlapStart finds where to start the next chunk for overlap
-func (s *TextSplitter) calculateOverlapStart(text string, boundaries []Boundary, chunkStart, chunkEnd int) int {
-	if s.ChunkOverlap <= 0 || chunkEnd >= len(text) {
-		return chunkEnd
-	}
-
-	targetSize := s.ChunkOverlap
-
-	// Find boundaries within the chunk
-	var chunkBoundaries []int
-	for _, b := range boundaries {
-		if b.Start > chunkStart && b.End <= chunkEnd {
-			chunkBoundaries = append(chunkBoundaries, b.Start)
-		}
-	}
-
-	if len(chunkBoundaries) == 0 {
-		// No semantic boundaries, use character-based overlap
-		overlapStart := max(chunkEnd-targetSize, chunkStart)
-		// Adjust to UTF-8 boundary
-		for overlapStart > chunkStart && !utf8.RuneStart(text[overlapStart]) {
-			overlapStart--
-		}
-		return overlapStart
-	}
-
-	// Binary search for best boundary for overlap
-	sort.Ints(chunkBoundaries)
-	low := 0
-	high := len(chunkBoundaries) - 1
-	bestStart := chunkEnd
-
-	for low <= high {
-		mid := (low + high) / 2
-		pos := chunkBoundaries[mid]
-		overlapText := text[pos:chunkEnd]
-		size := s.LenFunc(overlapText)
-
-		if size <= targetSize {
-			bestStart = pos
-			high = mid - 1
-		} else {
-			low = mid + 1
-		}
-	}
-
-	return bestStart
-}
-
-// splitByCharacters splits text by individual characters when no boundaries work
-func (s *TextSplitter) splitByCharacters(text string) []string {
-	var result []string
-	var current strings.Builder
-	currentSize := 0
-
-	for _, r := range text {
-		runeSize := 1
-		current.WriteRune(r)
-		currentSize += runeSize
-
-		if currentSize >= s.ChunkSize {
-			chunk := current.String()
-			if s.Trim {
-				chunk = strings.TrimSpace(chunk)
+// findBestSplit finds the farthest split point from cursor that keeps the chunk within size.
+// Tries higher semantic levels first for better split quality.
+func (s *TextSplitter) findBestSplit(text string, positions []splitPosition, cursor int) int {
+	// Try each level from highest to lowest
+	for level := LevelLineBreak; level >= LevelWord; level-- {
+		best := -1
+		for _, p := range positions {
+			if p.offset <= cursor || p.level < level {
+				continue
 			}
-			if chunk != "" {
-				result = append(result, chunk)
+			if s.LenFunc(text[cursor:p.offset]) <= s.ChunkSize {
+				best = p.offset
+			} else {
+				break // positions are ordered, no point continuing
 			}
-			current.Reset()
-			currentSize = 0
+		}
+		if best > cursor {
+			return best
 		}
 	}
 
-	if current.Len() > 0 {
-		chunk := current.String()
-		if s.Trim {
-			chunk = strings.TrimSpace(chunk)
-		}
-		if chunk != "" {
-			result = append(result, chunk)
-		}
-	}
-
-	return result
-}
-
-// splitByCharactersFrom splits from a specific position
-func (s *TextSplitter) splitByCharactersFrom(text string, start int) (string, int) {
-	remaining := text[start:]
+	// Character fallback
+	end := cursor
 	size := 0
-	end := start
-
-	for i, r := range remaining {
+	for i, r := range text[cursor:] {
 		if size >= s.ChunkSize {
 			break
 		}
 		size++
-		end = start + i + utf8.RuneLen(r)
+		end = cursor + i + utf8.RuneLen(r)
 	}
-
-	if end <= start {
-		end = start + 1
-		for end < len(text) && !utf8.RuneStart(text[end]) {
-			end++
-		}
+	if end <= cursor {
+		end = cursor + 1
 	}
-
-	return text[start:end], end
+	return end
 }
 
-func (s *TextSplitter) textSeparator(text string) string {
-	for _, sep := range s.Separators {
-		if strings.Contains(text, sep) {
-			return sep
+// findOverlapStart finds where to start the next chunk for overlap.
+// It finds the earliest split position whose distance to chunkEnd is within ChunkOverlap,
+// maximizing the overlap while respecting the limit.
+func (s *TextSplitter) findOverlapStart(text string, positions []splitPosition, cursor, chunkEnd int) int {
+	best := chunkEnd
+	for _, p := range positions {
+		if p.offset <= cursor || p.offset >= chunkEnd {
+			continue
+		}
+		overlapSize := s.LenFunc(text[p.offset:chunkEnd])
+		if overlapSize <= s.ChunkOverlap {
+			// This is the earliest (farthest back) position that fits — gives max overlap
+			best = p.offset
+			break
 		}
 	}
-
-	if len(s.Separators) > 0 {
-		return s.Separators[len(s.Separators)-1]
-	}
-
-	return ""
+	return best
 }

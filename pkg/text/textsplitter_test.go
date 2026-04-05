@@ -1,8 +1,11 @@
 package text
 
 import (
+	"io"
+	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSplitterBasic(t *testing.T) {
@@ -496,6 +499,202 @@ func TestSplitterNewlines(t *testing.T) {
 				if splitter.LenFunc(chunk) > splitter.ChunkSize {
 					t.Errorf("Chunk %d exceeds size: %d > %d", i, splitter.LenFunc(chunk), splitter.ChunkSize)
 				}
+			}
+		})
+	}
+}
+
+// --- Test helpers ---
+
+func fetchText(t *testing.T, url string) string {
+	t.Helper()
+
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Skip("could not fetch test data:", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Skipf("unexpected status %d for %s", resp.StatusCode, url)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Skip("could not read response:", err)
+	}
+
+	return string(data)
+}
+
+func findOverlap(a, b string) string {
+	maxCheck := min(len(a), len(b))
+
+	best := ""
+	for suffixLen := 1; suffixLen <= maxCheck; suffixLen++ {
+		suffix := a[len(a)-suffixLen:]
+		if strings.HasPrefix(b, suffix) {
+			best = suffix
+		}
+	}
+	return best
+}
+
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "..."
+}
+
+// --- Overlap tests ---
+
+func TestTextSplitter_Overlap_Words(t *testing.T) {
+	input := "Word1 Word2 Word3 Word4 Word5 Word6 Word7 Word8 Word9 Word10"
+
+	splitter := NewTextSplitter()
+	splitter.ChunkSize = 30
+	splitter.ChunkOverlap = 12
+
+	chunks := splitter.Split(input)
+
+	for i, c := range chunks {
+		t.Logf("Chunk %d: %q", i, c)
+	}
+
+	for i := 1; i < len(chunks); i++ {
+		if found := findOverlap(chunks[i-1], chunks[i]); found == "" {
+			t.Errorf("No overlap between chunk %d and %d", i-1, i)
+		} else {
+			t.Logf("Overlap %d→%d: %q", i-1, i, found)
+		}
+	}
+}
+
+func TestTextSplitter_Overlap_Sentences(t *testing.T) {
+	input := "First sentence here. Second sentence here. Third sentence here. Fourth sentence here. Fifth sentence here."
+
+	splitter := NewTextSplitter()
+	splitter.ChunkSize = 50
+	splitter.ChunkOverlap = 25
+
+	chunks := splitter.Split(input)
+
+	for i, c := range chunks {
+		t.Logf("Chunk %d: %q", i, c)
+	}
+
+	for i := 1; i < len(chunks); i++ {
+		if found := findOverlap(chunks[i-1], chunks[i]); found == "" {
+			t.Errorf("No overlap between chunk %d and %d", i-1, i)
+		} else {
+			t.Logf("Overlap %d→%d: %q", i-1, i, found)
+		}
+	}
+}
+
+func TestTextSplitter_Overlap_Paragraphs(t *testing.T) {
+	input := "Paragraph one is about the weather today.\n\nParagraph two discusses something else entirely.\n\nParagraph three is the final section of this text.\n\nParagraph four wraps things up nicely for us."
+
+	splitter := NewTextSplitter()
+	splitter.ChunkSize = 80
+	splitter.ChunkOverlap = 30
+
+	chunks := splitter.Split(input)
+
+	for i, c := range chunks {
+		t.Logf("Chunk %d: %q", i, c)
+	}
+
+	for i := 1; i < len(chunks); i++ {
+		if found := findOverlap(chunks[i-1], chunks[i]); found == "" {
+			t.Errorf("No overlap between chunk %d and %d", i-1, i)
+		} else {
+			t.Logf("Overlap %d→%d: %q", i-1, i, found)
+		}
+	}
+}
+
+// --- Integration tests (Moby Dick, ~1.3MB) ---
+
+func TestTextSplitter_MobyDick(t *testing.T) {
+	input := fetchText(t, "https://www.gutenberg.org/cache/epub/2701/pg2701.txt")
+	t.Logf("Input: %d chars, %d bytes", utf8.RuneCountInString(input), len(input))
+
+	for _, chunkSize := range []int{500, 1000, 1500, 2000} {
+		t.Run("", func(t *testing.T) {
+			splitter := NewTextSplitter()
+			splitter.ChunkSize = chunkSize
+
+			chunks := splitter.Split(input)
+			t.Logf("ChunkSize=%d → %d chunks", chunkSize, len(chunks))
+
+			for i, chunk := range chunks {
+				runeLen := utf8.RuneCountInString(chunk)
+				if runeLen > chunkSize {
+					t.Errorf("chunk %d exceeds size: %d > %d\npreview: %q", i, runeLen, chunkSize, truncate(chunk, 100))
+				}
+				if strings.TrimSpace(chunk) == "" {
+					t.Errorf("chunk %d is empty", i)
+				}
+			}
+
+			if len(chunks) > 0 {
+				t.Logf("first: %q", truncate(chunks[0], 80))
+				t.Logf("last:  %q", truncate(chunks[len(chunks)-1], 80))
+			}
+		})
+	}
+}
+
+func TestTextSplitter_MobyDick_WithOverlap(t *testing.T) {
+	input := fetchText(t, "https://www.gutenberg.org/cache/epub/2701/pg2701.txt")
+
+	for _, tc := range []struct {
+		chunkSize int
+		overlap   int
+	}{
+		{500, 100},
+		{1000, 200},
+		{1500, 300},
+	} {
+		t.Run("", func(t *testing.T) {
+			splitter := NewTextSplitter()
+			splitter.ChunkSize = tc.chunkSize
+			splitter.ChunkOverlap = tc.overlap
+
+			chunks := splitter.Split(input)
+			t.Logf("ChunkSize=%d, Overlap=%d → %d chunks", tc.chunkSize, tc.overlap, len(chunks))
+
+			for i, chunk := range chunks {
+				if runeLen := utf8.RuneCountInString(chunk); runeLen > tc.chunkSize {
+					t.Errorf("chunk %d exceeds size: %d > %d", i, runeLen, tc.chunkSize)
+				}
+				if strings.TrimSpace(chunk) == "" {
+					t.Errorf("chunk %d is empty", i)
+				}
+			}
+
+			overlapCount := 0
+			totalOverlapChars := 0
+			for i := 1; i < len(chunks); i++ {
+				if found := findOverlap(chunks[i-1], chunks[i]); found != "" {
+					overlapCount++
+					totalOverlapChars += utf8.RuneCountInString(found)
+				}
+			}
+
+			pct := float64(overlapCount) / float64(len(chunks)-1) * 100
+			avgOverlap := 0
+			if overlapCount > 0 {
+				avgOverlap = totalOverlapChars / overlapCount
+			}
+			t.Logf("Overlapping pairs: %d/%d (%.0f%%), avg overlap: %d chars",
+				overlapCount, len(chunks)-1, pct, avgOverlap)
+
+			if pct < 80 {
+				t.Errorf("Too few overlapping pairs: %.0f%% (expected >80%%)", pct)
 			}
 		})
 	}

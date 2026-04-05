@@ -15,12 +15,12 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/modelcontextprotocol/go-sdk v1.4.1
+	github.com/odvcencio/gotreesitter v0.13.3
 	github.com/open-policy-agent/opa v1.15.1
 	github.com/openai/openai-go/v3 v3.30.0
 	github.com/replicate/replicate-go v0.26.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.41.0
-	github.com/yuin/goldmark v1.8.2
 	go.opentelemetry.io/contrib/bridges/otelslog v0.17.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 	go.opentelemetry.io/otel v1.43.0

@@ -2,8 +2,6 @@ package text
 
 import (
 	"context"
-	"path"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 	"github.com/adrianliechti/wingman/pkg/text"
@@ -45,25 +43,21 @@ func (p *Provider) Segment(ctx context.Context, input string, options *segmenter
 }
 
 func (p *Provider) createSplitter(options *segmenter.SegmentOptions) text.Splitter {
-	// If we have language-specific separators for this file type, use TextSplitter with custom separators
-	// This is especially useful for code files where we want to split at meaningful boundaries
-	if separators := getSeparators(options.FileName); len(separators) > 0 {
-		splitter := text.NewTextSplitter()
-		splitter.Separators = separators
-
+	// Try tree-sitter based code splitting first (syntax-aware, 200+ languages)
+	if codeSplitter := text.NewCodeSplitter(options.FileName); codeSplitter != nil {
 		if options.SegmentLength != nil {
-			splitter.ChunkSize = *options.SegmentLength
+			codeSplitter.ChunkSize = *options.SegmentLength
 		}
 
 		if options.SegmentOverlap != nil {
-			splitter.ChunkOverlap = *options.SegmentOverlap
+			codeSplitter.ChunkOverlap = *options.SegmentOverlap
 		}
 
-		return &splitter
+		return codeSplitter
 	}
 
-	// Otherwise use AutoSplitter which detects markdown vs plain text
-	splitter := text.NewAutoSplitter()
+	// Fallback to TextSplitter for plain text
+	splitter := text.NewTextSplitter()
 
 	if options.SegmentLength != nil {
 		splitter.ChunkSize = *options.SegmentLength
@@ -76,33 +70,3 @@ func (p *Provider) createSplitter(options *segmenter.SegmentOptions) text.Splitt
 	return &splitter
 }
 
-func getSeparators(name string) []string {
-	switch strings.ToLower(path.Ext(name)) {
-	case ".cs":
-		return languageCSharp
-	case ".cpp":
-		return languageCPP
-	case ".go":
-		return languageGo
-	case ".java":
-		return languageJava
-	case ".kt":
-		return languageKotlin
-	case ".js", ".jsm":
-		return languageJavaScript
-	case ".ts", ".tsx":
-		return languageTypeScript
-	case ".py":
-		return languagePython
-	case ".rb":
-		return languageRuby
-	case ".rs":
-		return languageRust
-	case ".sc", ".scala":
-		return languageScala
-	case ".swift":
-		return languageSwift
-	}
-
-	return nil
-}
