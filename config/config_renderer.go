@@ -10,6 +10,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/pkg/provider/replicate"
 	"github.com/adrianliechti/wingman/pkg/provider/replicate/flux"
+	"github.com/adrianliechti/wingman/pkg/provider/xai"
 )
 
 func (cfg *Config) RegisterRenderer(id string, p provider.Renderer) {
@@ -46,6 +47,9 @@ func createRenderer(cfg providerConfig, model modelContext) (provider.Renderer, 
 
 	case "replicate":
 		return replicateRenderer(cfg, model)
+
+	case "xai":
+		return xaiRenderer(cfg, model)
 
 	default:
 		return nil, errors.New("invalid renderer type: " + cfg.Type)
@@ -100,4 +104,18 @@ func replicateRenderer(cfg providerConfig, model modelContext) (provider.Rendere
 	}
 
 	return nil, errors.New("model not supported: " + model.ID)
+}
+
+func xaiRenderer(cfg providerConfig, model modelContext) (provider.Renderer, error) {
+	var options []xai.Option
+
+	if cfg.Token != "" {
+		options = append(options, xai.WithToken(cfg.Token))
+	}
+
+	if model.Client != nil {
+		options = append(options, xai.WithClient(model.Client))
+	}
+
+	return xai.NewRenderer(model.ID, options...)
 }

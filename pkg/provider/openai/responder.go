@@ -3,10 +3,10 @@ package openai
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
-	"encoding/json"
 	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
