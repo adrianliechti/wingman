@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -24,5 +25,75 @@ func TestResponseUsageIncludesCachedTokens(t *testing.T) {
 	}
 	if usage.TotalTokens != 120 {
 		t.Fatalf("expected total tokens 120, got %d", usage.TotalTokens)
+	}
+}
+
+func TestReasoningRequestedByEncryptedContentInclude(t *testing.T) {
+	req := ResponsesRequest{
+		Include: []string{"reasoning.encrypted_content"},
+	}
+
+	if !reasoningRequested(req) {
+		t.Fatal("expected encrypted_content include to request reasoning output")
+	}
+}
+
+func TestResponseOutputsReasoningKeepsEmptySummaryArray(t *testing.T) {
+	outputs := responseOutputs(&provider.Message{
+		Content: []provider.Content{
+			provider.ReasoningContent(provider.Reasoning{
+				ID:        "rs_1",
+				Signature: "ENC_1",
+			}),
+		},
+	}, "msg_1", "completed", responseOutputOptions{IncludeReasoning: true})
+
+	if len(outputs) != 1 {
+		t.Fatalf("expected 1 output, got %d", len(outputs))
+	}
+
+	data, err := json.Marshal(outputs[0])
+	if err != nil {
+		t.Fatalf("marshal output: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+
+	summary, ok := got["summary"].([]any)
+	if !ok {
+		t.Fatalf("expected summary array in %s", string(data))
+	}
+	if len(summary) != 0 {
+		t.Fatalf("expected empty summary array, got %v", summary)
+	}
+	if got["encrypted_content"] != "ENC_1" {
+		t.Fatalf("expected encrypted_content ENC_1, got %v", got["encrypted_content"])
+	}
+}
+
+func TestResponseOutputsPreservesCompactionOrder(t *testing.T) {
+	outputs := responseOutputs(&provider.Message{
+		Content: []provider.Content{
+			provider.CompactionContent(provider.Compaction{ID: "cmp_1", Signature: "ENC_1"}),
+			provider.TextContent("4"),
+			provider.CompactionContent(provider.Compaction{ID: "cmp_2", Signature: "ENC_2"}),
+		},
+	}, "msg_1", "completed", responseOutputOptions{})
+
+	if len(outputs) != 3 {
+		t.Fatalf("expected 3 outputs, got %d", len(outputs))
+	}
+
+	if outputs[0].Type != ResponseOutputTypeCompaction || outputs[0].CompactionOutputItem.ID != "cmp_1" {
+		t.Fatalf("output 0: expected cmp_1, got %+v", outputs[0])
+	}
+	if outputs[1].Type != ResponseOutputTypeMessage || outputs[1].OutputMessage.Contents[0].Text != "4" {
+		t.Fatalf("output 1: expected message text, got %+v", outputs[1])
+	}
+	if outputs[2].Type != ResponseOutputTypeCompaction || outputs[2].CompactionOutputItem.ID != "cmp_2" {
+		t.Fatalf("output 2: expected cmp_2, got %+v", outputs[2])
 	}
 }

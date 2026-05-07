@@ -189,15 +189,21 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 			message.Refusal = &refusal
 		}
 
-		reason := FinishReasonStop
-
-		if completion.Status == provider.CompletionStatusRefused {
-			reason = FinishReasonStop
+		calls := oaiToolCalls(completion.Message.Content)
+		if len(calls) > 0 {
+			message.ToolCalls = calls
 		}
 
-		if calls := oaiToolCalls(completion.Message.Content); len(calls) > 0 {
-			reason = FinishReasonToolCalls
-			message.ToolCalls = calls
+		reason := FinishReasonStop
+		switch completion.Status {
+		case provider.CompletionStatusIncomplete:
+			reason = FinishReasonLength
+		case provider.CompletionStatusRefused:
+			reason = FinishReasonContentFilter
+		default:
+			if len(calls) > 0 {
+				reason = FinishReasonToolCalls
+			}
 		}
 
 		result.Choices = []ChatCompletionChoice{

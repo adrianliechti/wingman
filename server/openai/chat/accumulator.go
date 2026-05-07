@@ -93,6 +93,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			message.Content = &content
 		}
 
+		if refusal := c.Message.Refusal(); refusal != "" {
+			message.Refusal = &refusal
+		}
+
 		if calls := oaiToolCalls(c.Message.Content); len(calls) > 0 {
 			for i, call := range calls {
 				if call.ID != "" {
@@ -142,6 +146,15 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 // Complete signals that streaming is done and emits final events
 func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 	result := s.accumulator.Result()
+
+	// Truncation and content-filter override any earlier tool_calls reason —
+	// the upstream finish_reason flows through Completion.Status.
+	switch result.Status {
+	case provider.CompletionStatusIncomplete:
+		s.finishReason = FinishReasonLength
+	case provider.CompletionStatusRefused:
+		s.finishReason = FinishReasonContentFilter
+	}
 
 	// Emit finish chunk with reason
 	if s.finishReason != "" {

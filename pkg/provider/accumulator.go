@@ -13,13 +13,30 @@ type CompletionAccumulator struct {
 	content strings.Builder
 	refusal strings.Builder
 
-	reasoning  *Reasoning
-	compaction *Compaction
+	reasonings  []Reasoning
+	compactions []Compaction
 
 	toolCalls      []ToolCall
 	lastToolCallID string
 
 	usage *Usage
+
+	contentOrder []accumulatedContentRef
+}
+
+type accumulatedContentKind int
+
+const (
+	accumulatedContentReasoning accumulatedContentKind = iota
+	accumulatedContentCompaction
+	accumulatedContentText
+	accumulatedContentRefusal
+	accumulatedContentToolCall
+)
+
+type accumulatedContentRef struct {
+	kind  accumulatedContentKind
+	index int
 }
 
 func (a *CompletionAccumulator) Add(c Completion) {
@@ -42,32 +59,27 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 		for _, c := range c.Message.Content {
 			if c.Text != "" {
+				if a.content.Len() == 0 {
+					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentText})
+				}
+
 				a.content.WriteString(c.Text)
 			}
 
 			if c.Refusal != "" {
+				if a.refusal.Len() == 0 {
+					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentRefusal})
+				}
+
 				a.refusal.WriteString(c.Refusal)
 			}
 
 			if c.Reasoning != nil {
-				if a.reasoning == nil {
-					a.reasoning = &Reasoning{}
-				}
-
-				if c.Reasoning.ID != "" {
-					a.reasoning.ID = c.Reasoning.ID
-				}
-
-				a.reasoning.Text += c.Reasoning.Text
-				a.reasoning.Summary += c.Reasoning.Summary
-
-				if c.Reasoning.Signature != "" {
-					a.reasoning.Signature = c.Reasoning.Signature
-				}
+				a.addReasoning(c.Reasoning)
 			}
 
 			if c.Compaction != nil {
-				a.compaction = c.Compaction
+				a.addCompaction(c.Compaction)
 			}
 
 			if c.ToolCall != nil {
@@ -83,6 +95,7 @@ func (a *CompletionAccumulator) Add(c Completion) {
 						a.toolCalls = append(a.toolCalls, ToolCall{
 							ID: c.ToolCall.ID,
 						})
+						a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentToolCall, index: len(a.toolCalls) - 1})
 					}
 					a.lastToolCallID = c.ToolCall.ID
 				}
@@ -139,27 +152,78 @@ func (a *CompletionAccumulator) Add(c Completion) {
 	}
 }
 
+// Distinct IDs are kept as separate entries; without an ID, deltas merge into
+// the last entry. Collapsing distinct IDs would pair one item's ID with
+// another's encrypted_content, which OpenAI rejects on the next turn.
+func (a *CompletionAccumulator) addReasoning(r *Reasoning) {
+	var target *Reasoning
+
+	if r.ID != "" {
+		for i := range a.reasonings {
+			if a.reasonings[i].ID == r.ID {
+				target = &a.reasonings[i]
+				break
+			}
+		}
+	} else if len(a.reasonings) > 0 {
+		target = &a.reasonings[len(a.reasonings)-1]
+	}
+
+	if target == nil {
+		a.reasonings = append(a.reasonings, Reasoning{ID: r.ID})
+		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentReasoning, index: len(a.reasonings) - 1})
+		target = &a.reasonings[len(a.reasonings)-1]
+	}
+
+	target.Text += r.Text
+	target.Summary += r.Summary
+
+	if r.Signature != "" {
+		target.Signature = r.Signature
+	}
+}
+
+func (a *CompletionAccumulator) addCompaction(c *Compaction) {
+	if c == nil || c.Signature == "" {
+		return
+	}
+
+	if c.ID != "" {
+		for i := range a.compactions {
+			if a.compactions[i].ID == c.ID {
+				a.compactions[i].Signature = c.Signature
+				return
+			}
+		}
+	} else if len(a.compactions) > 0 && a.compactions[len(a.compactions)-1].ID == "" {
+		a.compactions[len(a.compactions)-1].Signature += c.Signature
+		return
+	}
+
+	a.compactions = append(a.compactions, *c)
+	a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentCompaction, index: len(a.compactions) - 1})
+}
+
 func (a *CompletionAccumulator) Result() *Completion {
 	var content []Content
 
-	if a.reasoning != nil {
-		content = append(content, ReasoningContent(*a.reasoning))
-	}
+	for _, ref := range a.contentOrder {
+		switch ref.kind {
+		case accumulatedContentReasoning:
+			content = append(content, ReasoningContent(a.reasonings[ref.index]))
 
-	if a.compaction != nil {
-		content = append(content, CompactionContent(*a.compaction))
-	}
+		case accumulatedContentCompaction:
+			content = append(content, CompactionContent(a.compactions[ref.index]))
 
-	if a.content.Len() > 0 {
-		content = append(content, TextContent(a.content.String()))
-	}
+		case accumulatedContentText:
+			content = append(content, TextContent(a.content.String()))
 
-	if a.refusal.Len() > 0 {
-		content = append(content, RefusalContent(a.refusal.String()))
-	}
+		case accumulatedContentRefusal:
+			content = append(content, RefusalContent(a.refusal.String()))
 
-	for _, call := range a.toolCalls {
-		content = append(content, ToolCallContent(call))
+		case accumulatedContentToolCall:
+			content = append(content, ToolCallContent(a.toolCalls[ref.index]))
+		}
 	}
 
 	return &Completion{

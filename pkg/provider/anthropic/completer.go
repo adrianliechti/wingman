@@ -526,8 +526,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	if options.Schema != nil {
 		schema := options.Schema.Schema
 		if schema == nil {
-			// json_object mode: Anthropic requires a non-empty schema, so use a permissive one.
-			schema = map[string]any{"type": "object"}
+			// json_object mode: Anthropic requires a non-empty schema, and rejects
+			// `type: object` unless additionalProperties is explicitly false.
+			schema = map[string]any{"type": "object", "additionalProperties": false}
 		}
 		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: schema}
 	}

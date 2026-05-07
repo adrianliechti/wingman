@@ -56,9 +56,57 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		// ResponseFunctionCallArgumentsDeltaEvent uses item_id, but downstream
 		// consumers identify tool calls by call_id (used in function_call_output).
 		itemToCallID := make(map[string]string)
+		seenCompactions := make(map[string]struct{})
+
+		var responseID, responseModel string
+
+		emit := func(content provider.Content, status provider.CompletionStatus) bool {
+			return yield(&provider.Completion{
+				ID:     responseID,
+				Model:  responseModel,
+				Status: status,
+
+				Message: &provider.Message{
+					Role:    provider.MessageRoleAssistant,
+					Content: []provider.Content{content},
+				},
+			}, nil)
+		}
+
+		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage) bool {
+			return yield(&provider.Completion{
+				ID:     responseID,
+				Model:  responseModel,
+				Status: status,
+				Usage:  usage,
+			}, nil)
+		}
+
+		yieldCompaction := func(item responses.ResponseCompactionItem) bool {
+			if item.EncryptedContent == "" {
+				return true
+			}
+
+			key := item.ID
+			if key == "" {
+				key = item.EncryptedContent
+			}
+
+			if _, ok := seenCompactions[key]; ok {
+				return true
+			}
+
+			seenCompactions[key] = struct{}{}
+
+			return emit(provider.CompactionContent(provider.Compaction{
+				ID:        item.ID,
+				Signature: item.EncryptedContent,
+			}), "")
+		}
 
 		for stream.Next() {
 			data := stream.Current()
+			responseID, responseModel = data.Response.ID, data.Response.Model
 
 			switch event := data.AsAny().(type) {
 			case responses.ResponseCreatedEvent:
@@ -67,148 +115,39 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				switch item := event.Item.AsAny().(type) {
 				case responses.ResponseFunctionToolCall:
 					itemToCallID[item.ID] = item.CallID
-
-					delta := &provider.Completion{
-						ID:    data.Response.ID,
-						Model: data.Response.Model,
-
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-
-							Content: []provider.Content{
-								provider.ToolCallContent(provider.ToolCall{
-									ID:   item.CallID,
-									Name: item.Name,
-								}),
-							},
-						},
-					}
-
-					if !yield(delta, nil) {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: item.Name}), "") {
 						return
 					}
 
 				case responses.ResponseApplyPatchToolCall:
-					delta := &provider.Completion{
-						ID:    data.Response.ID,
-						Model: data.Response.Model,
-
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-
-							Content: []provider.Content{
-								provider.ToolCallContent(provider.ToolCall{
-									ID:   item.CallID,
-									Name: "apply_patch",
-								}),
-							},
-						},
-					}
-
-					if !yield(delta, nil) {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "apply_patch"}), "") {
 						return
 					}
 
 				case responses.ResponseComputerToolCall:
-					delta := &provider.Completion{
-						ID:    data.Response.ID,
-						Model: data.Response.Model,
-
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-
-							Content: []provider.Content{
-								provider.ToolCallContent(provider.ToolCall{
-									ID:   item.CallID,
-									Name: "computer",
-								}),
-							},
-						},
-					}
-
-					if !yield(delta, nil) {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "computer"}), "") {
 						return
 					}
 				}
 
 			case responses.ResponseContentPartAddedEvent:
 			case responses.ResponseTextDeltaEvent:
-				delta := &provider.Completion{
-					ID:    data.Response.ID,
-					Model: data.Response.Model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.TextContent(event.Delta),
-						},
-					},
-				}
-
-				if !yield(delta, nil) {
+				if !emit(provider.TextContent(event.Delta), "") {
 					return
 				}
 
 			case responses.ResponseRefusalDeltaEvent:
-				delta := &provider.Completion{
-					ID:    data.Response.ID,
-					Model: data.Response.Model,
-
-					Status: provider.CompletionStatusRefused,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.RefusalContent(event.Delta),
-						},
-					},
-				}
-
-				if !yield(delta, nil) {
+				if !emit(provider.RefusalContent(event.Delta), provider.CompletionStatusRefused) {
 					return
 				}
 
 			case responses.ResponseReasoningTextDeltaEvent:
-				delta := &provider.Completion{
-					ID:    data.Response.ID,
-					Model: data.Response.Model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.ReasoningContent(provider.Reasoning{
-								ID:   event.ItemID,
-								Text: event.Delta,
-							}),
-						},
-					},
-				}
-
-				if !yield(delta, nil) {
+				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Text: event.Delta}), "") {
 					return
 				}
 
 			case responses.ResponseReasoningSummaryTextDeltaEvent:
-				delta := &provider.Completion{
-					ID:    data.Response.ID,
-					Model: data.Response.Model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.ReasoningContent(provider.Reasoning{
-								ID:      event.ItemID,
-								Summary: event.Delta,
-							}),
-						},
-					},
-				}
-
-				if !yield(delta, nil) {
+				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Summary: event.Delta}), "") {
 					return
 				}
 
@@ -222,23 +161,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				if callID == "" {
 					callID = event.ItemID
 				}
-				delta := &provider.Completion{
-					ID:    data.Response.ID,
-					Model: data.Response.Model,
-
-					Message: &provider.Message{
-						Role: provider.MessageRoleAssistant,
-
-						Content: []provider.Content{
-							provider.ToolCallContent(provider.ToolCall{
-								ID:        callID,
-								Arguments: event.Delta,
-							}),
-						},
-					},
-				}
-
-				if !yield(delta, nil) {
+				if !emit(provider.ToolCallContent(provider.ToolCall{ID: callID, Arguments: event.Delta}), "") {
 					return
 				}
 
@@ -252,116 +175,46 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						"path": item.Operation.Path,
 						"diff": item.Operation.Diff,
 					})
-
-					delta := &provider.Completion{
-						ID:    data.Response.ID,
-						Model: data.Response.Model,
-
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-
-							Content: []provider.Content{
-								provider.ToolCallContent(provider.ToolCall{
-									ID:        item.CallID,
-									Name:      "apply_patch",
-									Arguments: string(args),
-								}),
-							},
-						},
-					}
-
-					if !yield(delta, nil) {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "apply_patch", Arguments: string(args)}), "") {
 						return
 					}
 
 				case responses.ResponseComputerToolCall:
 					args, _ := json.Marshal(computerCallToArgs(item))
-
-					delta := &provider.Completion{
-						ID:    data.Response.ID,
-						Model: data.Response.Model,
-
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-
-							Content: []provider.Content{
-								provider.ToolCallContent(provider.ToolCall{
-									ID:        item.CallID,
-									Name:      "computer",
-									Arguments: string(args),
-								}),
-							},
-						},
-					}
-
-					if !yield(delta, nil) {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "computer", Arguments: string(args)}), "") {
 						return
 					}
 
 				case responses.ResponseReasoningItem:
 					// Capture encrypted_content for conversation continuity
 					if item.EncryptedContent != "" {
-						delta := &provider.Completion{
-							ID:    data.Response.ID,
-							Model: data.Response.Model,
-
-							Message: &provider.Message{
-								Role: provider.MessageRoleAssistant,
-
-								Content: []provider.Content{
-									provider.ReasoningContent(provider.Reasoning{
-										ID:        item.ID,
-										Signature: item.EncryptedContent,
-									}),
-								},
-							},
-						}
-
-						if !yield(delta, nil) {
+						if !emit(provider.ReasoningContent(provider.Reasoning{ID: item.ID, Signature: item.EncryptedContent}), "") {
 							return
 						}
 					}
 
 				case responses.ResponseCompactionItem:
-					if item.EncryptedContent != "" {
-						delta := &provider.Completion{
-							ID:    data.Response.ID,
-							Model: data.Response.Model,
+					if !yieldCompaction(item) {
+						return
+					}
+				}
 
-							Message: &provider.Message{
-								Role: provider.MessageRoleAssistant,
-
-								Content: []provider.Content{
-									provider.CompactionContent(provider.Compaction{
-										ID:        item.ID,
-										Signature: item.EncryptedContent,
-									}),
-								},
-							},
-						}
-
-						if !yield(delta, nil) {
+			case responses.ResponseCompletedEvent:
+				for _, output := range event.Response.Output {
+					if item, ok := output.AsAny().(responses.ResponseCompactionItem); ok {
+						if !yieldCompaction(item) {
 							return
 						}
 					}
 				}
 
-			case responses.ResponseCompletedEvent:
 				status := provider.CompletionStatusCompleted
 
 				if event.Response.Status == responses.ResponseStatusIncomplete {
 					status = provider.CompletionStatusIncomplete
 				}
 
-				delta := &provider.Completion{
-					ID:    data.Response.ID,
-					Model: data.Response.Model,
-
-					Status: status,
-					Usage:  toResponseUsage(event.Response.Usage),
-				}
-
-				if !yield(delta, nil) {
+				if !emitStatus(status, toResponseUsage(event.Response.Usage)) {
 					return
 				}
 
@@ -385,15 +238,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				return
 
 			case responses.ResponseIncompleteEvent:
-				delta := &provider.Completion{
-					ID:    data.Response.ID,
-					Model: data.Response.Model,
-
-					Status: provider.CompletionStatusIncomplete,
-					Usage:  toResponseUsage(event.Response.Usage),
-				}
-
-				if !yield(delta, nil) {
+				if !emitStatus(provider.CompletionStatusIncomplete, toResponseUsage(event.Response.Usage)) {
 					return
 				}
 
@@ -598,13 +443,10 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				}
 
 				if c.File != nil {
-					mime := c.File.ContentType
-					content := base64.StdEncoding.EncodeToString(c.File.Content)
+					url := "data:" + c.File.ContentType + ";base64," + base64.StdEncoding.EncodeToString(c.File.Content)
 
 					switch c.File.ContentType {
 					case "image/png", "image/jpeg", "image/webp", "image/gif":
-						url := "data:" + mime + ";base64," + content
-
 						message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
 							OfInputImage: &responses.ResponseInputImageParam{
 								ImageURL: openai.String(url),
@@ -612,10 +454,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						})
 
 					case "application/pdf":
-						url := "data:" + mime + ";base64," + content
-
 						name := c.File.Name
-
 						if name == "" {
 							name = "file.pdf"
 						}
@@ -691,12 +530,10 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						reasoning.EncryptedContent = openai.String(c.Reasoning.Signature)
 					}
 
-					if len(reasoning.Summary) == 0 && len(reasoning.Content) == 0 {
-						reasoning.Summary = []responses.ResponseReasoningItemSummaryParam{
-							{
-								Text: "",
-							},
-						}
+					// `summary` is required by the API; an empty array preserves the
+					// original structure. A placeholder part would break encrypted_content.
+					if reasoning.Summary == nil {
+						reasoning.Summary = []responses.ResponseReasoningItemSummaryParam{}
 					}
 
 					result = append(result, responses.ResponseInputItemUnionParam{

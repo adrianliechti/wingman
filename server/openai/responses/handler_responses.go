@@ -310,6 +310,12 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 
 // reasoningRequested returns true if the request explicitly asks for reasoning output.
 func reasoningRequested(req ResponsesRequest) bool {
+	for _, inc := range req.Include {
+		if inc == "reasoning.encrypted_content" {
+			return true
+		}
+	}
+
 	if req.Reasoning == nil {
 		return false
 	}
@@ -338,123 +344,118 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 	}
 
 	output := []ResponseOutput{}
+	text := message.Text()
+	refusal := message.Refusal()
+	textEmitted := false
+	refusalEmitted := false
 
 	for _, content := range message.Content {
-		if content.Reasoning != nil && !opts.IncludeReasoning {
-			continue
-		}
+		if opts.IncludeReasoning {
+			r := content.Reasoning
+			if r != nil && (r.ID != "" || r.Text != "" || r.Summary != "" || r.Signature != "") {
+				id := r.ID
+				if id == "" {
+					id = "rs_" + uuid.NewString()
+				}
 
-		if content.Reasoning != nil && (content.Reasoning.ID != "" || content.Reasoning.Text != "" || content.Reasoning.Summary != "" || content.Reasoning.Signature != "") {
-			reasoningID := content.Reasoning.ID
-			if reasoningID == "" {
-				reasoningID = "rs_" + uuid.NewString()
-			}
+				rText, rSummary := r.Text, r.Summary
+				if opts.IncludeSummary && rText != "" && rSummary == "" {
+					rText, rSummary = "", rText
+				}
 
-			reasoningItem := &ReasoningOutputItem{
-				ID: reasoningID,
+				item := &ReasoningOutputItem{
+					ID:               id,
+					Type:             "reasoning",
+					Status:           status,
+					Summary:          []ReasoningOutputSummary{},
+					Content:          []ReasoningOutputContentPart{},
+					EncryptedContent: r.Signature,
+				}
 
-				Type:   "reasoning",
-				Status: status,
+				if rSummary != "" {
+					item.Summary = append(item.Summary, ReasoningOutputSummary{Type: "summary_text", Text: rSummary})
+				}
+				if rText != "" {
+					item.Content = append(item.Content, ReasoningOutputContentPart{Type: "reasoning_text", Text: rText})
+				}
 
-				Summary: []ReasoningOutputSummary{},
-				Content: []ReasoningOutputContentPart{},
-
-				EncryptedContent: content.Reasoning.Signature,
-			}
-
-			reasoningText := content.Reasoning.Text
-			reasoningSummary := content.Reasoning.Summary
-
-			if opts.IncludeSummary && reasoningText != "" && reasoningSummary == "" {
-				reasoningSummary = reasoningText
-				reasoningText = ""
-			}
-
-			if reasoningSummary != "" {
-				reasoningItem.Summary = append(reasoningItem.Summary, ReasoningOutputSummary{
-					Type: "summary_text",
-					Text: reasoningSummary,
+				output = append(output, ResponseOutput{
+					Type:                ResponseOutputTypeReasoning,
+					ReasoningOutputItem: item,
 				})
 			}
+		}
 
-			if reasoningText != "" {
-				reasoningItem.Content = append(reasoningItem.Content, ReasoningOutputContentPart{
-					Type: "reasoning_text",
-					Text: reasoningText,
+		if content.Refusal != "" && refusal != "" && !refusalEmitted {
+			refusalEmitted = true
+
+			output = append(output, ResponseOutput{
+				Type: ResponseOutputTypeMessage,
+				OutputMessage: &OutputMessage{
+					ID:     messageID,
+					Role:   MessageRoleAssistant,
+					Status: status,
+					Phase:  "final_answer",
+					Contents: []OutputContent{
+						{
+							Type: "refusal",
+							Text: refusal,
+						},
+					},
+				},
+			})
+		}
+
+		if refusal == "" && content.Text != "" && text != "" && !textEmitted {
+			textEmitted = true
+
+			output = append(output, ResponseOutput{
+				Type: ResponseOutputTypeMessage,
+				OutputMessage: &OutputMessage{
+					ID:     messageID,
+					Role:   MessageRoleAssistant,
+					Status: status,
+					Phase:  "final_answer",
+					Contents: []OutputContent{
+						{
+							Type:        "output_text",
+							Text:        text,
+							Annotations: []any{},
+							Logprobs:    []any{},
+						},
+					},
+				},
+			})
+		}
+
+		if content.ToolCall != nil {
+			call := *content.ToolCall
+
+			if opts.ApplyPatchTool && isApplyPatchToolCall(call) {
+				output = append(output, ResponseOutput{
+					Type:               ResponseOutputTypeApplyPatchCall,
+					ApplyPatchCallItem: toolCallToApplyPatchCall(call, status),
+				})
+			} else if opts.ComputerUseTool && isComputerToolCall(call) {
+				output = append(output, ResponseOutput{
+					Type:             ResponseOutputTypeComputerCall,
+					ComputerCallItem: toolCallToComputerCall(call, status),
+				})
+			} else {
+				output = append(output, ResponseOutput{
+					Type: ResponseOutputTypeFunctionCall,
+					FunctionCallOutputItem: &FunctionCallOutputItem{
+						ID:        "fc_" + call.ID,
+						Type:      "function_call",
+						Status:    status,
+						Name:      call.Name,
+						CallID:    call.ID,
+						Arguments: call.Arguments,
+					},
 				})
 			}
-
-			output = append(output, ResponseOutput{
-				Type:                ResponseOutputTypeReasoning,
-				ReasoningOutputItem: reasoningItem,
-			})
-			break
 		}
-	}
 
-	if refusal := message.Refusal(); refusal != "" {
-		output = append(output, ResponseOutput{
-			Type: ResponseOutputTypeMessage,
-			OutputMessage: &OutputMessage{
-				ID:     messageID,
-				Role:   MessageRoleAssistant,
-				Status: status,
-				Phase:  "final_answer",
-				Contents: []OutputContent{
-					{
-						Type: "refusal",
-						Text: refusal,
-					},
-				},
-			},
-		})
-	} else if text := message.Text(); text != "" {
-		output = append(output, ResponseOutput{
-			Type: ResponseOutputTypeMessage,
-			OutputMessage: &OutputMessage{
-				ID:     messageID,
-				Role:   MessageRoleAssistant,
-				Status: status,
-				Phase:  "final_answer",
-				Contents: []OutputContent{
-					{
-						Type:        "output_text",
-						Text:        text,
-						Annotations: []any{},
-						Logprobs:    []any{},
-					},
-				},
-			},
-		})
-	}
-
-	for _, call := range message.ToolCalls() {
-		if opts.ApplyPatchTool && isApplyPatchToolCall(call) {
-			output = append(output, ResponseOutput{
-				Type:               ResponseOutputTypeApplyPatchCall,
-				ApplyPatchCallItem: toolCallToApplyPatchCall(call, status),
-			})
-		} else if opts.ComputerUseTool && isComputerToolCall(call) {
-			output = append(output, ResponseOutput{
-				Type:             ResponseOutputTypeComputerCall,
-				ComputerCallItem: toolCallToComputerCall(call, status),
-			})
-		} else {
-			output = append(output, ResponseOutput{
-				Type: ResponseOutputTypeFunctionCall,
-				FunctionCallOutputItem: &FunctionCallOutputItem{
-					ID:        "fc_" + call.ID,
-					Type:      "function_call",
-					Status:    status,
-					Name:      call.Name,
-					CallID:    call.ID,
-					Arguments: call.Arguments,
-				},
-			})
-		}
-	}
-
-	for _, content := range message.Content {
 		if content.Compaction != nil && content.Compaction.Signature != "" {
 			output = append(output, ResponseOutput{
 				Type: ResponseOutputTypeCompaction,

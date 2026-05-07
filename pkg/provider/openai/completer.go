@@ -72,6 +72,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					delta.Message.Content = append(delta.Message.Content, provider.TextContent(choice.Delta.Content))
 				}
 
+				if choice.Delta.JSON.Refusal.Valid() {
+					delta.Message.Content = append(delta.Message.Content, provider.RefusalContent(choice.Delta.Refusal))
+				}
+
 				for _, c := range choice.Delta.ToolCalls {
 					call := provider.ToolCall{
 						ID: c.ID,
@@ -82,6 +86,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(call))
 				}
+
+				delta.Status = toCompletionStatus(choice.FinishReason)
 			}
 
 			if !yield(delta, nil) {
@@ -97,10 +103,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 }
 
 func (c *Completer) convertCompletionRequest(input []provider.Message, options *provider.CompleteOptions) (*openai.ChatCompletionNewParams, error) {
-	if options == nil {
-		options = new(provider.CompleteOptions)
-	}
-
 	tools, err := convertTools(options.Tools)
 
 	if err != nil {
@@ -401,6 +403,21 @@ func convertToolChoice(opts *provider.ToolOptions) openai.ChatCompletionToolChoi
 	return openai.ChatCompletionToolChoiceOptionUnionParam{
 		OfAuto: openai.String(modes[opts.Choice]),
 	}
+}
+
+// toCompletionStatus maps the upstream chat-completions finish_reason to a
+// provider status. "stop" / "tool_calls" / "function_call" are normal terminations
+// and stay as the zero value; only truncation and content-filter map to a
+// non-default status so the wire-level finish_reason can be reconstructed
+// downstream.
+func toCompletionStatus(finishReason string) provider.CompletionStatus {
+	switch finishReason {
+	case "length":
+		return provider.CompletionStatusIncomplete
+	case "content_filter":
+		return provider.CompletionStatusRefused
+	}
+	return ""
 }
 
 func toUsage(metadata openai.CompletionUsage) *provider.Usage {
