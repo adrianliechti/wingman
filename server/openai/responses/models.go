@@ -777,7 +777,7 @@ type OutputMessage struct {
 
 type OutputContent struct {
 	Type        string `json:"type,omitempty"`
-	Text        string `json:"text,omitempty"`
+	Text        string `json:"text"`
 	Annotations []any  `json:"annotations"`
 	Logprobs    []any  `json:"logprobs"`
 }
