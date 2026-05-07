@@ -72,8 +72,8 @@ type ContentBlockParam struct {
 	// For text blocks
 	Text string `json:"text,omitempty"`
 
-	// For image blocks
-	Source *ImageSource `json:"source,omitempty"`
+	// For image and document blocks
+	Source *BlockSource `json:"source,omitempty"`
 
 	// For tool_use blocks (in assistant messages)
 	ID    string `json:"id,omitempty"`
@@ -84,13 +84,24 @@ type ContentBlockParam struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   any    `json:"content,omitempty"` // string or []ContentBlockParam
 	IsError   bool   `json:"is_error,omitempty"`
+
+	// For thinking blocks (assistant messages, reasoning round-trip)
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+
+	// For redacted_thinking blocks
+	Data string `json:"data,omitempty"`
 }
 
-type ImageSource struct {
-	Type      string `json:"type"` // "base64" or "url"
+// BlockSource is the source object for image and document content blocks.
+// Image: base64 or url with media_type.
+// Document: base64 (PDF), text (plain), url (PDF), or content (string or content blocks).
+type BlockSource struct {
+	Type      string `json:"type"` // "base64", "url", "text", "content"
 	MediaType string `json:"media_type,omitempty"`
 	Data      string `json:"data,omitempty"`
 	URL       string `json:"url,omitempty"`
+	Content   any    `json:"content,omitempty"` // for type=content: string or []ContentBlockParam
 }
 
 type SystemBlock struct {

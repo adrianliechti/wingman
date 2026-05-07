@@ -70,6 +70,41 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 				content = append(content, provider.FileContent(file))
 			}
 
+		case "document":
+			if block.Source == nil {
+				continue
+			}
+
+			// Plain-text documents inline as text — portable across providers
+			// that don't have a dedicated document block (OpenAI, Bedrock, …).
+			if block.Source.Type == "text" {
+				if block.Source.Data != "" {
+					content = append(content, provider.TextContent(block.Source.Data))
+				}
+				continue
+			}
+
+			file, err := toFile(block.Source)
+			if err != nil {
+				return nil, err
+			}
+
+			content = append(content, provider.FileContent(file))
+
+		case "thinking":
+			// Round-trip reasoning across turns: signature is the verifiable
+			// blob Anthropic re-validates on the next call.
+			content = append(content, provider.ReasoningContent(provider.Reasoning{
+				Text:      block.Thinking,
+				Signature: block.Signature,
+			}))
+
+		case "redacted_thinking":
+			// Encrypted thinking block — only the opaque `data` blob round-trips.
+			content = append(content, provider.ReasoningContent(provider.Reasoning{
+				Signature: block.Data,
+			}))
+
 		case "tool_use":
 			// Tool use in assistant message (for multi-turn conversations)
 			args, err := toJSONString(block.Input)
@@ -112,7 +147,7 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 	}, nil
 }
 
-func toFile(source *ImageSource) (*provider.File, error) {
+func toFile(source *BlockSource) (*provider.File, error) {
 	if source == nil {
 		return nil, nil
 	}
@@ -135,6 +170,13 @@ func toFile(source *ImageSource) (*provider.File, error) {
 		// For URL sources, we store the URL in the content
 		// The provider should handle fetching if needed
 		file.Content = []byte(source.URL)
+
+	case "text":
+		// Plain-text document source — pass the bytes through.
+		file.Content = []byte(source.Data)
+		if file.ContentType == "" {
+			file.ContentType = "text/plain"
+		}
 	}
 
 	return file, nil
