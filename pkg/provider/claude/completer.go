@@ -1,15 +1,13 @@
 package claude
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"iter"
-	"os/exec"
-	"strings"
+	"log/slog"
+	"os"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -18,6 +16,8 @@ var _ provider.Completer = (*Completer)(nil)
 
 type Completer struct {
 	*Config
+
+	sessions *sessionStore
 }
 
 func NewCompleter(model string, options ...Option) (*Completer, error) {
@@ -34,7 +34,10 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 		cfg.command = "claude"
 	}
 
-	return &Completer{Config: cfg}, nil
+	return &Completer{
+		Config:   cfg,
+		sessions: newSessionStore(256, 30*time.Minute),
+	}, nil
 }
 
 func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
@@ -43,387 +46,287 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			options = new(provider.CompleteOptions)
 		}
 
-		system, payload, err := buildStreamInput(messages)
+		system, frame, ok := convertMessages(messages)
+		if !ok {
+			yield(nil, errors.New("claude: messages must be non-empty and end with a user turn"))
+			return
+		}
+
+		// Resolve a cached session_id for the conversation prefix (everything
+		// before the new user turn).
+		prefix := messages[:len(messages)-1]
+		resumeID, _ := c.sessions.get(keyFor(prefix))
+
+		if len(prefix) > 0 && resumeID == "" {
+			slog.Warn("claude: cold-cache multi-turn conversation; prior turns will be lost",
+				"turns", len(prefix))
+		}
+
+		// Advertise caller-supplied tools through our in-process MCP server.
+		mcp := newMcpServer(options.Tools)
+
+		mcpConfig, err := writeMcpConfig()
 		if err != nil {
 			yield(nil, err)
 			return
 		}
+		defer os.Remove(mcpConfig)
 
-		args := []string{
-			"--print",
-			"--output-format", "stream-json",
-			"--input-format", "stream-json",
-			"--verbose",
-			"--no-session-persistence",
-		}
+		args := c.buildArgs(options, system, resumeID, mcpConfig)
 
-		if c.model != "" {
-			args = append(args, "--model", c.model)
-		}
-
-		if system != "" {
-			args = append(args, "--system-prompt", system)
-		}
-
-		cmd := exec.CommandContext(ctx, c.command, args...)
-		cmd.Stdin = bytes.NewReader(payload)
-
-		stdout, err := cmd.StdoutPipe()
+		t, err := startTransport(ctx, c.command, args, processEnv(), "")
 		if err != nil {
 			yield(nil, err)
 			return
 		}
+		defer t.close()
 
-		var stderr strings.Builder
-		cmd.Stderr = &stderr
+		q := newQuery(t, mcp)
+		defer q.stop()
 
-		if err := cmd.Start(); err != nil {
+		initCtx, initCancel := context.WithTimeout(ctx, 60*time.Second)
+		err = q.initialize(initCtx, 60*time.Second)
+		initCancel()
+		if err != nil {
+			yield(nil, convertError(t.stderrText(), "", err))
+			return
+		}
+
+		if err := t.send(frame); err != nil {
 			yield(nil, err)
 			return
 		}
 
-		var (
-			messageID string
-			modelName = c.model
-		)
+		c.runLoop(ctx, t, q, messages, yield)
+	}
+}
 
-		stop := func() {
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-			_ = cmd.Wait()
-		}
+// runLoop drains the transport, dispatches control requests, and yields
+// completions until a `result` frame arrives, ctx is cancelled, or stdout
+// closes. All error reporting goes through `yield`; the caller does not need
+// to surface anything afterwards.
+func (c *Completer) runLoop(
+	ctx context.Context,
+	t *transport,
+	q *query,
+	messages []provider.Message,
+	yield func(*provider.Completion, error) bool,
+) {
+	var (
+		messageID string
+		modelName = c.model
+		sessionID string
+	)
 
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for {
+		select {
+		case <-ctx.Done():
+			yield(nil, ctx.Err())
+			return
 
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-
-			var env envelope
-			if err := json.Unmarshal(line, &env); err != nil {
-				continue
+		case env, alive := <-q.messages:
+			if !alive {
+				// Stdout closed before we saw a `result` — the CLI exited
+				// early. Drain it so stderr is fully captured, then surface.
+				t.close()
+				yield(nil, convertError(t.stderrText(), "", errors.New("claude: cli exited without a result")))
+				return
 			}
 
 			switch env.Type {
 			case "system":
-				if env.Subtype == "init" && env.Model != "" && modelName == "" {
-					modelName = env.Model
+				if env.Subtype == "init" {
+					if env.SessionID != "" {
+						sessionID = env.SessionID
+					}
+					if env.Model != "" && (modelName == "" || modelName == c.model) {
+						modelName = env.Model
+					}
 				}
 
 			case "assistant":
 				if env.Message == nil {
 					continue
 				}
-
 				if env.Message.ID != "" {
 					messageID = env.Message.ID
 				}
-
 				if env.Message.Model != "" && env.Message.Model != "<synthetic>" {
 					modelName = env.Message.Model
 				}
+				if env.SessionID != "" {
+					sessionID = env.SessionID
+				}
 
 				for _, block := range env.Message.Content {
-					var content provider.Content
-
-					switch block.Type {
-					case "text":
-						if block.Text == "" {
-							continue
-						}
-
-						content = provider.TextContent(block.Text)
-
-					case "thinking":
-						if block.Thinking == "" && block.Signature == "" {
-							continue
-						}
-
-						content = provider.ReasoningContent(provider.Reasoning{
-							Text:      block.Thinking,
-							Signature: block.Signature,
-						})
-
-					default:
+					content, ok := convertCliContent(block)
+					if !ok {
 						continue
 					}
-
-					delta := &provider.Completion{
-						ID:    messageID,
-						Model: modelName,
-
-						Message: &provider.Message{
-							Role:    provider.MessageRoleAssistant,
-							Content: []provider.Content{content},
-						},
-					}
-
-					if !yield(delta, nil) {
-						stop()
+					if !yieldContent(yield, messageID, modelName, content) {
 						return
 					}
 				}
 
 			case "result":
+				if env.SessionID != "" {
+					sessionID = env.SessionID
+				}
 				if env.IsError {
-					msg := strings.TrimSpace(env.Result)
-					if msg == "" {
-						msg = "claude cli error"
+					msg := env.Result
+					if msg == "" && len(env.Errors) > 0 {
+						msg = env.Errors[0]
 					}
-
-					yield(nil, &provider.ProviderError{
-						Message: msg,
-						Err:     errors.New(msg),
-					})
-					stop()
+					yield(nil, convertError(t.stderrText(), msg, errors.New("claude: error result")))
 					return
 				}
 
 				final := &provider.Completion{
-					ID:    messageID,
-					Model: modelName,
-
+					ID:     messageID,
+					Model:  modelName,
+					Status: convertStopReason(env.StopReason),
+					Usage:  convertUsage(env.Usage),
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
 					},
-
-					Status: provider.CompletionStatusCompleted,
 				}
-
-				switch env.StopReason {
-				case "max_tokens":
-					final.Status = provider.CompletionStatusIncomplete
-				case "refusal":
-					final.Status = provider.CompletionStatusRefused
-				}
-
-				if env.Usage != nil {
-					final.Usage = &provider.Usage{
-						InputTokens:              env.Usage.InputTokens,
-						OutputTokens:             env.Usage.OutputTokens,
-						CacheReadInputTokens:     env.Usage.CacheReadInputTokens,
-						CacheCreationInputTokens: env.Usage.CacheCreationInputTokens,
-					}
-				}
-
 				if !yield(final, nil) {
-					stop()
 					return
 				}
+
+				// Cache the (possibly forked) session_id under the user-
+				// content hash of this turn's full message list. keyFor
+				// ignores assistant content so caller-side round-trip
+				// fidelity doesn't matter for cache hits next turn.
+				if sessionID != "" {
+					c.sessions.put(keyFor(messages), sessionID)
+				}
+				return
 			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			stop()
-			yield(nil, err)
-			return
-		}
-
-		if err := cmd.Wait(); err != nil {
-			msg := strings.TrimSpace(stderr.String())
-			if msg == "" {
-				msg = err.Error()
-			}
-
-			yield(nil, &provider.ProviderError{
-				Message: msg,
-				Err:     err,
-			})
 		}
 	}
 }
 
-func buildStreamInput(messages []provider.Message) (system string, payload []byte, err error) {
-	var systemParts []string
-	var turns []provider.Message
-
-	for _, m := range messages {
-		if m.Role == provider.MessageRoleSystem {
-			if strings.TrimSpace(m.Text()) != "" {
-				systemParts = append(systemParts, m.Text())
-			}
-			continue
-		}
-
-		turns = append(turns, m)
+func (c *Completer) buildArgs(opts *provider.CompleteOptions, system, resumeID, mcpConfig string) []string {
+	args := []string{
+		"--print",
+		"--output-format", "stream-json",
+		"--input-format", "stream-json",
+		"--verbose",
 	}
 
-	lastUser := -1
-
-	for i := len(turns) - 1; i >= 0; i-- {
-		if turns[i].Role == provider.MessageRoleUser {
-			lastUser = i
-			break
-		}
+	if c.model != "" {
+		args = append(args, "--model", c.model)
 	}
 
-	var history []provider.Message
-	var current provider.Message
-
-	if lastUser >= 0 {
-		history = turns[:lastUser]
-		current = turns[lastUser]
-	} else {
-		history = turns
+	if system != "" {
+		args = append(args, "--append-system-prompt", system)
 	}
 
-	var sb strings.Builder
+	args = append(args, thinkingFlags(opts.ReasoningOptions)...)
 
-	if len(systemParts) > 0 {
-		sb.WriteString(strings.Join(systemParts, "\n\n"))
+	// Lock the model to caller-supplied tools only — the CLI's built-in tools
+	// (Bash, Read, Write, Edit, …) would otherwise be reachable and cause
+	// "Tool 'X' is not available or not executable" when the model picks a
+	// built-in not on the allowed list. `--tools ""` gives the model an empty
+	// base toolset; `--allowedTools mcp__wingman__<name>` selectively adds
+	// back only the tools the caller passed.
+	args = append(args, "--tools", "")
+	for _, t := range opts.Tools {
+		args = append(args, "--allowedTools", toolPrefix()+t.Name)
 	}
 
-	if len(history) > 0 {
-		if sb.Len() > 0 {
-			sb.WriteString("\n\n")
-		}
-
-		sb.WriteString("<conversation_history>\n")
-
-		for _, m := range history {
-			text := strings.TrimSpace(m.Text())
-			if text == "" {
-				continue
-			}
-
-			role := "user"
-			if m.Role == provider.MessageRoleAssistant {
-				role = "assistant"
-			}
-
-			sb.WriteString("  <turn role=\"")
-			sb.WriteString(role)
-			sb.WriteString("\">")
-			sb.WriteString(text)
-			sb.WriteString("</turn>\n")
-		}
-
-		sb.WriteString("</conversation_history>")
+	if mcpConfig != "" {
+		args = append(args, "--mcp-config", mcpConfig)
+	}
+	if resumeID != "" {
+		args = append(args, "--resume", resumeID, "--fork-session")
 	}
 
-	system = sb.String()
+	return args
+}
 
-	var blocks []inputBlock
-
-	if text := strings.TrimSpace(current.Text()); text != "" {
-		blocks = append(blocks, inputBlock{Type: "text", Text: current.Text()})
+// thinkingFlags maps caller-supplied ReasoningOptions to the CLI's --thinking
+// / --max-thinking-tokens flags. Effort levels follow the Anthropic API
+// ranges roughly.
+func thinkingFlags(opts *provider.ReasoningOptions) []string {
+	if opts == nil {
+		return nil
 	}
 
-	for _, c := range current.Content {
-		if c.File == nil {
-			continue
-		}
+	switch opts.Effort {
+	case provider.EffortNone:
+		return []string{"--thinking", "disabled"}
+	case provider.EffortMinimal:
+		return []string{"--thinking", "adaptive"}
+	case provider.EffortLow:
+		return []string{"--max-thinking-tokens", "4000"}
+	case provider.EffortMedium:
+		return []string{"--max-thinking-tokens", "8000"}
+	case provider.EffortHigh:
+		return []string{"--max-thinking-tokens", "16000"}
+	case provider.EffortXHigh, provider.EffortMax:
+		return []string{"--max-thinking-tokens", "32000"}
+	}
+	return nil
+}
 
-		data := base64.StdEncoding.EncodeToString(c.File.Content)
-		mime := c.File.ContentType
+// processEnv builds a fresh, minimal environment for the spawned CLI rather
+// than inheriting the full host env. We pass through only what the CLI
+// actually needs to run and authenticate; everything else (including
+// ANTHROPIC_API_KEY, which would force API-key auth and reject OAuth) is
+// dropped. CLAUDE_CODE_ENTRYPOINT marks us as an SDK caller.
+func processEnv() []string {
+	allowed := []string{
+		// Filesystem essentials: $HOME (CLI session store, OAuth creds),
+		// USER, LOGNAME, SHELL.
+		"HOME", "USER", "LOGNAME", "SHELL",
+		// Process discovery + temp paths.
+		"PATH", "TMPDIR", "TEMP", "TMP",
+		// Locale (so the CLI picks the right text encoding).
+		"LANG", "LC_ALL", "LC_CTYPE",
+		// Terminal info — the CLI may probe these even in --print mode.
+		"TERM",
+		// Proxy support if the host configured one.
+		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+		"http_proxy", "https_proxy", "no_proxy",
+		// Claude-specific overrides the user may have set.
+		"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+		"AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION",
+		"GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT",
+	}
 
-		switch mime {
-		case "image/jpeg", "image/png", "image/gif", "image/webp":
-			blocks = append(blocks, inputBlock{
-				Type: "image",
-				Source: &inputSource{
-					Type:      "base64",
-					MediaType: mime,
-					Data:      data,
-				},
-			})
-
-		case "application/pdf":
-			blocks = append(blocks, inputBlock{
-				Type: "document",
-				Source: &inputSource{
-					Type:      "base64",
-					MediaType: mime,
-					Data:      data,
-				},
-			})
+	env := make([]string, 0, len(allowed)+1)
+	for _, key := range allowed {
+		if v, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+v)
 		}
 	}
+	env = append(env, "CLAUDE_CODE_ENTRYPOINT=sdk-go")
+	return env
+}
 
-	if len(blocks) == 0 {
-		blocks = append(blocks, inputBlock{Type: "text", Text: ""})
-	}
-
-	msg := inputMessage{
-		Type: "user",
-		Message: inputUser{
-			Role:    "user",
-			Content: blocks,
+// writeMcpConfig writes a temporary mcp-config JSON registering our SDK MCP
+// server so the CLI knows to route caller-defined tools back to us.
+func writeMcpConfig() (string, error) {
+	payload, err := json.Marshal(map[string]any{
+		"mcpServers": map[string]any{
+			mcpServerName: map[string]any{"type": "sdk", "name": mcpServerName},
 		},
-	}
-
-	payload, err = json.Marshal(msg)
+	})
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
-	payload = append(payload, '\n')
-	return
-}
+	f, err := os.CreateTemp("", "wingman-claude-mcp-*.json")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
 
-type inputMessage struct {
-	Type    string    `json:"type"`
-	Message inputUser `json:"message"`
-}
-
-type inputUser struct {
-	Role    string       `json:"role"`
-	Content []inputBlock `json:"content"`
-}
-
-type inputBlock struct {
-	Type string `json:"type"`
-
-	Text string `json:"text,omitempty"`
-
-	Source *inputSource `json:"source,omitempty"`
-}
-
-type inputSource struct {
-	Type      string `json:"type"`
-	MediaType string `json:"media_type"`
-	Data      string `json:"data"`
-}
-
-type envelope struct {
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-
-	Model string `json:"model"`
-
-	Message *cliMessage `json:"message"`
-
-	IsError    bool      `json:"is_error"`
-	Result     string    `json:"result"`
-	StopReason string    `json:"stop_reason"`
-	Usage      *cliUsage `json:"usage"`
-}
-
-type cliMessage struct {
-	ID    string `json:"id"`
-	Model string `json:"model"`
-	Role  string `json:"role"`
-
-	Content []cliContent `json:"content"`
-}
-
-type cliContent struct {
-	Type string `json:"type"`
-
-	Text string `json:"text"`
-
-	Thinking  string `json:"thinking"`
-	Signature string `json:"signature"`
-}
-
-type cliUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	if _, err := f.Write(payload); err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
