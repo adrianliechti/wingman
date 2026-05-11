@@ -38,6 +38,10 @@ func New(url string, headers map[string]string) (*Server, error) {
 	return s, nil
 }
 
+func (s *Server) FaviconURL() string {
+	return (&neturl.URL{Scheme: s.url.Scheme, Host: s.url.Host, Path: "/favicon.ico"}).String()
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	proxy := &httputil.ReverseProxy{
 		Transport: s.rt,

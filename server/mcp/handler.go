@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"io"
 	"net/http"
 	"strings"
 
@@ -23,8 +24,45 @@ func New(cfg *config.Config) *Handler {
 }
 
 func (h *Handler) Attach(r chi.Router) {
+	r.HandleFunc("/mcp/{id}/favicon.ico", h.handleFavicon)
 	r.HandleFunc("/mcp/{id}", h.handleMCP)
 	r.HandleFunc("/mcp/{id}/*", h.handleMCP)
+}
+
+type faviconProvider interface {
+	FaviconURL() string
+}
+
+func (h *Handler) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	handler, err := h.MCP(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := h.Policy.Verify(r.Context(), policy.ResourceMCP, id, policy.ActionAccess); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	fp, ok := handler.(faviconProvider)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	resp, err := http.Get(fp.FaviconURL())
+	if err != nil || resp.StatusCode != http.StatusOK {
+		http.NotFound(w, r)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	io.Copy(w, resp.Body)
 }
 
 func (h *Handler) handleMCP(w http.ResponseWriter, r *http.Request) {
