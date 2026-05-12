@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"io"
 	"net/http"
 	"strings"
 
@@ -30,7 +29,7 @@ func (h *Handler) Attach(r chi.Router) {
 }
 
 type faviconProvider interface {
-	FaviconURL() string
+	Favicon() (string, []byte, bool)
 }
 
 func (h *Handler) handleFavicon(w http.ResponseWriter, r *http.Request) {
@@ -53,16 +52,17 @@ func (h *Handler) handleFavicon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := http.Get(fp.FaviconURL())
-	if err != nil || resp.StatusCode != http.StatusOK {
+	contentType, data, ok := fp.Favicon()
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 
-	defer resp.Body.Close()
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
 
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	io.Copy(w, resp.Body)
+	w.Write(data)
 }
 
 func (h *Handler) handleMCP(w http.ResponseWriter, r *http.Request) {

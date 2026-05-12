@@ -15,6 +15,9 @@ type Server struct {
 	url *neturl.URL
 
 	rt http.RoundTripper
+
+	faviconData        []byte
+	faviconContentType string
 }
 
 func New(url string, headers map[string]string) (*Server, error) {
@@ -35,11 +38,9 @@ func New(url string, headers map[string]string) (*Server, error) {
 		rt: rt,
 	}
 
-	return s, nil
-}
+	s.initFavicon()
 
-func (s *Server) FaviconURL() string {
-	return (&neturl.URL{Scheme: s.url.Scheme, Host: s.url.Host, Path: "/favicon.ico"}).String()
+	return s, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
