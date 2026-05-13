@@ -96,14 +96,47 @@ func toMessage(c Content) (*provider.Message, error) {
 
 		// Function response (in user messages)
 		if part.FunctionResponse != nil {
-			result, err := toJSONString(part.FunctionResponse.Response)
-			if err != nil {
-				return nil, err
+			var parts []provider.Part
+
+			if len(part.FunctionResponse.Response) > 0 {
+				result, err := toJSONString(part.FunctionResponse.Response)
+				if err != nil {
+					return nil, err
+				}
+				parts = append(parts, provider.Part{Text: result})
+			}
+
+			for _, p := range part.FunctionResponse.Parts {
+				if p == nil {
+					continue
+				}
+				if p.InlineData != nil {
+					data, err := base64.StdEncoding.DecodeString(p.InlineData.Data)
+					if err != nil {
+						return nil, err
+					}
+					parts = append(parts, provider.Part{
+						File: &provider.File{
+							Name:        p.InlineData.DisplayName,
+							Content:     data,
+							ContentType: p.InlineData.MimeType,
+						},
+					})
+				}
+				if p.FileData != nil {
+					parts = append(parts, provider.Part{
+						File: &provider.File{
+							Name:        p.FileData.DisplayName,
+							Content:     []byte(p.FileData.FileUri),
+							ContentType: p.FileData.MimeType,
+						},
+					})
+				}
 			}
 
 			content = append(content, provider.ToolResultContent(provider.ToolResult{
 				ID:    part.FunctionResponse.ID,
-				Parts: []provider.Part{{Text: result}},
+				Parts: parts,
 			}))
 		}
 	}

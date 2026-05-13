@@ -214,6 +214,20 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 			if c.ToolResult != nil {
 				text := c.ToolResult.Text()
 
+				var fileParts []*genai.FunctionResponsePart
+				for _, p := range c.ToolResult.Parts {
+					if p.File == nil {
+						continue
+					}
+					fileParts = append(fileParts, &genai.FunctionResponsePart{
+						InlineData: &genai.FunctionResponseBlob{
+							MIMEType:    p.File.ContentType,
+							Data:        p.File.Content,
+							DisplayName: p.File.Name,
+						},
+					})
+				}
+
 				var data any
 				var parameters map[string]any
 
@@ -227,7 +241,7 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 					}
 				}
 
-				if parameters == nil {
+				if parameters == nil && text != "" {
 					parameters = map[string]any{"output": text}
 				}
 
@@ -235,6 +249,7 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 
 				part := genai.NewPartFromFunctionResponse(name, parameters)
 				part.FunctionResponse.ID = id
+				part.FunctionResponse.Parts = fileParts
 				part.ThoughtSignature = signature
 
 				content.Parts = append(content.Parts, part)
