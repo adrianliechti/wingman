@@ -197,9 +197,14 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			output := item.InputFunctionCallOutput
 
+			parts, err := toParts(output.Output)
+			if err != nil {
+				return nil, err
+			}
+
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
-				ID:   output.CallID,
-				Data: output.Output,
+				ID:    output.CallID,
+				Parts: parts,
 			}))
 
 		case InputItemTypeApplyPatchCall:
@@ -231,9 +236,14 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			output := item.InputApplyPatchCallOutput
 
+			parts, err := toParts(output.Output)
+			if err != nil {
+				return nil, err
+			}
+
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
-				ID:   output.CallID,
-				Data: output.Output,
+				ID:    output.CallID,
+				Parts: parts,
 			}))
 
 		case InputItemTypeComputerCall:
@@ -263,11 +273,14 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			flushCalls()
 
 			output := item.InputComputerCallOutput
-			data, _ := json.Marshal(output.Output)
+			parts, err := computerOutputParts(output.Output)
+			if err != nil {
+				return nil, err
+			}
 
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
-				ID:   output.CallID,
-				Data: string(data),
+				ID:    output.CallID,
+				Parts: parts,
 			}))
 		}
 	}
@@ -411,6 +424,114 @@ func toReplaceDiff(oldText, newText string) string {
 	return b.String()
 }
 
+// computerOutputParts maps a computer_call_output.output object to Parts.
+// Per the OpenAI Responses spec the payload is a computer_screenshot with
+// either an image_url (often a data URL) or a file_id. Falls back to a JSON
+// text part for any other shape so callers can still inspect the payload.
+func computerOutputParts(output any) ([]provider.Part, error) {
+	data, err := json.Marshal(output)
+	if err != nil {
+		return nil, err
+	}
+
+	var screenshot struct {
+		Type     string `json:"type"`
+		ImageURL string `json:"image_url"`
+		FileID   string `json:"file_id"`
+	}
+	if err := json.Unmarshal(data, &screenshot); err == nil && screenshot.Type == "computer_screenshot" {
+		if screenshot.ImageURL != "" {
+			file, err := shared.ToFile(screenshot.ImageURL)
+			if err != nil {
+				return nil, err
+			}
+			return []provider.Part{{File: file}}, nil
+		}
+		// file_id form — we have no fetcher here; pass it through as text
+		// so the downstream provider can resolve it if it supports the ID.
+		if screenshot.FileID != "" {
+			return []provider.Part{{Text: string(data)}}, nil
+		}
+	}
+
+	return []provider.Part{{Text: string(data)}}, nil
+}
+
+func toParts(items []InputContent) ([]provider.Part, error) {
+	var result []provider.Part
+
+	for _, c := range items {
+		switch c.Type {
+		case InputContentText, OutputContentText, "":
+			if c.Text != "" {
+				result = append(result, provider.Part{Text: c.Text})
+			}
+
+		case InputContentImage:
+			file, err := shared.ToFile(c.ImageURL)
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, provider.Part{File: file})
+
+		case InputContentFile:
+			file, err := fileFromInputContent(c)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, provider.Part{File: file})
+		}
+	}
+
+	return result, nil
+}
+
+// fileFromInputContent decodes an input_file content part into provider.File.
+// FileData accepts either raw base64 (mime inferred from filename) or a full
+// data URL (mime parsed from the URL prefix). FileURL is handled via
+// shared.ToFile which supports http/https + data URLs.
+func fileFromInputContent(c InputContent) (*provider.File, error) {
+	file := &provider.File{Name: c.Filename}
+
+	if c.FileData != "" {
+		if strings.HasPrefix(c.FileData, "data:") {
+			f, err := shared.ToFile(c.FileData)
+			if err != nil {
+				return nil, err
+			}
+			if file.Name == "" {
+				file.Name = f.Name
+			}
+			file.Content = f.Content
+			file.ContentType = f.ContentType
+		} else {
+			data, err := base64.StdEncoding.DecodeString(c.FileData)
+			if err != nil {
+				return nil, err
+			}
+			if mimeType := mime.TypeByExtension(path.Ext(c.Filename)); mimeType != "" {
+				file.ContentType = mimeType
+			}
+			file.Content = data
+		}
+	}
+
+	if c.FileURL != "" {
+		f, err := shared.ToFile(c.FileURL)
+		if err != nil {
+			return nil, err
+		}
+		if file.Name == "" {
+			file.Name = f.Name
+		}
+		file.Content = f.Content
+		file.ContentType = f.ContentType
+	}
+
+	return file, nil
+}
+
 func toInputContent(items []InputContent) ([]provider.Content, error) {
 	var result []provider.Content
 
@@ -428,35 +549,10 @@ func toInputContent(items []InputContent) ([]provider.Content, error) {
 			result = append(result, provider.FileContent(file))
 
 		case InputContentFile:
-			file := &provider.File{Name: c.Filename}
-
-			if c.FileData != "" {
-				data, err := base64.StdEncoding.DecodeString(c.FileData)
-				if err != nil {
-					return nil, err
-				}
-
-				if mimeType := mime.TypeByExtension(path.Ext(c.Filename)); mimeType != "" {
-					file.ContentType = mimeType
-				}
-
-				file.Content = data
+			file, err := fileFromInputContent(c)
+			if err != nil {
+				return nil, err
 			}
-
-			if c.FileURL != "" {
-				f, err := shared.ToFile(c.FileURL)
-				if err != nil {
-					return nil, err
-				}
-
-				if file.Name == "" {
-					file.Name = f.Name
-				}
-
-				file.Content = f.Content
-				file.ContentType = f.ContentType
-			}
-
 			result = append(result, provider.FileContent(file))
 		}
 	}

@@ -7,8 +7,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
-	"github.com/adrianliechti/wingman/pkg/provider/claude"
-	"github.com/adrianliechti/wingman/pkg/provider/codex"
 	"github.com/adrianliechti/wingman/pkg/provider/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/huggingface"
@@ -53,12 +51,6 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 
 	case "bedrock":
 		return bedrockCompleter(cfg, model)
-
-	case "claude":
-		return claudeCompleter(cfg, model)
-
-	case "codex":
-		return codexCompleter(cfg, model)
 
 	case "gemini", "google":
 		return googleCompleter(cfg, model)
@@ -128,26 +120,6 @@ func anthropicCompleter(cfg providerConfig, model modelContext) (provider.Comple
 	}
 
 	return anthropic.NewCompleter(cfg.URL, model.ID, options...)
-}
-
-func claudeCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []claude.Option
-
-	if cmd := cfg.Vars["command"]; cmd != "" {
-		options = append(options, claude.WithCommand(cmd))
-	}
-
-	return claude.NewCompleter(model.ID, options...)
-}
-
-func codexCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []codex.Option
-
-	if cmd := cfg.Vars["command"]; cmd != "" {
-		options = append(options, codex.WithCommand(cmd))
-	}
-
-	return codex.NewCompleter(model.ID, options...)
 }
 
 func bedrockCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {

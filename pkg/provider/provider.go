@@ -1,7 +1,5 @@
 package provider
 
-type Provider = any
-
 type Model struct {
 	ID string
 }
@@ -25,7 +23,15 @@ type Tool struct {
 type ToolResult struct {
 	ID string
 
-	Data string
+	Parts []Part
+}
+
+// Part is a leaf piece of content that can appear inside a tool result.
+// Either Text or File is set; File covers image / audio / pdf / other
+// media via its ContentType.
+type Part struct {
+	Text string
+	File *File
 }
 
 type Schema struct {

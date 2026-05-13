@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"iter"
 	"strings"
 
@@ -187,7 +186,7 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 	return config
 }
 
-func convertContent(message provider.Message) (*genai.Content, error) {
+func convertContent(message provider.Message, callNames map[string]string) (*genai.Content, error) {
 	content := &genai.Content{}
 
 	switch message.Role {
@@ -201,38 +200,65 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 			}
 
 			if c.File != nil {
-				switch c.File.ContentType {
-				case "application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
-					part := genai.NewPartFromBytes(c.File.Content, c.File.ContentType)
-					content.Parts = append(content.Parts, part)
-
-				default:
-					return nil, errors.New("unsupported content type")
-				}
+				// Gemini's inline_data accepts any mime; the model decides
+				// what it can interpret. Forward as-is.
+				part := genai.NewPartFromBytes(c.File.Content, c.File.ContentType)
+				content.Parts = append(content.Parts, part)
 			}
 
 			if c.ToolResult != nil {
-				var data any
-				var parameters map[string]any
-
-				if err := json.Unmarshal([]byte(c.ToolResult.Data), &data); err == nil {
-					if val, ok := data.(map[string]any); ok {
-						parameters = val
+				var (
+					textBuilder strings.Builder
+					fileParts   []*genai.FunctionResponsePart
+				)
+				for _, p := range c.ToolResult.Parts {
+					if p.Text != "" {
+						textBuilder.WriteString(p.Text)
 					}
+					if p.File != nil {
+						fileParts = append(fileParts, &genai.FunctionResponsePart{
+							InlineData: &genai.FunctionResponseBlob{
+								MIMEType:    p.File.ContentType,
+								Data:        p.File.Content,
+								DisplayName: p.File.Name,
+							},
+						})
+					}
+				}
+				text := textBuilder.String()
 
-					if val, ok := data.([]any); ok {
-						parameters = map[string]any{"data": val}
+				parameters := map[string]any{}
+
+				if text != "" {
+					var data any
+					if err := json.Unmarshal([]byte(text), &data); err == nil {
+						switch val := data.(type) {
+						case map[string]any:
+							parameters = val
+						case []any:
+							parameters = map[string]any{"data": val}
+						default:
+							parameters = map[string]any{"output": text}
+						}
+					} else {
+						parameters = map[string]any{"output": text}
 					}
 				}
 
-				if parameters == nil {
-					parameters = map[string]any{"output": c.ToolResult.Data}
-				}
+				id, encodedName, signature := parseToolID(c.ToolResult.ID)
 
-				id, name, signature := parseToolID(c.ToolResult.ID)
+				// Resolve the tool name: prefer the encoded round-trip form
+				// (assistant calls Gemini originated), fall back to looking up
+				// the matching prior tool call's Name by id. Gemini's
+				// FunctionResponse requires a non-empty name on the wire.
+				name := encodedName
+				if name == "" {
+					name = callNames[id]
+				}
 
 				part := genai.NewPartFromFunctionResponse(name, parameters)
 				part.FunctionResponse.ID = id
+				part.FunctionResponse.Parts = fileParts
 				part.ThoughtSignature = signature
 
 				content.Parts = append(content.Parts, part)
@@ -261,7 +287,14 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 					data = map[string]any{}
 				}
 
-				id, name, signature := parseToolID(c.ToolCall.ID)
+				id, encodedName, signature := parseToolID(c.ToolCall.ID)
+
+				// Prefer the explicit Name field (always set on assistant tool
+				// calls); fall back to the encoded suffix for round-tripped IDs.
+				name := c.ToolCall.Name
+				if name == "" {
+					name = encodedName
+				}
 
 				part := genai.NewPartFromFunctionCall(name, data)
 				part.FunctionCall.ID = id
@@ -276,30 +309,36 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 }
 
 func convertMessages(messages []provider.Message) ([]*genai.Content, error) {
-	var result []*genai.Content
-
+	// Build a callID → name index from assistant tool calls so tool results
+	// (which have no Name field) can recover the tool name when the id isn't
+	// in encoded form. The lookup uses both the raw id and the plain id
+	// component of an encoded id, since clients may replay either shape.
+	callNames := map[string]string{}
 	for _, m := range messages {
-		if m.Role == provider.MessageRoleUser {
-			content, err := convertContent(m)
-
-			if err != nil {
-				return nil, err
-			}
-
-			result = append(result, content)
+		if m.Role != provider.MessageRoleAssistant {
+			continue
 		}
-
-		if m.Role == provider.MessageRoleAssistant {
-			content, err := convertContent(m)
-
-			if err != nil {
-				return nil, err
+		for _, c := range m.Content {
+			if c.ToolCall == nil || c.ToolCall.Name == "" {
+				continue
 			}
-
-			result = append(result, content)
+			callNames[c.ToolCall.ID] = c.ToolCall.Name
+			if plain, _, _ := parseToolID(c.ToolCall.ID); plain != "" && plain != c.ToolCall.ID {
+				callNames[plain] = c.ToolCall.Name
+			}
 		}
 	}
 
+	var result []*genai.Content
+	for _, m := range messages {
+		if m.Role == provider.MessageRoleUser || m.Role == provider.MessageRoleAssistant {
+			content, err := convertContent(m, callNames)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, content)
+		}
+	}
 	return result, nil
 }
 
@@ -345,6 +384,27 @@ func toContent(content *genai.Content) []provider.Content {
 			parts = append(parts, provider.TextContent(p.Text))
 		}
 
+		// Inline media bytes — image-emitting Gemini models (gemini-*-image
+		// preview families) return generated images this way.
+		if p.InlineData != nil {
+			parts = append(parts, provider.FileContent(&provider.File{
+				Name:        p.InlineData.DisplayName,
+				Content:     p.InlineData.Data,
+				ContentType: p.InlineData.MIMEType,
+			}))
+		}
+
+		// URI-based file reference (e.g. files uploaded via the Files API).
+		// The URI is the only thing the upstream stored; pack it into the
+		// File.Content per the codebase convention for URI-only references.
+		if p.FileData != nil {
+			parts = append(parts, provider.FileContent(&provider.File{
+				Name:        p.FileData.DisplayName,
+				Content:     []byte(p.FileData.FileURI),
+				ContentType: p.FileData.MIMEType,
+			}))
+		}
+
 		if p.FunctionCall != nil {
 			data, _ := json.Marshal(p.FunctionCall.Args)
 
@@ -378,8 +438,12 @@ func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *pr
 	}
 }
 
+// formatToolID packs a call id, tool name, and an optional thought signature
+// into a single string of the form "id::name::base64sig" so that Gemini-served
+// assistant tool calls can round-trip the name back to us when the client
+// replays them — Gemini's FunctionResponse requires the name on the wire.
+// A blank id is replaced with a freshly-generated one.
 func formatToolID(id, name string, signature []byte) string {
-	// Generate a unique ID if upstream didn't provide one
 	if id == "" {
 		id = generateCallID()
 	}
@@ -392,6 +456,8 @@ func generateCallID() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// parseToolID is the inverse of formatToolID. For plain IDs without "::" the
+// entire string is returned as id with empty name and signature.
 func parseToolID(s string) (id, name string, signature []byte) {
 	parts := strings.Split(s, "::")
 

@@ -16,11 +16,12 @@ func DefaultResponseRules() map[string]harness.FieldRule {
 		"candidates.*.safetyRatings":                    harness.FieldIgnore,
 		"candidates.*.tokenCount":                       harness.FieldIgnore,
 
-		"usageMetadata.promptTokenCount":      harness.FieldNonEmpty,
-		"usageMetadata.candidatesTokenCount":  harness.FieldIgnore,
-		"usageMetadata.totalTokenCount":       harness.FieldNonEmpty,
-		"usageMetadata.promptTokensDetails":   harness.FieldIgnore,
-		"usageMetadata.thoughtsTokenCount":    harness.FieldIgnore,
+		"usageMetadata.promptTokenCount":     harness.FieldNonEmpty,
+		"usageMetadata.candidatesTokenCount": harness.FieldIgnore,
+		"usageMetadata.totalTokenCount":      harness.FieldNonEmpty,
+		"usageMetadata.promptTokensDetails":  harness.FieldIgnore,
+		"usageMetadata.thoughtsTokenCount":   harness.FieldIgnore,
+		"usageMetadata.serviceTier":          harness.FieldIgnore,
 
 		"promptFeedback": harness.FieldIgnore,
 	}
@@ -40,11 +41,12 @@ func DefaultSSERules() map[string]harness.FieldRule {
 		"candidates.*.safetyRatings":                    harness.FieldIgnore,
 		"candidates.*.tokenCount":                       harness.FieldIgnore,
 
-		"usageMetadata.promptTokenCount":      harness.FieldIgnore,
-		"usageMetadata.candidatesTokenCount":  harness.FieldIgnore,
-		"usageMetadata.totalTokenCount":       harness.FieldIgnore,
-		"usageMetadata.promptTokensDetails":   harness.FieldIgnore,
-		"usageMetadata.thoughtsTokenCount":    harness.FieldIgnore,
+		"usageMetadata.promptTokenCount":     harness.FieldIgnore,
+		"usageMetadata.candidatesTokenCount": harness.FieldIgnore,
+		"usageMetadata.totalTokenCount":      harness.FieldIgnore,
+		"usageMetadata.promptTokensDetails":  harness.FieldIgnore,
+		"usageMetadata.thoughtsTokenCount":   harness.FieldIgnore,
+		"usageMetadata.serviceTier":          harness.FieldIgnore,
 
 		"promptFeedback": harness.FieldIgnore,
 	}

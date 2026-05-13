@@ -260,9 +260,28 @@ type InputApplyPatchCall struct {
 
 // InputApplyPatchCallOutput represents the result of an apply_patch call
 type InputApplyPatchCallOutput struct {
-	CallID string `json:"call_id,omitempty"`
-	Output string `json:"output,omitempty"`
-	Status string `json:"status,omitempty"`
+	CallID string         `json:"call_id,omitempty"`
+	Output []InputContent `json:"output,omitempty"`
+	Status string         `json:"status,omitempty"`
+}
+
+func (o *InputApplyPatchCallOutput) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		CallID string          `json:"call_id,omitempty"`
+		Output json.RawMessage `json:"output,omitempty"`
+		Status string          `json:"status,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	o.CallID = raw.CallID
+	o.Status = raw.Status
+	output, err := unmarshalInputOutput(raw.Output)
+	if err != nil {
+		return err
+	}
+	o.Output = output
+	return nil
 }
 
 // InputReasoning represents a reasoning item in the input
@@ -296,8 +315,43 @@ type InputFunctionCall struct {
 
 // InputFunctionCallOutput represents a function call output in the input
 type InputFunctionCallOutput struct {
-	CallID string `json:"call_id,omitempty"`
-	Output string `json:"output,omitempty"`
+	CallID string         `json:"call_id,omitempty"`
+	Output []InputContent `json:"output,omitempty"`
+}
+
+func (o *InputFunctionCallOutput) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		CallID string          `json:"call_id,omitempty"`
+		Output json.RawMessage `json:"output,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	o.CallID = raw.CallID
+	output, err := unmarshalInputOutput(raw.Output)
+	if err != nil {
+		return err
+	}
+	o.Output = output
+	return nil
+}
+
+// unmarshalInputOutput accepts the polymorphic `output` field defined by
+// the OpenAI Responses API: either a plain string, or an array of content
+// parts. A string is normalized to a single output_text part.
+func unmarshalInputOutput(raw json.RawMessage) ([]InputContent, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return []InputContent{{Type: OutputContentText, Text: s}}, nil
+	}
+	var parts []InputContent
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return nil, fmt.Errorf("output must be string or array of content parts: %w", err)
+	}
+	return parts, nil
 }
 
 func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {

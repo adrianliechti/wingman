@@ -640,10 +640,28 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 		}
 
 		if c.ToolResult != nil {
-			data := c.ToolResult.Data
+			var blocks []types.ToolResultContentBlock
 
-			if data == "" {
-				data = "OK"
+			for _, p := range c.ToolResult.Parts {
+				if p.Text != "" {
+					blocks = append(blocks, &types.ToolResultContentBlockMemberText{Value: p.Text})
+				}
+
+				if p.File != nil {
+					block, err := convertToolResultFile(p.File)
+
+					if err != nil {
+						return nil, err
+					}
+
+					blocks = append(blocks, block)
+				}
+			}
+
+			if len(blocks) == 0 {
+				blocks = []types.ToolResultContentBlock{
+					&types.ToolResultContentBlockMemberText{Value: "OK"},
+				}
 			}
 
 			content = append(content, &types.ContentBlockMemberToolResult{
@@ -652,9 +670,7 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 
 					ToolUseId: aws.String(c.ToolResult.ID),
 
-					Content: []types.ToolResultContentBlock{
-						&types.ToolResultContentBlockMemberText{Value: data},
-					},
+					Content: blocks,
 				},
 			})
 		}
@@ -776,6 +792,35 @@ func inputHasToolBlocks(messages []provider.Message) bool {
 	return false
 }
 
+func convertToolResultFile(val *provider.File) (types.ToolResultContentBlock, error) {
+	if format, ok := convertDocumentFormat(val.ContentType); ok {
+		return &types.ToolResultContentBlockMemberDocument{
+			Value: types.DocumentBlock{
+				Name:   aws.String(uuid.NewString()),
+				Format: format,
+
+				Source: &types.DocumentSourceMemberBytes{
+					Value: val.Content,
+				},
+			},
+		}, nil
+	}
+
+	if format, ok := convertImageFormat(val.ContentType); ok {
+		return &types.ToolResultContentBlockMemberImage{
+			Value: types.ImageBlock{
+				Format: format,
+
+				Source: &types.ImageSourceMemberBytes{
+					Value: val.Content,
+				},
+			},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("unsupported content type: %s", val.ContentType)
+}
+
 func convertFile(val *provider.File) (types.ContentBlock, error) {
 	if format, ok := convertDocumentFormat(val.ContentType); ok {
 		return &types.ContentBlockMemberDocument{
@@ -814,7 +859,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		}, nil
 	}
 
-	return nil, errors.New("unsupported file format")
+	return nil, fmt.Errorf("unsupported content type: %s", val.ContentType)
 }
 
 var documentFormats = map[string]types.DocumentFormat{
