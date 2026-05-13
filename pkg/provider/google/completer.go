@@ -212,10 +212,12 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 			}
 
 			if c.ToolResult != nil {
+				text := c.ToolResult.Text()
+
 				var data any
 				var parameters map[string]any
 
-				if err := json.Unmarshal([]byte(c.ToolResult.Data), &data); err == nil {
+				if err := json.Unmarshal([]byte(text), &data); err == nil {
 					if val, ok := data.(map[string]any); ok {
 						parameters = val
 					}
@@ -226,7 +228,7 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 				}
 
 				if parameters == nil {
-					parameters = map[string]any{"output": c.ToolResult.Data}
+					parameters = map[string]any{"output": text}
 				}
 
 				id, name, signature := parseToolID(c.ToolResult.ID)

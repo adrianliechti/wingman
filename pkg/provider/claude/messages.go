@@ -52,11 +52,7 @@ func blocksForUserMessage(m provider.Message) []cliContent {
 	for _, c := range m.Content {
 		switch {
 		case c.ToolResult != nil:
-			data := c.ToolResult.Data
-			raw, err := json.Marshal(data)
-			if err != nil {
-				raw = []byte(`""`)
-			}
+			raw := encodeToolResultContent(c.ToolResult.Parts)
 			blocks = append(blocks, cliContent{
 				Type:       "tool_result",
 				ToolUseID:  c.ToolResult.ID,
@@ -95,4 +91,66 @@ func blocksForUserMessage(m provider.Message) []cliContent {
 	}
 
 	return blocks
+}
+
+// encodeToolResultContent renders tool result parts for the CLI's polymorphic
+// content field. Returns a JSON string when only text parts are present, an
+// array of typed blocks otherwise (so image/document parts survive the wire).
+func encodeToolResultContent(parts []provider.Part) json.RawMessage {
+	hasFile := false
+	for _, p := range parts {
+		if p.File != nil {
+			hasFile = true
+			break
+		}
+	}
+
+	if !hasFile {
+		var b strings.Builder
+		for _, p := range parts {
+			b.WriteString(p.Text)
+		}
+		raw, err := json.Marshal(b.String())
+		if err != nil {
+			return json.RawMessage(`""`)
+		}
+		return raw
+	}
+
+	blocks := make([]cliContent, 0, len(parts))
+	for _, p := range parts {
+		if p.Text != "" {
+			blocks = append(blocks, cliContent{Type: "text", Text: p.Text})
+		}
+		if p.File != nil {
+			data := base64.StdEncoding.EncodeToString(p.File.Content)
+			mime := p.File.ContentType
+			switch mime {
+			case "image/jpeg", "image/png", "image/gif", "image/webp":
+				blocks = append(blocks, cliContent{
+					Type: "image",
+					Source: &cliSource{
+						Type:      "base64",
+						MediaType: mime,
+						Data:      data,
+					},
+				})
+			case "application/pdf":
+				blocks = append(blocks, cliContent{
+					Type: "document",
+					Source: &cliSource{
+						Type:      "base64",
+						MediaType: mime,
+						Data:      data,
+					},
+				})
+			}
+		}
+	}
+
+	raw, err := json.Marshal(blocks)
+	if err != nil {
+		return json.RawMessage(`""`)
+	}
+	return raw
 }

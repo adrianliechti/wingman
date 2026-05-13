@@ -474,10 +474,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				if c.ToolResult != nil {
 					output := &responses.ResponseInputItemFunctionCallOutputParam{
 						CallID: c.ToolResult.ID,
-
-						Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
-							OfString: openai.String(c.ToolResult.Data),
-						},
+						Output: toolResultOutputUnion(c.ToolResult),
 					}
 
 					result = append(result, responses.ResponseInputItemUnionParam{
@@ -584,6 +581,65 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 	return responses.ResponseNewParamsInputUnion{
 		OfInputItemList: result,
 	}, nil
+}
+
+// toolResultOutputUnion maps provider.ToolResult.Parts to the OpenAI Responses
+// function_call_output union: a plain string when there is only a single text
+// part, or an array of input_text / input_image / input_file otherwise.
+func toolResultOutputUnion(r *provider.ToolResult) responses.ResponseInputItemFunctionCallOutputOutputUnionParam {
+	if len(r.Parts) == 0 {
+		return responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+			OfString: openai.String(""),
+		}
+	}
+
+	if len(r.Parts) == 1 && r.Parts[0].File == nil {
+		return responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+			OfString: openai.String(r.Parts[0].Text),
+		}
+	}
+
+	items := make(responses.ResponseFunctionCallOutputItemListParam, 0, len(r.Parts))
+
+	for _, p := range r.Parts {
+		if p.Text != "" {
+			items = append(items, responses.ResponseFunctionCallOutputItemUnionParam{
+				OfInputText: &responses.ResponseInputTextContentParam{
+					Text: p.Text,
+				},
+			})
+		}
+
+		if p.File != nil {
+			url := "data:" + p.File.ContentType + ";base64," + base64.StdEncoding.EncodeToString(p.File.Content)
+
+			switch p.File.ContentType {
+			case "image/png", "image/jpeg", "image/webp", "image/gif":
+				items = append(items, responses.ResponseFunctionCallOutputItemUnionParam{
+					OfInputImage: &responses.ResponseInputImageContentParam{
+						ImageURL: openai.String(url),
+					},
+				})
+
+			default:
+				name := p.File.Name
+				if name == "" {
+					name = "file"
+				}
+
+				items = append(items, responses.ResponseFunctionCallOutputItemUnionParam{
+					OfInputFile: &responses.ResponseInputFileContentParam{
+						Filename: openai.String(name),
+						FileData: openai.String(url),
+					},
+				})
+			}
+		}
+	}
+
+	return responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+		OfResponseFunctionCallOutputItemArray: items,
+	}
 }
 
 func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, error) {

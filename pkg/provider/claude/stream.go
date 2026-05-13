@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/base64"
 	"encoding/json"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -37,19 +38,9 @@ func convertCliContent(block cliContent) (provider.Content, bool) {
 		}), true
 
 	case "tool_result":
-		var data string
-		if len(block.ResultData) > 0 {
-			// tool_result.content can be a string or an array of blocks.
-			var s string
-			if err := json.Unmarshal(block.ResultData, &s); err == nil {
-				data = s
-			} else {
-				data = string(block.ResultData)
-			}
-		}
 		return provider.ToolResultContent(provider.ToolResult{
-			ID:   block.ToolUseID,
-			Data: data,
+			ID:    block.ToolUseID,
+			Parts: decodeToolResultContent(block.ResultData),
 		}), true
 
 	case "refusal":
@@ -60,6 +51,51 @@ func convertCliContent(block cliContent) (provider.Content, bool) {
 	}
 
 	return provider.Content{}, false
+}
+
+// decodeToolResultContent parses the CLI's polymorphic tool_result content
+// field (either a JSON string or an array of typed blocks) into Parts so
+// image / document blocks survive round-trips.
+func decodeToolResultContent(raw json.RawMessage) []provider.Part {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if s == "" {
+			return nil
+		}
+		return []provider.Part{{Text: s}}
+	}
+
+	var blocks []cliContent
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		// Unknown shape — preserve raw JSON as text so callers can debug.
+		return []provider.Part{{Text: string(raw)}}
+	}
+
+	var parts []provider.Part
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			if b.Text != "" {
+				parts = append(parts, provider.Part{Text: b.Text})
+			}
+		case "image", "document":
+			if b.Source == nil {
+				continue
+			}
+			file := &provider.File{ContentType: b.Source.MediaType}
+			if b.Source.Type == "base64" {
+				if data, err := base64.StdEncoding.DecodeString(b.Source.Data); err == nil {
+					file.Content = data
+				}
+			}
+			parts = append(parts, provider.Part{File: file})
+		}
+	}
+	return parts
 }
 
 // yieldContent yields a single content block as a Completion delta. Returns

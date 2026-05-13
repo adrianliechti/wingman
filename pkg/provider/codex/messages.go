@@ -63,8 +63,30 @@ func userInputsFromMessage(m provider.Message) ([]userInput, []string) {
 		case c.ToolResult != nil:
 			textParts = append(textParts, fmt.Sprintf(
 				"[tool %s result]\n%s",
-				c.ToolResult.ID, c.ToolResult.Data,
+				c.ToolResult.ID, c.ToolResult.Text(),
 			))
+
+			// Image parts in the tool result spill as localImage inputs so the
+			// model still sees them — codex has no structured tool result that
+			// can carry images inline.
+			for _, p := range c.ToolResult.Parts {
+				if p.File == nil {
+					continue
+				}
+				switch p.File.ContentType {
+				case "image/jpeg", "image/png", "image/gif", "image/webp":
+					if path, err := writeTempImage(p.File); err == nil {
+						inputs = append(inputs, userInput{Type: "localImage", Path: path})
+						tempImages = append(tempImages, path)
+					} else {
+						data := base64.StdEncoding.EncodeToString(p.File.Content)
+						inputs = append(inputs, userInput{
+							Type: "image",
+							URL:  "data:" + p.File.ContentType + ";base64," + data,
+						})
+					}
+				}
+			}
 
 		case c.File != nil:
 			switch c.File.ContentType {

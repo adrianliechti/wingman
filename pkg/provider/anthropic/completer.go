@@ -439,17 +439,59 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 
 				if c.ToolResult != nil {
+					var parts []anthropic.BetaToolResultBlockParamContentUnion
+
+					for _, p := range c.ToolResult.Parts {
+						if p.Text != "" {
+							parts = append(parts, anthropic.BetaToolResultBlockParamContentUnion{
+								OfText: &anthropic.BetaTextBlockParam{Text: p.Text},
+							})
+						}
+
+						if p.File != nil {
+							mime := p.File.ContentType
+							content := base64.StdEncoding.EncodeToString(p.File.Content)
+
+							switch mime {
+							case "image/jpeg", "image/png", "image/gif", "image/webp":
+								parts = append(parts, anthropic.BetaToolResultBlockParamContentUnion{
+									OfImage: &anthropic.BetaImageBlockParam{
+										Source: anthropic.BetaImageBlockParamSourceUnion{
+											OfBase64: &anthropic.BetaBase64ImageSourceParam{
+												Data:      content,
+												MediaType: anthropic.BetaBase64ImageSourceMediaType(mime),
+											},
+										},
+									},
+								})
+
+							case "application/pdf":
+								parts = append(parts, anthropic.BetaToolResultBlockParamContentUnion{
+									OfDocument: &anthropic.BetaRequestDocumentBlockParam{
+										Source: anthropic.BetaRequestDocumentBlockSourceUnionParam{
+											OfBase64: &anthropic.BetaBase64PDFSourceParam{
+												Data: content,
+											},
+										},
+									},
+								})
+
+							default:
+								return nil, errors.New("unsupported tool result content type")
+							}
+						}
+					}
+
+					if len(parts) == 0 {
+						parts = []anthropic.BetaToolResultBlockParamContentUnion{
+							{OfText: &anthropic.BetaTextBlockParam{Text: ""}},
+						}
+					}
+
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
 						OfToolResult: &anthropic.BetaToolResultBlockParam{
 							ToolUseID: c.ToolResult.ID,
-
-							Content: []anthropic.BetaToolResultBlockParamContentUnion{
-								{
-									OfText: &anthropic.BetaTextBlockParam{
-										Text: c.ToolResult.Data,
-									},
-								},
-							},
+							Content:   parts,
 						},
 					})
 				}

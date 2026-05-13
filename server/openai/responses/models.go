@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // https://platform.openai.com/docs/api-reference/responses/create
@@ -261,9 +260,9 @@ type InputApplyPatchCall struct {
 
 // InputApplyPatchCallOutput represents the result of an apply_patch call
 type InputApplyPatchCallOutput struct {
-	CallID string `json:"call_id,omitempty"`
-	Output string `json:"output,omitempty"`
-	Status string `json:"status,omitempty"`
+	CallID string         `json:"call_id,omitempty"`
+	Output []InputContent `json:"output,omitempty"`
+	Status string         `json:"status,omitempty"`
 }
 
 func (o *InputApplyPatchCallOutput) UnmarshalJSON(data []byte) error {
@@ -277,7 +276,12 @@ func (o *InputApplyPatchCallOutput) UnmarshalJSON(data []byte) error {
 	}
 	o.CallID = raw.CallID
 	o.Status = raw.Status
-	return unmarshalFunctionOutput(raw.Output, &o.Output)
+	output, err := unmarshalInputOutput(raw.Output)
+	if err != nil {
+		return err
+	}
+	o.Output = output
+	return nil
 }
 
 // InputReasoning represents a reasoning item in the input
@@ -311,8 +315,8 @@ type InputFunctionCall struct {
 
 // InputFunctionCallOutput represents a function call output in the input
 type InputFunctionCallOutput struct {
-	CallID string `json:"call_id,omitempty"`
-	Output string `json:"output,omitempty"`
+	CallID string         `json:"call_id,omitempty"`
+	Output []InputContent `json:"output,omitempty"`
 }
 
 func (o *InputFunctionCallOutput) UnmarshalJSON(data []byte) error {
@@ -324,34 +328,30 @@ func (o *InputFunctionCallOutput) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	o.CallID = raw.CallID
-	return unmarshalFunctionOutput(raw.Output, &o.Output)
+	output, err := unmarshalInputOutput(raw.Output)
+	if err != nil {
+		return err
+	}
+	o.Output = output
+	return nil
 }
 
-// unmarshalFunctionOutput accepts the polymorphic `output` field defined by
+// unmarshalInputOutput accepts the polymorphic `output` field defined by
 // the OpenAI Responses API: either a plain string, or an array of content
-// parts. Text parts are concatenated into dst; non-text parts are ignored
-// because downstream provider.ToolResult.Data is a string today.
-func unmarshalFunctionOutput(raw json.RawMessage, dst *string) error {
+// parts. A string is normalized to a single output_text part.
+func unmarshalInputOutput(raw json.RawMessage) ([]InputContent, error) {
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		*dst = s
-		return nil
+		return []InputContent{{Type: OutputContentText, Text: s}}, nil
 	}
 	var parts []InputContent
 	if err := json.Unmarshal(raw, &parts); err != nil {
-		return fmt.Errorf("output must be string or array of content parts: %w", err)
+		return nil, fmt.Errorf("output must be string or array of content parts: %w", err)
 	}
-	var b strings.Builder
-	for _, p := range parts {
-		if p.Text != "" {
-			b.WriteString(p.Text)
-		}
-	}
-	*dst = b.String()
-	return nil
+	return parts, nil
 }
 
 func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {

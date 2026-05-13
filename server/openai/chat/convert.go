@@ -68,67 +68,73 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 
 		var content []provider.Content
 
-		if len(m.Contents) == 0 {
-			if m.ToolCallID != "" {
-				result := provider.ToolResult{
-					ID: m.ToolCallID,
-				}
+		if m.ToolCallID != "" {
+			// Tool messages: chat spec allows either a string Content or an
+			// array of text Contents. Both forms collapse into ToolResult.Parts.
+			result := provider.ToolResult{ID: m.ToolCallID}
 
-				if m.Content != nil {
-					result.Data = *m.Content
-				}
+			if m.Content != nil {
+				result.Parts = append(result.Parts, provider.Part{Text: *m.Content})
+			}
 
-				content = append(content, provider.ToolResultContent(result))
-			} else if m.Content != nil {
+			for _, c := range m.Contents {
+				if c.Type == MessageContentTypeText && c.Text != "" {
+					result.Parts = append(result.Parts, provider.Part{Text: c.Text})
+				}
+			}
+
+			content = append(content, provider.ToolResultContent(result))
+		} else {
+			if len(m.Contents) == 0 && m.Content != nil {
 				content = append(content, provider.TextContent(*m.Content))
 			}
-		}
 
-		for _, c := range m.Contents {
-			if c.Type == MessageContentTypeText {
-				content = append(content, provider.TextContent(c.Text))
-			}
-
-			if c.Type == MessageContentTypeFile && c.File != nil {
-				file, err := shared.ToFile(c.File.Data)
-
-				if err != nil {
-					return nil, err
+			for _, c := range m.Contents {
+				if c.Type == MessageContentTypeText {
+					content = append(content, provider.TextContent(c.Text))
 				}
 
-				if c.File.Name != "" {
-					file.Name = c.File.Name
+				if c.Type == MessageContentTypeFile && c.File != nil {
+					file, err := shared.ToFile(c.File.Data)
+
+					if err != nil {
+						return nil, err
+					}
+
+					if c.File.Name != "" {
+						file.Name = c.File.Name
+					}
+
+					content = append(content, provider.FileContent(file))
 				}
 
-				content = append(content, provider.FileContent(file))
-			}
+				if c.Type == MessageContentTypeImage && c.Image != nil {
+					file, err := shared.ToFile(c.Image.URL)
 
-			if c.Type == MessageContentTypeImage && c.Image != nil {
-				file, err := shared.ToFile(c.Image.URL)
+					if err != nil {
+						return nil, err
+					}
 
-				if err != nil {
-					return nil, err
+					content = append(content, provider.FileContent(file))
 				}
 
-				content = append(content, provider.FileContent(file))
-			}
+				if c.Type == MessageContentTypeAudio && c.Audio != nil {
+					data, err := base64.StdEncoding.DecodeString(c.Audio.Data)
 
-			if c.Type == MessageContentTypeAudio && c.Audio != nil {
-				data, err := base64.StdEncoding.DecodeString(c.Audio.Data)
+					if err != nil {
+						return nil, err
+					}
 
-				if err != nil {
-					return nil, err
+					file := &provider.File{
+						Content: data,
+					}
+
+					if c.Audio.Format != "" {
+						file.Name = uuid.NewString() + c.Audio.Format
+					}
+
+					content = append(content, provider.FileContent(file))
 				}
-
-				file := &provider.File{
-					Content: data,
-				}
-
-				if c.Audio.Format != "" {
-					file.Name = uuid.NewString() + c.Audio.Format
-				}
-
-				content = append(content, provider.FileContent(file))
 			}
 		}
 

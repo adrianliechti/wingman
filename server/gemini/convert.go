@@ -102,8 +102,8 @@ func toMessage(c Content) (*provider.Message, error) {
 			}
 
 			content = append(content, provider.ToolResultContent(provider.ToolResult{
-				ID:   part.FunctionResponse.ID,
-				Data: result,
+				ID:    part.FunctionResponse.ID,
+				Parts: []provider.Part{{Text: result}},
 			}))
 		}
 	}

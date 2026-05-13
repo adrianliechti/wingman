@@ -129,7 +129,18 @@ func keyFor(messages []provider.Message) string {
 			if c.ToolResult != nil {
 				_, _ = h.Write([]byte("u:"))
 				_, _ = h.Write([]byte(c.ToolResult.ID))
-				_, _ = h.Write([]byte(c.ToolResult.Data))
+				for _, p := range c.ToolResult.Parts {
+					if p.Text != "" {
+						_, _ = h.Write([]byte("t:"))
+						_, _ = h.Write([]byte(p.Text))
+					}
+					if p.File != nil {
+						_, _ = h.Write([]byte("f:"))
+						fileHash := sha256.Sum256(p.File.Content)
+						_, _ = h.Write(fileHash[:])
+						_, _ = h.Write([]byte(p.File.ContentType))
+					}
+				}
 			}
 			if c.File != nil {
 				_, _ = h.Write([]byte("f:"))
