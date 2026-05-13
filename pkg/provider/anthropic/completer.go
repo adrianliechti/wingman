@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"strings"
 
@@ -434,7 +435,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						}))
 
 					default:
-						return nil, errors.New("unsupported content type")
+						return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, mime)
 					}
 				}
 
@@ -477,7 +478,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 								})
 
 							default:
-								return nil, errors.New("unsupported tool result content type")
+								return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, mime)
 							}
 						}
 					}

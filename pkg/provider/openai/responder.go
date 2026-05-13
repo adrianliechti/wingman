@@ -467,7 +467,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						})
 
 					default:
-						return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("unsupported content type: %s", c.File.ContentType)
+						return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, c.File.ContentType)
 					}
 				}
 

@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var ErrUnsupportedContentType = errors.New("unsupported content type")
+
 // ProviderError wraps an upstream API error with HTTP status code, a
 // provider-specific error type, and rate-limit metadata.
 type ProviderError struct {

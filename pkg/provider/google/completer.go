@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"iter"
 	"strings"
 
@@ -207,7 +207,7 @@ func convertContent(message provider.Message, callNames map[string]string) (*gen
 					content.Parts = append(content.Parts, part)
 
 				default:
-					return nil, errors.New("unsupported content type")
+					return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, c.File.ContentType)
 				}
 			}
 
@@ -387,6 +387,27 @@ func toContent(content *genai.Content) []provider.Content {
 
 		if p.Text != "" {
 			parts = append(parts, provider.TextContent(p.Text))
+		}
+
+		// Inline media bytes — image-emitting Gemini models (gemini-*-image
+		// preview families) return generated images this way.
+		if p.InlineData != nil {
+			parts = append(parts, provider.FileContent(&provider.File{
+				Name:        p.InlineData.DisplayName,
+				Content:     p.InlineData.Data,
+				ContentType: p.InlineData.MIMEType,
+			}))
+		}
+
+		// URI-based file reference (e.g. files uploaded via the Files API).
+		// The URI is the only thing the upstream stored; pack it into the
+		// File.Content per the codebase convention for URI-only references.
+		if p.FileData != nil {
+			parts = append(parts, provider.FileContent(&provider.File{
+				Name:        p.FileData.DisplayName,
+				Content:     []byte(p.FileData.FileURI),
+				ContentType: p.FileData.MIMEType,
+			}))
 		}
 
 		if p.FunctionCall != nil {

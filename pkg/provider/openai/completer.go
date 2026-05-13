@@ -3,7 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/base64"
-	"errors"
+	"fmt"
 	"iter"
 	"slices"
 	"strings"
@@ -286,7 +286,7 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 						parts = append(parts, part)
 
 					default:
-						return nil, errors.New("unsupported content type")
+						return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, c.File.ContentType)
 					}
 				}
 

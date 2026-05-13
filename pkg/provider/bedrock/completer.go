@@ -818,7 +818,7 @@ func convertToolResultFile(val *provider.File) (types.ToolResultContentBlock, er
 		}, nil
 	}
 
-	return nil, errors.New("unsupported tool result file format")
+	return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, val.ContentType)
 }
 
 func convertFile(val *provider.File) (types.ContentBlock, error) {
@@ -859,7 +859,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		}, nil
 	}
 
-	return nil, errors.New("unsupported file format")
+	return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, val.ContentType)
 }
 
 var documentFormats = map[string]types.DocumentFormat{
