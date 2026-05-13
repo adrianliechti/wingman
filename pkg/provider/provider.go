@@ -1,7 +1,5 @@
 package provider
 
-type Provider = any
-
 type Model struct {
 	ID string
 }

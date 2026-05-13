@@ -30,9 +30,15 @@ func toMessages(systemInstruction *Content, contents []*Content) ([]provider.Mes
 		}
 	}
 
-	// Handle contents
+	// Pair function_response items with their matching function_call by
+	// name+order so that wingman has consistent IDs on both sides even when
+	// the wire request omits explicit ids. The Google completer's lookup of
+	// the tool name (required by Gemini's FunctionResponse) is keyed on this
+	// id, so call_id and response_id must match.
+	pendingCallIDs := map[string][]string{}
+
 	for _, c := range contents {
-		message, err := toMessage(*c)
+		message, err := toMessage(*c, pendingCallIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -42,7 +48,7 @@ func toMessages(systemInstruction *Content, contents []*Content) ([]provider.Mes
 	return result, nil
 }
 
-func toMessage(c Content) (*provider.Message, error) {
+func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message, error) {
 	var role provider.MessageRole
 
 	switch c.Role {
@@ -87,9 +93,12 @@ func toMessage(c Content) (*provider.Message, error) {
 				id = generateFunctionCallID()
 			}
 
+			name := part.FunctionCall.Name
+			pendingCallIDs[name] = append(pendingCallIDs[name], id)
+
 			content = append(content, provider.ToolCallContent(provider.ToolCall{
 				ID:        id,
-				Name:      part.FunctionCall.Name,
+				Name:      name,
 				Arguments: args,
 			}))
 		}
@@ -134,8 +143,21 @@ func toMessage(c Content) (*provider.Message, error) {
 				}
 			}
 
+			id := part.FunctionResponse.ID
+			if id == "" {
+				// Match this response to the next unanswered call with the
+				// same name so the pair shares a stable id downstream.
+				name := part.FunctionResponse.Name
+				if queue := pendingCallIDs[name]; len(queue) > 0 {
+					id = queue[0]
+					pendingCallIDs[name] = queue[1:]
+				} else {
+					id = generateFunctionCallID()
+				}
+			}
+
 			content = append(content, provider.ToolResultContent(provider.ToolResult{
-				ID:    part.FunctionResponse.ID,
+				ID:    id,
 				Parts: parts,
 			}))
 		}
