@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"iter"
 	"strings"
 
@@ -201,14 +200,10 @@ func convertContent(message provider.Message, callNames map[string]string) (*gen
 			}
 
 			if c.File != nil {
-				switch c.File.ContentType {
-				case "application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif":
-					part := genai.NewPartFromBytes(c.File.Content, c.File.ContentType)
-					content.Parts = append(content.Parts, part)
-
-				default:
-					return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, c.File.ContentType)
-				}
+				// Gemini's inline_data accepts any mime; the model decides
+				// what it can interpret. Forward as-is.
+				part := genai.NewPartFromBytes(c.File.Content, c.File.ContentType)
+				content.Parts = append(content.Parts, part)
 			}
 
 			if c.ToolResult != nil {

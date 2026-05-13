@@ -476,40 +476,60 @@ func toParts(items []InputContent) ([]provider.Part, error) {
 			result = append(result, provider.Part{File: file})
 
 		case InputContentFile:
-			file := &provider.File{Name: c.Filename}
-
-			if c.FileData != "" {
-				data, err := base64.StdEncoding.DecodeString(c.FileData)
-				if err != nil {
-					return nil, err
-				}
-
-				if mimeType := mime.TypeByExtension(path.Ext(c.Filename)); mimeType != "" {
-					file.ContentType = mimeType
-				}
-
-				file.Content = data
+			file, err := fileFromInputContent(c)
+			if err != nil {
+				return nil, err
 			}
-
-			if c.FileURL != "" {
-				f, err := shared.ToFile(c.FileURL)
-				if err != nil {
-					return nil, err
-				}
-
-				if file.Name == "" {
-					file.Name = f.Name
-				}
-
-				file.Content = f.Content
-				file.ContentType = f.ContentType
-			}
-
 			result = append(result, provider.Part{File: file})
 		}
 	}
 
 	return result, nil
+}
+
+// fileFromInputContent decodes an input_file content part into provider.File.
+// FileData accepts either raw base64 (mime inferred from filename) or a full
+// data URL (mime parsed from the URL prefix). FileURL is handled via
+// shared.ToFile which supports http/https + data URLs.
+func fileFromInputContent(c InputContent) (*provider.File, error) {
+	file := &provider.File{Name: c.Filename}
+
+	if c.FileData != "" {
+		if strings.HasPrefix(c.FileData, "data:") {
+			f, err := shared.ToFile(c.FileData)
+			if err != nil {
+				return nil, err
+			}
+			if file.Name == "" {
+				file.Name = f.Name
+			}
+			file.Content = f.Content
+			file.ContentType = f.ContentType
+		} else {
+			data, err := base64.StdEncoding.DecodeString(c.FileData)
+			if err != nil {
+				return nil, err
+			}
+			if mimeType := mime.TypeByExtension(path.Ext(c.Filename)); mimeType != "" {
+				file.ContentType = mimeType
+			}
+			file.Content = data
+		}
+	}
+
+	if c.FileURL != "" {
+		f, err := shared.ToFile(c.FileURL)
+		if err != nil {
+			return nil, err
+		}
+		if file.Name == "" {
+			file.Name = f.Name
+		}
+		file.Content = f.Content
+		file.ContentType = f.ContentType
+	}
+
+	return file, nil
 }
 
 func toInputContent(items []InputContent) ([]provider.Content, error) {
@@ -529,35 +549,10 @@ func toInputContent(items []InputContent) ([]provider.Content, error) {
 			result = append(result, provider.FileContent(file))
 
 		case InputContentFile:
-			file := &provider.File{Name: c.Filename}
-
-			if c.FileData != "" {
-				data, err := base64.StdEncoding.DecodeString(c.FileData)
-				if err != nil {
-					return nil, err
-				}
-
-				if mimeType := mime.TypeByExtension(path.Ext(c.Filename)); mimeType != "" {
-					file.ContentType = mimeType
-				}
-
-				file.Content = data
+			file, err := fileFromInputContent(c)
+			if err != nil {
+				return nil, err
 			}
-
-			if c.FileURL != "" {
-				f, err := shared.ToFile(c.FileURL)
-				if err != nil {
-					return nil, err
-				}
-
-				if file.Name == "" {
-					file.Name = f.Name
-				}
-
-				file.Content = f.Content
-				file.ContentType = f.ContentType
-			}
-
 			result = append(result, provider.FileContent(file))
 		}
 	}

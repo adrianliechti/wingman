@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"iter"
 	"slices"
 	"strings"
@@ -267,26 +266,35 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 					mime := c.File.ContentType
 					content := base64.StdEncoding.EncodeToString(c.File.Content)
 
-					switch c.File.ContentType {
-					case "image/png", "image/jpeg", "image/webp", "image/gif":
+					switch {
+					case mime == "image/png" || mime == "image/jpeg" || mime == "image/webp" || mime == "image/gif":
 						image := openai.ChatCompletionContentPartImageImageURLParam{
 							URL: "data:" + mime + ";base64," + content,
 						}
+						parts = append(parts, openai.ImageContentPart(image))
 
-						part := openai.ImageContentPart(image)
-						parts = append(parts, part)
+					case mime == "audio/wav" || mime == "audio/x-wav":
+						audio := openai.ChatCompletionContentPartInputAudioInputAudioParam{
+							Data:   content,
+							Format: "wav",
+						}
+						parts = append(parts, openai.InputAudioContentPart(audio))
 
-					case "application/pdf":
+					case mime == "audio/mpeg" || mime == "audio/mp3":
+						audio := openai.ChatCompletionContentPartInputAudioInputAudioParam{
+							Data:   content,
+							Format: "mp3",
+						}
+						parts = append(parts, openai.InputAudioContentPart(audio))
+
+					default:
+						// Forward as a generic file part — OpenAI's wire accepts any
+						// mime here and decides what its models can interpret.
 						file := openai.ChatCompletionContentPartFileFileParam{
 							Filename: openai.String(c.File.Name),
 							FileData: openai.String("data:" + mime + ";base64," + content),
 						}
-
-						part := openai.FileContentPart(file)
-						parts = append(parts, part)
-
-					default:
-						return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, c.File.ContentType)
+						parts = append(parts, openai.FileContentPart(file))
 					}
 				}
 

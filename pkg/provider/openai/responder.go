@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"iter"
 	"slices"
 
@@ -453,10 +452,13 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 							},
 						})
 
-					case "application/pdf":
+					default:
+						// Forward as a generic input_file — OpenAI Responses' wire
+						// accepts any mime here and the model decides what it can
+						// interpret. Matches the tool-result side's behavior.
 						name := c.File.Name
 						if name == "" {
-							name = "file.pdf"
+							name = "file"
 						}
 
 						message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
@@ -465,9 +467,6 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 								FileData: openai.String(url),
 							},
 						})
-
-					default:
-						return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, c.File.ContentType)
 					}
 				}
 

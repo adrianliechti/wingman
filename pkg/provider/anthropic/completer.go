@@ -435,7 +435,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						}))
 
 					default:
-						return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, mime)
+						return nil, fmt.Errorf("unsupported content type: %s", mime)
 					}
 				}
 
@@ -478,7 +478,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 								})
 
 							default:
-								return nil, fmt.Errorf("%w: %s", provider.ErrUnsupportedContentType, mime)
+								return nil, fmt.Errorf("unsupported content type: %s", mime)
 							}
 						}
 					}
