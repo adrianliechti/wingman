@@ -74,6 +74,71 @@ func TestResponseOutputsReasoningKeepsEmptySummaryArray(t *testing.T) {
 	}
 }
 
+func TestFunctionCallOutputAcceptsStringAndArray(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "string",
+			payload: `[{"type":"function_call_output","call_id":"c1","output":"hello"}]`,
+			want:    "hello",
+		},
+		{
+			name:    "array of output_text parts",
+			payload: `[{"type":"function_call_output","call_id":"c1","output":[{"type":"output_text","text":"hello"},{"type":"output_text","text":" world"}]}]`,
+			want:    "hello world",
+		},
+		{
+			name:    "empty array",
+			payload: `[{"type":"function_call_output","call_id":"c1","output":[]}]`,
+			want:    "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var input ResponsesInput
+			if err := json.Unmarshal([]byte(tc.payload), &input); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if len(input.Items) != 1 {
+				t.Fatalf("expected 1 item, got %d", len(input.Items))
+			}
+			item := input.Items[0]
+			if item.Type != InputItemTypeFunctionCallOutput {
+				t.Fatalf("expected type function_call_output, got %s", item.Type)
+			}
+			if item.InputFunctionCallOutput == nil {
+				t.Fatal("expected InputFunctionCallOutput to be set")
+			}
+			if item.InputFunctionCallOutput.CallID != "c1" {
+				t.Fatalf("expected call_id c1, got %q", item.InputFunctionCallOutput.CallID)
+			}
+			if item.InputFunctionCallOutput.Output != tc.want {
+				t.Fatalf("expected output %q, got %q", tc.want, item.InputFunctionCallOutput.Output)
+			}
+		})
+	}
+}
+
+func TestApplyPatchCallOutputAcceptsArray(t *testing.T) {
+	payload := `[{"type":"apply_patch_call_output","call_id":"c2","status":"completed","output":[{"type":"output_text","text":"ok"}]}]`
+
+	var input ResponsesInput
+	if err := json.Unmarshal([]byte(payload), &input); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(input.Items) != 1 || input.Items[0].InputApplyPatchCallOutput == nil {
+		t.Fatalf("expected one apply_patch_call_output item, got %+v", input.Items)
+	}
+	got := input.Items[0].InputApplyPatchCallOutput
+	if got.CallID != "c2" || got.Status != "completed" || got.Output != "ok" {
+		t.Fatalf("unexpected item: %+v", got)
+	}
+}
+
 func TestResponseOutputsPreservesCompactionOrder(t *testing.T) {
 	outputs := responseOutputs(&provider.Message{
 		Content: []provider.Content{

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // https://platform.openai.com/docs/api-reference/responses/create
@@ -265,6 +266,20 @@ type InputApplyPatchCallOutput struct {
 	Status string `json:"status,omitempty"`
 }
 
+func (o *InputApplyPatchCallOutput) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		CallID string          `json:"call_id,omitempty"`
+		Output json.RawMessage `json:"output,omitempty"`
+		Status string          `json:"status,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	o.CallID = raw.CallID
+	o.Status = raw.Status
+	return unmarshalFunctionOutput(raw.Output, &o.Output)
+}
+
 // InputReasoning represents a reasoning item in the input
 type InputReasoning struct {
 	ID               string                 `json:"id,omitempty"`
@@ -298,6 +313,45 @@ type InputFunctionCall struct {
 type InputFunctionCallOutput struct {
 	CallID string `json:"call_id,omitempty"`
 	Output string `json:"output,omitempty"`
+}
+
+func (o *InputFunctionCallOutput) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		CallID string          `json:"call_id,omitempty"`
+		Output json.RawMessage `json:"output,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	o.CallID = raw.CallID
+	return unmarshalFunctionOutput(raw.Output, &o.Output)
+}
+
+// unmarshalFunctionOutput accepts the polymorphic `output` field defined by
+// the OpenAI Responses API: either a plain string, or an array of content
+// parts. Text parts are concatenated into dst; non-text parts are ignored
+// because downstream provider.ToolResult.Data is a string today.
+func unmarshalFunctionOutput(raw json.RawMessage, dst *string) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		*dst = s
+		return nil
+	}
+	var parts []InputContent
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return fmt.Errorf("output must be string or array of content parts: %w", err)
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		if p.Text != "" {
+			b.WriteString(p.Text)
+		}
+	}
+	*dst = b.String()
+	return nil
 }
 
 func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
