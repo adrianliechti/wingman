@@ -1,7 +1,5 @@
 package provider
 
-import "strings"
-
 type Provider = any
 
 type Model struct {
@@ -28,18 +26,6 @@ type ToolResult struct {
 	ID string
 
 	Parts []Part
-}
-
-// Text returns the concatenated text of all text-bearing parts. Used by
-// providers whose wire format can only express a single text tool result.
-func (r ToolResult) Text() string {
-	var b strings.Builder
-	for _, p := range r.Parts {
-		if p.Text != "" {
-			b.WriteString(p.Text)
-		}
-	}
-	return b.String()
 }
 
 // Part is a leaf piece of content that can appear inside a tool result.

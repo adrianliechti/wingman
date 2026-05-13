@@ -212,21 +212,25 @@ func convertContent(message provider.Message) (*genai.Content, error) {
 			}
 
 			if c.ToolResult != nil {
-				text := c.ToolResult.Text()
-
-				var fileParts []*genai.FunctionResponsePart
+				var (
+					textBuilder strings.Builder
+					fileParts   []*genai.FunctionResponsePart
+				)
 				for _, p := range c.ToolResult.Parts {
-					if p.File == nil {
-						continue
+					if p.Text != "" {
+						textBuilder.WriteString(p.Text)
 					}
-					fileParts = append(fileParts, &genai.FunctionResponsePart{
-						InlineData: &genai.FunctionResponseBlob{
-							MIMEType:    p.File.ContentType,
-							Data:        p.File.Content,
-							DisplayName: p.File.Name,
-						},
-					})
+					if p.File != nil {
+						fileParts = append(fileParts, &genai.FunctionResponsePart{
+							InlineData: &genai.FunctionResponseBlob{
+								MIMEType:    p.File.ContentType,
+								Data:        p.File.Content,
+								DisplayName: p.File.Name,
+							},
+						})
+					}
 				}
+				text := textBuilder.String()
 
 				var data any
 				var parameters map[string]any

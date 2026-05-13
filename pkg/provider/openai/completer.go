@@ -295,9 +295,16 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				}
 			}
 
-			// Each tool result becomes a separate tool message (OpenAI Chat Completions format)
+			// Each tool result becomes a separate tool message (OpenAI Chat Completions
+			// format — text-only at the wire, so non-text parts are dropped here).
 			for _, tr := range toolResults {
-				result = append(result, openai.ToolMessage(tr.Text(), tr.ID))
+				var b strings.Builder
+				for _, p := range tr.Parts {
+					if p.Text != "" {
+						b.WriteString(p.Text)
+					}
+				}
+				result = append(result, openai.ToolMessage(b.String(), tr.ID))
 			}
 
 			if len(toolResults) == 0 {

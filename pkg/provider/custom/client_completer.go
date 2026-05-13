@@ -206,6 +206,10 @@ func wireMessage(val provider.Message) *Message {
 			parts := make([]*Part, 0, len(c.ToolResult.Parts))
 
 			for _, p := range c.ToolResult.Parts {
+				if p.Text == "" && p.File == nil {
+					continue
+				}
+
 				wp := &Part{}
 
 				if p.Text != "" {
