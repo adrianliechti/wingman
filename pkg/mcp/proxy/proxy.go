@@ -5,6 +5,8 @@ import (
 	"net/http/httputil"
 	neturl "net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/adrianliechti/wingman/pkg/mcp"
 )
@@ -15,6 +17,9 @@ type Server struct {
 	url *neturl.URL
 
 	rt http.RoundTripper
+
+	iconMu sync.Mutex
+	icon   atomic.Pointer[iconCache]
 }
 
 func New(url string, headers map[string]string) (*Server, error) {
