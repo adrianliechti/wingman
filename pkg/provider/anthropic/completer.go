@@ -576,7 +576,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: schema}
 	}
 
-	if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 {
+	if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 && isCompactionSupportedModel(c.model) {
 		req.Betas = append(req.Betas, "compact-2026-01-12")
 
 		req.ContextManagement = anthropic.BetaContextManagementConfigParam{

@@ -108,3 +108,22 @@ func isAdaptiveThinkingModel(model string) bool {
 
 	return false
 }
+
+func isCompactionSupportedModel(model string) bool {
+	model = strings.ToLower(model)
+
+	compactionPatterns := []string{
+		"sonnet-4-6",
+
+		"opus-4-7",
+		"opus-4-6",
+	}
+
+	for _, p := range compactionPatterns {
+		if strings.Contains(model, p) {
+			return true
+		}
+	}
+
+	return false
+}
