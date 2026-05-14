@@ -5,6 +5,8 @@ import (
 	"net/http/httputil"
 	neturl "net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/adrianliechti/wingman/pkg/mcp"
 )
@@ -16,8 +18,8 @@ type Server struct {
 
 	rt http.RoundTripper
 
-	faviconData        []byte
-	faviconContentType string
+	iconMu sync.Mutex
+	icon   atomic.Pointer[iconCache]
 }
 
 func New(url string, headers map[string]string) (*Server, error) {
@@ -37,8 +39,6 @@ func New(url string, headers map[string]string) (*Server, error) {
 
 		rt: rt,
 	}
-
-	s.initFavicon()
 
 	return s, nil
 }

@@ -54,6 +54,10 @@ func New(name string, tools []tool.Provider) (*Server, error) {
 	return s, nil
 }
 
+func (s *Server) Icon() (string, []byte) {
+	return "", nil
+}
+
 func (s *Server) refresh() {
 	for {
 		if err := s.refreshTools(); err != nil {

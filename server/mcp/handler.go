@@ -23,16 +23,12 @@ func New(cfg *config.Config) *Handler {
 }
 
 func (h *Handler) Attach(r chi.Router) {
-	r.HandleFunc("/mcp/{id}/favicon.ico", h.handleFavicon)
+	r.HandleFunc("/mcp/{id}/icon", h.handleIcon)
 	r.HandleFunc("/mcp/{id}", h.handleMCP)
 	r.HandleFunc("/mcp/{id}/*", h.handleMCP)
 }
 
-type faviconProvider interface {
-	Favicon() (string, []byte, bool)
-}
-
-func (h *Handler) handleFavicon(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleIcon(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	handler, err := h.MCP(id)
@@ -46,14 +42,8 @@ func (h *Handler) handleFavicon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fp, ok := handler.(faviconProvider)
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-
-	contentType, data, ok := fp.Favicon()
-	if !ok {
+	contentType, data := handler.Icon()
+	if len(data) == 0 {
 		http.NotFound(w, r)
 		return
 	}
