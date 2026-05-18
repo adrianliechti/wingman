@@ -111,6 +111,17 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			InferenceConfig: config,
 		}
 
+		if options.Schema != nil {
+			outputConfig, err := c.convertOutputConfig(options.Schema)
+
+			if err != nil {
+				yield(nil, convertError(err))
+				return
+			}
+
+			params.OutputConfig = outputConfig
+		}
+
 		if isAdaptiveThinkingModel(c.model) {
 			// Enable adaptive thinking by default. Only skip when the caller
 			// explicitly disables it via Effort == EffortNone.
@@ -195,13 +206,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 								}),
 							},
 						},
-					}
-
-					// Schema mode: convert tool call to text content
-					if options.Schema != nil {
-						delta.Message.Content = []provider.Content{
-							provider.TextContent(""),
-						}
 					}
 
 					if !yield(delta, nil) {
@@ -289,13 +293,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 								}),
 							},
 						},
-					}
-
-					// Schema mode: convert tool arguments to text content
-					if options.Schema != nil {
-						delta.Message.Content = []provider.Content{
-							provider.TextContent(*b.Value.Input),
-						}
 					}
 
 					if !yield(delta, nil) {
@@ -466,6 +463,36 @@ func convertError(err error) error {
 	return err
 }
 
+func (c *Completer) convertOutputConfig(schema *provider.Schema) (*types.OutputConfig, error) {
+	s := schema.Schema
+	if s == nil {
+		s = map[string]any{"type": "object"}
+	}
+
+	schemaJSON, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+
+	schemaDef := types.JsonSchemaDefinition{
+		Name:   aws.String(schema.Name),
+		Schema: aws.String(string(schemaJSON)),
+	}
+
+	if schema.Description != "" {
+		schemaDef.Description = aws.String(schema.Description)
+	}
+
+	return &types.OutputConfig{
+		TextFormat: &types.OutputFormat{
+			Type: types.OutputFormatTypeJsonSchema,
+			Structure: &types.OutputFormatStructureMemberJsonSchema{
+				Value: schemaDef,
+			},
+		},
+	}, nil
+}
+
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
 	messages, err := c.convertMessages(input)
 
@@ -482,38 +509,6 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 	}
 
 	config := c.convertToolConfig(options.Tools, toolOptions)
-
-	// Schema mode: create a tool with the schema and force ToolChoice
-	if options.Schema != nil {
-		if config == nil {
-			config = &types.ToolConfiguration{}
-		}
-
-		tool := types.ToolSpecification{
-			Name: aws.String(options.Schema.Name),
-		}
-
-		if options.Schema.Description != "" {
-			tool.Description = aws.String(options.Schema.Description)
-		}
-
-		schema := options.Schema.Schema
-		if schema == nil {
-			// json_object mode: use a permissive schema that accepts any JSON object
-			schema = map[string]any{"type": "object"}
-		}
-
-		tool.InputSchema = &types.ToolInputSchemaMemberJson{
-			Value: document.NewLazyDocument(schema),
-		}
-
-		config.Tools = append(config.Tools, &types.ToolMemberToolSpec{Value: tool})
-		config.ToolChoice = &types.ToolChoiceMemberTool{
-			Value: types.SpecificToolChoice{
-				Name: aws.String(options.Schema.Name),
-			},
-		}
-	}
 
 	return &bedrockruntime.ConverseInput{
 		ModelId: aws.String(c.model),
