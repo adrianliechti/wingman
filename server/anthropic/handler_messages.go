@@ -102,7 +102,13 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.Thinking != nil && req.Thinking.Type != "disabled" {
+	if req.Thinking != nil && req.Thinking.Type == "disabled" {
+		// Explicit disable — signal it to the provider so it does not fall
+		// back to adaptive thinking on Claude models.
+		options.ReasoningOptions = &provider.ReasoningOptions{
+			Effort: provider.EffortNone,
+		}
+	} else if req.Thinking != nil {
 		if options.ReasoningOptions == nil {
 			options.ReasoningOptions = &provider.ReasoningOptions{}
 		}

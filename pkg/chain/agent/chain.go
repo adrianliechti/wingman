@@ -281,8 +281,8 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 
 					Content: []provider.Content{
 						provider.ToolResultContent(provider.ToolResult{
-							ID:   cnt.ToolCall.ID,
-							Data: string(data),
+							ID:    cnt.ToolCall.ID,
+							Parts: []provider.Part{{Text: string(data)}},
 						}),
 					},
 				})

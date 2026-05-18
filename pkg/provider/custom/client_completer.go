@@ -203,10 +203,35 @@ func wireMessage(val provider.Message) *Message {
 		}
 
 		if c.ToolResult != nil {
-			content.ToolResult = &ToolResult{
-				Id: c.ToolResult.ID,
+			parts := make([]*Part, 0, len(c.ToolResult.Parts))
 
-				Data: c.ToolResult.Data,
+			for _, p := range c.ToolResult.Parts {
+				if p.Text == "" && p.File == nil {
+					continue
+				}
+
+				wp := &Part{}
+
+				if p.Text != "" {
+					text := p.Text
+					wp.Text = &text
+				}
+
+				if p.File != nil {
+					wp.File = &File{
+						Name: p.File.Name,
+
+						Content:     p.File.Content,
+						ContentType: p.File.ContentType,
+					}
+				}
+
+				parts = append(parts, wp)
+			}
+
+			content.ToolResult = &ToolResult{
+				Id:    c.ToolResult.ID,
+				Parts: parts,
 			}
 		}
 
@@ -259,10 +284,30 @@ func unwireCompletion(val *Completion) provider.Completion {
 			}
 
 			if c.ToolResult != nil {
-				content.ToolResult = &provider.ToolResult{
-					ID: c.ToolResult.Id,
+				parts := make([]provider.Part, 0, len(c.ToolResult.Parts))
 
-					Data: c.ToolResult.Data,
+				for _, wp := range c.ToolResult.Parts {
+					p := provider.Part{}
+
+					if wp.Text != nil {
+						p.Text = *wp.Text
+					}
+
+					if wp.File != nil {
+						p.File = &provider.File{
+							Name: wp.File.Name,
+
+							Content:     wp.File.Content,
+							ContentType: wp.File.ContentType,
+						}
+					}
+
+					parts = append(parts, p)
+				}
+
+				content.ToolResult = &provider.ToolResult{
+					ID:    c.ToolResult.Id,
+					Parts: parts,
 				}
 			}
 

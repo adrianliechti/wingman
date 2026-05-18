@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"strings"
 
@@ -351,10 +352,15 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	if isAdaptiveThinkingModel(c.model) {
 		req.MaxTokens = 128000
 
-		if options.ReasoningOptions != nil {
+		// Enable adaptive thinking by default. Only skip when the caller
+		// explicitly disables it via Effort == EffortNone.
+		enableAdaptive := options.ReasoningOptions == nil ||
+			options.ReasoningOptions.Effort != provider.EffortNone
+
+		if enableAdaptive {
 			display := anthropic.BetaThinkingConfigAdaptiveDisplaySummarized
 
-			if !options.ReasoningOptions.IncludeSummary {
+			if options.ReasoningOptions != nil && !options.ReasoningOptions.IncludeSummary {
 				display = anthropic.BetaThinkingConfigAdaptiveDisplayOmitted
 			}
 
@@ -364,21 +370,23 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				},
 			}
 
-			switch options.ReasoningOptions.Effort {
-			case provider.EffortNone, provider.EffortMinimal, provider.EffortLow:
-				req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortLow
+			if options.ReasoningOptions != nil {
+				switch options.ReasoningOptions.Effort {
+				case provider.EffortMinimal, provider.EffortLow:
+					req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortLow
 
-			case provider.EffortMedium:
-				req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMedium
+				case provider.EffortMedium:
+					req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMedium
 
-			case provider.EffortHigh:
-				req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
+				case provider.EffortHigh:
+					req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
 
-			case provider.EffortXHigh:
-				req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortXhigh
+				case provider.EffortXHigh:
+					req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortXhigh
 
-			case provider.EffortMax:
-				req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMax
+				case provider.EffortMax:
+					req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortMax
+				}
 			}
 		}
 	}
@@ -434,22 +442,64 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						}))
 
 					default:
-						return nil, errors.New("unsupported content type")
+						return nil, fmt.Errorf("unsupported content type: %s", mime)
 					}
 				}
 
 				if c.ToolResult != nil {
+					var parts []anthropic.BetaToolResultBlockParamContentUnion
+
+					for _, p := range c.ToolResult.Parts {
+						if p.Text != "" {
+							parts = append(parts, anthropic.BetaToolResultBlockParamContentUnion{
+								OfText: &anthropic.BetaTextBlockParam{Text: p.Text},
+							})
+						}
+
+						if p.File != nil {
+							mime := p.File.ContentType
+							content := base64.StdEncoding.EncodeToString(p.File.Content)
+
+							switch mime {
+							case "image/jpeg", "image/png", "image/gif", "image/webp":
+								parts = append(parts, anthropic.BetaToolResultBlockParamContentUnion{
+									OfImage: &anthropic.BetaImageBlockParam{
+										Source: anthropic.BetaImageBlockParamSourceUnion{
+											OfBase64: &anthropic.BetaBase64ImageSourceParam{
+												Data:      content,
+												MediaType: anthropic.BetaBase64ImageSourceMediaType(mime),
+											},
+										},
+									},
+								})
+
+							case "application/pdf":
+								parts = append(parts, anthropic.BetaToolResultBlockParamContentUnion{
+									OfDocument: &anthropic.BetaRequestDocumentBlockParam{
+										Source: anthropic.BetaRequestDocumentBlockSourceUnionParam{
+											OfBase64: &anthropic.BetaBase64PDFSourceParam{
+												Data: content,
+											},
+										},
+									},
+								})
+
+							default:
+								return nil, fmt.Errorf("unsupported content type: %s", mime)
+							}
+						}
+					}
+
+					if len(parts) == 0 {
+						parts = []anthropic.BetaToolResultBlockParamContentUnion{
+							{OfText: &anthropic.BetaTextBlockParam{Text: ""}},
+						}
+					}
+
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
 						OfToolResult: &anthropic.BetaToolResultBlockParam{
 							ToolUseID: c.ToolResult.ID,
-
-							Content: []anthropic.BetaToolResultBlockParamContentUnion{
-								{
-									OfText: &anthropic.BetaTextBlockParam{
-										Text: c.ToolResult.Data,
-									},
-								},
-							},
+							Content:   parts,
 						},
 					})
 				}
@@ -533,7 +583,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: schema}
 	}
 
-	if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 {
+	if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 && isCompactionSupportedModel(c.model) {
 		req.Betas = append(req.Betas, "compact-2026-01-12")
 
 		req.ContextManagement = anthropic.BetaContextManagementConfigParam{

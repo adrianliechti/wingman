@@ -111,37 +111,46 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			InferenceConfig: config,
 		}
 
-		if options.ReasoningOptions != nil && isAdaptiveThinkingModel(c.model) {
-			config.Temperature = nil
+		if isAdaptiveThinkingModel(c.model) {
+			// Enable adaptive thinking by default. Only skip when the caller
+			// explicitly disables it via Effort == EffortNone.
+			enableAdaptive := options.ReasoningOptions == nil ||
+				options.ReasoningOptions.Effort != provider.EffortNone
 
-			additionalFields := map[string]any{
-				"thinking": map[string]any{
-					"type": "adaptive",
-				},
-			}
+			if enableAdaptive {
+				config.Temperature = nil
 
-			var effort string
-
-			switch options.ReasoningOptions.Effort {
-			case provider.EffortNone, provider.EffortMinimal, provider.EffortLow:
-				effort = "low"
-			case provider.EffortMedium:
-				effort = "medium"
-			case provider.EffortHigh:
-				effort = "high"
-			case provider.EffortXHigh:
-				effort = "xhigh"
-			case provider.EffortMax:
-				effort = "max"
-			}
-
-			if effort != "" {
-				additionalFields["output_config"] = map[string]any{
-					"effort": effort,
+				additionalFields := map[string]any{
+					"thinking": map[string]any{
+						"type": "adaptive",
+					},
 				}
-			}
 
-			params.AdditionalModelRequestFields = document.NewLazyDocument(additionalFields)
+				var effort string
+
+				if options.ReasoningOptions != nil {
+					switch options.ReasoningOptions.Effort {
+					case provider.EffortMinimal, provider.EffortLow:
+						effort = "low"
+					case provider.EffortMedium:
+						effort = "medium"
+					case provider.EffortHigh:
+						effort = "high"
+					case provider.EffortXHigh:
+						effort = "xhigh"
+					case provider.EffortMax:
+						effort = "max"
+					}
+				}
+
+				if effort != "" {
+					additionalFields["output_config"] = map[string]any{
+						"effort": effort,
+					}
+				}
+
+				params.AdditionalModelRequestFields = document.NewLazyDocument(additionalFields)
+			}
 		}
 
 		resp, err := c.client.ConverseStream(ctx, params)
@@ -640,10 +649,28 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 		}
 
 		if c.ToolResult != nil {
-			data := c.ToolResult.Data
+			var blocks []types.ToolResultContentBlock
 
-			if data == "" {
-				data = "OK"
+			for _, p := range c.ToolResult.Parts {
+				if p.Text != "" {
+					blocks = append(blocks, &types.ToolResultContentBlockMemberText{Value: p.Text})
+				}
+
+				if p.File != nil {
+					block, err := convertToolResultFile(p.File)
+
+					if err != nil {
+						return nil, err
+					}
+
+					blocks = append(blocks, block)
+				}
+			}
+
+			if len(blocks) == 0 {
+				blocks = []types.ToolResultContentBlock{
+					&types.ToolResultContentBlockMemberText{Value: "OK"},
+				}
 			}
 
 			content = append(content, &types.ContentBlockMemberToolResult{
@@ -652,9 +679,7 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 
 					ToolUseId: aws.String(c.ToolResult.ID),
 
-					Content: []types.ToolResultContentBlock{
-						&types.ToolResultContentBlockMemberText{Value: data},
-					},
+					Content: blocks,
 				},
 			})
 		}
@@ -776,6 +801,35 @@ func inputHasToolBlocks(messages []provider.Message) bool {
 	return false
 }
 
+func convertToolResultFile(val *provider.File) (types.ToolResultContentBlock, error) {
+	if format, ok := convertDocumentFormat(val.ContentType); ok {
+		return &types.ToolResultContentBlockMemberDocument{
+			Value: types.DocumentBlock{
+				Name:   aws.String(uuid.NewString()),
+				Format: format,
+
+				Source: &types.DocumentSourceMemberBytes{
+					Value: val.Content,
+				},
+			},
+		}, nil
+	}
+
+	if format, ok := convertImageFormat(val.ContentType); ok {
+		return &types.ToolResultContentBlockMemberImage{
+			Value: types.ImageBlock{
+				Format: format,
+
+				Source: &types.ImageSourceMemberBytes{
+					Value: val.Content,
+				},
+			},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("unsupported content type: %s", val.ContentType)
+}
+
 func convertFile(val *provider.File) (types.ContentBlock, error) {
 	if format, ok := convertDocumentFormat(val.ContentType); ok {
 		return &types.ContentBlockMemberDocument{
@@ -814,7 +868,7 @@ func convertFile(val *provider.File) (types.ContentBlock, error) {
 		}, nil
 	}
 
-	return nil, errors.New("unsupported file format")
+	return nil, fmt.Errorf("unsupported content type: %s", val.ContentType)
 }
 
 var documentFormats = map[string]types.DocumentFormat{

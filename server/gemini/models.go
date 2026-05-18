@@ -68,9 +68,29 @@ type FunctionCall struct {
 
 // FunctionResponse is the result of a function call
 type FunctionResponse struct {
-	ID       string         `json:"id,omitempty"` // matches the FunctionCall ID
-	Name     string         `json:"name,omitempty"`
-	Response map[string]any `json:"response,omitempty"`
+	ID       string                  `json:"id,omitempty"` // matches the FunctionCall ID
+	Name     string                  `json:"name,omitempty"`
+	Response map[string]any          `json:"response,omitempty"`
+	Parts    []*FunctionResponsePart `json:"parts,omitempty"`
+}
+
+// FunctionResponsePart carries media alongside the function response's JSON
+// payload. Only one of InlineData / FileData should be set.
+type FunctionResponsePart struct {
+	InlineData *FunctionResponseBlob     `json:"inlineData,omitempty"`
+	FileData   *FunctionResponseFileData `json:"fileData,omitempty"`
+}
+
+type FunctionResponseBlob struct {
+	MimeType    string `json:"mimeType,omitempty"`
+	Data        string `json:"data,omitempty"` // base64 encoded
+	DisplayName string `json:"displayName,omitempty"`
+}
+
+type FunctionResponseFileData struct {
+	FileUri     string `json:"fileUri,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // Tool represents a tool the model can use

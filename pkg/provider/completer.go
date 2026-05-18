@@ -59,8 +59,8 @@ func ToolMessage(id, content string) Message {
 		Content: []Content{
 			{
 				ToolResult: &ToolResult{
-					ID:   id,
-					Data: content,
+					ID:    id,
+					Parts: []Part{{Text: content}},
 				},
 			},
 		},
@@ -103,14 +103,14 @@ func (m Message) ToolCalls() []ToolCall {
 	return calls
 }
 
-func (m Message) ToolResult() (id string, content string, ok bool) {
+func (m Message) ToolResult() (*ToolResult, bool) {
 	for _, c := range m.Content {
 		if c.ToolResult != nil {
-			return c.ToolResult.ID, c.ToolResult.Data, true
+			return c.ToolResult, true
 		}
 	}
 
-	return "", "", false
+	return nil, false
 }
 
 func TextContent(val string) Content {

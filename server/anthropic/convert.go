@@ -121,15 +121,15 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 
 		case "tool_result":
 			// Tool result in user message
-			result, err := toToolResultContent(block.Content)
+			parts, err := toToolResultParts(block.Content)
 
 			if err != nil {
 				return nil, err
 			}
 
 			content = append(content, provider.ToolResultContent(provider.ToolResult{
-				ID:   block.ToolUseID,
-				Data: result,
+				ID:    block.ToolUseID,
+				Parts: parts,
 			}))
 
 		case "compaction":
@@ -182,46 +182,75 @@ func toFile(source *BlockSource) (*provider.File, error) {
 	return file, nil
 }
 
-func toToolResultContent(content any) (string, error) {
+func toToolResultParts(content any) ([]provider.Part, error) {
 	if content == nil {
-		return "", nil
+		return nil, nil
 	}
 
 	switch v := content.(type) {
 	case string:
-		return v, nil
+		return []provider.Part{{Text: v}}, nil
 
 	case []any:
-		// Array of content blocks - extract text
-		var texts []string
+		var parts []provider.Part
 
 		for _, item := range v {
 			data, err := json.Marshal(item)
 
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 
 			var block ContentBlockParam
 
 			if err := json.Unmarshal(data, &block); err != nil {
-				return "", err
+				return nil, err
 			}
 
-			if block.Type == "text" {
-				texts = append(texts, block.Text)
+			switch block.Type {
+			case "text":
+				if block.Text != "" {
+					parts = append(parts, provider.Part{Text: block.Text})
+				}
+
+			case "image":
+				if block.Source != nil {
+					file, err := toFile(block.Source)
+					if err != nil {
+						return nil, err
+					}
+					parts = append(parts, provider.Part{File: file})
+				}
+
+			case "document":
+				if block.Source == nil {
+					continue
+				}
+				// Plain-text documents inline as text (portable across providers
+				// that don't have a dedicated document block).
+				if block.Source.Type == "text" {
+					if block.Source.Data != "" {
+						parts = append(parts, provider.Part{Text: block.Source.Data})
+					}
+					continue
+				}
+				file, err := toFile(block.Source)
+				if err != nil {
+					return nil, err
+				}
+				parts = append(parts, provider.Part{File: file})
 			}
 		}
-		return strings.Join(texts, "\n"), nil
+		return parts, nil
 
 	default:
 		data, err := json.Marshal(v)
 
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
-		return string(data), nil
+		return []provider.Part{{Text: string(data)}}, nil
 	}
 }
 
