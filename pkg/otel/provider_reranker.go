@@ -38,5 +38,9 @@ func (p *observableReranker) Rerank(ctx context.Context, query string, inputs []
 
 	result, err := p.reranker.Rerank(ctx, query, inputs, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
 	return result, err
 }

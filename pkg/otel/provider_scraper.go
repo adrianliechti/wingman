@@ -38,5 +38,9 @@ func (p *observableScraper) Scrape(ctx context.Context, url string, options *scr
 
 	result, err := p.scraper.Scrape(ctx, url, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
 	return result, err
 }

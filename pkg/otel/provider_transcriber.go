@@ -77,10 +77,10 @@ func (p *observableTranscriber) Transcribe(ctx context.Context, input provider.F
 		}
 	}
 
-	attrs := KeyValues([]KeyValue{
-		p.operationDurationMetric.AttrRequestModel(p.model),
-		p.operationDurationMetric.AttrResponseModel(providerModel),
-	}, EndUserAttrs(ctx))
+	attrs := []KeyValue{
+		semconv.GenAIRequestModel(p.model),
+		semconv.GenAIResponseModel(providerModel),
+	}
 
 	if err != nil {
 		attrs = append(attrs, p.operationDurationMetric.AttrErrorType(ErrorTypeAttr(err)))

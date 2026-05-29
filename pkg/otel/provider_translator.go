@@ -38,5 +38,9 @@ func (p *observableTranslator) Translate(ctx context.Context, input translator.I
 
 	result, err := p.translator.Translate(ctx, input, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
 	return result, err
 }

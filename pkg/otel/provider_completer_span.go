@@ -28,6 +28,10 @@ func (p *spanCompleter) Complete(ctx context.Context, messages []provider.Messag
 		defer span.End()
 
 		for completion, err := range p.completer.Complete(ctx, messages, options) {
+			if err != nil {
+				RecordError(span, err)
+			}
+
 			if !yield(completion, err) {
 				return
 			}

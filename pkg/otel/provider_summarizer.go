@@ -38,5 +38,9 @@ func (p *observableSummarizer) Summarize(ctx context.Context, text string, optio
 
 	result, err := p.summarizer.Summarize(ctx, text, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
 	return result, err
 }

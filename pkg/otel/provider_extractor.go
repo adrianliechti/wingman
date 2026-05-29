@@ -38,5 +38,9 @@ func (p *observableExtractor) Extract(ctx context.Context, file extractor.File, 
 
 	result, err := p.extractor.Extract(ctx, file, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
 	return result, err
 }

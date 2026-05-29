@@ -38,5 +38,9 @@ func (p *observableResearcher) Research(ctx context.Context, instructions string
 
 	result, err := p.researcher.Research(ctx, instructions, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
 	return result, err
 }

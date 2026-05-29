@@ -38,5 +38,9 @@ func (p *observableSegmenter) Segment(ctx context.Context, input string, options
 
 	result, err := p.segmenter.Segment(ctx, input, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
 	return result, err
 }

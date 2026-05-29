@@ -1,4 +1,4 @@
-package test
+package errors
 
 import (
 	"bufio"

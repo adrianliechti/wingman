@@ -45,12 +45,17 @@ func (p *observableTool) Execute(ctx context.Context, tool string, parameters ma
 	defer span.End()
 
 	if span.IsRecording() {
+		baseAttrs := []KeyValue{
+			semconv.GenAIOperationNameExecuteTool,
+			semconv.GenAIToolName(tool),
+			semconv.GenAIToolType("function"),
+		}
+		if p.provider != "" {
+			baseAttrs = append(baseAttrs, semconv.GenAIProviderNameKey.String(p.provider))
+		}
+
 		span.SetAttributes(KeyValues(
-			[]KeyValue{
-				semconv.GenAIOperationNameExecuteTool,
-				semconv.GenAIToolName(tool),
-				semconv.GenAIToolType("function"),
-			},
+			baseAttrs,
 			ToolArgumentAttrs(parameters),
 			EndUserAttrs(ctx),
 		)...)
