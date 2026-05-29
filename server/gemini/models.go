@@ -40,7 +40,7 @@ type Content struct {
 type Part struct {
 	Text             string            `json:"text,omitempty"`
 	Thought          bool              `json:"thought,omitempty"`
-	ThoughtSignature string            `json:"thoughtSignature,omitempty"`
+	ThoughtSignature []byte            `json:"thoughtSignature,omitempty"`
 	InlineData       *Blob             `json:"inlineData,omitempty"`
 	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`

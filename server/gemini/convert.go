@@ -63,6 +63,22 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 	var content []provider.Content
 
 	for _, part := range c.Parts {
+		sig := string(part.ThoughtSignature)
+
+		if part.Thought {
+			content = append(content, provider.ReasoningContent(provider.Reasoning{
+				Text:      part.Text,
+				Signature: sig,
+			}))
+			continue
+		}
+
+		if sig != "" && part.FunctionCall == nil && part.FunctionResponse == nil {
+			content = append(content, provider.ReasoningContent(provider.Reasoning{
+				Signature: sig,
+			}))
+		}
+
 		// Text content
 		if part.Text != "" {
 			content = append(content, provider.TextContent(part.Text))
@@ -230,11 +246,24 @@ func toContent(content []provider.Content) *Content {
 
 	var parts []*Part
 
+	var pendingSig string
+
 	for _, c := range content {
-		if c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "") {
+		if c.Reasoning != nil {
 			text := c.Reasoning.Text
 			if text == "" {
 				text = c.Reasoning.Summary
+			}
+
+			if text == "" {
+				if c.Reasoning.Signature != "" {
+					if n := len(parts); n > 0 && len(parts[n-1].ThoughtSignature) == 0 && !parts[n-1].Thought {
+						parts[n-1].ThoughtSignature = []byte(c.Reasoning.Signature)
+					} else {
+						pendingSig = c.Reasoning.Signature
+					}
+				}
+				continue
 			}
 
 			part := &Part{
@@ -243,16 +272,21 @@ func toContent(content []provider.Content) *Content {
 			}
 
 			if c.Reasoning.Signature != "" {
-				part.ThoughtSignature = c.Reasoning.Signature
+				part.ThoughtSignature = []byte(c.Reasoning.Signature)
 			}
 
 			parts = append(parts, part)
 		}
 
 		if c.Text != "" {
-			parts = append(parts, &Part{
+			part := &Part{
 				Text: c.Text,
-			})
+			}
+			if pendingSig != "" {
+				part.ThoughtSignature = []byte(pendingSig)
+				pendingSig = ""
+			}
+			parts = append(parts, part)
 		}
 
 		if c.ToolCall != nil {
@@ -272,14 +306,23 @@ func toContent(content []provider.Content) *Content {
 				id = generateFunctionCallID()
 			}
 
-			parts = append(parts, &Part{
+			part := &Part{
 				FunctionCall: &FunctionCall{
 					ID:   id,
 					Name: c.ToolCall.Name,
 					Args: args,
 				},
-			})
+			}
+			if pendingSig != "" {
+				part.ThoughtSignature = []byte(pendingSig)
+				pendingSig = ""
+			}
+			parts = append(parts, part)
 		}
+	}
+
+	if pendingSig != "" {
+		parts = append(parts, &Part{ThoughtSignature: []byte(pendingSig)})
 	}
 
 	if len(parts) == 0 {

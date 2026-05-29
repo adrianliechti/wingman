@@ -39,6 +39,34 @@ func TestThinkingHTTP(t *testing.T) {
 	}
 }
 
+func TestThinkingSSE(t *testing.T) {
+	h := gemini.New(t)
+
+	for _, model := range gemini.DefaultModels() {
+		if !model.Capabilities.Thinking {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"contents": []map[string]any{
+					{"role": "user", "parts": []map[string]any{{"text": "I have 3 apples and give away 1. Then I buy 5 more and give away 2. Then I eat 1. My friend gives me 3 and I give her back 2. How many apples do I have? Show your reasoning step by step."}}},
+				},
+				"generationConfig": map[string]any{
+					"thinkingConfig": map[string]any{
+						"includeThoughts": true,
+					},
+				},
+			}
+
+			geminiEvents, wingmanEvents := compareSSE(t, h, model.Name, body)
+
+			requireThoughtPartSSE(t, "gemini", geminiEvents)
+			requireThoughtPartSSE(t, "wingman", wingmanEvents)
+		})
+	}
+}
+
 func requireThoughtPart(t *testing.T, label string, body map[string]any) {
 	t.Helper()
 
@@ -56,4 +84,28 @@ func requireThoughtPart(t *testing.T, label string, body map[string]any) {
 	}
 
 	t.Fatalf("[%s] no thought part found in response", label)
+}
+
+func requireThoughtPartSSE(t *testing.T, label string, events []*harness.SSEEvent) {
+	t.Helper()
+
+	for _, e := range events {
+		if e.Data == nil {
+			continue
+		}
+		candidates, _ := e.Data["candidates"].([]any)
+		for _, c := range candidates {
+			cand, _ := c.(map[string]any)
+			content, _ := cand["content"].(map[string]any)
+			parts, _ := content["parts"].([]any)
+			for _, p := range parts {
+				part, _ := p.(map[string]any)
+				if thought, ok := part["thought"].(bool); ok && thought {
+					return
+				}
+			}
+		}
+	}
+
+	t.Fatalf("[%s] no thought part found in any SSE event", label)
 }

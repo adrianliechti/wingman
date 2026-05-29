@@ -51,6 +51,26 @@ func TestToolCallingHTTP(t *testing.T) {
 	}
 }
 
+func TestToolCallingSSE(t *testing.T) {
+	h := gemini.New(t)
+
+	for _, model := range gemini.DefaultModels() {
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"contents": []map[string]any{
+					{"role": "user", "parts": []map[string]any{{"text": "What's the weather in London?"}}},
+				},
+				"tools": []any{weatherTool},
+			}
+
+			geminiEvents, wingmanEvents := compareSSE(t, h, model.Name, body)
+
+			requireFunctionCallSSE(t, "gemini", geminiEvents, "get_weather")
+			requireFunctionCallSSE(t, "wingman", wingmanEvents, "get_weather")
+		})
+	}
+}
+
 // TestToolCallingMultiTurnHTTP exercises a real multi-turn tool-calling
 // round trip. Gemini 3 rejects synthetic model turns missing
 // thoughtSignature, so we issue turn 1 against each endpoint, replay the
@@ -214,4 +234,33 @@ func requireTextResponse(t *testing.T, label string, body map[string]any) {
 	}
 
 	t.Fatalf("[%s] no text response found", label)
+}
+
+// requireFunctionCallSSE asserts that some streamed chunk carries a
+// functionCall part with the given name. Gemini emits each chunk as a
+// full GenerateContentResponse, so we walk candidates[].content.parts[]
+// the same way as the HTTP variant.
+func requireFunctionCallSSE(t *testing.T, label string, events []*harness.SSEEvent, name string) {
+	t.Helper()
+
+	for _, e := range events {
+		if e.Data == nil {
+			continue
+		}
+		candidates, _ := e.Data["candidates"].([]any)
+		for _, c := range candidates {
+			cand, _ := c.(map[string]any)
+			content, _ := cand["content"].(map[string]any)
+			parts, _ := content["parts"].([]any)
+			for _, p := range parts {
+				part, _ := p.(map[string]any)
+				fc, _ := part["functionCall"].(map[string]any)
+				if fc["name"] == name {
+					return
+				}
+			}
+		}
+	}
+
+	t.Fatalf("[%s] no functionCall SSE event with name %q found", label, name)
 }

@@ -268,17 +268,39 @@ func convertContent(message provider.Message, callNames map[string]string) (*gen
 	case provider.MessageRoleAssistant:
 		content.Role = "model"
 
+		var pendingSig []byte
+
 		for _, c := range message.Content {
-			if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+			if c.Reasoning != nil {
+				if c.Reasoning.Text == "" && c.Reasoning.Summary == "" {
+					if c.Reasoning.Signature != "" {
+						pendingSig = []byte(c.Reasoning.Signature)
+					}
+					continue
+				}
+
+				text := c.Reasoning.Text
+				if text == "" {
+					text = c.Reasoning.Summary
+				}
+
 				part := genai.NewPartFromText(text)
+				part.Thought = true
+				if c.Reasoning.Signature != "" {
+					part.ThoughtSignature = []byte(c.Reasoning.Signature)
+				}
 				content.Parts = append(content.Parts, part)
+				continue
 			}
 
-			if c.Reasoning != nil && c.Reasoning.Signature != "" {
-				part := genai.NewPartFromText(c.Reasoning.Text)
-				part.Thought = true
-				part.ThoughtSignature = []byte(c.Reasoning.Signature)
+			if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
+				part := genai.NewPartFromText(text)
+				if pendingSig != nil {
+					part.ThoughtSignature = pendingSig
+					pendingSig = nil
+				}
 				content.Parts = append(content.Parts, part)
+				continue
 			}
 
 			if c.ToolCall != nil {
@@ -298,10 +320,20 @@ func convertContent(message provider.Message, callNames map[string]string) (*gen
 
 				part := genai.NewPartFromFunctionCall(name, data)
 				part.FunctionCall.ID = id
-				part.ThoughtSignature = signature
+				if signature != nil {
+					part.ThoughtSignature = signature
+				} else if pendingSig != nil {
+					part.ThoughtSignature = pendingSig
+					pendingSig = nil
+				}
 
 				content.Parts = append(content.Parts, part)
 			}
+		}
+
+		if pendingSig != nil {
+			part := &genai.Part{ThoughtSignature: pendingSig}
+			content.Parts = append(content.Parts, part)
 		}
 	}
 
@@ -375,13 +407,21 @@ func toContent(content *genai.Content) []provider.Content {
 	var parts []provider.Content
 
 	for _, p := range content.Parts {
-		// Handle thought/reasoning content
-		if p.Thought && p.Text != "" {
+		sig := string(p.ThoughtSignature)
+
+		if p.Thought {
 			parts = append(parts, provider.ReasoningContent(provider.Reasoning{
 				Text:      p.Text,
-				Signature: string(p.ThoughtSignature),
+				Signature: sig,
 			}))
 			continue
+		}
+
+		if sig != "" && p.FunctionCall == nil {
+			parts = append(parts, provider.ReasoningContent(provider.Reasoning{
+				ID:        "gemsig_" + generateCallID(),
+				Signature: sig,
+			}))
 		}
 
 		if p.Text != "" {

@@ -3,6 +3,7 @@ package gemini
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -234,12 +235,14 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 				IncludeSummary: tc.IncludeThoughts,
 			}
 
-			switch tc.ThinkingLevel {
-			case "THINKING_LEVEL_LOW":
+			switch strings.TrimPrefix(strings.ToLower(tc.ThinkingLevel), "thinking_level_") {
+			case "minimal":
+				options.ReasoningOptions.Effort = provider.EffortMinimal
+			case "low":
 				options.ReasoningOptions.Effort = provider.EffortLow
-			case "THINKING_LEVEL_MEDIUM":
+			case "medium":
 				options.ReasoningOptions.Effort = provider.EffortMedium
-			case "THINKING_LEVEL_HIGH":
+			case "high":
 				options.ReasoningOptions.Effort = provider.EffortHigh
 			default:
 				options.ReasoningOptions.Effort = effortFromBudget(tc.ThinkingBudget)

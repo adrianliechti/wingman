@@ -46,12 +46,12 @@ func New(t *testing.T) *Harness {
 		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: env("WINGMAN_BASE_URL", DefaultWingmanURL), APIKey: env("WINGMAN_API_KEY", "test-key")},
 		Gemini:         harness.Endpoint{Name: "gemini", BaseURL: env("GEMINI_BASE_URL", DefaultGeminiURL), APIKey: key},
 		Client:         harness.NewClient(),
-		ReferenceModel: env("TEST_GEMINI_REFERENCE_MODEL", "gemini-3-flash-preview"),
+		ReferenceModel: env("TEST_GEMINI_REFERENCE_MODEL", "gemini-3.5-flash"),
 	}
 }
 
 func DefaultModels() []Model {
-	names := []string{"gemini-3-flash-preview"}
+	names := []string{"gemini-3.5-flash"}
 	if v := os.Getenv("TEST_GEMINI_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {
@@ -63,17 +63,12 @@ func DefaultModels() []Model {
 
 	models := make([]Model, len(names))
 	for i, name := range names {
-		models[i] = Model{Name: name, Capabilities: knownCapabilities(name)}
+		models[i] = Model{
+			Name:         name,
+			Capabilities: ModelCapabilities{StructuredOutput: true, Thinking: true},
+		}
 	}
 	return models
-}
-
-func knownCapabilities(name string) ModelCapabilities {
-	switch name {
-	case "gemini-3-flash-preview", "gemini-3-pro-preview":
-		return ModelCapabilities{StructuredOutput: true, Thinking: true}
-	}
-	return ModelCapabilities{StructuredOutput: true, Thinking: true}
 }
 
 func env(key, fallback string) string {

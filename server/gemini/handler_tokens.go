@@ -5,6 +5,19 @@ import (
 	"net/http"
 )
 
+const (
+	charsPerToken     = 4
+	jsonCharsPerToken = 3
+
+	// Structural framing per content (role marker + part separators).
+	contentTokenOverhead = 3
+
+	// Flat per-image estimate. Gemini bills images at 258 tokens for
+	// tiles ≤384px and 258 per 768x768 tile above; 1300 approximates a
+	// typical 1MP photo and matches the Anthropic estimate for parity.
+	imageTokens = 1300
+)
+
 func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	var req CountTokensRequest
 
@@ -13,93 +26,83 @@ func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var totalChars int
+	var tokens int
 
-	// Count system instruction tokens
 	if req.SystemInstruction != nil {
-		for _, part := range req.SystemInstruction.Parts {
-			totalChars += len(part.Text)
-		}
+		tokens += contentTokens(req.SystemInstruction)
 	}
 
-	// Count content tokens
 	for _, content := range req.Contents {
-		totalChars += countContentChars(content)
+		tokens += contentTokens(content)
 	}
 
-	// Count tool definition tokens
 	for _, tool := range req.Tools {
-		totalChars += countToolChars(tool)
-	}
-
-	// Estimate tokens as chars / 4
-	totalTokens := totalChars / 4
-	if totalTokens == 0 && totalChars > 0 {
-		totalTokens = 1
+		tokens += toolTokens(tool)
 	}
 
 	writeJson(w, CountTokensResponse{
-		TotalTokens: totalTokens,
+		TotalTokens: tokens,
 	})
 }
 
-func countToolChars(tool *Tool) int {
-	total := 0
-
-	for _, fn := range tool.FunctionDeclarations {
-		total += len(fn.Name)
-		total += len(fn.Description)
-
-		if fn.Parameters != nil {
-			if data, err := json.Marshal(fn.Parameters); err == nil {
-				total += len(string(data))
-			}
-		}
-
-		if fn.ParametersJsonSchema != nil {
-			if data, err := json.Marshal(fn.ParametersJsonSchema); err == nil {
-				total += len(string(data))
-			}
-		}
-	}
-
-	return total
-}
-
-func countContentChars(content *Content) int {
+func contentTokens(content *Content) int {
 	if content == nil {
 		return 0
 	}
 
-	total := 0
-
-	// Add role overhead
-	total += len(content.Role)
+	total := contentTokenOverhead
 
 	for _, part := range content.Parts {
 		if part.Text != "" {
-			total += len(part.Text)
+			total += textTokens(part.Text)
 		}
 
 		if part.FunctionCall != nil {
-			total += len(part.FunctionCall.Name)
-			if args, err := json.Marshal(part.FunctionCall.Args); err == nil {
-				total += len(string(args))
-			}
+			total += textTokens(part.FunctionCall.Name)
+			total += jsonTokens(part.FunctionCall.Args)
 		}
 
 		if part.FunctionResponse != nil {
-			total += len(part.FunctionResponse.Name)
-			if resp, err := json.Marshal(part.FunctionResponse.Response); err == nil {
-				total += len(string(resp))
-			}
+			total += textTokens(part.FunctionResponse.Name)
+			total += jsonTokens(part.FunctionResponse.Response)
 		}
 
 		if part.InlineData != nil {
-			// Images/media are handled differently, add fixed overhead
-			total += 1000
+			total += imageTokens
 		}
 	}
 
 	return total
+}
+
+func toolTokens(tool *Tool) int {
+	var total int
+
+	for _, fn := range tool.FunctionDeclarations {
+		total += textTokens(fn.Name)
+		total += textTokens(fn.Description)
+
+		if fn.Parameters != nil {
+			total += jsonTokens(fn.Parameters)
+		}
+
+		if fn.ParametersJsonSchema != nil {
+			total += jsonTokens(fn.ParametersJsonSchema)
+		}
+	}
+
+	return total
+}
+
+func textTokens(s string) int {
+	return len(s) / charsPerToken
+}
+
+func jsonTokens(v any) int {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return 0
+	}
+
+	return len(data) / jsonCharsPerToken
 }

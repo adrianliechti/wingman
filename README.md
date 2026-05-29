@@ -234,11 +234,12 @@ providers:
     # {alias}:
     #   - id: {gemini api model name}
     models:
-      gemini-1.5-pro:
-        id: gemini-1.5-pro-latest
-      
-      gemini-1.5-flash:
-        id: gemini-1.5-flash-latest
+      - gemini-3.5-flash
+      - gemini-3.1-pro-preview
+      - gemini-3.1-flash-lite
+      - gemini-3.1-flash-image
+      - gemini-3-pro-image
+      - gemini-embedding-2
 ```
 
 
