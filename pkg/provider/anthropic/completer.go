@@ -527,6 +527,35 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	for _, t := range options.Tools {
+		if t.Kind == provider.ToolKindTextEditor {
+			tools = append(tools, anthropic.BetaToolUnionParam{
+				OfTextEditor20250728: &anthropic.BetaToolTextEditor20250728Param{},
+			})
+			continue
+		}
+
+		if t.Kind == provider.ToolKindComputer {
+			req.Betas = append(req.Betas, "computer-use-2025-11-24")
+
+			w, h := int64(1024), int64(768)
+			if t.Display != nil {
+				if t.Display.Width > 0 {
+					w = int64(t.Display.Width)
+				}
+				if t.Display.Height > 0 {
+					h = int64(t.Display.Height)
+				}
+			}
+
+			tools = append(tools, anthropic.BetaToolUnionParam{
+				OfComputerUseTool20251124: &anthropic.BetaToolComputerUse20251124Param{
+					DisplayWidthPx:  w,
+					DisplayHeightPx: h,
+				},
+			})
+			continue
+		}
+
 		if t.Name == "" {
 			continue
 		}
@@ -580,31 +609,6 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	if len(system) > 0 {
 		req.System = system
-	}
-
-	if options.TextEditorTool != nil {
-		req.Tools = append(req.Tools, anthropic.BetaToolUnionParam{
-			OfTextEditor20250728: &anthropic.BetaToolTextEditor20250728Param{},
-		})
-	}
-
-	if options.ComputerUseTool != nil {
-		req.Betas = append(req.Betas, "computer-use-2025-11-24")
-
-		w, h := int64(options.ComputerUseTool.DisplayWidth), int64(options.ComputerUseTool.DisplayHeight)
-		if w == 0 {
-			w = 1024
-		}
-		if h == 0 {
-			h = 768
-		}
-
-		req.Tools = append(req.Tools, anthropic.BetaToolUnionParam{
-			OfComputerUseTool20251124: &anthropic.BetaToolComputerUse20251124Param{
-				DisplayWidthPx:  w,
-				DisplayHeightPx: h,
-			},
-		})
 	}
 
 	if len(tools) > 0 {

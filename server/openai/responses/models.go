@@ -108,6 +108,11 @@ type Tool struct {
 
 	// For custom tools (like apply_patch)
 	Format *CustomToolFormat `json:"format,omitempty"`
+
+	// For computer tool
+	DisplayWidth  int    `json:"display_width,omitempty"`
+	DisplayHeight int    `json:"display_height,omitempty"`
+	Environment   string `json:"environment,omitempty"` // "browser", "ubuntu", "windows", "mac"
 }
 
 type ToolChoice struct {
@@ -196,6 +201,8 @@ const (
 	InputItemTypeFunctionCallOutput   InputItemType = "function_call_output"
 	InputItemTypeApplyPatchCall       InputItemType = "apply_patch_call"
 	InputItemTypeApplyPatchCallOutput InputItemType = "apply_patch_call_output"
+	InputItemTypeCustomToolCall       InputItemType = "custom_tool_call"
+	InputItemTypeCustomToolCallOutput InputItemType = "custom_tool_call_output"
 	InputItemTypeComputerCall         InputItemType = "computer_call"
 	InputItemTypeComputerCallOutput   InputItemType = "computer_call_output"
 )
@@ -228,6 +235,12 @@ type InputItem struct {
 
 	// For apply_patch_call_output type
 	*InputApplyPatchCallOutput
+
+	// For custom_tool_call type
+	*InputCustomToolCall
+
+	// For custom_tool_call_output type
+	*InputCustomToolCallOutput
 
 	// For computer_call type
 	*InputComputerCall
@@ -276,6 +289,46 @@ func (o *InputApplyPatchCallOutput) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	o.CallID = raw.CallID
+	o.Status = raw.Status
+	output, err := unmarshalInputOutput(raw.Output)
+	if err != nil {
+		return err
+	}
+	o.Output = output
+	return nil
+}
+
+// InputCustomToolCall represents a custom (freeform grammar) tool call in the
+// input. Codex registers apply_patch as a custom tool, so its prior calls come
+// back as custom_tool_call items whose Input is the raw patch envelope.
+type InputCustomToolCall struct {
+	ID     string `json:"id,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Input  string `json:"input,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+// InputCustomToolCallOutput represents the result of a custom tool call.
+type InputCustomToolCallOutput struct {
+	CallID string         `json:"call_id,omitempty"`
+	Name   string         `json:"name,omitempty"`
+	Output []InputContent `json:"output,omitempty"`
+	Status string         `json:"status,omitempty"`
+}
+
+func (o *InputCustomToolCallOutput) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		CallID string          `json:"call_id,omitempty"`
+		Name   string          `json:"name,omitempty"`
+		Output json.RawMessage `json:"output,omitempty"`
+		Status string          `json:"status,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	o.CallID = raw.CallID
+	o.Name = raw.Name
 	o.Status = raw.Status
 	output, err := unmarshalInputOutput(raw.Output)
 	if err != nil {
@@ -446,6 +499,20 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 				return err
 			}
 			item.InputApplyPatchCallOutput = &apco
+
+		case InputItemTypeCustomToolCall:
+			var ctc InputCustomToolCall
+			if err := json.Unmarshal(raw, &ctc); err != nil {
+				return err
+			}
+			item.InputCustomToolCall = &ctc
+
+		case InputItemTypeCustomToolCallOutput:
+			var ctco InputCustomToolCallOutput
+			if err := json.Unmarshal(raw, &ctco); err != nil {
+				return err
+			}
+			item.InputCustomToolCallOutput = &ctco
 
 		case InputItemTypeComputerCall:
 			var cc InputComputerCall
@@ -675,6 +742,7 @@ type ResponseOutput struct {
 	*OutputMessage
 	*FunctionCallOutputItem
 	*ApplyPatchCallItem
+	*CustomToolCallItem
 	*ComputerCallItem
 	*ReasoningOutputItem
 	*CompactionOutputItem
@@ -752,6 +820,24 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Operation: r.ApplyPatchCallItem.Operation,
 			})
 		}
+	case ResponseOutputTypeCustomToolCall:
+		if r.CustomToolCallItem != nil {
+			return json.Marshal(struct {
+				Type   ResponseOutputType `json:"type"`
+				ID     string             `json:"id"`
+				Status string             `json:"status"`
+				CallID string             `json:"call_id"`
+				Name   string             `json:"name"`
+				Input  string             `json:"input"`
+			}{
+				Type:   r.Type,
+				ID:     r.CustomToolCallItem.ID,
+				Status: r.CustomToolCallItem.Status,
+				CallID: r.CustomToolCallItem.CallID,
+				Name:   r.CustomToolCallItem.Name,
+				Input:  r.CustomToolCallItem.Input,
+			})
+		}
 	case ResponseOutputTypeReasoning:
 		if r.ReasoningOutputItem != nil {
 			return json.Marshal(struct {
@@ -793,6 +879,7 @@ var (
 	ResponseOutputTypeMessage        ResponseOutputType = "message"
 	ResponseOutputTypeFunctionCall   ResponseOutputType = "function_call"
 	ResponseOutputTypeApplyPatchCall ResponseOutputType = "apply_patch_call"
+	ResponseOutputTypeCustomToolCall ResponseOutputType = "custom_tool_call"
 	ResponseOutputTypeComputerCall   ResponseOutputType = "computer_call"
 	ResponseOutputTypeReasoning      ResponseOutputType = "reasoning"
 	ResponseOutputTypeCompaction     ResponseOutputType = "compaction"
@@ -818,6 +905,16 @@ type ApplyPatchOperation struct {
 	Type string `json:"type"` // "create_file", "update_file", "delete_file"
 	Path string `json:"path"`
 	Diff string `json:"diff"`
+}
+
+// CustomToolCallItem represents a custom (freeform grammar) tool call in the
+// output. Used for Codex's apply_patch, where Input is the raw patch envelope.
+type CustomToolCallItem struct {
+	ID     string `json:"id"`
+	CallID string `json:"call_id"`
+	Status string `json:"status"`
+	Name   string `json:"name"`
+	Input  string `json:"input"`
 }
 
 type OutputMessage struct {

@@ -246,6 +246,55 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				Parts: parts,
 			}))
 
+		case InputItemTypeCustomToolCall:
+			if item.InputCustomToolCall == nil {
+				continue
+			}
+
+			flushResults()
+
+			call := item.InputCustomToolCall
+
+			if call.Name == "apply_patch" {
+				op := parseApplyPatchEnvelope(call.Input)
+				args, _ := json.Marshal(map[string]any{
+					"type": op.Type,
+					"path": op.Path,
+					"diff": op.Diff,
+				})
+
+				pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+					ID:        call.CallID,
+					Name:      "apply_patch",
+					Arguments: string(args),
+				}))
+			} else {
+				pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+					ID:        call.CallID,
+					Name:      call.Name,
+					Arguments: call.Input,
+				}))
+			}
+
+		case InputItemTypeCustomToolCallOutput:
+			if item.InputCustomToolCallOutput == nil {
+				continue
+			}
+
+			flushCalls()
+
+			output := item.InputCustomToolCallOutput
+
+			parts, err := toParts(output.Output)
+			if err != nil {
+				return nil, err
+			}
+
+			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+				ID:    output.CallID,
+				Parts: parts,
+			}))
+
 		case InputItemTypeComputerCall:
 			if item.InputComputerCall == nil {
 				continue
@@ -295,68 +344,87 @@ func toTools(tools []Tool) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
-		if t.Type != ToolTypeFunction {
-			continue
-		}
+		switch t.Type {
+		case ToolTypeFunction:
+			if t.Name == "" {
+				continue
+			}
+			result = append(result, provider.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				Strict:      t.Strict,
+				Parameters:  tool.NormalizeSchema(t.Parameters),
+			})
 
-		result = append(result, provider.Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			Strict:      t.Strict,
-			Parameters:  tool.NormalizeSchema(t.Parameters),
-		})
+		case ToolTypeApplyPatch:
+			result = append(result, provider.Tool{
+				Name: "apply_patch",
+				Kind: provider.ToolKindTextEditor,
+			})
+
+		case ToolTypeCustom:
+			if t.Name == "" {
+				continue
+			}
+			// Codex's custom-grammar apply_patch dispatches upstream as the
+			// native text_editor built-in; output wrapping (custom_tool_call)
+			// is handled separately by outputKind.
+			kind := provider.ToolKindCustom
+			if t.Name == "apply_patch" {
+				kind = provider.ToolKindTextEditor
+			}
+			result = append(result, provider.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				Kind:        kind,
+			})
+
+		case ToolTypeComputer:
+			result = append(result, provider.Tool{
+				Name: "computer",
+				Kind: provider.ToolKindComputer,
+				Display: &provider.Display{
+					Width:       t.DisplayWidth,
+					Height:      t.DisplayHeight,
+					Environment: t.Environment,
+				},
+			})
+		}
 	}
 
 	return result
 }
 
-func toTextEditorToolOptions(tools []Tool) *provider.TextEditorOptions {
+// outputKind picks the wire-format wrapper for a tool call by name, using
+// the request's original tool definitions. Calls returning under the
+// Anthropic str_replace_based_edit_tool name are mapped to whichever
+// apply_patch flavor the client originally registered.
+func outputKind(name string, tools []Tool) provider.ToolKind {
+	const strReplaceAlias = "str_replace_based_edit_tool"
+	applyPatchAlias := name == "apply_patch" || name == strReplaceAlias
+
 	for _, t := range tools {
-		if isApplyPatchTool(t) {
-			return &provider.TextEditorOptions{}
+		switch t.Type {
+		case ToolTypeApplyPatch:
+			if applyPatchAlias {
+				return provider.ToolKindTextEditor
+			}
+		case ToolTypeCustom:
+			if t.Name == name || (t.Name == "apply_patch" && name == strReplaceAlias) {
+				return provider.ToolKindCustom
+			}
+		case ToolTypeComputer:
+			if name == "computer" {
+				return provider.ToolKindComputer
+			}
+		case ToolTypeFunction:
+			if t.Name == name {
+				return provider.ToolKindFunction
+			}
 		}
 	}
-	return nil
-}
 
-func toComputerUseToolOptions(tools []Tool) *provider.ComputerOptions {
-	for _, t := range tools {
-		if t.Type == ToolTypeComputer {
-			return &provider.ComputerOptions{}
-		}
-	}
-	return nil
-}
-
-func isComputerToolCall(call provider.ToolCall) bool {
-	return call.Name == "computer"
-}
-
-func isApplyPatchTool(t Tool) bool {
-	if t.Type == ToolTypeApplyPatch {
-		return true
-	}
-
-	// Codex 0.132 sends apply_patch as a Responses custom grammar tool. Treat
-	// that as the native apply_patch capability when forwarding upstream.
-	return t.Type == ToolTypeCustom && t.Name == "apply_patch"
-}
-
-func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCallItem {
-	item := &ComputerCallItem{
-		ID:     "cu_" + call.ID,
-		CallID: call.ID,
-		Status: status,
-	}
-
-	var args map[string]any
-	json.Unmarshal([]byte(call.Arguments), &args)
-
-	if actions, ok := args["actions"].([]any); ok {
-		item.Actions = actions
-	}
-
-	return item
+	return provider.ToolKindFunction
 }
 
 // isApplyPatchToolCall returns true if the tool call is an apply_patch or text_editor call.
@@ -413,24 +481,45 @@ func toolCallToApplyPatchCall(call provider.ToolCall, status string) *ApplyPatch
 	return item
 }
 
-func toAddDiff(content string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
-		b.WriteString("+" + line + "\n")
+// toolCallToCustomToolCall wraps a ToolCall as a custom_tool_call item.
+// apply_patch calls are re-encoded as the *** Begin Patch envelope Codex's
+// grammar requires; other tools pass their arguments through as raw input.
+func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomToolCallItem {
+	if isApplyPatchToolCall(call) {
+		op := toolCallToApplyPatchCall(call, status).Operation
+		return &CustomToolCallItem{
+			ID:     "ctc_" + call.ID,
+			CallID: call.ID,
+			Status: status,
+			Name:   "apply_patch",
+			Input:  toApplyPatchEnvelope(op),
+		}
 	}
-	return b.String()
+
+	return &CustomToolCallItem{
+		ID:     "ctc_" + call.ID,
+		CallID: call.ID,
+		Status: status,
+		Name:   call.Name,
+		Input:  call.Arguments,
+	}
 }
 
-func toReplaceDiff(oldText, newText string) string {
-	var b strings.Builder
-	b.WriteString("@@\n")
-	for _, line := range strings.Split(strings.TrimRight(oldText, "\n"), "\n") {
-		b.WriteString("-" + line + "\n")
+func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCallItem {
+	item := &ComputerCallItem{
+		ID:     "cu_" + call.ID,
+		CallID: call.ID,
+		Status: status,
 	}
-	for _, line := range strings.Split(strings.TrimRight(newText, "\n"), "\n") {
-		b.WriteString("+" + line + "\n")
+
+	var args map[string]any
+	json.Unmarshal([]byte(call.Arguments), &args)
+
+	if actions, ok := args["actions"].([]any); ok {
+		item.Actions = actions
 	}
-	return b.String()
+
+	return item
 }
 
 // computerOutputParts maps a computer_call_output.output object to Parts.
@@ -456,14 +545,93 @@ func computerOutputParts(output any) ([]provider.Part, error) {
 			}
 			return []provider.Part{{File: file}}, nil
 		}
-		// file_id form — we have no fetcher here; pass it through as text
-		// so the downstream provider can resolve it if it supports the ID.
 		if screenshot.FileID != "" {
 			return []provider.Part{{Text: string(data)}}, nil
 		}
 	}
 
 	return []provider.Part{{Text: string(data)}}, nil
+}
+
+func toAddDiff(content string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		b.WriteString("+" + line + "\n")
+	}
+	return b.String()
+}
+
+func toReplaceDiff(oldText, newText string) string {
+	var b strings.Builder
+	b.WriteString("@@\n")
+	for _, line := range strings.Split(strings.TrimRight(oldText, "\n"), "\n") {
+		b.WriteString("-" + line + "\n")
+	}
+	for _, line := range strings.Split(strings.TrimRight(newText, "\n"), "\n") {
+		b.WriteString("+" + line + "\n")
+	}
+	return b.String()
+}
+
+// toApplyPatchEnvelope renders an ApplyPatchOperation as the raw patch envelope
+// Codex's freeform apply_patch tool expects as the custom_tool_call input.
+func toApplyPatchEnvelope(op ApplyPatchOperation) string {
+	var b strings.Builder
+	b.WriteString("*** Begin Patch\n")
+
+	switch op.Type {
+	case "create_file":
+		b.WriteString("*** Add File: " + op.Path + "\n")
+	case "delete_file":
+		b.WriteString("*** Delete File: " + op.Path + "\n")
+	default:
+		b.WriteString("*** Update File: " + op.Path + "\n")
+	}
+
+	if op.Diff != "" {
+		b.WriteString(op.Diff)
+		if !strings.HasSuffix(op.Diff, "\n") {
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("*** End Patch\n")
+	return b.String()
+}
+
+// parseApplyPatchEnvelope is the inverse of toApplyPatchEnvelope: it extracts the
+// operation type, path, and diff body from a raw patch envelope produced by Codex.
+func parseApplyPatchEnvelope(input string) ApplyPatchOperation {
+	var op ApplyPatchOperation
+	var body []string
+
+	for _, line := range strings.Split(input, "\n") {
+		switch {
+		case strings.HasPrefix(line, "*** Begin Patch"):
+			continue
+		case strings.HasPrefix(line, "*** End Patch"):
+			continue
+		case strings.HasPrefix(line, "*** Add File: "):
+			op.Type = "create_file"
+			op.Path = strings.TrimPrefix(line, "*** Add File: ")
+		case strings.HasPrefix(line, "*** Update File: "):
+			op.Type = "update_file"
+			op.Path = strings.TrimPrefix(line, "*** Update File: ")
+		case strings.HasPrefix(line, "*** Delete File: "):
+			op.Type = "delete_file"
+			op.Path = strings.TrimPrefix(line, "*** Delete File: ")
+		case strings.HasPrefix(line, "*** Move to: "):
+			continue
+		default:
+			body = append(body, line)
+		}
+	}
+
+	op.Diff = strings.TrimRight(strings.Join(body, "\n"), "\n")
+	if op.Diff != "" {
+		op.Diff += "\n"
+	}
+	return op
 }
 
 func toParts(items []InputContent) ([]provider.Part, error) {

@@ -276,8 +276,23 @@ func toTools(tools []ToolParam) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
-		// Skip special tools — handled separately via options
-		if strings.HasPrefix(t.Type, "text_editor") || strings.HasPrefix(t.Type, "computer") {
+		if strings.HasPrefix(t.Type, "text_editor") {
+			result = append(result, provider.Tool{
+				Name: "str_replace_based_edit_tool",
+				Kind: provider.ToolKindTextEditor,
+			})
+			continue
+		}
+
+		if strings.HasPrefix(t.Type, "computer") {
+			result = append(result, provider.Tool{
+				Name: "computer",
+				Kind: provider.ToolKindComputer,
+				Display: &provider.Display{
+					Width:  t.DisplayWidthPx,
+					Height: t.DisplayHeightPx,
+				},
+			})
 			continue
 		}
 
@@ -289,27 +304,6 @@ func toTools(tools []ToolParam) []provider.Tool {
 	}
 
 	return result
-}
-
-func toTextEditorToolOptions(tools []ToolParam) *provider.TextEditorOptions {
-	for _, t := range tools {
-		if strings.HasPrefix(t.Type, "text_editor") {
-			return &provider.TextEditorOptions{}
-		}
-	}
-	return nil
-}
-
-func toComputerUseToolOptions(tools []ToolParam) *provider.ComputerOptions {
-	for _, t := range tools {
-		if strings.HasPrefix(t.Type, "computer") {
-			return &provider.ComputerOptions{
-				DisplayWidth:  1024,
-				DisplayHeight: 768,
-			}
-		}
-	}
-	return nil
 }
 
 func toContentBlocks(content []provider.Content) []ContentBlock {

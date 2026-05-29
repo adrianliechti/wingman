@@ -183,14 +183,6 @@ type ToolCall struct {
 	Arguments string
 }
 
-type TextEditorOptions struct{}
-
-type ComputerOptions struct {
-	DisplayWidth  int
-	DisplayHeight int
-	Environment   string // e.g. "browser", "desktop"
-}
-
 type ToolChoice string
 
 const (
@@ -230,9 +222,6 @@ type CompleteOptions struct {
 	OutputOptions     *OutputOptions
 	ReasoningOptions  *ReasoningOptions
 	CompactionOptions *CompactionOptions
-
-	TextEditorTool  *TextEditorOptions
-	ComputerUseTool *ComputerOptions
 
 	Schema *Schema
 }

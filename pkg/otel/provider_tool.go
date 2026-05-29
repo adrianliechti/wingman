@@ -6,7 +6,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool"
 
 	"go.opentelemetry.io/otel"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
 type Tool interface {
@@ -59,8 +59,7 @@ func (p *observableTool) Execute(ctx context.Context, tool string, parameters ma
 	result, err := p.tool.Execute(ctx, tool, parameters)
 
 	if err != nil {
-		span.RecordError(err)
-		span.SetAttributes(semconv.ErrorType(err))
+		RecordError(span, err)
 	}
 
 	if span.IsRecording() {

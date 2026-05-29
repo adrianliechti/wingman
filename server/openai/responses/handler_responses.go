@@ -45,9 +45,6 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		Tools:       tools,
 		ToolOptions: toToolOptions(req.ToolChoice),
 
-		TextEditorTool:  toTextEditorToolOptions(req.Tools),
-		ComputerUseTool: toComputerUseToolOptions(req.Tools),
-
 		MaxTokens:   req.MaxOutputTokens,
 		Temperature: req.Temperature,
 	}
@@ -343,8 +340,12 @@ func reasoningRequested(req ResponsesRequest) bool {
 type responseOutputOptions struct {
 	IncludeSummary   bool
 	IncludeReasoning bool
-	ApplyPatchTool   bool
-	ComputerUseTool  bool
+
+	Tools []Tool
+}
+
+func (o responseOutputOptions) kindOf(name string) provider.ToolKind {
+	return outputKind(name, o.Tools)
 }
 
 func responseOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
@@ -440,17 +441,26 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 		if content.ToolCall != nil {
 			call := *content.ToolCall
 
-			if opts.ApplyPatchTool && isApplyPatchToolCall(call) {
+			switch opts.kindOf(call.Name) {
+			case provider.ToolKindCustom:
+				output = append(output, ResponseOutput{
+					Type:               ResponseOutputTypeCustomToolCall,
+					CustomToolCallItem: toolCallToCustomToolCall(call, status),
+				})
+
+			case provider.ToolKindTextEditor:
 				output = append(output, ResponseOutput{
 					Type:               ResponseOutputTypeApplyPatchCall,
 					ApplyPatchCallItem: toolCallToApplyPatchCall(call, status),
 				})
-			} else if opts.ComputerUseTool && isComputerToolCall(call) {
+
+			case provider.ToolKindComputer:
 				output = append(output, ResponseOutput{
 					Type:             ResponseOutputTypeComputerCall,
 					ComputerCallItem: toolCallToComputerCall(call, status),
 				})
-			} else {
+
+			default:
 				output = append(output, ResponseOutput{
 					Type: ResponseOutputTypeFunctionCall,
 					FunctionCallOutputItem: &FunctionCallOutputItem{
@@ -510,8 +520,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	outputOpts := responseOutputOptions{
 		IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 		IncludeReasoning: reasoningRequested(req),
-		ApplyPatchTool:   options.TextEditorTool != nil,
-		ComputerUseTool:  options.ComputerUseTool != nil,
+		Tools:            req.Tools,
 	}
 
 	// Create initial response template
@@ -612,12 +621,10 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallAdded:
-			if outputOpts.ComputerUseTool && event.ToolCallName == "computer" {
-				return nil
-			}
-
-			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
-				// Emit as apply_patch_call — full item comes at FunctionCallDone
+			// Suppress the function_call wrapper for native item types
+			// (apply_patch_call, custom_tool_call) — their full item ships
+			// at FunctionCallDone.
+			if outputOpts.kindOf(event.ToolCallName) != provider.ToolKindFunction {
 				return nil
 			}
 
@@ -636,13 +643,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallArgumentsDelta:
-			// computer / apply_patch are emitted as their own item types in
-			// FunctionCallDone; they don't carry function_call_arguments.* on
-			// the wire (the args/actions ride inside the output_item itself).
-			if outputOpts.ComputerUseTool && event.ToolCallName == "computer" {
-				return nil
-			}
-			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
+			if outputOpts.kindOf(event.ToolCallName) != provider.ToolKindFunction {
 				return nil
 			}
 
@@ -655,10 +656,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallArgumentsDone:
-			if outputOpts.ComputerUseTool && event.ToolCallName == "computer" {
-				return nil
-			}
-			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
+			if outputOpts.kindOf(event.ToolCallName) != provider.ToolKindFunction {
 				return nil
 			}
 
@@ -671,73 +669,51 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventFunctionCallDone:
-			if outputOpts.ComputerUseTool && event.ToolCallName == "computer" {
-				call := provider.ToolCall{
-					ID:        event.ToolCallID,
-					Name:      event.ToolCallName,
-					Arguments: event.Arguments,
-				}
-				item := toolCallToComputerCall(call, "completed")
-
-				if err := writeEvent(w, "response.output_item.added", map[string]any{
-					"type":            "response.output_item.added",
-					"sequence_number": nextSeq(),
-					"output_index":    event.OutputIndex,
-					"item": map[string]any{
-						"type":   "computer_call",
-						"id":     item.ID,
-						"status": "in_progress",
-					},
-				}); err != nil {
-					return err
-				}
-
-				return writeEvent(w, "response.output_item.done", map[string]any{
-					"type":            "response.output_item.done",
-					"sequence_number": nextSeq(),
-					"output_index":    event.OutputIndex,
-					"item": map[string]any{
-						"type":    "computer_call",
-						"id":      item.ID,
-						"status":  item.Status,
-						"call_id": item.CallID,
-						"actions": item.Actions,
-					},
-				})
+			call := provider.ToolCall{
+				ID:        event.ToolCallID,
+				Name:      event.ToolCallName,
+				Arguments: event.Arguments,
 			}
 
-			if outputOpts.ApplyPatchTool && (event.ToolCallName == "apply_patch" || event.ToolCallName == "str_replace_based_edit_tool") {
-				call := provider.ToolCall{
-					ID:        event.ToolCallID,
-					Name:      event.ToolCallName,
-					Arguments: event.Arguments,
-				}
-				item := toolCallToApplyPatchCall(call, "completed")
+			var wireType, itemID, itemCallID, itemStatus string
+			var doneFields map[string]any
 
+			switch outputOpts.kindOf(event.ToolCallName) {
+			case provider.ToolKindCustom:
+				item := toolCallToCustomToolCall(call, "completed")
+				wireType, itemID, itemCallID, itemStatus = "custom_tool_call", item.ID, item.CallID, item.Status
+				doneFields = map[string]any{"name": item.Name, "input": item.Input}
+
+			case provider.ToolKindTextEditor:
+				item := toolCallToApplyPatchCall(call, "completed")
+				wireType, itemID, itemCallID, itemStatus = "apply_patch_call", item.ID, item.CallID, item.Status
+				doneFields = map[string]any{"operation": item.Operation}
+
+			case provider.ToolKindComputer:
+				item := toolCallToComputerCall(call, "completed")
+				wireType, itemID, itemCallID, itemStatus = "computer_call", item.ID, item.CallID, item.Status
+				doneFields = map[string]any{"actions": item.Actions}
+			}
+
+			if wireType != "" {
 				if err := writeEvent(w, "response.output_item.added", map[string]any{
 					"type":            "response.output_item.added",
 					"sequence_number": nextSeq(),
 					"output_index":    event.OutputIndex,
-					"item": map[string]any{
-						"type":   "apply_patch_call",
-						"id":     item.ID,
-						"status": "in_progress",
-					},
+					"item":            map[string]any{"type": wireType, "id": itemID, "status": "in_progress"},
 				}); err != nil {
 					return err
 				}
 
+				doneItem := map[string]any{"type": wireType, "id": itemID, "status": itemStatus, "call_id": itemCallID}
+				for k, v := range doneFields {
+					doneItem[k] = v
+				}
 				return writeEvent(w, "response.output_item.done", map[string]any{
 					"type":            "response.output_item.done",
 					"sequence_number": nextSeq(),
 					"output_index":    event.OutputIndex,
-					"item": map[string]any{
-						"type":      "apply_patch_call",
-						"id":        item.ID,
-						"status":    item.Status,
-						"call_id":   item.CallID,
-						"operation": item.Operation,
-					},
+					"item":            doneItem,
 				})
 			}
 
@@ -1109,8 +1085,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		Output: responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status), responseOutputOptions{
 			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 			IncludeReasoning: reasoningRequested(req),
-			ApplyPatchTool:   options.TextEditorTool != nil,
-			ComputerUseTool:  options.ComputerUseTool != nil,
+			Tools:            req.Tools,
 		}),
 		Usage: responseUsage(completion.Usage),
 	}

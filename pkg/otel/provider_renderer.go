@@ -7,7 +7,9 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/semconv/v1.40.0/genaiconv"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Renderer interface {
@@ -43,32 +45,52 @@ func (p *observableRenderer) otelSetup() {
 }
 
 func (p *observableRenderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Rendering, error) {
-	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "render "+p.model)
+	ctx, span := otel.Tracer(instrumentationName).Start(ctx, GenAISpanName(genaiconv.OperationNameGenerateContent, p.model), trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
+
+	if span.IsRecording() {
+		span.SetAttributes(KeyValues(
+			RequestAttrs(semconv.GenAIOperationNameGenerateContent, p.provider, p.model),
+			EndUserAttrs(ctx),
+		)...)
+	}
 
 	timestamp := time.Now()
 
 	result, err := p.renderer.Render(ctx, input, options)
 
+	if err != nil {
+		RecordError(span, err)
+	}
+
+	duration := time.Since(timestamp).Seconds()
+	providerName := genaiconv.ProviderNameAttr(p.provider)
+	providerModel := p.model
+
 	if result != nil {
-		duration := time.Since(timestamp).Seconds()
-
-		providerName := genaiconv.ProviderNameAttr(p.provider)
-		providerModel := p.model
-
 		if result.Model != "" {
 			providerModel = result.Model
 		}
 
-		p.operationDurationMetric.Record(ctx, duration,
-			genaiconv.OperationNameGenerateContent,
-			providerName,
-			KeyValues([]KeyValue{
-				p.operationDurationMetric.AttrRequestModel(p.model),
-				p.operationDurationMetric.AttrResponseModel(providerModel),
-			}, EndUserAttrs(ctx))...,
-		)
+		if span.IsRecording() {
+			span.SetAttributes(semconv.GenAIResponseModel(providerModel))
+		}
 	}
+
+	attrs := KeyValues([]KeyValue{
+		p.operationDurationMetric.AttrRequestModel(p.model),
+		p.operationDurationMetric.AttrResponseModel(providerModel),
+	}, EndUserAttrs(ctx))
+
+	if err != nil {
+		attrs = append(attrs, p.operationDurationMetric.AttrErrorType(ErrorTypeAttr(err)))
+	}
+
+	p.operationDurationMetric.Record(ctx, duration,
+		genaiconv.OperationNameGenerateContent,
+		providerName,
+		attrs...,
+	)
 
 	return result, err
 }

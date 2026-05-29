@@ -10,26 +10,13 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
-	"go.opentelemetry.io/otel/semconv/v1.40.0/genaiconv"
-)
-
-// Cache token type attributes following the GenAI semantic conventions:
-// gen_ai.usage.cache_creation.input_tokens and gen_ai.usage.cache_read.input_tokens
-var (
-	TokenTypeCacheCreation genaiconv.TokenTypeAttr = "cache_creation"
-	TokenTypeCacheRead     genaiconv.TokenTypeAttr = "cache_read"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type KeyValue = attribute.KeyValue
-
-func String(key string, val string) KeyValue {
-	return attribute.String(key, val)
-}
-
-func Strings(key string, val []string) KeyValue {
-	return attribute.StringSlice(key, val)
-}
 
 func KeyValues(attrs ...[]KeyValue) []KeyValue {
 	var result []KeyValue
@@ -51,40 +38,51 @@ func Label(ctx context.Context, attrs ...KeyValue) {
 	labeler.Add(attrs...)
 }
 
+func RecordError(span trace.Span, err error) {
+	if err == nil {
+		return
+	}
+
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	span.SetAttributes(semconv.ErrorType(err))
+}
+
+func ErrorTypeAttr(err error) genaiconv.ErrorTypeAttr {
+	return genaiconv.ErrorTypeAttr(semconv.ErrorType(err).Value.AsString())
+}
+
+func GenAISpanName(operation genaiconv.OperationNameAttr, model string) string {
+	if model == "" {
+		return string(operation)
+	}
+
+	return string(operation) + " " + model
+}
+
 func EndUserAttrs(ctx context.Context) []KeyValue {
 	var attrs []KeyValue
 
 	if user, ok := ctx.Value(auth.UserContextKey).(string); ok && user != "" {
-		attrs = append(attrs,
-			attribute.String("user.id", user),
-			attribute.String("enduser.id", user), // deprecated
-		)
+		attrs = append(attrs, attribute.String("user.id", user))
 	}
 
 	if email, ok := ctx.Value(auth.EmailContextKey).(string); ok && email != "" {
-		attrs = append(attrs,
-			attribute.String("user.email", email),
-			attribute.String("enduser.email", email), // deprecated
-		)
+		attrs = append(attrs, attribute.String("user.email", email))
 	}
 
 	if name, ok := ctx.Value(auth.NameContextKey).(string); ok && name != "" {
-		attrs = append(attrs,
-			attribute.String("user.full_name", name),
-			attribute.String("enduser.name", name), // deprecated
-		)
+		attrs = append(attrs, attribute.String("user.full_name", name))
 	}
 
 	if session, ok := ctx.Value(auth.SessionContextKey).(string); ok && session != "" {
-		attrs = append(attrs,
-			attribute.String("session.id", session),
-		)
+		attrs = append(attrs, attribute.String("session.id", session))
 	}
 
 	return attrs
 }
 
-func RequestAttrs(operation attribute.KeyValue, providerName, requestModel, responseModel string) []KeyValue {
+func RequestAttrs(operation attribute.KeyValue, providerName, requestModel string) []KeyValue {
 	attrs := []KeyValue{
 		operation,
 	}
@@ -95,10 +93,6 @@ func RequestAttrs(operation attribute.KeyValue, providerName, requestModel, resp
 
 	if requestModel != "" {
 		attrs = append(attrs, semconv.GenAIRequestModel(requestModel))
-	}
-
-	if responseModel != "" {
-		attrs = append(attrs, semconv.GenAIResponseModel(responseModel))
 	}
 
 	return attrs
@@ -136,13 +130,18 @@ func PromptAttrs(messages []provider.Message) []KeyValue {
 		return nil
 	}
 
-	data, err := json.Marshal(flattenMessages(messages))
+	chats := make([]chatMessage, 0, len(messages))
+	for _, m := range messages {
+		chats = append(chats, toChatMessage(m))
+	}
+
+	data, err := json.Marshal(chats)
 
 	if err != nil {
 		return nil
 	}
 
-	return []KeyValue{attribute.String("gen_ai.prompt", string(data))}
+	return []KeyValue{semconv.GenAIInputMessagesKey.String(string(data))}
 }
 
 // Gated by EnableDebug to avoid leaking user data.
@@ -151,13 +150,18 @@ func CompletionAttrs(completion *provider.Completion) []KeyValue {
 		return nil
 	}
 
-	data, err := json.Marshal(flattenMessages([]provider.Message{*completion.Message}))
+	out := outputMessage{
+		chatMessage:  toChatMessage(*completion.Message),
+		FinishReason: finishReason(completion),
+	}
+
+	data, err := json.Marshal([]outputMessage{out})
 
 	if err != nil {
 		return nil
 	}
 
-	return []KeyValue{attribute.String("gen_ai.completion", string(data))}
+	return []KeyValue{semconv.GenAIOutputMessagesKey.String(string(data))}
 }
 
 // Gated by EnableDebug to avoid leaking user data.
@@ -190,22 +194,110 @@ func ToolResultAttrs(result any) []KeyValue {
 	return []KeyValue{semconv.GenAIToolCallResultKey.String(string(data))}
 }
 
-func flattenMessages(messages []provider.Message) []map[string]string {
-	result := make([]map[string]string, 0, len(messages))
+// chatMessage / outputMessage / messagePart mirror the GenAI semantic
+// convention message shapes (gen_ai.input.messages, gen_ai.output.messages):
+// role + array of typed parts. Role "tool" is used when a message carries
+// tool results.
+type chatMessage struct {
+	Role  string        `json:"role"`
+	Parts []messagePart `json:"parts"`
+}
 
-	for _, m := range messages {
-		var text strings.Builder
+type outputMessage struct {
+	chatMessage
+	FinishReason string `json:"finish_reason,omitempty"`
+}
 
-		for _, c := range m.Content {
-			text.WriteString(c.Text)
-			text.WriteString(c.Refusal)
+type messagePart struct {
+	Type string `json:"type"`
+
+	Content   string `json:"content,omitempty"`   // text / reasoning
+	ID        string `json:"id,omitempty"`        // tool_call / tool_call_response
+	Name      string `json:"name,omitempty"`      // tool_call
+	Arguments any    `json:"arguments,omitempty"` // tool_call
+	Response  any    `json:"response,omitempty"`  // tool_call_response
+}
+
+func toChatMessage(m provider.Message) chatMessage {
+	msg := chatMessage{Role: string(m.Role)}
+
+	for _, c := range m.Content {
+		if c.ToolResult != nil {
+			msg.Role = "tool"
+			break
 		}
-
-		result = append(result, map[string]string{
-			"role":    string(m.Role),
-			"content": text.String(),
-		})
 	}
 
-	return result
+	for _, c := range m.Content {
+		if c.Text != "" {
+			msg.Parts = append(msg.Parts, messagePart{Type: "text", Content: c.Text})
+		}
+
+		if c.Refusal != "" {
+			msg.Parts = append(msg.Parts, messagePart{Type: "text", Content: c.Refusal})
+		}
+
+		if c.Reasoning != nil {
+			text := c.Reasoning.Text
+			if text == "" {
+				text = c.Reasoning.Summary
+			}
+			if text != "" {
+				msg.Parts = append(msg.Parts, messagePart{Type: "reasoning", Content: text})
+			}
+		}
+
+		if c.ToolCall != nil {
+			var args any = c.ToolCall.Arguments
+			if c.ToolCall.Arguments != "" {
+				var parsed any
+				if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &parsed); err == nil {
+					args = parsed
+				}
+			}
+			msg.Parts = append(msg.Parts, messagePart{
+				Type:      "tool_call",
+				ID:        c.ToolCall.ID,
+				Name:      c.ToolCall.Name,
+				Arguments: args,
+			})
+		}
+
+		if c.ToolResult != nil {
+			var text strings.Builder
+			for _, p := range c.ToolResult.Parts {
+				text.WriteString(p.Text)
+			}
+			msg.Parts = append(msg.Parts, messagePart{
+				Type:     "tool_call_response",
+				ID:       c.ToolResult.ID,
+				Response: text.String(),
+			})
+		}
+	}
+
+	return msg
+}
+
+// finishReason maps a provider CompletionStatus to the GenAI semantic
+// convention finish_reason enum (stop / length / content_filter / tool_call / error).
+func finishReason(c *provider.Completion) string {
+	switch c.Status {
+	case provider.CompletionStatusIncomplete:
+		return "length"
+	case provider.CompletionStatusFailed:
+		return "error"
+	case provider.CompletionStatusRefused:
+		return "content_filter"
+	}
+
+	if c.Message != nil {
+		for _, content := range c.Message.Content {
+			if content.ToolCall != nil {
+				return "tool_call"
+			}
+		}
+	}
+
+	return "stop"
 }

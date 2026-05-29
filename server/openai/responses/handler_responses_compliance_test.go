@@ -422,8 +422,8 @@ func TestResponsesRequestParsesCodexTurnShape(t *testing.T) {
 		t.Fatalf("function_call_output.output not normalized: %+v", fco.Output)
 	}
 
-	if toTextEditorToolOptions(req.Tools) == nil {
-		t.Fatal("expected Codex custom apply_patch tool to enable text editor")
+	if got := outputKind("apply_patch", req.Tools); got != provider.ToolKindCustom {
+		t.Fatalf("expected Codex custom apply_patch tool to be wrapped as Custom, got %q", got)
 	}
 }
 
@@ -908,68 +908,65 @@ func TestEndToEndStreamingSequenceMatchesHARPattern(t *testing.T) {
 // tool-type semantics), but the handler must suppress those at the wire —
 // otherwise the client receives function_call_arguments.* events referring
 // to an fc_<id> item that was never added.
-func TestComputerAndApplyPatchSuppressFunctionCallArgumentsEvents(t *testing.T) {
+func TestApplyPatchSuppressFunctionCallArgumentsEvents(t *testing.T) {
 	cases := []struct {
-		name      string
-		toolName  string
-		applyOpts responseOutputOptions
+		name     string
+		toolName string
+		tools    []Tool
 	}{
-		{name: "computer", toolName: "computer", applyOpts: responseOutputOptions{ComputerUseTool: true}},
-		{name: "apply_patch", toolName: "apply_patch", applyOpts: responseOutputOptions{ApplyPatchTool: true}},
-		{name: "str_replace_based_edit_tool", toolName: "str_replace_based_edit_tool", applyOpts: responseOutputOptions{ApplyPatchTool: true}},
+		{
+			name:     "apply_patch",
+			toolName: "apply_patch",
+			tools:    []Tool{{Type: ToolTypeApplyPatch}},
+		},
+		{
+			name:     "str_replace_based_edit_tool",
+			toolName: "str_replace_based_edit_tool",
+			tools:    []Tool{{Type: ToolTypeApplyPatch}},
+		},
+		{
+			name:     "custom_apply_patch",
+			toolName: "apply_patch",
+			tools:    []Tool{{Type: ToolTypeCustom, Name: "apply_patch"}},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Smoke the handler-level decision: when the tool name matches
-			// computer/apply_patch and the option flag is set, the
-			// FunctionCallArgumentsDelta/Done handler returns nil (no write).
-			// We assert the suppression contract by checking the conditions
-			// directly, mirroring the handler logic at the call site.
-			isComputerSuppressed := tc.applyOpts.ComputerUseTool && tc.toolName == "computer"
-			isApplyPatchSuppressed := tc.applyOpts.ApplyPatchTool &&
-				(tc.toolName == "apply_patch" || tc.toolName == "str_replace_based_edit_tool")
-
-			if !isComputerSuppressed && !isApplyPatchSuppressed {
-				t.Fatalf("tool %q should be suppressed under opts %+v", tc.toolName, tc.applyOpts)
+			opts := responseOutputOptions{Tools: tc.tools}
+			if opts.kindOf(tc.toolName) == provider.ToolKindFunction {
+				t.Fatalf("tool %q should resolve to a non-function Kind, got %q", tc.toolName, opts.kindOf(tc.toolName))
 			}
 		})
 	}
 }
 
-// End-to-end variant of the suppression check: drive a computer tool call
-// through the accumulator and the handler's event-routing logic (a small
-// stand-in for handleResponsesStream), and assert the handler emits no
-// function_call_arguments.* wire events for it. The accumulator still
+// End-to-end variant of the suppression check: drive an apply_patch tool
+// call through the accumulator and the handler's event-routing logic (a
+// small stand-in for handleResponsesStream), and assert the handler emits
+// no function_call_arguments.* wire events for it. The accumulator still
 // emits the internal StreamEvent — the suppression happens at the wire
-// layer in handler_responses.go.
-func TestComputerToolCallEmitsNoArgumentsWireEvents(t *testing.T) {
+// layer in handler_responses.go, keyed by the tool's registered Kind.
+func TestApplyPatchToolCallEmitsNoArgumentsWireEvents(t *testing.T) {
 	type wireEv struct {
 		Type string
 	}
 
 	var wire []wireEv
 
-	// Replicate the handler's per-event routing decision (just the
-	// FunctionCallArgumentsDelta/Done arms). If suppression is correct,
-	// these arms write nothing for tools tagged as computer/apply_patch.
-	opts := responseOutputOptions{ComputerUseTool: true}
+	opts := responseOutputOptions{Tools: []Tool{
+		{Type: ToolTypeApplyPatch},
+	}}
 
 	acc := NewStreamingAccumulator(func(e StreamEvent) error {
 		switch e.Type {
 		case StreamEventFunctionCallArgumentsDelta:
-			if opts.ComputerUseTool && e.ToolCallName == "computer" {
-				return nil
-			}
-			if opts.ApplyPatchTool && (e.ToolCallName == "apply_patch" || e.ToolCallName == "str_replace_based_edit_tool") {
+			if opts.kindOf(e.ToolCallName) != provider.ToolKindFunction {
 				return nil
 			}
 			wire = append(wire, wireEv{Type: "response.function_call_arguments.delta"})
 		case StreamEventFunctionCallArgumentsDone:
-			if opts.ComputerUseTool && e.ToolCallName == "computer" {
-				return nil
-			}
-			if opts.ApplyPatchTool && (e.ToolCallName == "apply_patch" || e.ToolCallName == "str_replace_based_edit_tool") {
+			if opts.kindOf(e.ToolCallName) != provider.ToolKindFunction {
 				return nil
 			}
 			wire = append(wire, wireEv{Type: "response.function_call_arguments.done"})
@@ -977,13 +974,14 @@ func TestComputerToolCallEmitsNoArgumentsWireEvents(t *testing.T) {
 		return nil
 	})
 
+	args := `{"type":"update_file","path":"main.go","diff":"@@\n-old\n+new\n"}`
 	if err := acc.Add(provider.Completion{
 		Message: &provider.Message{
 			Role: provider.MessageRoleAssistant,
 			Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{
-				ID:        "cu_1",
-				Name:      "computer",
-				Arguments: `{"actions":[]}`,
+				ID:        "apc_1",
+				Name:      "apply_patch",
+				Arguments: args,
 			})},
 		},
 	}); err != nil {
@@ -994,6 +992,6 @@ func TestComputerToolCallEmitsNoArgumentsWireEvents(t *testing.T) {
 	}
 
 	if len(wire) != 0 {
-		t.Fatalf("expected zero function_call_arguments.* wire events for computer tool, got %d: %+v", len(wire), wire)
+		t.Fatalf("expected zero function_call_arguments.* wire events for apply_patch, got %d: %+v", len(wire), wire)
 	}
 }

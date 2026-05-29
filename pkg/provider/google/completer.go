@@ -346,6 +346,10 @@ func convertTools(tools []provider.Tool) []*genai.Tool {
 	var functions []*genai.FunctionDeclaration
 
 	for _, t := range tools {
+		if t.Kind != provider.ToolKindFunction {
+			continue
+		}
+
 		function := &genai.FunctionDeclaration{
 			Name:        t.Name,
 			Description: t.Description,

@@ -728,6 +728,10 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 	result := &types.ToolConfiguration{}
 
 	for _, t := range tools {
+		if t.Kind != provider.ToolKindFunction {
+			continue
+		}
+
 		tool := types.ToolSpecification{
 			Name: aws.String(t.Name),
 		}

@@ -364,6 +364,10 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 	var result []openai.ChatCompletionToolUnionParam
 
 	for _, t := range tools {
+		if t.Kind != provider.ToolKindFunction {
+			continue
+		}
+
 		if t.Name == "" {
 			continue
 		}

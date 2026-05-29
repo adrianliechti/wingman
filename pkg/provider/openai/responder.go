@@ -272,18 +272,6 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		return nil, err
 	}
 
-	if options.TextEditorTool != nil {
-		tools = append(tools, responses.ToolUnionParam{
-			OfApplyPatch: &responses.ApplyPatchToolParam{},
-		})
-	}
-
-	if options.ComputerUseTool != nil {
-		tools = append(tools, responses.ToolUnionParam{
-			OfComputer: &responses.ComputerToolParam{},
-		})
-	}
-
 	req := &responses.ResponseNewParams{
 		Model: r.model,
 
@@ -645,6 +633,20 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 	var result []responses.ToolUnionParam
 
 	for _, t := range tools {
+		if t.Kind == provider.ToolKindTextEditor {
+			result = append(result, responses.ToolUnionParam{
+				OfApplyPatch: &responses.ApplyPatchToolParam{},
+			})
+			continue
+		}
+
+		if t.Kind == provider.ToolKindComputer {
+			result = append(result, responses.ToolUnionParam{
+				OfComputer: &responses.ComputerToolParam{},
+			})
+			continue
+		}
+
 		if t.Name == "" {
 			continue
 		}

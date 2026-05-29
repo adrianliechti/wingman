@@ -140,6 +140,10 @@ func wireTools(tools []provider.Tool) []*Tool {
 	var result []*Tool
 
 	for _, tool := range tools {
+		if tool.Kind != provider.ToolKindFunction {
+			continue
+		}
+
 		result = append(result, wireTool(tool))
 	}
 
