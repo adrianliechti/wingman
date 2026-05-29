@@ -8,9 +8,10 @@ import (
 type contextKey string
 
 const (
-	UserContextKey  contextKey = "auth.user"
-	EmailContextKey contextKey = "auth.email"
-	NameContextKey  contextKey = "auth.name"
+	UserContextKey    contextKey = "auth.user"
+	EmailContextKey   contextKey = "auth.email"
+	NameContextKey    contextKey = "auth.name"
+	SessionContextKey contextKey = "auth.session"
 )
 
 type Provider interface {

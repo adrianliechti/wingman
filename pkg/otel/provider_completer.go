@@ -8,6 +8,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/semconv/v1.40.0/genaiconv"
 )
 
@@ -51,12 +52,22 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 		ctx, span := otel.Tracer(instrumentationName).Start(ctx, "chat "+p.model)
 		defer span.End()
 
+		if span.IsRecording() {
+			span.SetAttributes(KeyValues(
+				RequestAttrs(semconv.GenAIOperationNameChat, p.provider, p.model, ""),
+				EndUserAttrs(ctx),
+				PromptAttrs(messages),
+			)...)
+		}
+
 		timestamp := time.Now()
 
 		var lastResult *provider.Completion
 
 		for completion, err := range p.completer.Complete(ctx, messages, options) {
 			if err != nil {
+				span.RecordError(err)
+				span.SetAttributes(semconv.ErrorType(err))
 				yield(nil, err)
 				return
 			}
@@ -76,6 +87,14 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 
 			if lastResult.Model != "" {
 				providerModel = lastResult.Model
+			}
+
+			if span.IsRecording() {
+				span.SetAttributes(KeyValues(
+					[]KeyValue{semconv.GenAIResponseModel(providerModel)},
+					UsageAttrs(lastResult.Usage),
+					CompletionAttrs(lastResult),
+				)...)
 			}
 
 			p.operationDurationMetric.Record(ctx, duration,

@@ -6,6 +6,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool"
 
 	"go.opentelemetry.io/otel"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 )
 
 type Tool interface {
@@ -43,7 +44,28 @@ func (p *observableTool) Execute(ctx context.Context, tool string, parameters ma
 	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "execute_tool "+tool)
 	defer span.End()
 
+	if span.IsRecording() {
+		span.SetAttributes(KeyValues(
+			[]KeyValue{
+				semconv.GenAIOperationNameExecuteTool,
+				semconv.GenAIToolName(tool),
+				semconv.GenAIToolType("function"),
+			},
+			ToolArgumentAttrs(parameters),
+			EndUserAttrs(ctx),
+		)...)
+	}
+
 	result, err := p.tool.Execute(ctx, tool, parameters)
+
+	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(semconv.ErrorType(err))
+	}
+
+	if span.IsRecording() {
+		span.SetAttributes(ToolResultAttrs(result)...)
+	}
 
 	return result, err
 }

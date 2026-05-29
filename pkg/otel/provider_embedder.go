@@ -7,6 +7,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/semconv/v1.40.0/genaiconv"
 )
 
@@ -49,9 +50,21 @@ func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options 
 	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "embeddings "+p.model)
 	defer span.End()
 
+	if span.IsRecording() {
+		span.SetAttributes(KeyValues(
+			RequestAttrs(semconv.GenAIOperationNameEmbeddings, p.provider, p.model, ""),
+			EndUserAttrs(ctx),
+		)...)
+	}
+
 	timestamp := time.Now()
 
 	result, err := p.embedder.Embed(ctx, texts, options)
+
+	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(semconv.ErrorType(err))
+	}
 
 	if result != nil {
 		duration := time.Since(timestamp).Seconds()
@@ -61,6 +74,13 @@ func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options 
 
 		if result.Model != "" {
 			providerModel = result.Model
+		}
+
+		if span.IsRecording() {
+			span.SetAttributes(KeyValues(
+				[]KeyValue{semconv.GenAIResponseModel(providerModel)},
+				UsageAttrs(result.Usage),
+			)...)
 		}
 
 		p.operationDurationMetric.Record(ctx, duration,
