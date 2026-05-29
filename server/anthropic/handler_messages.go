@@ -93,9 +93,9 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 
 		options.Schema = &provider.Schema{
-			Name:   name,
-			Schema: req.OutputFormat.Schema,
-			Strict: req.OutputFormat.Strict,
+			Name:       name,
+			Strict:     req.OutputFormat.Strict,
+			Properties: req.OutputFormat.Schema,
 		}
 	}
 

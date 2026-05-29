@@ -97,9 +97,9 @@ func valueSchema(r *http.Request) (*provider.Schema, error) {
 		return nil, nil
 	}
 
-	var schema map[string]any
+	var properties map[string]any
 
-	if err := json.Unmarshal([]byte(val), &schema); err != nil {
+	if err := json.Unmarshal([]byte(val), &properties); err != nil {
 		return nil, err
 	}
 
@@ -107,7 +107,7 @@ func valueSchema(r *http.Request) (*provider.Schema, error) {
 		Name:        "output_schema",
 		Description: "the schema for output data in json",
 
-		Schema: schema,
+		Properties: properties,
 	}, nil
 }
 

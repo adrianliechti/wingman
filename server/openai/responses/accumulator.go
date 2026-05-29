@@ -17,6 +17,7 @@ const (
 	StreamEventResponseCompleted  StreamEventType = "response.completed"
 	StreamEventResponseIncomplete StreamEventType = "response.incomplete"
 	StreamEventResponseFailed     StreamEventType = "response.failed"
+	StreamEventResponseError      StreamEventType = "response.error"
 	StreamEventOutputItemAdded    StreamEventType = "output_item.added"
 	StreamEventOutputItemDone     StreamEventType = "output_item.done"
 	StreamEventContentPartAdded   StreamEventType = "content_part.added"
@@ -24,11 +25,20 @@ const (
 	StreamEventTextDelta          StreamEventType = "text.delta"
 	StreamEventTextDone           StreamEventType = "text.done"
 
+	// Refusal events
+	StreamEventRefusalContentPartAdded StreamEventType = "refusal_content_part.added"
+	StreamEventRefusalContentPartDone  StreamEventType = "refusal_content_part.done"
+	StreamEventRefusalDelta            StreamEventType = "refusal.delta"
+	StreamEventRefusalDone             StreamEventType = "refusal.done"
+
 	// Function call events
 	StreamEventFunctionCallAdded          StreamEventType = "function_call.added"
 	StreamEventFunctionCallArgumentsDelta StreamEventType = "function_call_arguments.delta"
 	StreamEventFunctionCallArgumentsDone  StreamEventType = "function_call_arguments.done"
 	StreamEventFunctionCallDone           StreamEventType = "function_call.done"
+
+	StreamEventCustomToolCallInputDelta StreamEventType = "custom_tool_call_input.delta"
+	StreamEventCustomToolCallInputDone  StreamEventType = "custom_tool_call_input.done"
 
 	// Reasoning events
 	StreamEventReasoningItemAdded        StreamEventType = "reasoning_item.added"
@@ -56,6 +66,9 @@ type StreamEvent struct {
 
 	// For completion/done events - the full accumulated text
 	Text string
+
+	// For refusal events
+	RefusalText string
 
 	// For function call events
 	ToolCallID   string
@@ -117,10 +130,12 @@ type StreamingAccumulator struct {
 	// Track state for event emission
 	started            bool
 	hasOutputItem      bool // True if we emitted output_item.added for message
-	hasContentPart     bool // True if we emitted content_part.added
+	hasContentPart     bool // True if we emitted content_part.added (output_text)
+	hasRefusalPart     bool // True if we emitted content_part.added (refusal)
 	messageClosed      bool // True if we emitted output_item.done for message
 	messageOutputIndex int  // Output index for the message item
 	streamedText       strings.Builder
+	streamedRefusal    strings.Builder
 
 	// Tool call state — single source of truth
 	toolCalls       []accumulatedToolCall
@@ -152,6 +167,7 @@ type streamContentKind int
 const (
 	streamContentCompaction streamContentKind = iota
 	streamContentText
+	streamContentRefusal
 )
 
 type streamContentRef struct {
@@ -232,6 +248,19 @@ func (s *StreamingAccumulator) ensureMessageContentPart() error {
 
 	return s.emitEvent(StreamEvent{
 		Type:        StreamEventContentPartAdded,
+		OutputIndex: s.messageOutputIndex,
+	})
+}
+
+func (s *StreamingAccumulator) ensureMessageRefusalPart() error {
+	if s.hasRefusalPart {
+		return nil
+	}
+
+	s.hasRefusalPart = true
+
+	return s.emitEvent(StreamEvent{
+		Type:        StreamEventRefusalContentPartAdded,
 		OutputIndex: s.messageOutputIndex,
 	})
 }
@@ -474,32 +503,58 @@ func (s *StreamingAccumulator) closeReasoning() error {
 
 // closeMessage emits done events for the message item if it was in progress.
 func (s *StreamingAccumulator) closeMessage() error {
-	if !s.hasOutputItem || s.messageClosed || s.streamedText.Len() == 0 {
+	if !s.hasOutputItem || s.messageClosed {
+		return nil
+	}
+
+	if s.streamedText.Len() == 0 && s.streamedRefusal.Len() == 0 {
 		return nil
 	}
 
 	s.messageClosed = true
 	text := s.streamedText.String()
+	refusal := s.streamedRefusal.String()
 
-	if err := s.emitEvent(StreamEvent{
-		Type:        StreamEventTextDone,
-		Text:        text,
-		OutputIndex: s.messageOutputIndex,
-	}); err != nil {
-		return err
+	if s.streamedText.Len() > 0 {
+		if err := s.emitEvent(StreamEvent{
+			Type:        StreamEventTextDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+		}); err != nil {
+			return err
+		}
+
+		if err := s.emitEvent(StreamEvent{
+			Type:        StreamEventContentPartDone,
+			Text:        text,
+			OutputIndex: s.messageOutputIndex,
+		}); err != nil {
+			return err
+		}
 	}
 
-	if err := s.emitEvent(StreamEvent{
-		Type:        StreamEventContentPartDone,
-		Text:        text,
-		OutputIndex: s.messageOutputIndex,
-	}); err != nil {
-		return err
+	if s.streamedRefusal.Len() > 0 {
+		if err := s.emitEvent(StreamEvent{
+			Type:        StreamEventRefusalDone,
+			RefusalText: refusal,
+			OutputIndex: s.messageOutputIndex,
+		}); err != nil {
+			return err
+		}
+
+		if err := s.emitEvent(StreamEvent{
+			Type:        StreamEventRefusalContentPartDone,
+			RefusalText: refusal,
+			OutputIndex: s.messageOutputIndex,
+		}); err != nil {
+			return err
+		}
 	}
 
 	return s.emitEvent(StreamEvent{
 		Type:        StreamEventOutputItemDone,
 		Text:        text,
+		RefusalText: refusal,
 		OutputIndex: s.messageOutputIndex,
 	})
 }
@@ -655,6 +710,35 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
+		if content.Refusal != "" {
+			if s.streamedRefusal.Len() == 0 {
+				s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentRefusal})
+			}
+
+			s.streamedRefusal.WriteString(content.Refusal)
+
+			if len(s.toolCalls) == 0 {
+				if err := s.closeReasoning(); err != nil {
+					return err
+				}
+
+				if err := s.ensureMessageItem(); err != nil {
+					return err
+				}
+				if err := s.ensureMessageRefusalPart(); err != nil {
+					return err
+				}
+
+				if err := s.emitEvent(StreamEvent{
+					Type:        StreamEventRefusalDelta,
+					Delta:       content.Refusal,
+					OutputIndex: s.messageOutputIndex,
+				}); err != nil {
+					return err
+				}
+			}
+		}
+
 		// Text — only emit if no tool calls have started yet; otherwise
 		// just accumulate (will be flushed in Complete). This prevents
 		// opening a message output item after function_call items when
@@ -757,9 +841,7 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
-	// If text was buffered but never streamed (arrived after tool calls),
-	// emit the full message item now before closing tool calls.
-	if s.streamedText.Len() > 0 && !s.hasOutputItem {
+	if (s.streamedText.Len() > 0 || s.streamedRefusal.Len() > 0) && !s.hasOutputItem {
 		s.hasOutputItem = true
 		s.messageOutputIndex = s.reserveOutputIndex()
 
@@ -770,44 +852,45 @@ func (s *StreamingAccumulator) Complete() error {
 			return err
 		}
 
-		if err := s.emitEvent(StreamEvent{
-			Type:        StreamEventContentPartAdded,
-			OutputIndex: s.messageOutputIndex,
-		}); err != nil {
-			return err
+		if s.streamedText.Len() > 0 {
+			if err := s.emitEvent(StreamEvent{
+				Type:        StreamEventContentPartAdded,
+				OutputIndex: s.messageOutputIndex,
+			}); err != nil {
+				return err
+			}
+			s.hasContentPart = true
+
+			if err := s.emitEvent(StreamEvent{
+				Type:        StreamEventTextDelta,
+				Delta:       text,
+				OutputIndex: s.messageOutputIndex,
+			}); err != nil {
+				return err
+			}
 		}
 
-		if err := s.emitEvent(StreamEvent{
-			Type:        StreamEventTextDelta,
-			Delta:       text,
-			OutputIndex: s.messageOutputIndex,
-		}); err != nil {
-			return err
+		if s.streamedRefusal.Len() > 0 {
+			if err := s.emitEvent(StreamEvent{
+				Type:        StreamEventRefusalContentPartAdded,
+				OutputIndex: s.messageOutputIndex,
+			}); err != nil {
+				return err
+			}
+			s.hasRefusalPart = true
+
+			if err := s.emitEvent(StreamEvent{
+				Type:        StreamEventRefusalDelta,
+				Delta:       s.streamedRefusal.String(),
+				OutputIndex: s.messageOutputIndex,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 
-	// Close message if not already closed
-	if s.streamedText.Len() > 0 && !s.messageClosed {
-		s.messageClosed = true
-
-		if err := s.emitEvent(StreamEvent{
-			Type: StreamEventTextDone, Text: text,
-			OutputIndex: s.messageOutputIndex, Completion: result,
-		}); err != nil {
-			return err
-		}
-		if err := s.emitEvent(StreamEvent{
-			Type: StreamEventContentPartDone, Text: text,
-			OutputIndex: s.messageOutputIndex, Completion: result,
-		}); err != nil {
-			return err
-		}
-		if err := s.emitEvent(StreamEvent{
-			Type: StreamEventOutputItemDone, Text: text,
-			OutputIndex: s.messageOutputIndex, Completion: result,
-		}); err != nil {
-			return err
-		}
+	if err := s.closeMessage(); err != nil {
+		return err
 	}
 
 	// Flush any tool calls still open. closeToolCall is idempotent, so calls
@@ -829,9 +912,15 @@ func (s *StreamingAccumulator) Complete() error {
 	})
 }
 
-// Error emits an error event
 func (s *StreamingAccumulator) Error(err error) error {
 	_ = s.start()
+
+	if e := s.emitEvent(StreamEvent{
+		Type:  StreamEventResponseError,
+		Error: err,
+	}); e != nil {
+		return e
+	}
 
 	return s.emitEvent(StreamEvent{
 		Type:  StreamEventResponseFailed,
@@ -863,6 +952,9 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 		case streamContentText:
 			content = append(content, provider.TextContent(s.streamedText.String()))
+
+		case streamContentRefusal:
+			content = append(content, provider.RefusalContent(s.streamedRefusal.String()))
 		}
 	}
 

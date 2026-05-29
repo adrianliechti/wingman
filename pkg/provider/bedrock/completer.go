@@ -490,13 +490,13 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 			tool.Description = aws.String(options.Schema.Description)
 		}
 
-		schema := options.Schema.Schema
-		if schema == nil {
-			schema = map[string]any{"type": "object"}
+		properties := options.Schema.Properties
+		if properties == nil {
+			properties = map[string]any{"type": "object"}
 		}
 
 		tool.InputSchema = &types.ToolInputSchemaMemberJson{
-			Value: document.NewLazyDocument(schema),
+			Value: document.NewLazyDocument(properties),
 		}
 
 		config.Tools = append(config.Tools, &types.ToolMemberToolSpec{Value: tool})

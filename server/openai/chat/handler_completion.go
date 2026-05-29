@@ -129,8 +129,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 				Name:        req.ResponseFormat.JSONSchema.Name,
 				Description: req.ResponseFormat.JSONSchema.Description,
 
-				Strict: req.ResponseFormat.JSONSchema.Strict,
-				Schema: req.ResponseFormat.JSONSchema.Schema,
+				Strict:     req.ResponseFormat.JSONSchema.Strict,
+				Properties: req.ResponseFormat.JSONSchema.Schema,
 			}
 		}
 	}

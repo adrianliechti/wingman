@@ -180,7 +180,7 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 
 	if options.Schema != nil {
 		config.ResponseMIMEType = "application/json"
-		config.ResponseJsonSchema = options.Schema.Schema
+		config.ResponseJsonSchema = options.Schema.Properties
 	}
 
 	return config

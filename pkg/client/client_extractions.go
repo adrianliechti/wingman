@@ -46,13 +46,13 @@ func (r *ExtractionService) New(ctx context.Context, input ExtractionRequest, op
 	}
 
 	if input.Schema != nil {
-		schema, err := json.Marshal(input.Schema.Schema)
+		properties, err := json.Marshal(input.Schema.Properties)
 
 		if err != nil {
 			return nil, err
 		}
 
-		w.WriteField("schema", string(schema))
+		w.WriteField("schema", string(properties))
 	}
 
 	if err := writeFormFile(w, "file", input.Name, input.Reader); err != nil {

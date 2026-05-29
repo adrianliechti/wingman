@@ -44,13 +44,13 @@ func (r *ScrapeService) New(ctx context.Context, input ScrapeRequest, opts ...Re
 	}
 
 	if input.Schema != nil {
-		schema, err := json.Marshal(input.Schema.Schema)
+		properties, err := json.Marshal(input.Schema.Properties)
 
 		if err != nil {
 			return nil, err
 		}
 
-		data.Set("schema", string(schema))
+		data.Set("schema", string(properties))
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", endpoint(c.URL, "/v1/extract"), strings.NewReader(data.Encode()))

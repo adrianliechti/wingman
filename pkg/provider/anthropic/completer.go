@@ -582,13 +582,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.Schema != nil {
-		schema := options.Schema.Schema
-		if schema == nil {
+		properties := options.Schema.Properties
+		if properties == nil {
 			// json_object mode: Anthropic requires a non-empty schema, and rejects
 			// `type: object` unless additionalProperties is explicitly false.
-			schema = map[string]any{"type": "object", "additionalProperties": false}
+			properties = map[string]any{"type": "object", "additionalProperties": false}
 		}
-		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: schema}
+		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{Schema: properties}
 	}
 
 	if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 && !isLegacyModel(c.model) {

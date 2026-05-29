@@ -179,6 +179,8 @@ const (
 type ToolCall struct {
 	ID string
 
+	Kind ToolKind
+
 	Name      string
 	Arguments string
 }
@@ -241,8 +243,9 @@ type Completion struct {
 	Model  string
 	Status CompletionStatus
 
-	Usage   *Usage
 	Message *Message
+
+	Usage *Usage
 }
 
 type Effort string

@@ -93,7 +93,8 @@ func (a *CompletionAccumulator) Add(c Completion) {
 					}
 					if !found {
 						a.toolCalls = append(a.toolCalls, ToolCall{
-							ID: c.ToolCall.ID,
+							ID:   c.ToolCall.ID,
+							Kind: c.ToolCall.Kind,
 						})
 						a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentToolCall, index: len(a.toolCalls) - 1})
 					}
@@ -120,6 +121,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 				if toolCallIndex == -1 {
 					continue
+				}
+
+				if c.ToolCall.Kind != "" {
+					a.toolCalls[toolCallIndex].Kind = c.ToolCall.Kind
 				}
 
 				if c.ToolCall.Name != "" {

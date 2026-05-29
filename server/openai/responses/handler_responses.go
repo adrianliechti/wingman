@@ -121,8 +121,8 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 					Name:        req.Text.Format.Name,
 					Description: req.Text.Format.Description,
 
-					Schema: req.Text.Format.Schema,
-					Strict: req.Text.Format.Strict,
+					Strict:     req.Text.Format.Strict,
+					Properties: req.Text.Format.Schema,
 				}
 			}
 		}
@@ -620,53 +620,169 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				},
 			})
 
-		case StreamEventFunctionCallAdded:
-			// Suppress the function_call wrapper for native item types
-			// (apply_patch_call, custom_tool_call) — their full item ships
-			// at FunctionCallDone.
-			if outputOpts.kindOf(event.ToolCallName) != provider.ToolKindFunction {
-				return nil
-			}
-
-			return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
-				Type:           "response.output_item.added",
+		case StreamEventRefusalContentPartAdded:
+			return writeEvent(w, "response.content_part.added", RefusalContentPartAddedEvent{
+				Type:           "response.content_part.added",
 				SequenceNumber: nextSeq(),
+				ItemID:         messageID,
 				OutputIndex:    event.OutputIndex,
-				Item: &FunctionCallOutputItem{
-					ID:        "fc_" + event.ToolCallID,
-					Type:      "function_call",
-					Status:    "in_progress",
-					CallID:    event.ToolCallID,
-					Name:      event.ToolCallName,
-					Arguments: "",
+				ContentIndex:   0,
+				Part: &RefusalContentPart{
+					Type:    "refusal",
+					Refusal: "",
 				},
 			})
 
-		case StreamEventFunctionCallArgumentsDelta:
-			if outputOpts.kindOf(event.ToolCallName) != provider.ToolKindFunction {
-				return nil
-			}
-
-			return writeEvent(w, "response.function_call_arguments.delta", FunctionCallArgumentsDeltaEvent{
-				Type:           "response.function_call_arguments.delta",
+		case StreamEventRefusalDelta:
+			return writeEvent(w, "response.refusal.delta", RefusalDeltaEvent{
+				Type:           "response.refusal.delta",
 				SequenceNumber: nextSeq(),
-				ItemID:         "fc_" + event.ToolCallID,
+				ItemID:         messageID,
 				OutputIndex:    event.OutputIndex,
+				ContentIndex:   0,
 				Delta:          event.Delta,
 			})
 
-		case StreamEventFunctionCallArgumentsDone:
-			if outputOpts.kindOf(event.ToolCallName) != provider.ToolKindFunction {
-				return nil
+		case StreamEventRefusalDone:
+			return writeEvent(w, "response.refusal.done", RefusalDoneEvent{
+				Type:           "response.refusal.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         messageID,
+				OutputIndex:    event.OutputIndex,
+				ContentIndex:   0,
+				Refusal:        event.RefusalText,
+			})
+
+		case StreamEventRefusalContentPartDone:
+			return writeEvent(w, "response.content_part.done", RefusalContentPartDoneEvent{
+				Type:           "response.content_part.done",
+				SequenceNumber: nextSeq(),
+				ItemID:         messageID,
+				OutputIndex:    event.OutputIndex,
+				ContentIndex:   0,
+				Part: &RefusalContentPart{
+					Type:    "refusal",
+					Refusal: event.RefusalText,
+				},
+			})
+
+		case StreamEventFunctionCallAdded:
+			switch outputOpts.kindOf(event.ToolCallName) {
+			case provider.ToolKindCustom:
+				return writeEvent(w, "response.output_item.added", CustomToolCallOutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &CustomToolCallItem{
+						ID:     "ctc_" + event.ToolCallID,
+						Type:   "custom_tool_call",
+						CallID: event.ToolCallID,
+						Status: "in_progress",
+						Name:   event.ToolCallName,
+						Input:  "",
+					},
+				})
+
+			case provider.ToolKindTextEditor:
+				return writeEvent(w, "response.output_item.added", ApplyPatchCallOutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &ApplyPatchCallItem{
+						ID:     "apc_" + event.ToolCallID,
+						Type:   "apply_patch_call",
+						CallID: event.ToolCallID,
+						Status: "in_progress",
+					},
+				})
+
+			case provider.ToolKindComputer:
+				return writeEvent(w, "response.output_item.added", ComputerCallOutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &ComputerCallItem{
+						ID:     "cu_" + event.ToolCallID,
+						Type:   "computer_call",
+						CallID: event.ToolCallID,
+						Status: "in_progress",
+					},
+				})
+
+			default:
+				return writeEvent(w, "response.output_item.added", FunctionCallOutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &FunctionCallOutputItem{
+						ID:        "fc_" + event.ToolCallID,
+						Type:      "function_call",
+						Status:    "in_progress",
+						CallID:    event.ToolCallID,
+						Name:      event.ToolCallName,
+						Arguments: "",
+					},
+				})
 			}
 
-			return writeEvent(w, "response.function_call_arguments.done", FunctionCallArgumentsDoneEvent{
-				Type:           "response.function_call_arguments.done",
-				SequenceNumber: nextSeq(),
-				ItemID:         "fc_" + event.ToolCallID,
-				OutputIndex:    event.OutputIndex,
-				Arguments:      event.Arguments,
-			})
+		case StreamEventFunctionCallArgumentsDelta:
+			switch outputOpts.kindOf(event.ToolCallName) {
+			case provider.ToolKindCustom:
+				if isApplyPatchToolCall(provider.ToolCall{Name: event.ToolCallName}) {
+					return nil
+				}
+
+				return writeEvent(w, "response.custom_tool_call_input.delta", CustomToolCallInputDeltaEvent{
+					Type:           "response.custom_tool_call_input.delta",
+					SequenceNumber: nextSeq(),
+					ItemID:         "ctc_" + event.ToolCallID,
+					OutputIndex:    event.OutputIndex,
+					Delta:          event.Delta,
+				})
+
+			case provider.ToolKindTextEditor, provider.ToolKindComputer:
+				return nil
+
+			default:
+				return writeEvent(w, "response.function_call_arguments.delta", FunctionCallArgumentsDeltaEvent{
+					Type:           "response.function_call_arguments.delta",
+					SequenceNumber: nextSeq(),
+					ItemID:         "fc_" + event.ToolCallID,
+					OutputIndex:    event.OutputIndex,
+					Delta:          event.Delta,
+				})
+			}
+
+		case StreamEventFunctionCallArgumentsDone:
+			switch outputOpts.kindOf(event.ToolCallName) {
+			case provider.ToolKindCustom:
+				call := provider.ToolCall{
+					ID:        event.ToolCallID,
+					Name:      event.ToolCallName,
+					Arguments: event.Arguments,
+				}
+				input := toolCallToCustomToolCall(call, "in_progress").Input
+
+				return writeEvent(w, "response.custom_tool_call_input.done", CustomToolCallInputDoneEvent{
+					Type:           "response.custom_tool_call_input.done",
+					SequenceNumber: nextSeq(),
+					ItemID:         "ctc_" + event.ToolCallID,
+					OutputIndex:    event.OutputIndex,
+					Input:          input,
+				})
+
+			case provider.ToolKindTextEditor, provider.ToolKindComputer:
+				return nil
+
+			default:
+				return writeEvent(w, "response.function_call_arguments.done", FunctionCallArgumentsDoneEvent{
+					Type:           "response.function_call_arguments.done",
+					SequenceNumber: nextSeq(),
+					ItemID:         "fc_" + event.ToolCallID,
+					OutputIndex:    event.OutputIndex,
+					Arguments:      event.Arguments,
+				})
+			}
 
 		case StreamEventFunctionCallDone:
 			call := provider.ToolCall{
@@ -675,61 +791,46 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				Arguments: event.Arguments,
 			}
 
-			var wireType, itemID, itemCallID, itemStatus string
-			var doneFields map[string]any
-
 			switch outputOpts.kindOf(event.ToolCallName) {
 			case provider.ToolKindCustom:
-				item := toolCallToCustomToolCall(call, "completed")
-				wireType, itemID, itemCallID, itemStatus = "custom_tool_call", item.ID, item.CallID, item.Status
-				doneFields = map[string]any{"name": item.Name, "input": item.Input}
+				return writeEvent(w, "response.output_item.done", CustomToolCallOutputItemDoneEvent{
+					Type:           "response.output_item.done",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item:           toolCallToCustomToolCall(call, "completed"),
+				})
 
 			case provider.ToolKindTextEditor:
-				item := toolCallToApplyPatchCall(call, "completed")
-				wireType, itemID, itemCallID, itemStatus = "apply_patch_call", item.ID, item.CallID, item.Status
-				doneFields = map[string]any{"operation": item.Operation}
+				return writeEvent(w, "response.output_item.done", ApplyPatchCallOutputItemDoneEvent{
+					Type:           "response.output_item.done",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item:           toolCallToApplyPatchCall(call, "completed"),
+				})
 
 			case provider.ToolKindComputer:
-				item := toolCallToComputerCall(call, "completed")
-				wireType, itemID, itemCallID, itemStatus = "computer_call", item.ID, item.CallID, item.Status
-				doneFields = map[string]any{"actions": item.Actions}
-			}
+				return writeEvent(w, "response.output_item.done", ComputerCallOutputItemDoneEvent{
+					Type:           "response.output_item.done",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item:           toolCallToComputerCall(call, "completed"),
+				})
 
-			if wireType != "" {
-				if err := writeEvent(w, "response.output_item.added", map[string]any{
-					"type":            "response.output_item.added",
-					"sequence_number": nextSeq(),
-					"output_index":    event.OutputIndex,
-					"item":            map[string]any{"type": wireType, "id": itemID, "status": "in_progress"},
-				}); err != nil {
-					return err
-				}
-
-				doneItem := map[string]any{"type": wireType, "id": itemID, "status": itemStatus, "call_id": itemCallID}
-				for k, v := range doneFields {
-					doneItem[k] = v
-				}
-				return writeEvent(w, "response.output_item.done", map[string]any{
-					"type":            "response.output_item.done",
-					"sequence_number": nextSeq(),
-					"output_index":    event.OutputIndex,
-					"item":            doneItem,
+			default:
+				return writeEvent(w, "response.output_item.done", FunctionCallOutputItemDoneEvent{
+					Type:           "response.output_item.done",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &FunctionCallOutputItem{
+						ID:        "fc_" + event.ToolCallID,
+						Type:      "function_call",
+						Status:    "completed",
+						CallID:    event.ToolCallID,
+						Name:      event.ToolCallName,
+						Arguments: event.Arguments,
+					},
 				})
 			}
-
-			return writeEvent(w, "response.output_item.done", FunctionCallOutputItemDoneEvent{
-				Type:           "response.output_item.done",
-				SequenceNumber: nextSeq(),
-				OutputIndex:    event.OutputIndex,
-				Item: &FunctionCallOutputItem{
-					ID:        "fc_" + event.ToolCallID,
-					Type:      "function_call",
-					Status:    "completed",
-					CallID:    event.ToolCallID,
-					Name:      event.ToolCallName,
-					Arguments: event.Arguments,
-				},
-			})
 
 		case StreamEventCompactionItemAdded:
 			return writeEvent(w, "response.output_item.added", CompactionOutputItemAddedEvent{
@@ -932,24 +1033,33 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			})
 
 		case StreamEventOutputItemDone:
+			content := []OutputContent{}
+			if event.Text != "" {
+				content = append(content, OutputContent{
+					Type:        "output_text",
+					Text:        event.Text,
+					Annotations: []any{},
+					Logprobs:    []any{},
+				})
+			}
+			if event.RefusalText != "" {
+				content = append(content, OutputContent{
+					Type: "refusal",
+					Text: event.RefusalText,
+				})
+			}
+
 			return writeEvent(w, "response.output_item.done", OutputItemDoneEvent{
 				Type:           "response.output_item.done",
 				SequenceNumber: nextSeq(),
 				OutputIndex:    event.OutputIndex,
 				Item: &OutputItem{
-					ID:     messageID,
-					Type:   "message",
-					Status: "completed",
-					Content: []OutputContent{
-						{
-							Type:        "output_text",
-							Text:        event.Text,
-							Annotations: []any{},
-							Logprobs:    []any{},
-						},
-					},
-					Phase: "final_answer",
-					Role:  MessageRoleAssistant,
+					ID:      messageID,
+					Type:    "message",
+					Status:  "completed",
+					Content: content,
+					Phase:   "final_answer",
+					Role:    MessageRoleAssistant,
 				},
 			})
 
@@ -989,9 +1099,17 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				Response:       response,
 			})
 
-		case StreamEventResponseFailed:
+		case StreamEventResponseError:
 			shared.WriteSSERetry(w, event.Error)
 
+			return writeEvent(w, "response.error", ResponseErrorEvent{
+				Type:           "response.error",
+				SequenceNumber: nextSeq(),
+				Code:           shared.ErrorTypeFromError(event.Error),
+				Message:        event.Error.Error(),
+			})
+
+		case StreamEventResponseFailed:
 			failResp := &Response{
 				ID:        responseID,
 				CreatedAt: createdAt,

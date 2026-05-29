@@ -203,19 +203,19 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 		strict := true
 
 		if req.GenerationConfig.ResponseJsonSchema != nil {
-			if schema, ok := req.GenerationConfig.ResponseJsonSchema.(map[string]any); ok {
+			if properties, ok := req.GenerationConfig.ResponseJsonSchema.(map[string]any); ok {
 				options.Schema = &provider.Schema{
-					Name:   "response",
-					Schema: schema,
-					Strict: &strict,
+					Name:       "response",
+					Strict:     &strict,
+					Properties: properties,
 				}
 			}
 		} else if req.GenerationConfig.ResponseSchema != nil {
-			if schema, ok := req.GenerationConfig.ResponseSchema.(map[string]any); ok {
+			if properties, ok := req.GenerationConfig.ResponseSchema.(map[string]any); ok {
 				options.Schema = &provider.Schema{
-					Name:   "response",
-					Schema: schema,
-					Strict: &strict,
+					Name:       "response",
+					Strict:     &strict,
+					Properties: properties,
 				}
 			}
 		}

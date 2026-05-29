@@ -47,13 +47,11 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 		})
 	}
 
-	// Pending buffers to accumulate and merge consecutive same-type items.
-	// Consecutive function_call items map to one assistant message with multiple tool calls (parallel tool use).
-	// Consecutive function_call_output items map to one user message with multiple tool results.
-	// Reasoning items are merged into the following assistant message or function calls.
 	var pendingReasoning []provider.Content
 	var pendingCalls []provider.Content
 	var pendingResults []provider.Content
+
+	kindByCallID := make(map[string]provider.ToolKind)
 
 	flushCalls := func() {
 		if len(pendingCalls) == 0 && len(pendingReasoning) == 0 {
@@ -223,6 +221,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
 				ID:        call.CallID,
+				Kind:      provider.ToolKindTextEditor,
 				Name:      "apply_patch",
 				Arguments: string(args),
 			}))
@@ -243,6 +242,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
 				ID:    output.CallID,
+				Kind:  provider.ToolKindTextEditor,
 				Parts: parts,
 			}))
 
@@ -255,26 +255,28 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			call := item.InputCustomToolCall
 
+			kind := provider.ToolKindCustom
+			name := call.Name
+			args := call.Input
+
 			if call.Name == "apply_patch" {
+				kind = provider.ToolKindTextEditor
 				op := parseApplyPatchEnvelope(call.Input)
-				args, _ := json.Marshal(map[string]any{
+				a, _ := json.Marshal(map[string]any{
 					"type": op.Type,
 					"path": op.Path,
 					"diff": op.Diff,
 				})
-
-				pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
-					ID:        call.CallID,
-					Name:      "apply_patch",
-					Arguments: string(args),
-				}))
-			} else {
-				pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
-					ID:        call.CallID,
-					Name:      call.Name,
-					Arguments: call.Input,
-				}))
+				args = string(a)
 			}
+
+			kindByCallID[call.CallID] = kind
+			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+				ID:        call.CallID,
+				Kind:      kind,
+				Name:      name,
+				Arguments: args,
+			}))
 
 		case InputItemTypeCustomToolCallOutput:
 			if item.InputCustomToolCallOutput == nil {
@@ -290,8 +292,13 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				return nil, err
 			}
 
+			kind := kindByCallID[output.CallID]
+			if kind == "" {
+				kind = provider.ToolKindCustom
+			}
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
 				ID:    output.CallID,
+				Kind:  kind,
 				Parts: parts,
 			}))
 
@@ -310,6 +317,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
 				ID:        call.CallID,
+				Kind:      provider.ToolKindComputer,
 				Name:      "computer",
 				Arguments: string(args),
 			}))
@@ -329,6 +337,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
 				ID:    output.CallID,
+				Kind:  provider.ToolKindComputer,
 				Parts: parts,
 			}))
 		}
@@ -366,18 +375,23 @@ func toTools(tools []Tool) []provider.Tool {
 			if t.Name == "" {
 				continue
 			}
-			// Codex's custom-grammar apply_patch dispatches upstream as the
-			// native text_editor built-in; output wrapping (custom_tool_call)
-			// is handled separately by outputKind.
 			kind := provider.ToolKindCustom
 			if t.Name == "apply_patch" {
 				kind = provider.ToolKindTextEditor
 			}
-			result = append(result, provider.Tool{
+			tool := provider.Tool{
 				Name:        t.Name,
 				Description: t.Description,
 				Kind:        kind,
-			})
+			}
+			if kind == provider.ToolKindCustom && t.Format != nil {
+				tool.Format = &provider.ToolFormat{
+					Type:       t.Format.Type,
+					Syntax:     t.Format.Syntax,
+					Definition: t.Format.Definition,
+				}
+			}
+			result = append(result, tool)
 
 		case ToolTypeComputer:
 			result = append(result, provider.Tool{
@@ -437,6 +451,7 @@ func isApplyPatchToolCall(call provider.ToolCall) bool {
 func toolCallToApplyPatchCall(call provider.ToolCall, status string) *ApplyPatchCallItem {
 	item := &ApplyPatchCallItem{
 		ID:     "apc_" + call.ID,
+		Type:   "apply_patch_call",
 		CallID: call.ID,
 		Status: status,
 	}
@@ -489,6 +504,7 @@ func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomTool
 		op := toolCallToApplyPatchCall(call, status).Operation
 		return &CustomToolCallItem{
 			ID:     "ctc_" + call.ID,
+			Type:   "custom_tool_call",
 			CallID: call.ID,
 			Status: status,
 			Name:   "apply_patch",
@@ -498,6 +514,7 @@ func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomTool
 
 	return &CustomToolCallItem{
 		ID:     "ctc_" + call.ID,
+		Type:   "custom_tool_call",
 		CallID: call.ID,
 		Status: status,
 		Name:   call.Name,
@@ -508,6 +525,7 @@ func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomTool
 func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCallItem {
 	item := &ComputerCallItem{
 		ID:     "cu_" + call.ID,
+		Type:   "computer_call",
 		CallID: call.ID,
 		Status: status,
 	}

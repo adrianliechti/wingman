@@ -15,13 +15,19 @@ type Tool struct {
 	Name        string
 	Description string
 
-	Strict *bool
-
-	Parameters map[string]any
-
 	Kind ToolKind
 
+	Strict     *bool
+	Parameters map[string]any
+
 	Display *Display
+	Format  *ToolFormat
+}
+
+type ToolFormat struct {
+	Type       string
+	Syntax     string
+	Definition string
 }
 
 type ToolKind string
@@ -45,6 +51,8 @@ type Display struct {
 type ToolResult struct {
 	ID string
 
+	Kind ToolKind
+
 	Parts []Part
 }
 
@@ -62,7 +70,7 @@ type Schema struct {
 
 	Strict *bool
 
-	Schema map[string]any // TODO: Rename to Properties
+	Properties map[string]any
 }
 
 type Usage struct {

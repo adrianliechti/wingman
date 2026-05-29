@@ -888,6 +888,7 @@ var (
 // ComputerCallItem represents a computer use tool call in the output
 type ComputerCallItem struct {
 	ID      string `json:"id"`
+	Type    string `json:"type"` // computer_call
 	CallID  string `json:"call_id"`
 	Status  string `json:"status"`
 	Actions []any  `json:"actions"`
@@ -896,6 +897,7 @@ type ComputerCallItem struct {
 // ApplyPatchCallItem represents an apply_patch tool call in the output
 type ApplyPatchCallItem struct {
 	ID        string              `json:"id"`
+	Type      string              `json:"type"` // apply_patch_call
 	CallID    string              `json:"call_id"`
 	Status    string              `json:"status"`
 	Operation ApplyPatchOperation `json:"operation"`
@@ -911,6 +913,7 @@ type ApplyPatchOperation struct {
 // output. Used for Codex's apply_patch, where Input is the raw patch envelope.
 type CustomToolCallItem struct {
 	ID     string `json:"id"`
+	Type   string `json:"type"` // custom_tool_call
 	CallID string `json:"call_id"`
 	Status string `json:"status"`
 	Name   string `json:"name"`
@@ -934,6 +937,21 @@ type OutputContent struct {
 	Text        string `json:"text"`
 	Annotations []any  `json:"annotations"`
 	Logprobs    []any  `json:"logprobs"`
+}
+
+func (c OutputContent) MarshalJSON() ([]byte, error) {
+	if c.Type == "refusal" {
+		return json.Marshal(struct {
+			Type    string `json:"type"`
+			Refusal string `json:"refusal"`
+		}{
+			Type:    "refusal",
+			Refusal: c.Text,
+		})
+	}
+
+	type alias OutputContent
+	return json.Marshal(alias(c))
 }
 
 // https://platform.openai.com/docs/api-reference/responses-streaming/response/created
@@ -1223,4 +1241,126 @@ type ReasoningTextDoneEvent struct {
 	OutputIndex    int    `json:"output_index"`
 	ContentIndex   int    `json:"content_index"`
 	Text           string `json:"text"`
+}
+
+type RefusalContentPart struct {
+	Type    string `json:"type"` // refusal
+	Refusal string `json:"refusal"`
+}
+
+// RefusalContentPartAddedEvent is emitted when a refusal content part is added
+type RefusalContentPartAddedEvent struct {
+	Type           string              `json:"type"` // response.content_part.added
+	SequenceNumber int                 `json:"sequence_number"`
+	ItemID         string              `json:"item_id"`
+	OutputIndex    int                 `json:"output_index"`
+	ContentIndex   int                 `json:"content_index"`
+	Part           *RefusalContentPart `json:"part"`
+}
+
+// RefusalContentPartDoneEvent is emitted when a refusal content part is done
+type RefusalContentPartDoneEvent struct {
+	Type           string              `json:"type"` // response.content_part.done
+	SequenceNumber int                 `json:"sequence_number"`
+	ItemID         string              `json:"item_id"`
+	OutputIndex    int                 `json:"output_index"`
+	ContentIndex   int                 `json:"content_index"`
+	Part           *RefusalContentPart `json:"part"`
+}
+
+// RefusalDeltaEvent is emitted while refusal text streams in
+type RefusalDeltaEvent struct {
+	Type           string `json:"type"` // response.refusal.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Delta          string `json:"delta"`
+}
+
+// RefusalDoneEvent is emitted when the refusal is complete
+type RefusalDoneEvent struct {
+	Type           string `json:"type"` // response.refusal.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	ContentIndex   int    `json:"content_index"`
+	Refusal        string `json:"refusal"`
+}
+
+// ResponseErrorEvent is a stream-level error event. Distinct from
+// response.failed, which carries a full Response with status=failed.
+// https://platform.openai.com/docs/api-reference/responses-streaming/response/error
+type ResponseErrorEvent struct {
+	Type           string `json:"type"` // response.error
+	SequenceNumber int    `json:"sequence_number"`
+	Code           string `json:"code,omitempty"`
+	Message        string `json:"message"`
+	Param          string `json:"param,omitempty"`
+}
+
+// CustomToolCallInputDeltaEvent is emitted while a custom tool's input streams
+type CustomToolCallInputDeltaEvent struct {
+	Type           string `json:"type"` // response.custom_tool_call_input.delta
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	Delta          string `json:"delta"`
+}
+
+// CustomToolCallInputDoneEvent is emitted when a custom tool's input completes
+type CustomToolCallInputDoneEvent struct {
+	Type           string `json:"type"` // response.custom_tool_call_input.done
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	Input          string `json:"input"`
+}
+
+// CustomToolCallOutputItemAddedEvent wraps custom_tool_call in output_item.added
+type CustomToolCallOutputItemAddedEvent struct {
+	Type           string              `json:"type"` // response.output_item.added
+	SequenceNumber int                 `json:"sequence_number"`
+	OutputIndex    int                 `json:"output_index"`
+	Item           *CustomToolCallItem `json:"item"`
+}
+
+// CustomToolCallOutputItemDoneEvent wraps custom_tool_call in output_item.done
+type CustomToolCallOutputItemDoneEvent struct {
+	Type           string              `json:"type"` // response.output_item.done
+	SequenceNumber int                 `json:"sequence_number"`
+	OutputIndex    int                 `json:"output_index"`
+	Item           *CustomToolCallItem `json:"item"`
+}
+
+// ApplyPatchCallOutputItemAddedEvent wraps apply_patch_call in output_item.added
+type ApplyPatchCallOutputItemAddedEvent struct {
+	Type           string              `json:"type"` // response.output_item.added
+	SequenceNumber int                 `json:"sequence_number"`
+	OutputIndex    int                 `json:"output_index"`
+	Item           *ApplyPatchCallItem `json:"item"`
+}
+
+// ApplyPatchCallOutputItemDoneEvent wraps apply_patch_call in output_item.done
+type ApplyPatchCallOutputItemDoneEvent struct {
+	Type           string              `json:"type"` // response.output_item.done
+	SequenceNumber int                 `json:"sequence_number"`
+	OutputIndex    int                 `json:"output_index"`
+	Item           *ApplyPatchCallItem `json:"item"`
+}
+
+// ComputerCallOutputItemAddedEvent wraps computer_call in output_item.added
+type ComputerCallOutputItemAddedEvent struct {
+	Type           string            `json:"type"` // response.output_item.added
+	SequenceNumber int               `json:"sequence_number"`
+	OutputIndex    int               `json:"output_index"`
+	Item           *ComputerCallItem `json:"item"`
+}
+
+// ComputerCallOutputItemDoneEvent wraps computer_call in output_item.done
+type ComputerCallOutputItemDoneEvent struct {
+	Type           string            `json:"type"` // response.output_item.done
+	SequenceNumber int               `json:"sequence_number"`
+	OutputIndex    int               `json:"output_index"`
+	Item           *ComputerCallItem `json:"item"`
 }

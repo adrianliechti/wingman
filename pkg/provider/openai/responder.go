@@ -11,6 +11,7 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 var _ provider.Completer = (*Responder)(nil)
@@ -118,13 +119,19 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 
+				case responses.ResponseCustomToolCall:
+					itemToCallID[item.ID] = item.CallID
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name}), "") {
+						return
+					}
+
 				case responses.ResponseApplyPatchToolCall:
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "apply_patch"}), "") {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch"}), "") {
 						return
 					}
 
 				case responses.ResponseComputerToolCall:
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "computer"}), "") {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer"}), "") {
 						return
 					}
 				}
@@ -164,7 +171,17 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					return
 				}
 
+			case responses.ResponseCustomToolCallInputDeltaEvent:
+				callID := itemToCallID[event.ItemID]
+				if callID == "" {
+					callID = event.ItemID
+				}
+				if !emit(provider.ToolCallContent(provider.ToolCall{ID: callID, Arguments: event.Delta}), "") {
+					return
+				}
+
 			case responses.ResponseFunctionCallArgumentsDoneEvent:
+			case responses.ResponseCustomToolCallInputDoneEvent:
 			case responses.ResponseContentPartDoneEvent:
 			case responses.ResponseOutputItemDoneEvent:
 				switch item := event.Item.AsAny().(type) {
@@ -174,13 +191,13 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						"path": item.Operation.Path,
 						"diff": item.Operation.Diff,
 					})
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "apply_patch", Arguments: string(args)}), "") {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: string(args)}), "") {
 						return
 					}
 
 				case responses.ResponseComputerToolCall:
 					args, _ := json.Marshal(computerCallToArgs(item))
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: "computer", Arguments: string(args)}), "") {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer", Arguments: string(args)}), "") {
 						return
 					}
 
@@ -349,15 +366,15 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 				OfJSONObject: &responses.ResponseFormatJSONObjectParam{},
 			}
 		} else {
-			schemaData := options.Schema.Schema
+			properties := options.Schema.Properties
 
 			if options.Schema.Strict != nil && *options.Schema.Strict {
-				schemaData = ensureAdditionalPropertiesFalse(schemaData)
+				properties = ensureAdditionalPropertiesFalse(properties)
 			}
 
 			schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
 				Name:   options.Schema.Name,
-				Schema: schemaData,
+				Schema: properties,
 			}
 
 			if options.Schema.Strict != nil {
@@ -459,14 +476,21 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				}
 
 				if c.ToolResult != nil {
-					output := &responses.ResponseInputItemFunctionCallOutputParam{
-						CallID: c.ToolResult.ID,
-						Output: toolResultOutputUnion(c.ToolResult),
+					if c.ToolResult.Kind == provider.ToolKindCustom {
+						result = append(result, responses.ResponseInputItemUnionParam{
+							OfCustomToolCallOutput: &responses.ResponseCustomToolCallOutputParam{
+								CallID: c.ToolResult.ID,
+								Output: customToolResultOutputUnion(c.ToolResult),
+							},
+						})
+					} else {
+						result = append(result, responses.ResponseInputItemUnionParam{
+							OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+								CallID: c.ToolResult.ID,
+								Output: toolResultOutputUnion(c.ToolResult),
+							},
+						})
 					}
-
-					result = append(result, responses.ResponseInputItemUnionParam{
-						OfFunctionCallOutput: output,
-					})
 				}
 			}
 
@@ -540,16 +564,23 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				}
 
 				if c.ToolCall != nil {
-					call := &responses.ResponseFunctionToolCallParam{
-						CallID: c.ToolCall.ID,
-
-						Name:      c.ToolCall.Name,
-						Arguments: c.ToolCall.Arguments,
+					if c.ToolCall.Kind == provider.ToolKindCustom {
+						calls = append(calls, responses.ResponseInputItemUnionParam{
+							OfCustomToolCall: &responses.ResponseCustomToolCallParam{
+								CallID: c.ToolCall.ID,
+								Name:   c.ToolCall.Name,
+								Input:  c.ToolCall.Arguments,
+							},
+						})
+					} else {
+						calls = append(calls, responses.ResponseInputItemUnionParam{
+							OfFunctionCall: &responses.ResponseFunctionToolCallParam{
+								CallID:    c.ToolCall.ID,
+								Name:      c.ToolCall.Name,
+								Arguments: c.ToolCall.Arguments,
+							},
+						})
 					}
-
-					calls = append(calls, responses.ResponseInputItemUnionParam{
-						OfFunctionCall: call,
-					})
 				}
 			}
 
@@ -629,6 +660,62 @@ func toolResultOutputUnion(r *provider.ToolResult) responses.ResponseInputItemFu
 	}
 }
 
+func customToolResultOutputUnion(r *provider.ToolResult) responses.ResponseCustomToolCallOutputOutputUnionParam {
+	if len(r.Parts) == 0 {
+		return responses.ResponseCustomToolCallOutputOutputUnionParam{
+			OfString: openai.String(""),
+		}
+	}
+
+	if len(r.Parts) == 1 && r.Parts[0].File == nil {
+		return responses.ResponseCustomToolCallOutputOutputUnionParam{
+			OfString: openai.String(r.Parts[0].Text),
+		}
+	}
+
+	items := make([]responses.ResponseCustomToolCallOutputOutputOutputContentListItemUnionParam, 0, len(r.Parts))
+
+	for _, p := range r.Parts {
+		if p.Text != "" {
+			items = append(items, responses.ResponseCustomToolCallOutputOutputOutputContentListItemUnionParam{
+				OfInputText: &responses.ResponseInputTextParam{
+					Text: p.Text,
+				},
+			})
+		}
+
+		if p.File != nil {
+			url := "data:" + p.File.ContentType + ";base64," + base64.StdEncoding.EncodeToString(p.File.Content)
+
+			switch p.File.ContentType {
+			case "image/png", "image/jpeg", "image/webp", "image/gif":
+				items = append(items, responses.ResponseCustomToolCallOutputOutputOutputContentListItemUnionParam{
+					OfInputImage: &responses.ResponseInputImageParam{
+						ImageURL: openai.String(url),
+					},
+				})
+
+			default:
+				name := p.File.Name
+				if name == "" {
+					name = "file"
+				}
+
+				items = append(items, responses.ResponseCustomToolCallOutputOutputOutputContentListItemUnionParam{
+					OfInputFile: &responses.ResponseInputFileParam{
+						Filename: openai.String(name),
+						FileData: openai.String(url),
+					},
+				})
+			}
+		}
+	}
+
+	return responses.ResponseCustomToolCallOutputOutputUnionParam{
+		OfOutputContentList: items,
+	}
+}
+
 func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, error) {
 	var result []responses.ToolUnionParam
 
@@ -648,6 +735,25 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 		}
 
 		if t.Name == "" {
+			continue
+		}
+
+		if t.Kind == provider.ToolKindCustom {
+			custom := &responses.CustomToolParam{
+				Name: t.Name,
+			}
+
+			if t.Description != "" {
+				custom.Description = openai.String(t.Description)
+			}
+
+			if t.Format != nil && t.Format.Type == "grammar" && t.Format.Definition != "" {
+				custom.Format = shared.CustomToolInputFormatParamOfGrammar(t.Format.Definition, t.Format.Syntax)
+			}
+
+			result = append(result, responses.ToolUnionParam{
+				OfCustom: custom,
+			})
 			continue
 		}
 

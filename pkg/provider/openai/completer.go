@@ -181,15 +181,15 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 				OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
 			}
 		} else {
-			schemaData := options.Schema.Schema
+			properties := options.Schema.Properties
 
 			if options.Schema.Strict != nil && *options.Schema.Strict {
-				schemaData = ensureAdditionalPropertiesFalse(schemaData)
+				properties = ensureAdditionalPropertiesFalse(properties)
 			}
 
 			schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
 				Name:   options.Schema.Name,
-				Schema: schemaData,
+				Schema: properties,
 			}
 
 			if options.Schema.Description != "" {

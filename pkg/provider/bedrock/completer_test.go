@@ -23,8 +23,8 @@ func TestConvertConverseInputUsesForcedToolForSchema(t *testing.T) {
 		provider.UserMessage("Return JSON."),
 	}, &provider.CompleteOptions{
 		Schema: &provider.Schema{
-			Name:   "classify_chat",
-			Schema: testSchema,
+			Name:       "classify_chat",
+			Properties: testSchema,
 		},
 	})
 	if err != nil {
