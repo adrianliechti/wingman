@@ -3,18 +3,29 @@ package translate
 import (
 	"context"
 	"errors"
+	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/translator"
 )
 
-var _ tool.Provider = (*Client)(nil)
+const ToolName = "translate"
+
+var (
+	_ tool.Provider = (*Client)(nil)
+	_ tool.Resulter = (*Client)(nil)
+)
 
 type Client struct {
 	provider translator.Provider
 }
 
 func New(provider translator.Provider, options ...Option) (*Client, error) {
+	if provider == nil {
+		return nil, errors.New("translate: missing translator provider")
+	}
+
 	c := &Client{
 		provider: provider,
 	}
@@ -29,30 +40,21 @@ func New(provider translator.Provider, options ...Option) (*Client, error) {
 func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
-			Name:        "translate_text",
-			Description: "Translate text to the given language.",
+			Name:        ToolName,
+			Description: "Translate text to the given target language. The upstream translation service decides which language codes are valid and will return an error for unsupported ones.",
 
 			Parameters: map[string]any{
 				"type": "object",
-
 				"properties": map[string]any{
 					"text": map[string]any{
 						"type":        "string",
-						"description": "The text to translate",
+						"description": "The text to translate.",
 					},
-
 					"lang": map[string]any{
 						"type":        "string",
-						"description": "The target language code",
-						"enum": []string{
-							"de",
-							"en",
-							"fr",
-							"it",
-						},
+						"description": "Target language as an ISO 639-1 / BCP-47 code (e.g. 'de', 'en', 'fr', 'pt-BR').",
 					},
 				},
-
 				"required": []string{"text", "lang"},
 			},
 		},
@@ -60,38 +62,32 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 }
 
 func (c *Client) Execute(ctx context.Context, name string, parameters map[string]any) (any, error) {
-	if name != "translate_text" {
+	if name != ToolName {
 		return nil, tool.ErrInvalidTool
 	}
 
-	text, ok := parameters["text"].(string)
-
-	if !ok {
-		return nil, errors.New("missing text parameter")
+	text, _ := parameters["text"].(string)
+	if strings.TrimSpace(text) == "" {
+		return nil, errors.New("translate: missing text parameter")
 	}
 
-	lang, ok := parameters["lang"].(string)
-
-	if !ok {
-		lang = "en"
+	lang, _ := parameters["lang"].(string)
+	lang = strings.TrimSpace(lang)
+	if lang == "" {
+		return nil, errors.New("translate: missing lang parameter")
 	}
 
-	options := &translator.TranslateOptions{
-		Language: lang,
-	}
-
-	input := translator.Input{
-		Text: text,
-	}
-
-	result, err := c.provider.Translate(ctx, input, options)
-
+	result, err := c.provider.Translate(ctx, translator.Input{Text: text}, &translator.TranslateOptions{Language: lang})
 	if err != nil {
 		return nil, err
 	}
 
-	return &Result{
-		Language: lang,
-		Text:     string(result.Content),
-	}, nil
+	return string(result.Content), nil
+}
+
+func (c *Client) Result(name string, value any) provider.ToolResult {
+	if s, ok := value.(string); ok {
+		return provider.ToolResult{Parts: []provider.Part{{Text: s}}}
+	}
+	return provider.ToolResult{}
 }
