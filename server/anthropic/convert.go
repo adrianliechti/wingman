@@ -138,6 +138,21 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 					Signature: compactionContent,
 				}))
 			}
+
+		case "server_tool_use":
+			if marker := serverToolUseMarker(block); marker != "" {
+				content = append(content, provider.TextContent(marker))
+			}
+
+		case "web_search_tool_result":
+			if marker := webSearchResultMarker(block); marker != "" {
+				content = append(content, provider.TextContent(marker))
+			}
+
+		case "web_fetch_tool_result":
+			if marker := webFetchResultMarker(block); marker != "" {
+				content = append(content, provider.TextContent(marker))
+			}
 		}
 	}
 
@@ -276,15 +291,14 @@ func toTools(tools []ToolParam) []provider.Tool {
 	var result []provider.Tool
 
 	for _, t := range tools {
-		if strings.HasPrefix(t.Type, "text_editor") {
+		switch {
+		case strings.HasPrefix(t.Type, "text_editor"):
 			result = append(result, provider.Tool{
 				Name: "str_replace_based_edit_tool",
 				Kind: provider.ToolKindTextEditor,
 			})
-			continue
-		}
 
-		if strings.HasPrefix(t.Type, "computer") {
+		case strings.HasPrefix(t.Type, "computer"):
 			result = append(result, provider.Tool{
 				Name: "computer",
 				Kind: provider.ToolKindComputer,
@@ -293,14 +307,14 @@ func toTools(tools []ToolParam) []provider.Tool {
 					Height: t.DisplayHeightPx,
 				},
 			})
-			continue
-		}
 
-		result = append(result, provider.Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			Parameters:  tool.NormalizeSchema(t.InputSchema),
-		})
+		case t.Type == "" || t.Type == "custom":
+			result = append(result, provider.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  tool.NormalizeSchema(t.InputSchema),
+			})
+		}
 	}
 
 	return result
@@ -455,4 +469,61 @@ func generateID(length int) string {
 	rand.Read(bytes)
 
 	return hex.EncodeToString(bytes)[:length]
+}
+
+func serverToolUseMarker(block ContentBlockParam) string {
+	input, _ := block.Input.(map[string]any)
+	if input == nil {
+		if data, err := json.Marshal(block.Input); err == nil {
+			return fmt.Sprintf("[%s: %s]", block.Name, string(data))
+		}
+		return fmt.Sprintf("[%s]", block.Name)
+	}
+
+	if q, ok := input["query"].(string); ok && q != "" {
+		return fmt.Sprintf("[%s: %q]", block.Name, q)
+	}
+	if u, ok := input["url"].(string); ok && u != "" {
+		return fmt.Sprintf("[%s: %s]", block.Name, u)
+	}
+
+	data, _ := json.Marshal(input)
+	return fmt.Sprintf("[%s: %s]", block.Name, string(data))
+}
+
+func webSearchResultMarker(block ContentBlockParam) string {
+	items, _ := block.Content.([]any)
+	if len(items) == 0 {
+		return "[web_search_result: empty]"
+	}
+
+	var parts []string
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		title, _ := item["title"].(string)
+		url, _ := item["url"].(string)
+		if title == "" {
+			title = url
+		}
+		if url != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s)", title, url))
+		}
+	}
+	if len(parts) == 0 {
+		return "[web_search_result: empty]"
+	}
+	return "[web_search_result: " + strings.Join(parts, "; ") + "]"
+}
+
+func webFetchResultMarker(block ContentBlockParam) string {
+	item, _ := block.Content.(map[string]any)
+	if item == nil {
+		return "[web_fetch_result]"
+	}
+
+	url, _ := item["url"].(string)
+	if url == "" {
+		return "[web_fetch_result]"
+	}
+	return "[web_fetch_result: " + url + "]"
 }

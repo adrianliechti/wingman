@@ -3,20 +3,40 @@ package scrape
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+	"time"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
-var _ tool.Provider = (*Client)(nil)
+const ToolName = "web_fetch"
+
+const defaultMaxChars = 32 * 1024
+
+var ErrURLNotAllowed = errors.New("scrape: url not allowed")
+
+var (
+	_ tool.Provider = (*Client)(nil)
+	_ tool.Resulter = (*Client)(nil)
+)
 
 type Client struct {
 	scraper scraper.Provider
+
+	maxChars int
+
+	allowedDomains []string
+	blockedDomains []string
 }
 
 func New(scraper scraper.Provider, options ...Option) (*Client, error) {
 	c := &Client{
-		scraper: scraper,
+		scraper:  scraper,
+		maxChars: defaultMaxChars,
 	}
 
 	for _, option := range options {
@@ -24,7 +44,7 @@ func New(scraper scraper.Provider, options ...Option) (*Client, error) {
 	}
 
 	if c.scraper == nil {
-		return nil, errors.New("missing scraper provider")
+		return nil, errors.New("scrape: missing scraper provider")
 	}
 
 	return c, nil
@@ -33,8 +53,8 @@ func New(scraper scraper.Provider, options ...Option) (*Client, error) {
 func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
-			Name:        "crawl_website",
-			Description: "fetch and return the markdown content from a given URL, including website pages, YouTube video transcriptions, and similar sources",
+			Name:        ToolName,
+			Description: "Fetch the content of a public web page and return its text so the assistant can quote and cite it.",
 
 			Parameters: map[string]any{
 				"type": "object",
@@ -42,7 +62,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 				"properties": map[string]any{
 					"url": map[string]any{
 						"type":        "string",
-						"description": "the URL of the website to crawl staring with http:// or https://",
+						"description": "The absolute URL to fetch. Must include scheme (http or https).",
 					},
 				},
 
@@ -53,23 +73,93 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 }
 
 func (c *Client) Execute(ctx context.Context, name string, parameters map[string]any) (any, error) {
-	if name != "crawl_website" {
+	if name != ToolName {
 		return nil, tool.ErrInvalidTool
 	}
 
-	url, ok := parameters["url"].(string)
-
-	if !ok {
-		return nil, errors.New("missing url parameter")
+	raw, _ := parameters["url"].(string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, errors.New("scrape: missing url parameter")
 	}
 
-	options := &scraper.ScrapeOptions{}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, fmt.Errorf("scrape: invalid url %q", raw)
+	}
 
-	document, err := c.scraper.Scrape(ctx, url, options)
+	if !c.allowed(parsed.Hostname()) {
+		return nil, ErrURLNotAllowed
+	}
 
+	doc, err := c.scraper.Scrape(ctx, raw, &scraper.ScrapeOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	return string(document.Text), nil
+	text := doc.Text
+	if c.maxChars > 0 && len(text) > c.maxChars {
+		text = text[:c.maxChars]
+	}
+
+	return Result{
+		URL:         raw,
+		RetrievedAt: time.Now().UTC(),
+		Text:        text,
+	}, nil
+}
+
+func (c *Client) Result(name string, value any) provider.ToolResult {
+	r, ok := value.(Result)
+	if !ok {
+		return provider.ToolResult{Parts: []provider.Part{{Text: ""}}}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Source: %s\n", r.URL)
+	if r.Title != "" {
+		fmt.Fprintf(&b, "Title: %s\n", r.Title)
+	}
+	b.WriteString("\n")
+	b.WriteString(r.Text)
+
+	return provider.ToolResult{
+		Parts: []provider.Part{{Text: b.String()}},
+	}
+}
+
+func (c *Client) allowed(host string) bool {
+	host = strings.ToLower(host)
+
+	if len(c.allowedDomains) > 0 {
+		var match bool
+		for _, d := range c.allowedDomains {
+			if matchDomain(host, d) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	for _, d := range c.blockedDomains {
+		if matchDomain(host, d) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func matchDomain(host, domain string) bool {
+	domain = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(domain), "."))
+	if domain == "" {
+		return false
+	}
+	if host == domain {
+		return true
+	}
+	return strings.HasSuffix(host, "."+domain)
 }

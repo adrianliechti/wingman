@@ -20,6 +20,10 @@ type Provider interface {
 	Execute(ctx context.Context, name string, parameters map[string]any) (any, error)
 }
 
+type Resulter interface {
+	Result(name string, value any) provider.ToolResult
+}
+
 func NormalizeSchema(schema map[string]any) map[string]any {
 	// Handle empty schema
 	if len(schema) == 0 {

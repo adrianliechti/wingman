@@ -124,3 +124,82 @@ func blocksToAny(blocks []ContentBlockParam) any {
 	}
 	return out
 }
+
+func TestToMessage_ServerToolUseRoundTripsAsText(t *testing.T) {
+	body := []byte(`[
+		{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"go 1.24 release"}},
+		{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[
+			{"type":"web_search_result","url":"https://go.dev/blog/go1.24","title":"Go 1.24","encrypted_content":"x"}
+		]},
+		{"type":"server_tool_use","id":"srvtoolu_2","name":"web_fetch","input":{"url":"https://go.dev/blog/go1.24"}},
+		{"type":"web_fetch_tool_result","tool_use_id":"srvtoolu_2","content":{"url":"https://go.dev/blog/go1.24","retrieved_at":"2025-05-30T00:00:00Z"}},
+		{"type":"text","text":"final answer"}
+	]`)
+
+	var blocks []ContentBlockParam
+	if err := json.Unmarshal(body, &blocks); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	msg, err := toMessage(MessageParam{Role: MessageRoleAssistant, Content: blocksToAny(blocks)})
+	if err != nil {
+		t.Fatalf("toMessage: %v", err)
+	}
+
+	if len(msg.Content) != 5 {
+		t.Fatalf("expected 5 content blocks, got %d", len(msg.Content))
+	}
+
+	want := []string{
+		`[web_search: "go 1.24 release"]`,
+		`[web_search_result: Go 1.24 (https://go.dev/blog/go1.24)]`,
+		`[web_fetch: https://go.dev/blog/go1.24]`,
+		`[web_fetch_result: https://go.dev/blog/go1.24]`,
+		"final answer",
+	}
+	for i, w := range want {
+		if msg.Content[i].Text != w {
+			t.Errorf("content[%d].Text = %q, want %q", i, msg.Content[i].Text, w)
+		}
+	}
+}
+
+func TestToTools_DropsWebSearch(t *testing.T) {
+	in := []ToolParam{
+		{Type: "custom", Name: "get_weather", InputSchema: map[string]any{"type": "object"}},
+		{Type: "web_search_20250305", Name: "web_search"},
+	}
+
+	tools := toTools(in)
+
+	if len(tools) != 1 {
+		t.Fatalf("tools length = %d, want 1 (web_search should be dropped)", len(tools))
+	}
+	if tools[0].Name != "get_weather" {
+		t.Errorf("remaining tool name = %q", tools[0].Name)
+	}
+}
+
+func TestToTools_DropsWebFetch(t *testing.T) {
+	in := []ToolParam{
+		{Type: "web_fetch_20250910", Name: "web_fetch"},
+	}
+
+	tools := toTools(in)
+
+	if len(tools) != 0 {
+		t.Fatalf("tools length = %d, want 0", len(tools))
+	}
+}
+
+func TestToTools_PassesThroughRegular(t *testing.T) {
+	in := []ToolParam{
+		{Type: "custom", Name: "get_weather", InputSchema: map[string]any{"type": "object"}},
+	}
+
+	tools := toTools(in)
+
+	if len(tools) != 1 {
+		t.Fatalf("tools length = %d", len(tools))
+	}
+}

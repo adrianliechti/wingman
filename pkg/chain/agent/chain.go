@@ -18,6 +18,39 @@ import (
 
 var _ chain.Provider = &Chain{}
 
+var ErrMaxIterationsExceeded = errors.New("agent: max iterations exceeded")
+
+type ToolPhase int
+
+const (
+	ToolPhaseStart ToolPhase = iota + 1
+	ToolPhaseResult
+	ToolPhaseError
+)
+
+type ToolEvent struct {
+	Phase ToolPhase
+
+	CallID string
+	Name   string
+
+	Input map[string]any
+
+	Result *provider.ToolResult
+	Error  error
+}
+
+type ToolObserver func(ctx context.Context, event ToolEvent)
+
+type ToolErrorPolicy int
+
+const (
+	ToolErrorAbort ToolErrorPolicy = iota
+	ToolErrorSurface
+)
+
+const defaultMaxIterations = 8
+
 type Chain struct {
 	model string
 
@@ -30,13 +63,18 @@ type Chain struct {
 	verbosity provider.Verbosity
 
 	temperature *float32
+
+	maxIterations int
+	errorPolicy   ToolErrorPolicy
+	observer      ToolObserver
 }
 
 type Option func(*Chain)
 
 func New(model string, options ...Option) (*Chain, error) {
 	c := &Chain{
-		model: model,
+		model:         model,
+		maxIterations: defaultMaxIterations,
 	}
 
 	for _, option := range options {
@@ -45,6 +83,10 @@ func New(model string, options ...Option) (*Chain, error) {
 
 	if c.completer == nil {
 		return nil, errors.New("missing completer provider")
+	}
+
+	if c.maxIterations <= 0 {
+		c.maxIterations = defaultMaxIterations
 	}
 
 	return c, nil
@@ -83,6 +125,24 @@ func WithVerbosity(verbosity provider.Verbosity) Option {
 func WithTemperature(temperature float32) Option {
 	return func(c *Chain) {
 		c.temperature = &temperature
+	}
+}
+
+func WithMaxIterations(n int) Option {
+	return func(c *Chain) {
+		c.maxIterations = n
+	}
+}
+
+func WithToolErrorPolicy(policy ToolErrorPolicy) Option {
+	return func(c *Chain) {
+		c.errorPolicy = policy
+	}
+}
+
+func WithToolObserver(observer ToolObserver) Option {
+	return func(c *Chain) {
+		c.observer = observer
 	}
 }
 
@@ -165,7 +225,12 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		toolNamesByID := map[string]string{}
 		var lastToolCallID string
 
-		for {
+		for iteration := 0; ; iteration++ {
+			if iteration >= c.maxIterations {
+				yield(nil, ErrMaxIterationsExceeded)
+				return
+			}
+
 			acc := provider.CompletionAccumulator{}
 
 			for completion, err := range c.completer.Complete(ctx, input, inputOptions) {
@@ -277,28 +342,68 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 					return
 				}
 
+				if c.observer != nil {
+					c.observer(ctx, ToolEvent{
+						Phase:  ToolPhaseStart,
+						CallID: cnt.ToolCall.ID,
+						Name:   cnt.ToolCall.Name,
+						Input:  params,
+					})
+				}
+
 				result, err := t.Execute(ctx, cnt.ToolCall.Name, params)
+
+				if err != nil {
+					if c.observer != nil {
+						c.observer(ctx, ToolEvent{
+							Phase:  ToolPhaseError,
+							CallID: cnt.ToolCall.ID,
+							Name:   cnt.ToolCall.Name,
+							Input:  params,
+							Error:  err,
+						})
+					}
+
+					if c.errorPolicy == ToolErrorSurface {
+						input = append(input, provider.Message{
+							Role: provider.MessageRoleUser,
+							Content: []provider.Content{
+								provider.ToolResultContent(provider.ToolResult{
+									ID:    cnt.ToolCall.ID,
+									Parts: []provider.Part{{Text: "Error: " + err.Error()}},
+								}),
+							},
+						})
+
+						continue
+					}
+
+					yield(nil, err)
+					return
+				}
+
+				toolResult, err := renderToolResult(t, cnt.ToolCall.ID, cnt.ToolCall.Name, result)
 
 				if err != nil {
 					yield(nil, err)
 					return
 				}
 
-				data, err := json.Marshal(result)
-
-				if err != nil {
-					yield(nil, err)
-					return
+				if c.observer != nil {
+					c.observer(ctx, ToolEvent{
+						Phase:  ToolPhaseResult,
+						CallID: cnt.ToolCall.ID,
+						Name:   cnt.ToolCall.Name,
+						Input:  params,
+						Result: &toolResult,
+					})
 				}
 
 				input = append(input, provider.Message{
 					Role: provider.MessageRoleUser,
 
 					Content: []provider.Content{
-						provider.ToolResultContent(provider.ToolResult{
-							ID:    cnt.ToolCall.ID,
-							Parts: []provider.Part{{Text: string(data)}},
-						}),
+						provider.ToolResultContent(toolResult),
 					},
 				})
 			}
@@ -351,4 +456,24 @@ func mergeToolOptions(opts *provider.ToolOptions, agentToolNames []string) *prov
 	}
 
 	return &merged
+}
+
+func renderToolResult(t tool.Provider, id, name string, value any) (provider.ToolResult, error) {
+	if r, ok := t.(tool.Resulter); ok {
+		result := r.Result(name, value)
+		if result.ID == "" {
+			result.ID = id
+		}
+		return result, nil
+	}
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		return provider.ToolResult{}, err
+	}
+
+	return provider.ToolResult{
+		ID:    id,
+		Parts: []provider.Part{{Text: string(data)}},
+	}, nil
 }

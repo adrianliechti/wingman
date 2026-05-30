@@ -51,8 +51,13 @@ func postAnthropic(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, body
 	if tools, ok := body["tools"].([]any); ok {
 		for _, t := range tools {
 			if tm, ok := t.(map[string]any); ok {
-				if tp, ok := tm["type"].(string); ok && strings.HasPrefix(tp, "computer") {
-					betas = append(betas, "computer-use-2025-11-24")
+				if tp, ok := tm["type"].(string); ok {
+					if strings.HasPrefix(tp, "computer") {
+						betas = append(betas, "computer-use-2025-11-24")
+					}
+					if strings.HasPrefix(tp, "web_fetch") {
+						betas = append(betas, "web-fetch-2025-09-10")
+					}
 				}
 			}
 		}
@@ -116,8 +121,13 @@ func postAnthropicSSE(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, b
 	if tools, ok := body["tools"].([]any); ok {
 		for _, t := range tools {
 			if tm, ok := t.(map[string]any); ok {
-				if tp, ok := tm["type"].(string); ok && strings.HasPrefix(tp, "computer") {
-					betas = append(betas, "computer-use-2025-11-24")
+				if tp, ok := tm["type"].(string); ok {
+					if strings.HasPrefix(tp, "computer") {
+						betas = append(betas, "computer-use-2025-11-24")
+					}
+					if strings.HasPrefix(tp, "web_fetch") {
+						betas = append(betas, "web-fetch-2025-09-10")
+					}
 				}
 			}
 		}
