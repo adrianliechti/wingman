@@ -30,10 +30,7 @@ func TestNew_RequiresProvider(t *testing.T) {
 }
 
 func TestTools_SchemaShape(t *testing.T) {
-	c, err := New(&fakeSearcher{})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	c, _ := New(&fakeSearcher{})
 
 	tools, err := c.Tools(context.Background())
 	if err != nil {
@@ -46,13 +43,11 @@ func TestTools_SchemaShape(t *testing.T) {
 	props, _ := tools[0].Parameters["properties"].(map[string]any)
 	for _, key := range []string{"query", "allowed_domains", "blocked_domains"} {
 		if _, ok := props[key]; !ok {
-			t.Errorf("missing property %q in schema", key)
+			t.Errorf("missing property %q", key)
 		}
 	}
-
-	required, _ := tools[0].Parameters["required"].([]string)
-	if !reflect.DeepEqual(required, []string{"query"}) {
-		t.Errorf("required = %v, want [query]", required)
+	if got, _ := tools[0].Parameters["required"].([]string); !reflect.DeepEqual(got, []string{"query"}) {
+		t.Errorf("required = %v, want [query]", got)
 	}
 }
 
@@ -62,10 +57,7 @@ func TestExecute_PassesDomainsAndLocation(t *testing.T) {
 			{Source: "https://go.dev/blog/go1.24", Title: "Go 1.24", Content: "Body of post"},
 		},
 	}
-	c, err := New(f, WithLimit(3), WithLocation("Zurich, CH"))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	c, _ := New(f, WithLimit(3), WithLocation("Zurich, CH"))
 
 	got, err := c.Execute(context.Background(), ToolName, map[string]any{
 		"query":           "go release",
@@ -77,34 +69,36 @@ func TestExecute_PassesDomainsAndLocation(t *testing.T) {
 	}
 
 	if f.query != "go release" {
-		t.Errorf("query = %q, want %q", f.query, "go release")
+		t.Errorf("query = %q", f.query)
 	}
 	if f.options.Location != "Zurich, CH" {
-		t.Errorf("location = %q, want %q", f.options.Location, "Zurich, CH")
+		t.Errorf("location = %q", f.options.Location)
 	}
 	if !reflect.DeepEqual(f.options.Include, []string{"go.dev"}) {
-		t.Errorf("include = %v, want [go.dev]", f.options.Include)
+		t.Errorf("include = %v", f.options.Include)
 	}
 	if !reflect.DeepEqual(f.options.Exclude, []string{"medium.com"}) {
-		t.Errorf("exclude = %v, want [medium.com]", f.options.Exclude)
+		t.Errorf("exclude = %v", f.options.Exclude)
 	}
 	if f.options.Limit == nil || *f.options.Limit != 3 {
-		t.Errorf("limit not propagated; got %v", f.options.Limit)
+		t.Errorf("limit = %v", f.options.Limit)
 	}
 
-	results, ok := got.([]Result)
-	if !ok || len(results) != 1 {
-		t.Fatalf("got = %T %v", got, got)
+	text, ok := got.(string)
+	if !ok {
+		t.Fatalf("Execute returned %T, want string", got)
 	}
-	if results[0].URL != "https://go.dev/blog/go1.24" {
-		t.Errorf("URL = %q", results[0].URL)
+	for _, want := range []string{"https://go.dev/blog/go1.24", "Go 1.24", "Found 1 result"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q in output:\n%s", want, text)
+		}
 	}
 }
 
 func TestExecute_WrongTool(t *testing.T) {
 	c, _ := New(&fakeSearcher{})
 	if _, err := c.Execute(context.Background(), "wrong", nil); err == nil {
-		t.Fatal("expected error for unknown tool name")
+		t.Fatal("expected error for unknown tool")
 	}
 }
 
@@ -118,33 +112,26 @@ func TestExecute_MissingQuery(t *testing.T) {
 func TestExecute_PropagatesSearcherError(t *testing.T) {
 	want := errors.New("backend down")
 	c, _ := New(&fakeSearcher{err: want})
-	_, err := c.Execute(context.Background(), ToolName, map[string]any{"query": "x"})
-	if !errors.Is(err, want) {
+	if _, err := c.Execute(context.Background(), ToolName, map[string]any{"query": "x"}); !errors.Is(err, want) {
 		t.Errorf("err = %v, want %v", err, want)
 	}
 }
 
-func TestResult_FormatsMarkdown(t *testing.T) {
+func TestExecute_EmptyResults(t *testing.T) {
 	c, _ := New(&fakeSearcher{})
-	out := c.Result(ToolName, []Result{
-		{URL: "https://a.example/x", Title: "A", Snippet: "first"},
-		{URL: "https://b.example/y", Title: "B", Snippet: "second"},
-	})
-	if len(out.Parts) != 1 {
-		t.Fatalf("parts = %v", out.Parts)
+	got, err := c.Execute(context.Background(), ToolName, map[string]any{"query": "nothing"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
 	}
-	text := out.Parts[0].Text
-	for _, want := range []string{"https://a.example/x", "https://b.example/y", "first", "second"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("missing %q in output:\n%s", want, text)
-		}
+	if got.(string) != "No results." {
+		t.Errorf("got %q", got)
 	}
 }
 
-func TestResult_Empty(t *testing.T) {
+func TestResult_PassesThroughText(t *testing.T) {
 	c, _ := New(&fakeSearcher{})
-	out := c.Result(ToolName, []Result{})
-	if out.Parts[0].Text != "No results." {
-		t.Errorf("got %q", out.Parts[0].Text)
+	out := c.Result(ToolName, "some markdown")
+	if len(out.Parts) != 1 || out.Parts[0].Text != "some markdown" {
+		t.Errorf("got %+v", out)
 	}
 }

@@ -19,8 +19,8 @@ func toMessages(system string, messages []MessageParam) ([]provider.Message, err
 		result = append(result, provider.SystemMessage(system))
 	}
 
-	for _, m := range messages {
-		message, err := toMessage(m)
+	for i, m := range messages {
+		message, err := toMessage(i, m)
 
 		if err != nil {
 			return nil, err
@@ -32,7 +32,7 @@ func toMessages(system string, messages []MessageParam) ([]provider.Message, err
 	return result, nil
 }
 
-func toMessage(m MessageParam) (*provider.Message, error) {
+func toMessage(index int, m MessageParam) (*provider.Message, error) {
 	blocks, err := parseContentBlocks(m.Content)
 
 	if err != nil {
@@ -49,7 +49,10 @@ func toMessage(m MessageParam) (*provider.Message, error) {
 		role = provider.MessageRoleAssistant
 
 	default:
-		role = provider.MessageRoleUser
+		return nil, fmt.Errorf(
+			"messages.%d: Unexpected role %q. Allowed roles are \"user\" or \"assistant\"",
+			index, m.Role,
+		)
 	}
 
 	var content []provider.Content
@@ -287,10 +290,10 @@ func toJSONString(v any) (string, error) {
 	return string(data), nil
 }
 
-func toTools(tools []ToolParam) []provider.Tool {
+func toTools(tools []ToolParam) ([]provider.Tool, error) {
 	var result []provider.Tool
 
-	for _, t := range tools {
+	for i, t := range tools {
 		switch {
 		case strings.HasPrefix(t.Type, "text_editor"):
 			result = append(result, provider.Tool{
@@ -314,10 +317,16 @@ func toTools(tools []ToolParam) []provider.Tool {
 				Description: t.Description,
 				Parameters:  tool.NormalizeSchema(t.InputSchema),
 			})
+
+		default:
+			return nil, fmt.Errorf(
+				"tools.%d: Input tag '%s' found using 'type' does not match any of the expected tags: 'custom', 'text_editor_*', 'computer_*'",
+				i, t.Type,
+			)
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 func toContentBlocks(content []provider.Content) []ContentBlock {

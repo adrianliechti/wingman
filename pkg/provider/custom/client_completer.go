@@ -65,7 +65,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		}
 
 		req := &CompleteRequest{
-			Tools:    wireTools(options.Tools),
+			Tools:    wireTools(provider.FlattenTools(options.Tools)),
 			Messages: wireMessages(messages),
 		}
 

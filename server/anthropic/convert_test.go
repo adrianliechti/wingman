@@ -3,6 +3,7 @@ package anthropic
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -24,7 +25,7 @@ func TestToMessage_ThinkingBlocks(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	msg, err := toMessage(MessageParam{Role: MessageRoleAssistant, Content: blocksToAny(blocks)})
+	msg, err := toMessage(0, MessageParam{Role: MessageRoleAssistant, Content: blocksToAny(blocks)})
 	if err != nil {
 		t.Fatalf("toMessage: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestToMessage_DocumentBlocks(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	msg, err := toMessage(MessageParam{Role: MessageRoleUser, Content: blocksToAny(blocks)})
+	msg, err := toMessage(0, MessageParam{Role: MessageRoleUser, Content: blocksToAny(blocks)})
 	if err != nil {
 		t.Fatalf("toMessage: %v", err)
 	}
@@ -141,7 +142,7 @@ func TestToMessage_ServerToolUseRoundTripsAsText(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	msg, err := toMessage(MessageParam{Role: MessageRoleAssistant, Content: blocksToAny(blocks)})
+	msg, err := toMessage(0, MessageParam{Role: MessageRoleAssistant, Content: blocksToAny(blocks)})
 	if err != nil {
 		t.Fatalf("toMessage: %v", err)
 	}
@@ -164,31 +165,32 @@ func TestToMessage_ServerToolUseRoundTripsAsText(t *testing.T) {
 	}
 }
 
-func TestToTools_DropsWebSearch(t *testing.T) {
+func TestToTools_RejectsWebSearch(t *testing.T) {
 	in := []ToolParam{
 		{Type: "custom", Name: "get_weather", InputSchema: map[string]any{"type": "object"}},
 		{Type: "web_search_20250305", Name: "web_search"},
 	}
 
-	tools := toTools(in)
-
-	if len(tools) != 1 {
-		t.Fatalf("tools length = %d, want 1 (web_search should be dropped)", len(tools))
+	_, err := toTools(in)
+	if err == nil {
+		t.Fatal("expected error for web_search_20250305")
 	}
-	if tools[0].Name != "get_weather" {
-		t.Errorf("remaining tool name = %q", tools[0].Name)
+	if msg := err.Error(); !strings.Contains(msg, "tools.1") || !strings.Contains(msg, "web_search_20250305") {
+		t.Errorf("error = %q", msg)
 	}
 }
 
-func TestToTools_DropsWebFetch(t *testing.T) {
+func TestToTools_RejectsWebFetch(t *testing.T) {
 	in := []ToolParam{
 		{Type: "web_fetch_20250910", Name: "web_fetch"},
 	}
 
-	tools := toTools(in)
-
-	if len(tools) != 0 {
-		t.Fatalf("tools length = %d, want 0", len(tools))
+	_, err := toTools(in)
+	if err == nil {
+		t.Fatal("expected error for web_fetch_20250910")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "tools.0") || !strings.Contains(msg, "web_fetch_20250910") {
+		t.Errorf("error = %q", msg)
 	}
 }
 
@@ -197,8 +199,10 @@ func TestToTools_PassesThroughRegular(t *testing.T) {
 		{Type: "custom", Name: "get_weather", InputSchema: map[string]any{"type": "object"}},
 	}
 
-	tools := toTools(in)
-
+	tools, err := toTools(in)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(tools) != 1 {
 		t.Fatalf("tools length = %d", len(tools))
 	}

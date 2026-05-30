@@ -25,15 +25,14 @@ type Client struct {
 	location string
 }
 
-func New(provider searcher.Provider, options ...Option) (*Client, error) {
-	if provider == nil {
+func New(p searcher.Provider, options ...Option) (*Client, error) {
+	if p == nil {
 		return nil, errors.New("search: missing searcher provider")
 	}
 
 	c := &Client{
-		provider: provider,
-
-		limit: 5,
+		provider: p,
+		limit:    5,
 	}
 
 	for _, option := range options {
@@ -47,7 +46,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        ToolName,
-			Description: "Search the public web for up-to-date information and return a list of sources the assistant can cite.",
+			Description: "Search the public web and return a list of sources (URL, title, snippet) the assistant can cite. Use for current events, named entities, or anything that may have changed since training.",
 
 			Parameters: map[string]any{
 				"type": "object",
@@ -102,42 +101,36 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, err
 	}
 
-	results := make([]Result, 0, len(hits))
-	for _, h := range hits {
-		results = append(results, Result{
-			URL:     h.Source,
-			Title:   h.Title,
-			Snippet: snippet(h.Content, 240),
-			Content: h.Content,
-		})
-	}
-
-	return results, nil
+	return formatResults(hits), nil
 }
 
+// Result implements tool.Resulter so the agent chain sees the same markdown
+// the MCP server emits, instead of a JSON-quoted blob.
 func (c *Client) Result(name string, value any) provider.ToolResult {
-	results, _ := value.([]Result)
+	text, _ := value.(string)
+	return provider.ToolResult{
+		Parts: []provider.Part{{Text: text}},
+	}
+}
+
+func formatResults(hits []searcher.Result) string {
+	if len(hits) == 0 {
+		return "No results."
+	}
 
 	var b strings.Builder
-	if len(results) == 0 {
-		b.WriteString("No results.")
-	} else {
-		fmt.Fprintf(&b, "Found %d result(s):\n\n", len(results))
-		for i, r := range results {
-			title := r.Title
-			if title == "" {
-				title = r.URL
-			}
-			fmt.Fprintf(&b, "%d. [%s](%s)\n", i+1, title, r.URL)
-			if r.Snippet != "" {
-				fmt.Fprintf(&b, "   %s\n", r.Snippet)
-			}
+	fmt.Fprintf(&b, "Found %d result(s):\n\n", len(hits))
+	for i, h := range hits {
+		title := h.Title
+		if title == "" {
+			title = h.Source
+		}
+		fmt.Fprintf(&b, "%d. [%s](%s)\n", i+1, title, h.Source)
+		if s := snippet(h.Content, 240); s != "" {
+			fmt.Fprintf(&b, "   %s\n", s)
 		}
 	}
-
-	return provider.ToolResult{
-		Parts: []provider.Part{{Text: b.String()}},
-	}
+	return b.String()
 }
 
 func collectStrings(v any) []string {

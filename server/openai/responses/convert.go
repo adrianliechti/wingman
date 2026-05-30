@@ -3,6 +3,7 @@ package responses
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"mime"
 	"path"
 	"strings"
@@ -80,7 +81,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 		pendingResults = nil
 	}
 
-	for _, item := range items {
+	for i, item := range items {
 		switch item.Type {
 		case InputItemTypeMessage:
 			if item.InputMessage == nil {
@@ -89,12 +90,20 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			m := item.InputMessage
 
+			role := toMessageRole(m.Role)
+			if role == "" {
+				return nil, &shared.InvalidValueError{
+					Param:   fmt.Sprintf("input[%d].role", i),
+					Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'system', 'developer', 'user', 'assistant'.", m.Role),
+				}
+			}
+
 			content, err := toInputContent(m.Content)
 			if err != nil {
 				return nil, err
 			}
 
-			if m.Role == MessageRoleAssistant {
+			if role == provider.MessageRoleAssistant {
 				flushResults()
 
 				content = append(pendingReasoning, content...)
@@ -112,7 +121,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 				if len(content) > 0 {
 					result = append(result, provider.Message{
-						Role:    toMessageRole(m.Role),
+						Role:    role,
 						Content: content,
 					})
 				}
@@ -382,10 +391,10 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 	return result, nil
 }
 
-func toTools(tools []Tool) []provider.Tool {
+func toTools(tools []Tool) ([]provider.Tool, error) {
 	var result []provider.Tool
 
-	for _, t := range tools {
+	for i, t := range tools {
 		switch t.Type {
 		case ToolTypeFunction:
 			if t.Name == "" {
@@ -451,32 +460,29 @@ func toTools(tools []Tool) []provider.Tool {
 			if t.Name == "" {
 				continue
 			}
+			var children []provider.Tool
 			for _, inner := range t.Tools {
 				switch inner.Type {
 				case ToolTypeFunction, "":
 					if inner.Name == "" {
 						continue
 					}
-					result = append(result, provider.Tool{
-						Name:                 inner.Name,
-						Description:          inner.Description,
-						Namespace:            t.Name,
-						NamespaceDescription: t.Description,
-						Strict:               inner.Strict,
-						Deferred:             inner.DeferLoading,
-						Parameters:           tool.NormalizeSchema(inner.Parameters),
+					children = append(children, provider.Tool{
+						Name:        inner.Name,
+						Description: inner.Description,
+						Strict:      inner.Strict,
+						Deferred:    inner.DeferLoading,
+						Parameters:  tool.NormalizeSchema(inner.Parameters),
 					})
 				case ToolTypeCustom:
 					if inner.Name == "" {
 						continue
 					}
 					custom := provider.Tool{
-						Name:                 inner.Name,
-						Description:          inner.Description,
-						Kind:                 provider.ToolKindCustom,
-						Namespace:            t.Name,
-						NamespaceDescription: t.Description,
-						Deferred:             inner.DeferLoading,
+						Name:        inner.Name,
+						Description: inner.Description,
+						Kind:        provider.ToolKindCustom,
+						Deferred:    inner.DeferLoading,
 					}
 					if inner.Format != nil {
 						custom.Format = &provider.ToolFormat{
@@ -485,13 +491,27 @@ func toTools(tools []Tool) []provider.Tool {
 							Definition: inner.Format.Definition,
 						}
 					}
-					result = append(result, custom)
+					children = append(children, custom)
 				}
+			}
+			if len(children) == 0 {
+				continue
+			}
+			result = append(result, provider.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				Tools:       children,
+			})
+
+		default:
+			return nil, &shared.InvalidValueError{
+				Param:   fmt.Sprintf("tools[%d].type", i),
+				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'function', 'custom', 'apply_patch', 'computer', 'namespace', 'tool_search'.", t.Type),
 			}
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // outputKind picks the wire-format wrapper for a tool call by name, using

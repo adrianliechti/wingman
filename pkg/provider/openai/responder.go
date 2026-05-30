@@ -781,8 +781,6 @@ func customToolResultOutputUnion(r *provider.ToolResult) responses.ResponseCusto
 func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.ToolUnionParam, error) {
 	var result []responses.ToolUnionParam
 
-	namespaceIndex := map[string]int{}
-
 	for _, t := range tools {
 		if t.Kind == provider.ToolKindTextEditor {
 			result = append(result, responses.ToolUnionParam{
@@ -815,47 +813,41 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 			continue
 		}
 
-		if t.Name == "" {
+		if len(t.Tools) > 0 {
+			ns := &responses.NamespaceToolParam{
+				Name:        t.Name,
+				Description: t.Description,
+			}
+			for _, inner := range t.Tools {
+				if inner.Kind == provider.ToolKindCustom || inner.Name == "" {
+					continue
+				}
+				fn := responses.NamespaceToolToolFunctionParam{
+					Name:       inner.Name,
+					Parameters: inner.Parameters,
+				}
+				if inner.Description != "" {
+					fn.Description = openai.String(inner.Description)
+				}
+				if inner.Strict != nil {
+					fn.Strict = openai.Bool(*inner.Strict)
+				}
+				if inner.Deferred != nil && *inner.Deferred {
+					fn.DeferLoading = openai.Bool(true)
+				}
+				ns.Tools = append(ns.Tools, responses.NamespaceToolToolUnionParam{
+					OfFunction: &fn,
+				})
+			}
+			if len(ns.Tools) > 0 {
+				result = append(result, responses.ToolUnionParam{
+					OfNamespace: ns,
+				})
+			}
 			continue
 		}
 
-		if t.Namespace != "" && t.Kind != provider.ToolKindCustom {
-			inner := responses.NamespaceToolToolFunctionParam{
-				Name:       t.Name,
-				Parameters: t.Parameters,
-			}
-			if t.Description != "" {
-				inner.Description = openai.String(t.Description)
-			}
-			if t.Strict != nil {
-				inner.Strict = openai.Bool(*t.Strict)
-			}
-			if t.Deferred != nil && *t.Deferred {
-				inner.DeferLoading = openai.Bool(true)
-			}
-
-			if idx, ok := namespaceIndex[t.Namespace]; ok {
-				existing := result[idx].OfNamespace
-				existing.Tools = append(existing.Tools, responses.NamespaceToolToolUnionParam{
-					OfFunction: &inner,
-				})
-				if existing.Description == "" && t.NamespaceDescription != "" {
-					existing.Description = t.NamespaceDescription
-				}
-				continue
-			}
-
-			ns := &responses.NamespaceToolParam{
-				Name:        t.Namespace,
-				Description: t.NamespaceDescription,
-				Tools: []responses.NamespaceToolToolUnionParam{
-					{OfFunction: &inner},
-				},
-			}
-			namespaceIndex[t.Namespace] = len(result)
-			result = append(result, responses.ToolUnionParam{
-				OfNamespace: ns,
-			})
+		if t.Name == "" {
 			continue
 		}
 

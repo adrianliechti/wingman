@@ -132,8 +132,10 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 		}
 	}
 
-	if len(options.Tools) > 0 {
-		config.Tools = convertTools(options.Tools)
+	flatTools := provider.FlattenTools(options.Tools)
+
+	if len(flatTools) > 0 {
+		config.Tools = convertTools(flatTools)
 
 		fcc := &genai.FunctionCallingConfig{}
 
@@ -151,9 +153,8 @@ func convertGenerateConfig(instruction *genai.Content, options *provider.Complet
 			}
 		}
 
-		// Upgrade to VALIDATED mode if any tool has Strict=true (schema enforcement)
 		if fcc.Mode == "" || fcc.Mode == genai.FunctionCallingConfigModeAuto {
-			for _, t := range options.Tools {
+			for _, t := range flatTools {
 				if t.Strict != nil && *t.Strict {
 					fcc.Mode = genai.FunctionCallingConfigModeValidated
 					break

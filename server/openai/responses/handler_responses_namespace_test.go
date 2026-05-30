@@ -103,25 +103,30 @@ func TestNamespaceToolFlattensToFunctionTools(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	if len(completer.gotTools) != 2 {
-		t.Fatalf("expected 2 flattened tools, got %d (%+v)", len(completer.gotTools), completer.gotTools)
+	if len(completer.gotTools) != 1 {
+		t.Fatalf("expected 1 namespace tool, got %d (%+v)", len(completer.gotTools), completer.gotTools)
+	}
+
+	ns := completer.gotTools[0]
+	if ns.Name != "mcp__weather__" {
+		t.Fatalf("namespace name = %q, want mcp__weather__", ns.Name)
+	}
+	if ns.Description != "Weather MCP tools." {
+		t.Fatalf("namespace description = %q, want %q", ns.Description, "Weather MCP tools.")
+	}
+	if len(ns.Tools) != 2 {
+		t.Fatalf("expected 2 child tools, got %d (%+v)", len(ns.Tools), ns.Tools)
 	}
 
 	byName := map[string]provider.Tool{}
-	for _, tool := range completer.gotTools {
-		byName[tool.Name] = tool
+	for _, child := range ns.Tools {
+		byName[child.Name] = child
 	}
-	for _, name := range []string{"get_forecast", "get_history"} {
-		got, ok := byName[name]
-		if !ok {
-			t.Fatalf("expected flattened tool %q, got %+v", name, completer.gotTools)
-		}
-		if got.Namespace != "mcp__weather__" {
-			t.Fatalf("expected namespace label on %q, got %q", name, got.Namespace)
-		}
-		if got.Kind != provider.ToolKindFunction {
-			t.Fatalf("expected function kind on %q, got %q", name, got.Kind)
-		}
+	if d := byName["get_forecast"].Description; d != "Get the forecast." {
+		t.Errorf("inner forecast description = %q", d)
+	}
+	if d := byName["get_history"].Description; d != "Get history." {
+		t.Errorf("inner history description = %q", d)
 	}
 
 	var resp struct {

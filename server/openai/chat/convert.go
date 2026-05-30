@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/base64"
+	"fmt"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -59,11 +60,14 @@ func toToolOptions(v *ToolChoice) *provider.ToolOptions {
 func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 	result := make([]provider.Message, 0)
 
-	for _, m := range s {
+	for i, m := range s {
 		role := toMessageRole(m.Role)
 
 		if role == "" {
-			continue
+			return nil, &shared.InvalidValueError{
+				Param:   fmt.Sprintf("messages[%d].role", i),
+				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'system', 'developer', 'user', 'tool', 'assistant'.", m.Role),
+			}
 		}
 
 		var content []provider.Content
@@ -184,19 +188,26 @@ func toMessageRole(r MessageRole) provider.MessageRole {
 func toTools(tools []Tool) ([]provider.Tool, error) {
 	var result []provider.Tool
 
-	for _, t := range tools {
-		if t.Type == ToolTypeFunction && t.ToolFunction != nil {
-			function := provider.Tool{
-				Name:        t.ToolFunction.Name,
-				Description: t.ToolFunction.Description,
-
-				Strict: t.ToolFunction.Strict,
-
-				Parameters: tool.NormalizeSchema(t.ToolFunction.Parameters),
+	for i, t := range tools {
+		if t.Type != ToolTypeFunction {
+			return nil, &shared.InvalidValueError{
+				Param:   fmt.Sprintf("tools[%d].type", i),
+				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'function'.", t.Type),
 			}
-
-			result = append(result, function)
 		}
+
+		if t.ToolFunction == nil {
+			continue
+		}
+
+		result = append(result, provider.Tool{
+			Name:        t.ToolFunction.Name,
+			Description: t.ToolFunction.Description,
+
+			Strict: t.ToolFunction.Strict,
+
+			Parameters: tool.NormalizeSchema(t.ToolFunction.Parameters),
+		})
 	}
 
 	return result, nil

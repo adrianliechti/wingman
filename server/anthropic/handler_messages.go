@@ -45,7 +45,11 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tools := toTools(req.Tools)
+	tools, err := toTools(req.Tools)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 
 	options := &provider.CompleteOptions{
 		Tools: tools,

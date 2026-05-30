@@ -17,11 +17,6 @@ type Tool struct {
 	Name      string
 	Namespace string
 
-	// NamespaceDescription is the description of the surrounding namespace
-	// (when Namespace is set). The first non-empty value seen for a given
-	// Namespace is used when re-grouping the tools downstream.
-	NamespaceDescription string
-
 	Description string
 
 	Strict   *bool
@@ -29,6 +24,8 @@ type Tool struct {
 
 	Execution  string
 	Parameters map[string]any
+
+	Tools []Tool
 
 	Format  *ToolFormat
 	Display *Display

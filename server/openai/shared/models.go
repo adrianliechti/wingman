@@ -10,3 +10,12 @@ type Error struct {
 	Param   string `json:"param,omitempty"`
 	Message string `json:"message"`
 }
+
+type InvalidValueError struct {
+	Param   string
+	Message string
+}
+
+func (e *InvalidValueError) Error() string {
+	return e.Message
+}

@@ -2,6 +2,7 @@ package shared
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -68,6 +69,12 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 			Code:    provider.TypeFromError(err),
 			Message: err.Error(),
 		},
+	}
+
+	var invalidValue *InvalidValueError
+	if errors.As(err, &invalidValue) {
+		resp.Error.Code = "invalid_value"
+		resp.Error.Param = invalidValue.Param
 	}
 
 	enc := json.NewEncoder(w)

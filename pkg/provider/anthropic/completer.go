@@ -532,7 +532,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		}
 	}
 
-	for _, t := range options.Tools {
+	for _, t := range provider.FlattenTools(options.Tools) {
 		if t.Kind == provider.ToolKindTextEditor {
 			tools = append(tools, anthropic.BetaToolUnionParam{
 				OfTextEditor20250728: &anthropic.BetaToolTextEditor20250728Param{},

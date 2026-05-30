@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/scraper"
@@ -54,7 +53,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        ToolName,
-			Description: "Fetch the content of a public web page and return its text so the assistant can quote and cite it.",
+			Description: "Fetch the content of a public web page (HTML/text/PDF) and return its text so the assistant can quote and cite it.",
 
 			Parameters: map[string]any{
 				"type": "object",
@@ -102,30 +101,23 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		text = text[:c.maxChars]
 	}
 
-	return Result{
-		URL:         raw,
-		RetrievedAt: time.Now().UTC(),
-		Text:        text,
-	}, nil
+	return formatDocument(raw, text), nil
 }
 
+// Result implements tool.Resulter so the agent chain sees the same markdown
+// the MCP server emits.
 func (c *Client) Result(name string, value any) provider.ToolResult {
-	r, ok := value.(Result)
-	if !ok {
-		return provider.ToolResult{Parts: []provider.Part{{Text: ""}}}
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "Source: %s\n", r.URL)
-	if r.Title != "" {
-		fmt.Fprintf(&b, "Title: %s\n", r.Title)
-	}
-	b.WriteString("\n")
-	b.WriteString(r.Text)
-
+	text, _ := value.(string)
 	return provider.ToolResult{
-		Parts: []provider.Part{{Text: b.String()}},
+		Parts: []provider.Part{{Text: text}},
 	}
+}
+
+func formatDocument(source, text string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Source: %s\n\n", source)
+	b.WriteString(text)
+	return b.String()
 }
 
 func (c *Client) allowed(host string) bool {

@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/agent/assistant"
 	"github.com/adrianliechti/wingman/pkg/agent/react"
@@ -23,6 +25,8 @@ func (cfg *Config) RegisterAgent(id string, p provider.Completer) {
 }
 
 type agentConfig struct {
+	Type string `yaml:"type"`
+
 	Model string `yaml:"model"`
 
 	Template string    `yaml:"template"`
@@ -109,7 +113,7 @@ func (cfg *Config) registerAgents(f *configFile) error {
 			context.Messages = messages
 		}
 
-		a, err := newAgent(config, context)
+		a, err := createAgent(config, context)
 
 		if err != nil {
 			return err
@@ -123,15 +127,20 @@ func (cfg *Config) registerAgents(f *configFile) error {
 	return nil
 }
 
-func newAgent(cfg agentConfig, context agentContext) (provider.Completer, error) {
-	if len(context.Tools) > 0 {
-		return newReactAgent(cfg, context)
-	}
+func createAgent(cfg agentConfig, context agentContext) (provider.Completer, error) {
+	switch strings.ToLower(cfg.Type) {
+	case "react":
+		return reactAgent(cfg, context)
 
-	return newAssistantAgent(cfg, context)
+	case "assistant":
+		return assistantAgent(cfg, context)
+
+	default:
+		return nil, errors.New("invalid agent type: " + cfg.Type)
+	}
 }
 
-func newReactAgent(cfg agentConfig, context agentContext) (provider.Completer, error) {
+func reactAgent(cfg agentConfig, context agentContext) (provider.Completer, error) {
 	var options []react.Option
 
 	if context.Completer != nil {
@@ -155,7 +164,7 @@ func newReactAgent(cfg agentConfig, context agentContext) (provider.Completer, e
 	return react.New(cfg.Model, options...)
 }
 
-func newAssistantAgent(cfg agentConfig, context agentContext) (provider.Completer, error) {
+func assistantAgent(cfg agentConfig, context agentContext) (provider.Completer, error) {
 	var options []assistant.Option
 
 	if context.Completer != nil {

@@ -28,10 +28,7 @@ func TestNew_RequiresProvider(t *testing.T) {
 
 func TestExecute_FetchesAndTruncates(t *testing.T) {
 	long := strings.Repeat("x", 1000)
-	c, err := New(&fakeScraper{doc: &scraper.Document{Text: long}}, WithMaxChars(50))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: long}}, WithMaxChars(50))
 
 	got, err := c.Execute(context.Background(), ToolName, map[string]any{
 		"url": "https://example.com/page",
@@ -40,74 +37,61 @@ func TestExecute_FetchesAndTruncates(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	r, ok := got.(Result)
+	text, ok := got.(string)
 	if !ok {
-		t.Fatalf("got = %T", got)
+		t.Fatalf("Execute returned %T, want string", got)
 	}
-	if r.URL != "https://example.com/page" {
-		t.Errorf("URL = %q", r.URL)
+	if !strings.HasPrefix(text, "Source: https://example.com/page\n\n") {
+		t.Errorf("missing source header in:\n%s", text)
 	}
-	if len(r.Text) != 50 {
-		t.Errorf("text length = %d, want 50", len(r.Text))
-	}
-	if r.RetrievedAt.IsZero() {
-		t.Error("RetrievedAt was zero")
+	// 50 chars of body + "Source: https://example.com/page\n\n" prefix
+	bodyLen := len(text) - len("Source: https://example.com/page\n\n")
+	if bodyLen != 50 {
+		t.Errorf("body length = %d, want 50", bodyLen)
 	}
 }
 
 func TestExecute_RejectsInvalidURL(t *testing.T) {
 	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: "ok"}})
-	cases := []map[string]any{
+	for _, params := range []map[string]any{
 		{},
 		{"url": ""},
 		{"url": "not a url"},
 		{"url": "ftp://example.com"},
 		{"url": "https://"},
-	}
-	for _, params := range cases {
+	} {
 		if _, err := c.Execute(context.Background(), ToolName, params); err == nil {
-			t.Errorf("expected error for params %v", params)
+			t.Errorf("expected error for %v", params)
 		}
 	}
 }
 
 func TestExecute_DomainFilterAllow(t *testing.T) {
-	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: "ok"}},
-		WithAllowedDomains("go.dev"))
+	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: "ok"}}, WithAllowedDomains("go.dev"))
 
-	_, err := c.Execute(context.Background(), ToolName, map[string]any{"url": "https://blog.example/x"})
-	if !errors.Is(err, ErrURLNotAllowed) {
-		t.Errorf("expected ErrURLNotAllowed, got %v", err)
+	if _, err := c.Execute(context.Background(), ToolName, map[string]any{"url": "https://blog.example/x"}); !errors.Is(err, ErrURLNotAllowed) {
+		t.Errorf("expected ErrURLNotAllowed; got %v", err)
 	}
-
-	_, err = c.Execute(context.Background(), ToolName, map[string]any{"url": "https://go.dev/x"})
-	if err != nil {
+	if _, err := c.Execute(context.Background(), ToolName, map[string]any{"url": "https://go.dev/x"}); err != nil {
 		t.Errorf("go.dev should be allowed; got %v", err)
 	}
-
-	_, err = c.Execute(context.Background(), ToolName, map[string]any{"url": "https://blog.go.dev/x"})
-	if err != nil {
+	if _, err := c.Execute(context.Background(), ToolName, map[string]any{"url": "https://blog.go.dev/x"}); err != nil {
 		t.Errorf("blog.go.dev should match go.dev; got %v", err)
 	}
 }
 
 func TestExecute_DomainFilterBlock(t *testing.T) {
-	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: "ok"}},
-		WithBlockedDomains("medium.com"))
+	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: "ok"}}, WithBlockedDomains("medium.com"))
 
-	_, err := c.Execute(context.Background(), ToolName, map[string]any{"url": "https://medium.com/x"})
-	if !errors.Is(err, ErrURLNotAllowed) {
+	if _, err := c.Execute(context.Background(), ToolName, map[string]any{"url": "https://medium.com/x"}); !errors.Is(err, ErrURLNotAllowed) {
 		t.Errorf("expected ErrURLNotAllowed; got %v", err)
 	}
 }
 
-func TestResult_FormatsMarkdown(t *testing.T) {
+func TestResult_PassesThroughText(t *testing.T) {
 	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: "ok"}})
-	out := c.Result(ToolName, Result{URL: "https://x", Title: "T", Text: "body"})
-	text := out.Parts[0].Text
-	for _, want := range []string{"https://x", "Title: T", "body"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("missing %q in output:\n%s", want, text)
-		}
+	out := c.Result(ToolName, "some markdown")
+	if len(out.Parts) != 1 || out.Parts[0].Text != "some markdown" {
+		t.Errorf("got %+v", out)
 	}
 }

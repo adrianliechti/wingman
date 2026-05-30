@@ -472,7 +472,7 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		toolOptions = nil
 	}
 
-	config := c.convertToolConfig(options.Tools, toolOptions)
+	config := c.convertToolConfig(provider.FlattenTools(options.Tools), toolOptions)
 
 	// Schema mode: expose the schema as a tool and force its use. Anthropic
 	// models reject native Converse structured output (output_config.format),
