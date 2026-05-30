@@ -14,7 +14,9 @@ func WithClient(client *http.Client) Option {
 
 func WithMode(val string) Option {
 	return func(c *Client) {
-		c.mode = val
+		if val != "" {
+			c.mode = val
+		}
 	}
 }
 

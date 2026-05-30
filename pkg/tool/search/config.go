@@ -9,9 +9,3 @@ func WithLimit(limit int) Option {
 		}
 	}
 }
-
-func WithLocation(location string) Option {
-	return func(c *Client) {
-		c.location = location
-	}
-}

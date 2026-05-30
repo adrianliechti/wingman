@@ -21,8 +21,7 @@ var (
 type Client struct {
 	provider searcher.Provider
 
-	limit    int
-	location string
+	limit int
 }
 
 func New(p searcher.Provider, options ...Option) (*Client, error) {
@@ -43,32 +42,52 @@ func New(p searcher.Provider, options ...Option) (*Client, error) {
 }
 
 func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
+	props := map[string]any{
+		"query": map[string]any{
+			"type":        "string",
+			"description": "The natural-language search query. Do not include site: or other search operators.",
+		},
+		"location": map[string]any{
+			"type":        "string",
+			"description": "Optional two-letter ISO 3166-1 alpha-2 country code to bias results (e.g. \"US\", \"CH\", \"DE\").",
+		},
+		"allowed_domains": map[string]any{
+			"type":        "array",
+			"description": "Optional list of domains to restrict results to (e.g. \"go.dev\", \"wikipedia.org\").",
+			"items":       map[string]any{"type": "string"},
+		},
+		"blocked_domains": map[string]any{
+			"type":        "array",
+			"description": "Optional list of domains to exclude from results.",
+			"items":       map[string]any{"type": "string"},
+		},
+	}
+
+	if cats := c.provider.Categories(); len(cats) > 0 {
+		var b strings.Builder
+		b.WriteString("Optional vertical to bias results toward. Any descriptive string is accepted as a hint; the entries below have improved quality:")
+		for _, cat := range cats {
+			if cat.Description != "" {
+				fmt.Fprintf(&b, "\n- %s: %s", cat.Name, cat.Description)
+			} else {
+				fmt.Fprintf(&b, "\n- %s", cat.Name)
+			}
+		}
+		props["category"] = map[string]any{
+			"type":        "string",
+			"description": b.String(),
+		}
+	}
+
 	return []tool.Tool{
 		{
 			Name:        ToolName,
 			Description: "Search the public web and return a list of sources (URL, title, snippet) the assistant can cite. Use for current events, named entities, or anything that may have changed since training.",
 
 			Parameters: map[string]any{
-				"type": "object",
-
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "The natural-language search query. Do not include site: or other search operators.",
-					},
-					"allowed_domains": map[string]any{
-						"type":        "array",
-						"description": "Optional list of domains to restrict results to (e.g. \"go.dev\", \"wikipedia.org\").",
-						"items":       map[string]any{"type": "string"},
-					},
-					"blocked_domains": map[string]any{
-						"type":        "array",
-						"description": "Optional list of domains to exclude from results.",
-						"items":       map[string]any{"type": "string"},
-					},
-				},
-
-				"required": []string{"query"},
+				"type":       "object",
+				"properties": props,
+				"required":   []string{"query"},
 			},
 		},
 	}, nil
@@ -89,8 +108,12 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		Limit: &c.limit,
 	}
 
-	if c.location != "" {
-		options.Location = c.location
+	if cat, _ := parameters["category"].(string); cat != "" {
+		options.Category = strings.ToLower(strings.TrimSpace(cat))
+	}
+
+	if loc, _ := parameters["location"].(string); loc != "" {
+		options.Location = strings.ToUpper(strings.TrimSpace(loc))
 	}
 
 	options.Include = collectStrings(parameters["allowed_domains"])

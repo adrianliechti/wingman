@@ -6,6 +6,12 @@ import (
 
 type Provider interface {
 	Search(ctx context.Context, query string, options *SearchOptions) ([]Result, error)
+	Categories() []Category
+}
+
+type Category struct {
+	Name        string
+	Description string
 }
 
 type SearchOptions struct {

@@ -27,6 +27,8 @@ func New(token string, options ...Option) (*Client, error) {
 	c := &Client{
 		token:  token,
 		client: http.DefaultClient,
+
+		mode: "fast",
 	}
 
 	for _, option := range options {
@@ -56,7 +58,6 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 	request := &SearchRequest{
 		Query: query,
 
-		Category: options.Category,
 		Location: options.Location,
 
 		NumResults: options.Limit,
@@ -66,10 +67,10 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 
 		Contents: &SearchContents{
 			Text: true,
-
-			//LiveCrawl: LiveCrawlPreferred,
 		},
 	}
+
+	request.Category = options.Category
 
 	if c.mode != "" {
 		request.Type = c.mode
@@ -118,4 +119,22 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 	}
 
 	return results, nil
+}
+
+const (
+	CategoryCompany         = "company"
+	CategoryPeople          = "people"
+	CategoryResearchPaper   = "research paper"
+	CategoryPersonalSite    = "personal site"
+	CategoryFinancialReport = "financial report"
+)
+
+func (c *Client) Categories() []searcher.Category {
+	return []searcher.Category{
+		{Name: CategoryCompany, Description: "Specific companies or organizations (e.g. SaaS vendors, public companies). Note: domain exclusions and date filters are not supported in this category."},
+		{Name: CategoryPeople, Description: "Specific people or profile pages (e.g. LinkedIn-style biographies). Note: domain exclusions and date filters are not supported in this category."},
+		{Name: CategoryResearchPaper, Description: "Academic papers and peer-reviewed research publications."},
+		{Name: CategoryPersonalSite, Description: "Personal websites, blogs, and homepages."},
+		{Name: CategoryFinancialReport, Description: "Earnings releases, 10-K/10-Q filings, and other financial reports."},
+	}
 }

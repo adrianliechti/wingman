@@ -109,3 +109,7 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 
 	return results, nil
 }
+
+func (c *Client) Categories() []searcher.Category {
+	return nil
+}
