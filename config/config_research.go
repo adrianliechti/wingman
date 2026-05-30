@@ -8,10 +8,10 @@ import (
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
+	"github.com/adrianliechti/wingman/pkg/researcher/agent"
 	"github.com/adrianliechti/wingman/pkg/researcher/anthropic"
 	"github.com/adrianliechti/wingman/pkg/researcher/custom"
 	"github.com/adrianliechti/wingman/pkg/researcher/exa"
-	"github.com/adrianliechti/wingman/pkg/researcher/llm"
 	"github.com/adrianliechti/wingman/pkg/researcher/openai"
 	"github.com/adrianliechti/wingman/pkg/researcher/perplexity"
 	"github.com/adrianliechti/wingman/pkg/scraper"
@@ -145,8 +145,8 @@ func createResearcher(cfg researcherConfig, context researcherContext) (research
 	case "exa":
 		return exaResearcher(cfg, context)
 
-	case "llm":
-		return llmResearcher(cfg, context)
+	case "agent":
+		return agentResearcher(cfg, context)
 
 	case "openai":
 		return openaiResearcher(cfg, context)
@@ -186,22 +186,22 @@ func exaResearcher(cfg researcherConfig, context researcherContext) (researcher.
 	return exa.New(cfg.Token, options...)
 }
 
-func llmResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {
-	var options []llm.Option
+func agentResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {
+	var options []agent.Option
 
 	if context.Scraper != nil {
-		options = append(options, llm.WithScraper(context.Scraper))
+		options = append(options, agent.WithScraper(context.Scraper))
 	}
 
 	if context.Effort != "" {
-		options = append(options, llm.WithEffort(context.Effort))
+		options = append(options, agent.WithEffort(context.Effort))
 	}
 
 	if context.Verbosity != "" {
-		options = append(options, llm.WithVerbosity(context.Verbosity))
+		options = append(options, agent.WithVerbosity(context.Verbosity))
 	}
 
-	return llm.New(context.Completer, context.Searcher, options...)
+	return agent.New(context.Completer, context.Searcher, options...)
 }
 
 func openaiResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {

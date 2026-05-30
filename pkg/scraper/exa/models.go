@@ -20,7 +20,8 @@ const (
 )
 
 type ContentsResponse struct {
-	Results []ContentsResult `json:"results"`
+	Results  []ContentsResult `json:"results"`
+	Statuses []ContentsStatus `json:"statuses,omitempty"`
 }
 
 type ContentsResult struct {
@@ -30,4 +31,16 @@ type ContentsResult struct {
 	Title string `json:"title"`
 
 	Text string `json:"text"`
+}
+
+type ContentsStatus struct {
+	ID     string             `json:"id"`
+	Status string             `json:"status"`
+	Source string             `json:"source,omitempty"`
+	Error  *ContentsStatusErr `json:"error,omitempty"`
+}
+
+type ContentsStatusErr struct {
+	Tag         string `json:"tag,omitempty"`
+	HTTPStatus  int    `json:"httpStatusCode,omitempty"`
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -71,10 +72,17 @@ func (c *Client) Scrape(ctx context.Context, url string, options *scraper.Scrape
 		return nil, err
 	}
 
-	text := data.Results[0].Text
+	if len(data.Results) == 0 {
+		for _, s := range data.Statuses {
+			if s.Status != "success" && s.Error != nil {
+				return nil, fmt.Errorf("exa: %s (%s)", s.Error.Tag, url)
+			}
+		}
+		return nil, fmt.Errorf("exa: no content returned for %s", url)
+	}
 
 	result := &scraper.Document{
-		Text: text,
+		Text: data.Results[0].Text,
 	}
 
 	return result, nil
