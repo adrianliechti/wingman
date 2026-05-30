@@ -35,8 +35,8 @@ func (cfg *Config) Completer(id string) (provider.Completer, error) {
 		}
 	}
 
-	if cfg.chains != nil {
-		if c, ok := cfg.chains[id]; ok {
+	if cfg.agents != nil {
+		if c, ok := cfg.agents[id]; ok {
 			return c, nil
 		}
 	}

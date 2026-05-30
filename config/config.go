@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
-	"github.com/adrianliechti/wingman/pkg/chain"
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/mcp"
 	"github.com/adrianliechti/wingman/pkg/policy"
@@ -46,7 +45,7 @@ type Config struct {
 	researcher map[string]researcher.Provider
 
 	tools  map[string]tool.Provider
-	chains map[string]chain.Provider
+	agents map[string]provider.Completer
 
 	mcps map[string]mcp.Provider
 }
@@ -110,7 +109,7 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if err := c.registerChains(file); err != nil {
+	if err := c.registerAgents(file); err != nil {
 		return nil, err
 	}
 
@@ -138,7 +137,7 @@ type configFile struct {
 	Researchers yaml.Node `yaml:"researchers"`
 
 	Tools  yaml.Node `yaml:"tools"`
-	Chains yaml.Node `yaml:"chains"`
+	Agents yaml.Node `yaml:"agents"`
 
 	Routers yaml.Node `yaml:"routers"`
 

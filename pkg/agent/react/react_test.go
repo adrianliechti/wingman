@@ -1,4 +1,4 @@
-package agent
+package react
 
 import (
 	"context"
@@ -705,40 +705,6 @@ func TestComplete_Errors(t *testing.T) {
 		require.Contains(t, err.Error(), "tools discovery failed")
 	})
 
-	t.Run("tool execute error propagates", func(t *testing.T) {
-		completer := &mockCompleter{
-			responses: [][]provider.Completion{
-				{
-					{
-						Message: &provider.Message{
-							Role: provider.MessageRoleAssistant,
-							Content: []provider.Content{
-								{ToolCall: &provider.ToolCall{ID: "call-1", Name: "failing_tool", Arguments: `{}`}},
-							},
-						},
-					},
-				},
-			},
-		}
-
-		toolProvider := &mockToolProvider{
-			tools: []provider.Tool{{Name: "failing_tool", Description: "Fails"}},
-			executeFunc: func(ctx context.Context, name string, params map[string]any) (any, error) {
-				return nil, errors.New("tool execution failed")
-			},
-		}
-
-		chain, err := New("test-model",
-			WithCompleter(completer),
-			WithTools(toolProvider),
-		)
-		require.NoError(t, err)
-
-		_, err = collectCompletions(chain.Complete(context.Background(), nil, nil))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "tool execution failed")
-	})
-
 	t.Run("invalid JSON arguments error propagates", func(t *testing.T) {
 		completer := &mockCompleter{
 			responses: [][]provider.Completion{
@@ -1295,53 +1261,7 @@ func TestComplete_MixedToolTurn(t *testing.T) {
 	})
 }
 
-func TestComplete_MaxIterations(t *testing.T) {
-	t.Run("returns ErrMaxIterationsExceeded when loop keeps calling tools", func(t *testing.T) {
-		toolCall := provider.Content{
-			ToolCall: &provider.ToolCall{
-				ID:        "tc-1",
-				Name:      "echo",
-				Arguments: `{}`,
-			},
-		}
-
-		responses := make([][]provider.Completion, 0, 10)
-		for i := 0; i < 10; i++ {
-			responses = append(responses, []provider.Completion{
-				{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{toolCall}}},
-			})
-		}
-
-		completer := &mockCompleter{responses: responses}
-		toolProvider := &mockToolProvider{
-			tools: []provider.Tool{{Name: "echo"}},
-		}
-
-		chain, err := New("test-model",
-			WithCompleter(completer),
-			WithTools(toolProvider),
-			WithMaxIterations(3),
-		)
-		require.NoError(t, err)
-
-		_, err = collectCompletions(chain.Complete(context.Background(), nil, nil))
-		require.ErrorIs(t, err, ErrMaxIterationsExceeded)
-	})
-
-	t.Run("zero or negative resets to default", func(t *testing.T) {
-		completer := &mockCompleter{
-			responses: [][]provider.Completion{{{
-				Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{{Text: "ok"}}},
-			}}},
-		}
-
-		chain, err := New("test-model", WithCompleter(completer), WithMaxIterations(0))
-		require.NoError(t, err)
-		require.Equal(t, defaultMaxIterations, chain.maxIterations)
-	})
-}
-
-func TestComplete_ToolErrorPolicy(t *testing.T) {
+func TestComplete_ToolErrorIsSurfaced(t *testing.T) {
 	toolCall := provider.Content{
 		ToolCall: &provider.ToolCall{
 			ID:        "tc-err",
@@ -1350,67 +1270,40 @@ func TestComplete_ToolErrorPolicy(t *testing.T) {
 		},
 	}
 
-	t.Run("abort propagates tool error (default)", func(t *testing.T) {
-		completer := &mockCompleter{
-			responses: [][]provider.Completion{{{
-				Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{toolCall}},
-			}}},
-		}
-		toolProvider := &mockToolProvider{
-			tools: []provider.Tool{{Name: "broken"}},
-			executeFunc: func(ctx context.Context, name string, params map[string]any) (any, error) {
-				return nil, errors.New("backend down")
-			},
-		}
+	completer := &mockCompleter{
+		responses: [][]provider.Completion{
+			{{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{toolCall}}}},
+			{{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{{Text: "sorry, that failed"}}}}},
+		},
+	}
+	toolProvider := &mockToolProvider{
+		tools: []provider.Tool{{Name: "broken"}},
+		executeFunc: func(ctx context.Context, name string, params map[string]any) (any, error) {
+			return nil, errors.New("rate limited")
+		},
+	}
 
-		chain, err := New("test-model", WithCompleter(completer), WithTools(toolProvider))
-		require.NoError(t, err)
+	chain, err := New("test-model", WithCompleter(completer), WithTools(toolProvider))
+	require.NoError(t, err)
 
-		_, err = collectCompletions(chain.Complete(context.Background(), nil, nil))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "backend down")
-	})
+	result, err := accumulateCompletion(chain.Complete(context.Background(), nil, nil))
+	require.NoError(t, err)
+	require.NotNil(t, result.Message)
+	require.Equal(t, "sorry, that failed", result.Message.Text())
 
-	t.Run("surface feeds error back to model as IsError tool result", func(t *testing.T) {
-		completer := &mockCompleter{
-			responses: [][]provider.Completion{
-				{{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{toolCall}}}},
-				{{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{{Text: "sorry, that failed"}}}}},
-			},
-		}
-		toolProvider := &mockToolProvider{
-			tools: []provider.Tool{{Name: "broken"}},
-			executeFunc: func(ctx context.Context, name string, params map[string]any) (any, error) {
-				return nil, errors.New("rate limited")
-			},
-		}
-
-		chain, err := New("test-model",
-			WithCompleter(completer),
-			WithTools(toolProvider),
-			WithToolErrorPolicy(ToolErrorSurface),
-		)
-		require.NoError(t, err)
-
-		result, err := accumulateCompletion(chain.Complete(context.Background(), nil, nil))
-		require.NoError(t, err)
-		require.NotNil(t, result.Message)
-		require.Equal(t, "sorry, that failed", result.Message.Text())
-
-		require.GreaterOrEqual(t, len(completer.capturedMessages), 2)
-		secondCallMessages := completer.capturedMessages[1]
-		var sawErrorResult bool
-		for _, m := range secondCallMessages {
-			for _, c := range m.Content {
-				if c.ToolResult != nil && len(c.ToolResult.Parts) > 0 {
-					if strings.Contains(c.ToolResult.Parts[0].Text, "rate limited") {
-						sawErrorResult = true
-					}
+	require.GreaterOrEqual(t, len(completer.capturedMessages), 2)
+	secondCallMessages := completer.capturedMessages[1]
+	var sawErrorResult bool
+	for _, m := range secondCallMessages {
+		for _, c := range m.Content {
+			if c.ToolResult != nil && len(c.ToolResult.Parts) > 0 {
+				if strings.Contains(c.ToolResult.Parts[0].Text, "rate limited") {
+					sawErrorResult = true
 				}
 			}
 		}
-		require.True(t, sawErrorResult, "expected surfaced tool result on retry call")
-	})
+	}
+	require.True(t, sawErrorResult, "expected surfaced tool result on retry call")
 }
 
 func TestComplete_ToolObserver(t *testing.T) {

@@ -1,4 +1,4 @@
-package agent
+package react
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/adrianliechti/wingman/pkg/chain"
+	"github.com/adrianliechti/wingman/pkg/agent"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/template"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -16,9 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
-var _ chain.Provider = &Chain{}
-
-var ErrMaxIterationsExceeded = errors.New("agent: max iterations exceeded")
+var _ agent.Agent = &Agent{}
 
 type ToolPhase int
 
@@ -42,16 +40,7 @@ type ToolEvent struct {
 
 type ToolObserver func(ctx context.Context, event ToolEvent)
 
-type ToolErrorPolicy int
-
-const (
-	ToolErrorAbort ToolErrorPolicy = iota
-	ToolErrorSurface
-)
-
-const defaultMaxIterations = 8
-
-type Chain struct {
+type Agent struct {
 	model string
 
 	completer provider.Completer
@@ -64,17 +53,14 @@ type Chain struct {
 
 	temperature *float32
 
-	maxIterations int
-	errorPolicy   ToolErrorPolicy
-	observer      ToolObserver
+	observer ToolObserver
 }
 
-type Option func(*Chain)
+type Option func(*Agent)
 
-func New(model string, options ...Option) (*Chain, error) {
-	c := &Chain{
-		model:         model,
-		maxIterations: defaultMaxIterations,
+func New(model string, options ...Option) (*Agent, error) {
+	c := &Agent{
+		model: model,
 	}
 
 	for _, option := range options {
@@ -85,68 +71,52 @@ func New(model string, options ...Option) (*Chain, error) {
 		return nil, errors.New("missing completer provider")
 	}
 
-	if c.maxIterations <= 0 {
-		c.maxIterations = defaultMaxIterations
-	}
-
 	return c, nil
 }
 
 func WithCompleter(completer provider.Completer) Option {
-	return func(c *Chain) {
+	return func(c *Agent) {
 		c.completer = completer
 	}
 }
 
 func WithMessages(messages ...provider.Message) Option {
-	return func(c *Chain) {
+	return func(c *Agent) {
 		c.messages = messages
 	}
 }
 
 func WithTools(tool ...tool.Provider) Option {
-	return func(c *Chain) {
+	return func(c *Agent) {
 		c.tools = tool
 	}
 }
 
 func WithEffort(effort provider.Effort) Option {
-	return func(c *Chain) {
+	return func(c *Agent) {
 		c.effort = effort
 	}
 }
 
 func WithVerbosity(verbosity provider.Verbosity) Option {
-	return func(c *Chain) {
+	return func(c *Agent) {
 		c.verbosity = verbosity
 	}
 }
 
 func WithTemperature(temperature float32) Option {
-	return func(c *Chain) {
+	return func(c *Agent) {
 		c.temperature = &temperature
 	}
 }
 
-func WithMaxIterations(n int) Option {
-	return func(c *Chain) {
-		c.maxIterations = n
-	}
-}
-
-func WithToolErrorPolicy(policy ToolErrorPolicy) Option {
-	return func(c *Chain) {
-		c.errorPolicy = policy
-	}
-}
-
 func WithToolObserver(observer ToolObserver) Option {
-	return func(c *Chain) {
+	return func(c *Agent) {
 		c.observer = observer
 	}
 }
 
-func (c *Chain) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+func (c *Agent) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
 		// Work on a local copy so the caller's CompleteOptions is never mutated.
 		var opts provider.CompleteOptions
@@ -225,12 +195,7 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 		toolNamesByID := map[string]string{}
 		var lastToolCallID string
 
-		for iteration := 0; ; iteration++ {
-			if iteration >= c.maxIterations {
-				yield(nil, ErrMaxIterationsExceeded)
-				return
-			}
-
+		for {
 			acc := provider.CompletionAccumulator{}
 
 			for completion, err := range c.completer.Complete(ctx, input, inputOptions) {
@@ -364,22 +329,17 @@ func (c *Chain) Complete(ctx context.Context, messages []provider.Message, optio
 						})
 					}
 
-					if c.errorPolicy == ToolErrorSurface {
-						input = append(input, provider.Message{
-							Role: provider.MessageRoleUser,
-							Content: []provider.Content{
-								provider.ToolResultContent(provider.ToolResult{
-									ID:    cnt.ToolCall.ID,
-									Parts: []provider.Part{{Text: "Error: " + err.Error()}},
-								}),
-							},
-						})
+					input = append(input, provider.Message{
+						Role: provider.MessageRoleUser,
+						Content: []provider.Content{
+							provider.ToolResultContent(provider.ToolResult{
+								ID:    cnt.ToolCall.ID,
+								Parts: []provider.Part{{Text: "Error: " + err.Error()}},
+							}),
+						},
+					})
 
-						continue
-					}
-
-					yield(nil, err)
-					return
+					continue
 				}
 
 				toolResult, err := renderToolResult(t, cnt.ToolCall.ID, cnt.ToolCall.Name, result)
@@ -441,6 +401,9 @@ func mergeToolOptions(opts *provider.ToolOptions, agentToolNames []string) *prov
 		// User wants no user-visible tool calls. Allow agent tools only.
 		merged.Choice = provider.ToolChoiceAuto
 		merged.Allowed = slices.Clone(agentToolNames)
+
+	case "":
+		merged.Choice = provider.ToolChoiceAuto
 
 	default:
 		// If the user restricted to specific tools, also allow all agent tools.

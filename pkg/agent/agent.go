@@ -1,9 +1,9 @@
-package chain
+package agent
 
 import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
-type Provider interface {
+type Agent interface {
 	provider.Completer
 }
