@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/auth"
+	"github.com/adrianliechti/wingman/pkg/auth/obo"
 	"github.com/adrianliechti/wingman/pkg/tool"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,10 +20,11 @@ type Client struct {
 	transport mcp.Transport
 }
 
-func New(url string, headers map[string]string) (*Client, error) {
+func New(url string, headers map[string]string, exchanger *obo.Exchanger) (*Client, error) {
 	hc := &http.Client{
 		Transport: &rt{
 			headers:   headers,
+			exchanger: exchanger,
 			transport: http.DefaultTransport,
 		},
 	}
@@ -120,10 +123,23 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 
 type rt struct {
 	headers   map[string]string
+	exchanger *obo.Exchanger
 	transport http.RoundTripper
 }
 
 func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
+	if rt.exchanger != nil {
+		if token, _ := req.Context().Value(auth.TokenContextKey).(string); token != "" {
+			downstream, err := rt.exchanger.Token(req.Context(), token)
+
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Authorization", "Bearer "+downstream)
+		}
+	}
+
 	for key, value := range rt.headers {
 		if req.Header.Get(key) != "" {
 			continue // already set

@@ -59,6 +59,7 @@ type toolConfig struct {
 	Token string `yaml:"token"`
 
 	Vars  map[string]string `yaml:"vars"`
+	Auth  *authConfig       `yaml:"auth"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
 	Model string `yaml:"model"`
@@ -196,7 +197,13 @@ func translatorTool(cfg toolConfig, context toolContext) (tool.Provider, error) 
 }
 
 func mcpTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
-	return mcp.New(cfg.URL, cfg.Vars)
+	exchanger, err := createClientAuth(cfg.Auth)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return mcp.New(cfg.URL, cfg.Vars, exchanger)
 }
 
 func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {

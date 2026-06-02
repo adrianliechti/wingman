@@ -13,6 +13,7 @@ const (
 	NameContextKey    contextKey = "auth.name"
 	GroupsContextKey  contextKey = "auth.groups"
 	SessionContextKey contextKey = "auth.session"
+	TokenContextKey   contextKey = "auth.token"
 )
 
 type Provider interface {

@@ -64,6 +64,8 @@ func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.C
 		return ctx, err
 	}
 
+	ctx = context.WithValue(ctx, auth.TokenContextKey, token)
+
 	var claims struct {
 		Subject           string `json:"sub"`
 		Email             string `json:"email"`

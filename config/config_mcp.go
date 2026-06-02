@@ -54,6 +54,7 @@ type mcpConfig struct {
 	Tools []string `yaml:"tools"`
 
 	Vars  map[string]string `yaml:"vars"`
+	Auth  *authConfig       `yaml:"auth"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
 	Instructions string `yaml:"instructions"`
@@ -129,5 +130,11 @@ func serverMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {
 }
 
 func proxyMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {
-	return proxy.New(cfg.URL, cfg.Vars)
+	exchanger, err := createClientAuth(cfg.Auth)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return proxy.New(cfg.URL, cfg.Vars, exchanger)
 }
