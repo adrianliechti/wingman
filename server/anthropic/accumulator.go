@@ -56,15 +56,25 @@ type StreamingAccumulator struct {
 	model     string
 
 	// State tracking
-	started           bool
-	currentBlockIndex int
-	currentBlockType  string // "text" or "tool_use"
-	hasContent        bool
+	started    bool
+	hasContent bool
 
-	// Tool call tracking
-	toolCallID   string
-	toolCallName string
-	toolCallArgs string
+	// Content blocks may interleave; deltas are routed to stable indexes
+	// and open blocks are closed on Complete
+	nextBlockIndex int
+	openBlocks     []int
+
+	textIndex int
+
+	thinkingID     string
+	thinkingIndex  int
+	thinkingSigned bool
+
+	compactionID    string
+	compactionIndex int
+
+	toolIndexByID  map[string]int
+	lastToolCallID string
 
 	// Usage tracking
 	inputTokens  int
@@ -79,9 +89,42 @@ func NewStreamingAccumulator(messageID, model string, handler StreamEventHandler
 		messageID: messageID,
 		model:     model,
 
-		currentBlockIndex: -1,
-		stopReason:        StopReasonEndTurn,
+		textIndex:       -1,
+		thinkingIndex:   -1,
+		compactionIndex: -1,
+
+		toolIndexByID: make(map[string]int),
+
+		stopReason: StopReasonEndTurn,
 	}
+}
+
+func (s *StreamingAccumulator) startBlock(block *ContentBlock) (int, error) {
+	index := s.nextBlockIndex
+	s.nextBlockIndex++
+
+	s.hasContent = true
+	s.openBlocks = append(s.openBlocks, index)
+
+	return index, s.emitEvent(StreamEvent{
+		Type:         StreamEventContentBlockStart,
+		Index:        index,
+		ContentBlock: block,
+	})
+}
+
+func (s *StreamingAccumulator) stopBlock(index int) error {
+	for i, open := range s.openBlocks {
+		if open == index {
+			s.openBlocks = append(s.openBlocks[:i], s.openBlocks[i+1:]...)
+			break
+		}
+	}
+
+	return s.emitEvent(StreamEvent{
+		Type:  StreamEventContentBlockStop,
+		Index: index,
+	})
 }
 
 // Add processes a completion chunk and emits appropriate events
@@ -146,55 +189,95 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 	// Process content
 	for _, content := range c.Message.Content {
-		// Handle thinking/reasoning content
-		if content.Reasoning != nil && (content.Reasoning.Text != "" || content.Reasoning.Signature != "") {
-			if s.currentBlockType != "thinking" {
-				if s.currentBlockIndex >= 0 {
-					if err := s.emitEvent(StreamEvent{
-						Type:  StreamEventContentBlockStop,
-						Index: s.currentBlockIndex,
-					}); err != nil {
-						return err
-					}
-				}
-
-				s.currentBlockIndex++
-				s.currentBlockType = "thinking"
-				s.hasContent = true
-
-				if err := s.emitEvent(StreamEvent{
-					Type:  StreamEventContentBlockStart,
-					Index: s.currentBlockIndex,
-					ContentBlock: &ContentBlock{
-						Type:      "thinking",
-						Thinking:  "",
-						Signature: "",
-					},
-				}); err != nil {
+		if content.Compaction != nil && (content.Compaction.Content != "" || content.Compaction.Signature != "") {
+			if s.compactionIndex >= 0 && content.Compaction.ID != "" && s.compactionID != "" && content.Compaction.ID != s.compactionID {
+				if err := s.stopBlock(s.compactionIndex); err != nil {
 					return err
 				}
+
+				s.compactionIndex = -1
 			}
 
-			if content.Reasoning.Text != "" {
+			if s.compactionIndex < 0 {
+				index, err := s.startBlock(&ContentBlock{
+					Type: "compaction",
+				})
+
+				if err != nil {
+					return err
+				}
+
+				s.compactionIndex = index
+				s.compactionID = content.Compaction.ID
+			}
+
+			if err := s.emitEvent(StreamEvent{
+				Type:  StreamEventContentBlockDelta,
+				Index: s.compactionIndex,
+				Delta: &Delta{
+					Type:             "compaction_delta",
+					Content:          content.Compaction.Content,
+					EncryptedContent: content.Compaction.Signature,
+				},
+			}); err != nil {
+				return err
+			}
+		}
+
+		if content.Reasoning != nil && (content.Reasoning.Text != "" || content.Reasoning.Signature != "") {
+			reasoning := content.Reasoning
+
+			// A signature ends a thinking block; a new ID starts the next item
+			if s.thinkingIndex >= 0 && (s.thinkingSigned || (reasoning.ID != "" && s.thinkingID != "" && reasoning.ID != s.thinkingID)) {
+				if err := s.stopBlock(s.thinkingIndex); err != nil {
+					return err
+				}
+
+				s.thinkingIndex = -1
+			}
+
+			if s.thinkingIndex < 0 {
+				index, err := s.startBlock(&ContentBlock{
+					Type:      "thinking",
+					Thinking:  "",
+					Signature: "",
+				})
+
+				if err != nil {
+					return err
+				}
+
+				s.thinkingIndex = index
+				s.thinkingID = reasoning.ID
+				s.thinkingSigned = false
+			}
+
+			if reasoning.ID != "" && s.thinkingID == "" {
+				s.thinkingID = reasoning.ID
+			}
+
+			if reasoning.Text != "" {
 				if err := s.emitEvent(StreamEvent{
 					Type:  StreamEventContentBlockDelta,
-					Index: s.currentBlockIndex,
+					Index: s.thinkingIndex,
 					Delta: &Delta{
 						Type:     "thinking_delta",
-						Thinking: content.Reasoning.Text,
+						Thinking: reasoning.Text,
 					},
 				}); err != nil {
 					return err
 				}
 			}
 
-			if content.Reasoning.Signature != "" {
+			if reasoning.Signature != "" {
+				s.thinkingSigned = true
+
 				if err := s.emitEvent(StreamEvent{
 					Type:  StreamEventContentBlockDelta,
-					Index: s.currentBlockIndex,
+					Index: s.thinkingIndex,
 					Delta: &Delta{
 						Type:      "signature_delta",
-						Signature: content.Reasoning.Signature,
+						Signature: reasoning.Signature,
 					},
 				}); err != nil {
 					return err
@@ -202,40 +285,23 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		// Handle text content
 		if content.Text != "" {
-			// Start text block if needed
-			if s.currentBlockType != "text" {
-				// Close previous block if any
-				if s.currentBlockIndex >= 0 {
-					if err := s.emitEvent(StreamEvent{
-						Type:  StreamEventContentBlockStop,
-						Index: s.currentBlockIndex,
-					}); err != nil {
-						return err
-					}
-				}
+			if s.textIndex < 0 {
+				index, err := s.startBlock(&ContentBlock{
+					Type: "text",
+					Text: ptr(""),
+				})
 
-				s.currentBlockIndex++
-				s.currentBlockType = "text"
-				s.hasContent = true
-
-				if err := s.emitEvent(StreamEvent{
-					Type:  StreamEventContentBlockStart,
-					Index: s.currentBlockIndex,
-					ContentBlock: &ContentBlock{
-						Type: "text",
-						Text: ptr(""),
-					},
-				}); err != nil {
+				if err != nil {
 					return err
 				}
+
+				s.textIndex = index
 			}
 
-			// Send text delta
 			if err := s.emitEvent(StreamEvent{
 				Type:  StreamEventContentBlockDelta,
-				Index: s.currentBlockIndex,
+				Index: s.textIndex,
 				Delta: &Delta{
 					Type: "text_delta",
 					Text: content.Text,
@@ -245,59 +311,45 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		// Handle tool calls
 		if content.ToolCall != nil {
 			s.stopReason = StopReasonToolUse
 
-			// Check if this is a new tool call or continuation
-			isNewToolCall := content.ToolCall.ID != "" && content.ToolCall.ID != s.toolCallID
+			id := content.ToolCall.ID
 
-			if isNewToolCall {
-				// Close previous block if any
-				if s.currentBlockIndex >= 0 {
-					if err := s.emitEvent(StreamEvent{
-						Type:  StreamEventContentBlockStop,
-						Index: s.currentBlockIndex,
-					}); err != nil {
-						return err
-					}
-				}
-
-				s.currentBlockIndex++
-				s.currentBlockType = "tool_use"
-
-				s.toolCallID = content.ToolCall.ID
-				if s.toolCallID == "" {
-					s.toolCallID = generateToolUseID()
-				}
-
-				s.toolCallName = content.ToolCall.Name
-				s.toolCallArgs = ""
-				s.hasContent = true
-
-				// Send content_block_start for tool_use
-				if err := s.emitEvent(StreamEvent{
-					Type:  StreamEventContentBlockStart,
-					Index: s.currentBlockIndex,
-					ContentBlock: &ContentBlock{
-						Type:   "tool_use",
-						ID:     s.toolCallID,
-						Name:   s.toolCallName,
-						Input:  map[string]any{},
-						Caller: &BlockCaller{Type: "direct"},
-					},
-				}); err != nil {
-					return err
-				}
+			if id == "" {
+				id = s.lastToolCallID
 			}
 
-			// Send input_json_delta if there are arguments
-			if content.ToolCall.Arguments != "" {
-				s.toolCallArgs += content.ToolCall.Arguments
+			if id == "" {
+				id = generateToolUseID()
+			}
 
+			index, found := s.toolIndexByID[id]
+
+			if !found {
+				var err error
+
+				index, err = s.startBlock(&ContentBlock{
+					Type:   "tool_use",
+					ID:     id,
+					Name:   content.ToolCall.Name,
+					Input:  map[string]any{},
+					Caller: &BlockCaller{Type: "direct"},
+				})
+
+				if err != nil {
+					return err
+				}
+
+				s.toolIndexByID[id] = index
+			}
+
+			s.lastToolCallID = id
+
+			if content.ToolCall.Arguments != "" {
 				if err := s.emitEvent(StreamEvent{
 					Type:  StreamEventContentBlockDelta,
-					Index: s.currentBlockIndex,
+					Index: index,
 					Delta: &Delta{
 						Type:        "input_json_delta",
 						PartialJSON: content.ToolCall.Arguments,
@@ -319,33 +371,19 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 func (s *StreamingAccumulator) Complete() error {
 	result := s.accumulator.Result()
 
-	// Close last content block if any
-	if s.currentBlockIndex >= 0 {
-		if err := s.emitEvent(StreamEvent{
-			Type:  StreamEventContentBlockStop,
-			Index: s.currentBlockIndex,
+	// If no content was generated, send an empty text block
+	if !s.hasContent {
+		if _, err := s.startBlock(&ContentBlock{
+			Type: "text",
+			Text: ptr(""),
 		}); err != nil {
 			return err
 		}
 	}
 
-	// If no content was generated, send an empty text block
-	if !s.hasContent {
-		if err := s.emitEvent(StreamEvent{
-			Type:  StreamEventContentBlockStart,
-			Index: 0,
-			ContentBlock: &ContentBlock{
-				Type: "text",
-				Text: ptr(""),
-			},
-		}); err != nil {
-			return err
-		}
-
-		if err := s.emitEvent(StreamEvent{
-			Type:  StreamEventContentBlockStop,
-			Index: 0,
-		}); err != nil {
+	// Close all open content blocks
+	for len(s.openBlocks) > 0 {
+		if err := s.stopBlock(s.openBlocks[0]); err != nil {
 			return err
 		}
 	}
@@ -374,6 +412,11 @@ func (s *StreamingAccumulator) Complete() error {
 	stopDetails := (*StopDetails)(nil)
 	if s.stopReason == StopReasonRefusal {
 		stopDetails = &StopDetails{Type: "refusal"}
+
+		if result.StopDetails != nil {
+			stopDetails.Category = result.StopDetails.Category
+			stopDetails.Explanation = result.StopDetails.Explanation
+		}
 	}
 
 	if err := s.emitEvent(StreamEvent{

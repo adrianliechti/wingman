@@ -139,10 +139,16 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 			}))
 
 		case "compaction":
+			compaction := provider.Compaction{
+				Signature: block.EncryptedContent,
+			}
+
 			if compactionContent, ok := block.Content.(string); ok {
-				content = append(content, provider.CompactionContent(provider.Compaction{
-					Signature: compactionContent,
-				}))
+				compaction.Content = compactionContent
+			}
+
+			if compaction.Content != "" || compaction.Signature != "" {
+				content = append(content, provider.CompactionContent(compaction))
 			}
 
 		case "server_tool_use":
@@ -349,10 +355,11 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 			})
 		}
 
-		if c.Compaction != nil && c.Compaction.Signature != "" {
+		if c.Compaction != nil && (c.Compaction.Content != "" || c.Compaction.Signature != "") {
 			result = append(result, ContentBlock{
-				Type:    "compaction",
-				Content: c.Compaction.Signature,
+				Type:             "compaction",
+				Content:          c.Compaction.Content,
+				EncryptedContent: c.Compaction.Signature,
 			})
 		}
 

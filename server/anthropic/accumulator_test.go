@@ -63,3 +63,114 @@ func TestStreamingAccumulatorEmitsCacheUsage(t *testing.T) {
 		t.Fatalf("expected message_delta cache creation input tokens 50, got %d", delta.CacheCreationInputTokens)
 	}
 }
+
+func TestStreamingAccumulatorInterleavedToolCalls(t *testing.T) {
+	var events []StreamEvent
+	acc := NewStreamingAccumulator("msg_123", "claude-test", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+
+	add := func(content provider.Content) {
+		t.Helper()
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{content}}}); err != nil {
+			t.Fatalf("add completion: %v", err)
+		}
+	}
+
+	add(provider.ToolCallContent(provider.ToolCall{ID: "tool_a", Name: "get_weather"}))
+	add(provider.ToolCallContent(provider.ToolCall{ID: "tool_b", Name: "get_time"}))
+	add(provider.ToolCallContent(provider.ToolCall{ID: "tool_a", Arguments: `{"city":`}))
+	add(provider.ToolCallContent(provider.ToolCall{ID: "tool_b", Arguments: `{"zone":"UTC"}`}))
+	add(provider.ToolCallContent(provider.ToolCall{ID: "tool_a", Arguments: `"Bern"}`}))
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete stream: %v", err)
+	}
+
+	starts := map[int]string{}
+	args := map[int]string{}
+	stops := 0
+
+	for _, event := range events {
+		switch event.Type {
+		case StreamEventContentBlockStart:
+			if _, exists := starts[event.Index]; exists {
+				t.Fatalf("duplicate content_block_start for index %d", event.Index)
+			}
+			starts[event.Index] = event.ContentBlock.ID
+		case StreamEventContentBlockDelta:
+			if event.Delta.Type == "input_json_delta" {
+				args[event.Index] += event.Delta.PartialJSON
+			}
+		case StreamEventContentBlockStop:
+			stops++
+		}
+	}
+
+	if len(starts) != 2 {
+		t.Fatalf("expected 2 tool_use blocks, got %d", len(starts))
+	}
+	if stops != 2 {
+		t.Fatalf("expected 2 content_block_stop events, got %d", stops)
+	}
+	if starts[0] != "tool_a" || starts[1] != "tool_b" {
+		t.Fatalf("unexpected block ids: %v", starts)
+	}
+	if args[0] != `{"city":"Bern"}` {
+		t.Errorf("tool_a args: got %q", args[0])
+	}
+	if args[1] != `{"zone":"UTC"}` {
+		t.Errorf("tool_b args: got %q", args[1])
+	}
+}
+
+func TestStreamingAccumulatorSplitsThinkingBlocks(t *testing.T) {
+	var events []StreamEvent
+	acc := NewStreamingAccumulator("msg_123", "claude-test", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+
+	add := func(content provider.Content) {
+		t.Helper()
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{content}}}); err != nil {
+			t.Fatalf("add completion: %v", err)
+		}
+	}
+
+	add(provider.ReasoningContent(provider.Reasoning{Text: "first thought"}))
+	add(provider.ReasoningContent(provider.Reasoning{Signature: "SIG_1"}))
+	add(provider.TextContent("hello"))
+	add(provider.ReasoningContent(provider.Reasoning{Text: "second thought"}))
+	add(provider.ReasoningContent(provider.Reasoning{Signature: "SIG_2"}))
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete stream: %v", err)
+	}
+
+	thinking := map[int]string{}
+	signatures := map[int]string{}
+
+	for _, event := range events {
+		if event.Type != StreamEventContentBlockDelta {
+			continue
+		}
+		switch event.Delta.Type {
+		case "thinking_delta":
+			thinking[event.Index] += event.Delta.Thinking
+		case "signature_delta":
+			signatures[event.Index] += event.Delta.Signature
+		}
+	}
+
+	if len(thinking) != 2 || len(signatures) != 2 {
+		t.Fatalf("expected 2 thinking blocks, got thinking=%v signatures=%v", thinking, signatures)
+	}
+	if thinking[0] != "first thought" || signatures[0] != "SIG_1" {
+		t.Errorf("block 0: got %q / %q", thinking[0], signatures[0])
+	}
+	if thinking[2] != "second thought" || signatures[2] != "SIG_2" {
+		t.Errorf("block 2: got %q / %q", thinking[2], signatures[2])
+	}
+}

@@ -57,9 +57,13 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			event := stream.Current()
 
 			// HACK: handle empty tool use blocks
-			switch event.AsAny().(type) {
+			switch event := event.AsAny().(type) {
 			case anthropic.BetaRawContentBlockStopEvent:
-				block := &message.Content[len(message.Content)-1]
+				if int(event.Index) >= len(message.Content) {
+					break
+				}
+
+				block := &message.Content[event.Index]
 
 				if block.Type == "tool_use" && len(block.Input) == 0 {
 					block.Input = json.RawMessage([]byte("{}"))
@@ -158,7 +162,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.CompactionContent(provider.Compaction{
-									Signature: event.Content,
+									Content:   event.Content,
+									Signature: event.EncryptedContent,
 								}),
 							},
 						},
@@ -199,6 +204,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case anthropic.BetaRawContentBlockDeltaEvent:
+				blockIndex := event.Index
+
 				switch event := event.Delta.AsAny().(type) {
 				case anthropic.BetaThinkingDelta:
 					delta := &provider.Completion{
@@ -250,7 +257,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.CompactionContent(provider.Compaction{
-									Signature: event.Content,
+									Content:   event.Content,
+									Signature: event.EncryptedContent,
 								}),
 							},
 						},
@@ -279,7 +287,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					}
 
 				case anthropic.BetaInputJSONDelta:
-					currentBlock := message.Content[len(message.Content)-1]
+					currentBlock := message.Content[blockIndex]
 
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -328,6 +336,14 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					delta.Status = provider.CompletionStatusIncomplete
 				case anthropic.BetaStopReasonRefusal:
 					delta.Status = provider.CompletionStatusRefused
+
+					if message.StopDetails.JSON.Type.Valid() {
+						delta.StopDetails = &provider.StopDetails{
+							Type:        string(message.StopDetails.Type),
+							Category:    string(message.StopDetails.Category),
+							Explanation: message.StopDetails.Explanation,
+						}
+					}
 				}
 
 				if !yield(delta, nil) {
@@ -380,6 +396,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	var tools []anthropic.BetaToolUnionParam
 	var messages []anthropic.BetaMessageParam
+
+	var hasCompaction bool
 
 	if options.Stop != nil {
 		req.StopSequences = options.Stop
@@ -527,6 +545,24 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					blocks = append(blocks, anthropic.NewBetaThinkingBlock(c.Reasoning.Signature, c.Reasoning.Text))
 				}
 
+				if c.Compaction != nil && (c.Compaction.Content != "" || c.Compaction.Signature != "") {
+					hasCompaction = true
+
+					compaction := &anthropic.BetaCompactionBlockParam{}
+
+					if c.Compaction.Content != "" {
+						compaction.Content = anthropic.String(c.Compaction.Content)
+					}
+
+					if c.Compaction.Signature != "" {
+						compaction.EncryptedContent = anthropic.String(c.Compaction.Signature)
+					}
+
+					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
+						OfCompaction: compaction,
+					})
+				}
+
 				if c.ToolCall != nil {
 					var input map[string]any
 
@@ -619,7 +655,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	}
 
 	if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 && !isLegacyModel(c.model) {
-		req.Betas = append(req.Betas, "compact-2026-01-12")
+		hasCompaction = true
 
 		req.ContextManagement = anthropic.BetaContextManagementConfigParam{
 			Edits: []anthropic.BetaContextManagementConfigEditUnionParam{
@@ -632,6 +668,10 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				},
 			},
 		}
+	}
+
+	if hasCompaction {
+		req.Betas = append(req.Betas, "compact-2026-01-12")
 	}
 
 	if len(system) > 0 {

@@ -197,6 +197,11 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 
 		if reason == StopReasonRefusal {
 			result.StopDetails = &StopDetails{Type: "refusal"}
+
+			if completion.StopDetails != nil {
+				result.StopDetails.Category = completion.StopDetails.Category
+				result.StopDetails.Explanation = completion.StopDetails.Explanation
+			}
 		}
 	}
 

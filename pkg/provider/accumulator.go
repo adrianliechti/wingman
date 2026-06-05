@@ -6,7 +6,8 @@ type CompletionAccumulator struct {
 	id    string
 	model string
 
-	status CompletionStatus
+	status      CompletionStatus
+	stopDetails *StopDetails
 
 	role MessageRole
 
@@ -50,6 +51,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Status != "" {
 		a.status = c.Status
+	}
+
+	if c.StopDetails != nil {
+		a.stopDetails = c.StopDetails
 	}
 
 	if c.Message != nil {
@@ -200,24 +205,36 @@ func (a *CompletionAccumulator) addReasoning(r *Reasoning) {
 }
 
 func (a *CompletionAccumulator) addCompaction(c *Compaction) {
-	if c == nil || c.Signature == "" {
+	if c == nil || (c.ID == "" && c.Content == "" && c.Signature == "") {
 		return
 	}
+
+	var target *Compaction
 
 	if c.ID != "" {
 		for i := range a.compactions {
 			if a.compactions[i].ID == c.ID {
-				a.compactions[i].Signature = c.Signature
-				return
+				target = &a.compactions[i]
+				break
 			}
 		}
 	} else if len(a.compactions) > 0 && a.compactions[len(a.compactions)-1].ID == "" {
-		a.compactions[len(a.compactions)-1].Signature += c.Signature
-		return
+		target = &a.compactions[len(a.compactions)-1]
 	}
 
-	a.compactions = append(a.compactions, *c)
-	a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentCompaction, index: len(a.compactions) - 1})
+	if target == nil {
+		a.compactions = append(a.compactions, Compaction{ID: c.ID})
+		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentCompaction, index: len(a.compactions) - 1})
+		target = &a.compactions[len(a.compactions)-1]
+	}
+
+	if c.Content != "" {
+		target.Content = c.Content
+	}
+
+	if c.Signature != "" {
+		target.Signature = c.Signature
+	}
 }
 
 func (a *CompletionAccumulator) Result() *Completion {
@@ -246,7 +263,8 @@ func (a *CompletionAccumulator) Result() *Completion {
 		ID:    a.id,
 		Model: a.model,
 
-		Status: a.status,
+		Status:      a.status,
+		StopDetails: a.stopDetails,
 
 		Message: &Message{
 			Role:    a.role,

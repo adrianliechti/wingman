@@ -155,3 +155,31 @@ func TestCompletionAccumulatorPreservesCompactionOrder(t *testing.T) {
 		t.Fatalf("content 2: expected cmp_2, got %+v", contents[2])
 	}
 }
+
+func TestCompletionAccumulatorMergesCompactionChunks(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{Message: &Message{Content: []Content{CompactionContent(Compaction{Content: "Summary of"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{CompactionContent(Compaction{Content: "Summary of the conversation."})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{CompactionContent(Compaction{Signature: "ENC"})}}})
+
+	result := acc.Result()
+	if result.Message == nil {
+		t.Fatal("expected message")
+	}
+
+	contents := result.Message.Content
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content item, got %d: %+v", len(contents), contents)
+	}
+
+	if contents[0].Compaction == nil {
+		t.Fatal("expected compaction")
+	}
+	if contents[0].Compaction.Content != "Summary of the conversation." {
+		t.Errorf("content: got %q", contents[0].Compaction.Content)
+	}
+	if contents[0].Compaction.Signature != "ENC" {
+		t.Errorf("signature: got %q, want ENC", contents[0].Compaction.Signature)
+	}
+}

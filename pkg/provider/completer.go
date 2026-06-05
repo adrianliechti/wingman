@@ -247,9 +247,18 @@ type Completion struct {
 	Model  string
 	Status CompletionStatus
 
+	StopDetails *StopDetails
+
 	Message *Message
 
 	Usage *Usage
+}
+
+type StopDetails struct {
+	Type string
+
+	Category    string
+	Explanation string
 }
 
 type Effort string
@@ -309,6 +318,8 @@ type Reasoning struct {
 
 type Compaction struct {
 	ID string
+
+	Content string
 
 	Signature string
 }

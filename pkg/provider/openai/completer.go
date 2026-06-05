@@ -50,6 +50,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 		stream := c.completions.NewStreaming(ctx, *req)
 
+		toolCallIDs := map[int64]string{}
+
 		for stream.Next() {
 			chunk := stream.Current()
 
@@ -76,8 +78,14 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 				for _, c := range choice.Delta.ToolCalls {
+					index := max(c.Index, 0)
+
+					if c.ID != "" {
+						toolCallIDs[index] = c.ID
+					}
+
 					call := provider.ToolCall{
-						ID: c.ID,
+						ID: toolCallIDs[index],
 
 						Name:      c.Function.Name,
 						Arguments: c.Function.Arguments,
