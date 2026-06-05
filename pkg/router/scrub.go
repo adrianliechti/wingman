@@ -1,11 +1,10 @@
 package router
 
-import "github.com/adrianliechti/wingman/pkg/provider"
+import (
+	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/google"
+)
 
-// ScrubMessages returns a copy of messages with provider-signed Reasoning
-// and Compaction blocks removed. These blocks carry HMAC/AEAD signatures
-// keyed per-provider and per-tenant, so they cannot be replayed against a
-// different provider in a stateless router.
 func ScrubMessages(messages []provider.Message) []provider.Message {
 	result := make([]provider.Message, len(messages))
 
@@ -27,15 +26,24 @@ func scrubContent(content []provider.Content) []provider.Content {
 			continue
 		}
 
+		if c.ToolCall != nil {
+			call := *c.ToolCall
+			call.ID = google.StripToolIDSignature(call.ID)
+			c.ToolCall = &call
+		}
+
+		if c.ToolResult != nil {
+			res := *c.ToolResult
+			res.ID = google.StripToolIDSignature(res.ID)
+			c.ToolResult = &res
+		}
+
 		result = append(result, c)
 	}
 
 	return result
 }
 
-// ScrubOptions returns a copy of options with signature requests disabled.
-// Signatures issued by one provider cannot be validated by another, so a
-// router fronting multiple providers should never request them.
 func ScrubOptions(options *provider.CompleteOptions) *provider.CompleteOptions {
 	if options == nil || options.ReasoningOptions == nil {
 		return options

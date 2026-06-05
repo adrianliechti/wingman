@@ -326,6 +326,8 @@ func convertContent(message provider.Message, callNames map[string]string) (*gen
 				} else if pendingSig != nil {
 					part.ThoughtSignature = pendingSig
 					pendingSig = nil
+				} else {
+					part.ThoughtSignature = dummyThoughtSignature
 				}
 
 				content.Parts = append(content.Parts, part)
@@ -500,6 +502,21 @@ func generateCallID() string {
 	rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
 }
+
+func StripToolIDSignature(s string) string {
+	id, name, signature := parseToolID(s)
+
+	if signature == nil {
+		return s
+	}
+
+	return id + "::" + name
+}
+
+// dummyThoughtSignature bypasses thought-signature validation for tool calls
+// migrated from another model or provider.
+// https://ai.google.dev/gemini-api/docs/thought-signatures#faqs
+var dummyThoughtSignature = []byte("skip_thought_signature_validator")
 
 // parseToolID is the inverse of formatToolID. For plain IDs without "::" the
 // entire string is returned as id with empty name and signature.
