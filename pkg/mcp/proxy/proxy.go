@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	neturl "net/url"
@@ -63,6 +64,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			r.Out.Host = s.url.Host
 		},
+
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			slog.Error("mcp proxy: upstream request failed", "url", r.URL.String(), "error", err)
+			w.WriteHeader(http.StatusBadGateway)
+		},
 	}
 
 	proxy.ServeHTTP(w, r)
@@ -75,8 +81,12 @@ type rt struct {
 }
 
 func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
+	token, _ := req.Context().Value(auth.TokenContextKey).(string)
+
+	slog.Info("mcp proxy: forwarding request", "method", req.Method, "url", req.URL.String(), "obo", rt.exchanger != nil, "token", token != "")
+
 	if rt.exchanger != nil {
-		if token, _ := req.Context().Value(auth.TokenContextKey).(string); token != "" {
+		if token != "" {
 			downstream, err := rt.exchanger.Token(req.Context(), token)
 
 			if err != nil {
@@ -84,6 +94,8 @@ func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 
 			req.Header.Set("Authorization", "Bearer "+downstream)
+		} else {
+			slog.Warn("obo: no user token in request context, skipping token exchange", "url", req.URL.String())
 		}
 	}
 

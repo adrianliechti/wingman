@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -63,8 +64,11 @@ func New(issuer, clientID, clientSecret, scope string) (*Exchanger, error) {
 	provider, err := oidc.NewProvider(context.Background(), issuer)
 
 	if err != nil {
+		slog.Error("obo: issuer discovery failed", "issuer", issuer, "error", err)
 		return nil, err
 	}
+
+	slog.Info("obo: issuer discovered", "issuer", issuer, "token_url", provider.Endpoint().TokenURL, "client_id", clientID, "scope", scope)
 
 	return &Exchanger{
 		client: http.DefaultClient,
@@ -89,14 +93,20 @@ func (e *Exchanger) Token(ctx context.Context, assertion string) (string, error)
 	key := hash(assertion)
 
 	if token, ok := e.lookup(key); ok {
+		slog.Info("obo: using cached token", "assertion", key[:8])
 		return token, nil
 	}
+
+	slog.Info("obo: exchanging token", "assertion", key[:8], "token_url", e.tokenURL, "scope", e.scope)
 
 	token, expires, err := e.exchange(ctx, assertion)
 
 	if err != nil {
+		slog.Error("obo: token exchange failed", "assertion", key[:8], "error", err)
 		return "", err
 	}
+
+	slog.Info("obo: token exchange succeeded", "assertion", key[:8], "expires", expires)
 
 	e.store(key, token, expires)
 
@@ -117,8 +127,20 @@ func (e *Exchanger) lookup(key string) (string, bool) {
 }
 
 func (e *Exchanger) store(key, token string, expires time.Time) {
+	now := time.Now()
+
+	if !now.Before(expires) {
+		return
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	for k, c := range e.cache {
+		if !now.Before(c.expires) {
+			delete(e.cache, k)
+		}
+	}
 
 	e.cache[key] = entry{
 		token:   token,
@@ -159,7 +181,7 @@ func (e *Exchanger) exchange(ctx context.Context, assertion string) (string, tim
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", time.Time{}, errors.New("obo: token exchange failed: " + strings.TrimSpace(string(body)))
+		return "", time.Time{}, errors.New("obo: token exchange failed (" + resp.Status + "): " + strings.TrimSpace(string(body)))
 	}
 
 	var result struct {

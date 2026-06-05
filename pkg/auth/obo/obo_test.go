@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func newTestExchanger(tokenURL string) *Exchanger {
@@ -92,6 +93,29 @@ func TestExchangeError(t *testing.T) {
 
 	if _, err := e.Token(context.Background(), "user-token"); err == nil {
 		t.Fatal("expected error on non-2xx response")
+	}
+}
+
+func TestStoreEvictsExpired(t *testing.T) {
+	e := newTestExchanger("http://unused.invalid")
+
+	e.store("expired", "token-1", time.Now().Add(-time.Minute))
+	e.store("live", "token-2", time.Now().Add(time.Hour))
+
+	if _, ok := e.cache["expired"]; ok {
+		t.Error("expired entry should not be stored")
+	}
+
+	e.cache["stale"] = entry{token: "token-3", expires: time.Now().Add(-time.Minute)}
+
+	e.store("live-2", "token-4", time.Now().Add(time.Hour))
+
+	if _, ok := e.cache["stale"]; ok {
+		t.Error("stale entry should be evicted on store")
+	}
+
+	if len(e.cache) != 2 {
+		t.Errorf("cache size = %d, want 2", len(e.cache))
 	}
 }
 
