@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"log"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -129,12 +128,8 @@ type rt struct {
 }
 
 func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
-	token, _ := req.Context().Value(auth.TokenContextKey).(string)
-
-	slog.Info("mcp client: sending request", "method", req.Method, "url", req.URL.String(), "obo", rt.exchanger != nil, "token", token != "")
-
 	if rt.exchanger != nil {
-		if token != "" {
+		if token, _ := req.Context().Value(auth.TokenContextKey).(string); token != "" {
 			downstream, err := rt.exchanger.Token(req.Context(), token)
 
 			if err != nil {
@@ -142,8 +137,6 @@ func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 
 			req.Header.Set("Authorization", "Bearer "+downstream)
-		} else {
-			slog.Warn("obo: no user token in request context, skipping token exchange", "url", req.URL.String())
 		}
 	}
 
