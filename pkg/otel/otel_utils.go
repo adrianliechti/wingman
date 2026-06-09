@@ -126,20 +126,14 @@ func EndUserAttrs(ctx context.Context) []KeyValue {
 	return attrs
 }
 
-// MetricUserAttrs returns low-cardinality user attributes (user.id, user.email) safe for metrics.
-// session.id and user.full_name are unbounded and belong on spans/logs only.
-func MetricUserAttrs(ctx context.Context) []KeyValue {
-	var attrs []KeyValue
-
-	if user, ok := ctx.Value(auth.UserContextKey).(string); ok && user != "" {
-		attrs = append(attrs, attribute.String("user.id", user))
-	}
-
-	if email, ok := ctx.Value(auth.EmailContextKey).(string); ok && email != "" {
-		attrs = append(attrs, attribute.String("user.email", email))
-	}
-
-	return attrs
+func MetricAttrs(ctx context.Context, requestModel, responseModel string) []KeyValue {
+	return KeyValues(
+		[]KeyValue{
+			semconv.GenAIRequestModel(requestModel),
+			semconv.GenAIResponseModel(responseModel),
+		},
+		EndUserAttrs(ctx),
+	)
 }
 
 func RequestAttrs(operation attribute.KeyValue, providerName, requestModel string) []KeyValue {

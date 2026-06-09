@@ -76,10 +76,7 @@ func (p *observableRenderer) Render(ctx context.Context, input string, options *
 		}
 	}
 
-	attrs := []KeyValue{
-		semconv.GenAIRequestModel(p.model),
-		semconv.GenAIResponseModel(providerModel),
-	}
+	attrs := MetricAttrs(ctx, p.model, providerModel)
 
 	if err != nil {
 		attrs = append(attrs, p.operationDurationMetric.AttrErrorType(ErrorTypeAttr(err)))
