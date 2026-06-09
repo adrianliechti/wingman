@@ -84,10 +84,13 @@ func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options 
 		}
 
 		if result.Usage != nil {
-			tokenAttrs := []KeyValue{
-				semconv.GenAIRequestModel(p.model),
-				semconv.GenAIResponseModel(providerModel),
-			}
+			tokenAttrs := KeyValues(
+				[]KeyValue{
+					semconv.GenAIRequestModel(p.model),
+					semconv.GenAIResponseModel(providerModel),
+				},
+				MetricUserAttrs(ctx),
+			)
 
 			if result.Usage.InputTokens > 0 {
 				p.tokenUsageMetric.Record(ctx, int64(result.Usage.InputTokens),
@@ -109,10 +112,13 @@ func (p *observableEmbedder) Embed(ctx context.Context, texts []string, options 
 		}
 	}
 
-	durationAttrs := []KeyValue{
-		semconv.GenAIRequestModel(p.model),
-		semconv.GenAIResponseModel(providerModel),
-	}
+	durationAttrs := KeyValues(
+		[]KeyValue{
+			semconv.GenAIRequestModel(p.model),
+			semconv.GenAIResponseModel(providerModel),
+		},
+		MetricUserAttrs(ctx),
+	)
 
 	if err != nil {
 		durationAttrs = append(durationAttrs, p.operationDurationMetric.AttrErrorType(ErrorTypeAttr(err)))

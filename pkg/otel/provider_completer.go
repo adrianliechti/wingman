@@ -24,10 +24,10 @@ type observableCompleter struct {
 
 	completer provider.Completer
 
-	tokenUsageMetric           genaiconv.ClientTokenUsage
-	operationDurationMetric    genaiconv.ClientOperationDuration
-	timeToFirstChunkMetric     genaiconv.ClientOperationTimeToFirstChunk
-	timePerOutputChunkMetric   genaiconv.ClientOperationTimePerOutputChunk
+	tokenUsageMetric         genaiconv.ClientTokenUsage
+	operationDurationMetric  genaiconv.ClientOperationDuration
+	timeToFirstChunkMetric   genaiconv.ClientOperationTimeToFirstChunk
+	timePerOutputChunkMetric genaiconv.ClientOperationTimePerOutputChunk
 }
 
 func NewCompleter(provider, model string, p provider.Completer) Completer {
@@ -113,13 +113,13 @@ func (p *observableCompleter) Complete(ctx context.Context, messages []provider.
 				}
 			}
 
-			// Metrics: model attrs only — keep end-user attrs out to avoid
-			// histogram cardinality explosions (spec puts user info on
-			// spans/logs, not metrics).
-			modelAttrs := []KeyValue{
-				semconv.GenAIRequestModel(p.model),
-				semconv.GenAIResponseModel(providerModel),
-			}
+			modelAttrs := KeyValues(
+				[]KeyValue{
+					semconv.GenAIRequestModel(p.model),
+					semconv.GenAIResponseModel(providerModel),
+				},
+				MetricUserAttrs(ctx),
+			)
 
 			durationAttrs := modelAttrs
 			if lastErr != nil {
