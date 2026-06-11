@@ -9,6 +9,7 @@ type Capabilities struct {
 	TextEditor       bool
 	ComputerUse      bool
 	Shell            bool
+	ToolSearch       bool
 	Audio            bool
 	Cache            bool
 }

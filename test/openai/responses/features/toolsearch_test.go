@@ -71,6 +71,61 @@ func TestToolSearchHTTP(t *testing.T) {
 	}
 }
 
+// TestToolSearchHostedHTTP exercises the hosted (server-executed) flavor:
+// the API searches the deferred tools itself, and the model must end up
+// calling the discovered get_weather function within the same turn.
+func TestToolSearchHostedHTTP(t *testing.T) {
+	h := openai.New(t)
+
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.ToolSearch {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"input": "What's the weather in London? Use any tools you have available to find out.",
+				"tools": []any{
+					map[string]any{"type": "tool_search"},
+					deferredWeatherTool,
+				},
+			}
+
+			openaiResp, wingmanResp := responses.CompareHTTP(t, h, model, body)
+
+			requireFunctionCall(t, "openai", openaiResp.Body, "get_weather")
+			requireFunctionCall(t, "wingman", wingmanResp.Body, "get_weather")
+
+			rules := openai.DefaultResponsesResponseRules()
+			rules["output"] = harness.FieldPresence
+			rules["tools"] = harness.FieldPresence
+			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
+		})
+	}
+}
+
+func requireFunctionCall(t *testing.T, label string, body map[string]any, name string) {
+	t.Helper()
+
+	output, ok := body["output"].([]any)
+	if !ok {
+		t.Fatalf("[%s] output is not an array", label)
+	}
+
+	for _, item := range output {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if obj["type"] == "function_call" && obj["name"] == name {
+			return
+		}
+	}
+
+	t.Fatalf("[%s] no function_call named %q found", label, name)
+}
+
 // TestToolSearchSSE is the streaming variant; the SSE event sequence and item
 // shape must agree between wingman and OpenAI for the same request.
 func TestToolSearchSSE(t *testing.T) {

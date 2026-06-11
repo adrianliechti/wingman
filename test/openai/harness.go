@@ -73,6 +73,9 @@ func ModelCapabilities(name string) harness.Capabilities {
 	case strings.Contains(n, "gemini"):
 		return harness.Capabilities{StructuredOutput: true, Audio: true}
 
+	case strings.HasPrefix(n, "gpt-5.5"):
+		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true, Shell: true, ToolSearch: true}
+
 	case strings.HasPrefix(n, "gpt-5"):
 		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true, Shell: true}
 

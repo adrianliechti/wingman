@@ -518,12 +518,19 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 			})
 
 		case ToolTypeToolSearch:
-			result = append(result, provider.Tool{
+			search := provider.Tool{
 				Kind:        provider.ToolKindToolSearch,
 				Description: t.Description,
 				Execution:   t.Execution,
-				Parameters:  tool.NormalizeSchema(t.Parameters),
-			})
+			}
+
+			// hosted tool_search takes no schema — only normalize what the
+			// client provided, or the upstream rejects the fabricated one
+			if len(t.Parameters) > 0 {
+				search.Parameters = tool.NormalizeSchema(t.Parameters)
+			}
+
+			result = append(result, search)
 
 		case ToolTypeNamespace:
 			if t.Name == "" {

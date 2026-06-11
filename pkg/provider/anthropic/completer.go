@@ -470,6 +470,17 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	// be available (non-deferred) so the model can call them.
 	var discovered []provider.Tool
 
+	// Tools already called in the conversation stay loaded as well.
+	usedNames := map[string]bool{}
+
+	for _, m := range input {
+		for _, c := range m.Content {
+			if c.ToolCall != nil {
+				usedNames[provider.FlattenToolName(*c.ToolCall)] = true
+			}
+		}
+	}
+
 	for _, m := range input {
 		switch m.Role {
 		case provider.MessageRoleSystem:
@@ -800,8 +811,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		}
 
 		// deferring requires a search tool to discover the definition, and
-		// tools already discovered in prior turns must stay loaded
-		if t.Deferred != nil && *t.Deferred && hasToolSearch && !discoveredNames[t.Name] {
+		// tools already discovered or called in prior turns must stay loaded
+		if t.Deferred != nil && *t.Deferred && hasToolSearch && !discoveredNames[t.Name] && !usedNames[t.Name] {
 			tool.DeferLoading = anthropic.Bool(true)
 		}
 

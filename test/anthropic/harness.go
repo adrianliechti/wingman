@@ -61,13 +61,17 @@ func ModelCapabilities(name string) harness.Capabilities {
 		case strings.Contains(n, "haiku-4-5"):
 			return harness.Capabilities{StructuredOutput: true, Cache: true}
 		case strings.Contains(n, "-4-0"), strings.Contains(n, "opus-4-1"), strings.Contains(n, "-4-5"):
-			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Shell: true}
+			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Shell: true, ToolSearch: true}
 		default:
-			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Shell: true, Compaction: true}
+			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Shell: true, ToolSearch: true, Compaction: true}
 		}
 
 	case strings.Contains(n, "gemini"):
 		return harness.Capabilities{StructuredOutput: true, Audio: true}
+
+	case strings.HasPrefix(n, "gpt-5.5"):
+		// text editor and bash run emulated; tool search uses the hosted tool
+		return harness.Capabilities{StructuredOutput: true, Cache: true, TextEditor: true, Shell: true, ToolSearch: true}
 
 	case strings.HasPrefix(n, "gpt-5"):
 		// text editor and bash run emulated as function tools
