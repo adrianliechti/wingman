@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
@@ -270,15 +272,9 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			name := call.Name
 			args := call.Input
 
-			if call.Name == "apply_patch" {
+			if call.Name == texteditor.NameApplyPatch {
 				kind = provider.ToolKindTextEditor
-				op := parseApplyPatchEnvelope(call.Input)
-				a, _ := json.Marshal(map[string]any{
-					"type": op.Type,
-					"path": op.Path,
-					"diff": op.Diff,
-				})
-				args = string(a)
+				args = texteditor.ParseEnvelope(call.Input).Args()
 			}
 
 			kindByCallID[call.CallID] = kind
@@ -321,16 +317,12 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			flushResults()
 
 			call := item.InputComputerCall
-			args, _ := json.Marshal(map[string]any{
-				"call_id": call.CallID,
-				"actions": call.Actions,
-			})
 
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
 				ID:        call.CallID,
 				Kind:      provider.ToolKindComputer,
-				Name:      "computer",
-				Arguments: string(args),
+				Name:      computeruse.Name,
+				Arguments: toComputerCallArgs(call.CallID, call.Actions, call.PendingSafetyChecks),
 			}))
 
 		case InputItemTypeComputerCallOutput:
@@ -346,11 +338,17 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				return nil, err
 			}
 
-			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+			result := provider.ToolResult{
 				ID:    output.CallID,
 				Kind:  provider.ToolKindComputer,
 				Parts: parts,
-			}))
+			}
+
+			if len(output.AcknowledgedSafetyChecks) > 0 {
+				result.Payload, _ = json.Marshal(output.AcknowledgedSafetyChecks)
+			}
+
+			pendingResults = append(pendingResults, provider.ToolResultContent(result))
 
 		case InputItemTypeToolSearchCall:
 			if item.InputToolSearchCall == nil {
@@ -441,8 +439,9 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 
 		case ToolTypeComputer:
 			result = append(result, provider.Tool{
-				Name: "computer",
-				Kind: provider.ToolKindComputer,
+				Name:    computeruse.Name,
+				Kind:    provider.ToolKindComputer,
+				Dialect: computeruse.DialectOpenAI,
 				Display: &provider.Display{
 					Width:       t.DisplayWidth,
 					Height:      t.DisplayHeight,
@@ -564,7 +563,7 @@ func outputKind(name string, tools []Tool) provider.ToolKind {
 
 // isApplyPatchToolCall returns true if the tool call is an apply_patch or text_editor call.
 func isApplyPatchToolCall(call provider.ToolCall) bool {
-	return call.Name == "apply_patch" || call.Name == "str_replace_based_edit_tool"
+	return call.Name == texteditor.NameApplyPatch || call.Name == texteditor.NameTextEditor
 }
 
 // toolCallToApplyPatchCall converts a ToolCall (from apply_patch or str_replace_based_edit_tool)
@@ -577,41 +576,21 @@ func toolCallToApplyPatchCall(call provider.ToolCall, status string) *ApplyPatch
 		Status: status,
 	}
 
-	if call.Name == "apply_patch" {
-		// Native OpenAI format: arguments are {type, path, diff}
-		var op ApplyPatchOperation
-		json.Unmarshal([]byte(call.Arguments), &op)
-		item.Operation = op
-	} else if call.Name == "str_replace_based_edit_tool" {
-		// Anthropic format: arguments are {command, path, file_text, old_str, new_str, ...}
-		var args struct {
-			Command  string `json:"command"`
-			Path     string `json:"path"`
-			FileText string `json:"file_text"`
-			OldStr   string `json:"old_str"`
-			NewStr   string `json:"new_str"`
-		}
-		json.Unmarshal([]byte(call.Arguments), &args)
+	var op texteditor.Operation
 
-		switch args.Command {
-		case "create":
-			item.Operation = ApplyPatchOperation{
-				Type: "create_file",
-				Path: args.Path,
-				Diff: toAddDiff(args.FileText),
-			}
-		case "str_replace":
-			item.Operation = ApplyPatchOperation{
-				Type: "update_file",
-				Path: args.Path,
-				Diff: toReplaceDiff(args.OldStr, args.NewStr),
-			}
-		default:
-			item.Operation = ApplyPatchOperation{
-				Type: "update_file",
-				Path: args.Path,
-			}
-		}
+	if call.Name == texteditor.NameTextEditor {
+		// Cross-dialect fallback (e.g. mixed histories): convert text_editor
+		// commands to the closest apply_patch operation
+		op = texteditor.ParseInput(call.Arguments).Operation()
+	} else {
+		// Native OpenAI format: arguments are {type, path, diff}
+		op = texteditor.ParseOperation(call.Arguments)
+	}
+
+	item.Operation = ApplyPatchOperation{
+		Type: op.Type,
+		Path: op.Path,
+		Diff: op.Diff,
 	}
 
 	return item
@@ -628,8 +607,8 @@ func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomTool
 			Type:   "custom_tool_call",
 			CallID: call.ID,
 			Status: status,
-			Name:   "apply_patch",
-			Input:  toApplyPatchEnvelope(op),
+			Name:   texteditor.NameApplyPatch,
+			Input:  texteditor.Operation{Type: op.Type, Path: op.Path, Diff: op.Diff}.Envelope(),
 		}
 	}
 
@@ -643,6 +622,26 @@ func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomTool
 	}
 }
 
+// toComputerCallArgs encodes a computer call in the canonical
+// {call_id, actions, pending_safety_checks} form.
+func toComputerCallArgs(callID string, actions []any, checks []SafetyCheck) string {
+	c := computeruse.Call{CallID: callID}
+
+	for _, a := range actions {
+		if action, ok := a.(map[string]any); ok {
+			c.Actions = append(c.Actions, action)
+		}
+	}
+
+	for _, check := range checks {
+		c.PendingSafetyChecks = append(c.PendingSafetyChecks, computeruse.SafetyCheck(check))
+	}
+
+	return c.Args()
+}
+
+// toolCallToComputerCall converts a computer ToolCall of either dialect to a
+// computer_call item for the OpenAI responses API.
 func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCallItem {
 	item := &ComputerCallItem{
 		ID:     "cu_" + call.ID,
@@ -651,11 +650,14 @@ func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCall
 		Status: status,
 	}
 
-	var args map[string]any
-	json.Unmarshal([]byte(call.Arguments), &args)
+	c := computeruse.ParseCall(call.Arguments)
 
-	if actions, ok := args["actions"].([]any); ok {
-		item.Actions = actions
+	for _, action := range c.Actions {
+		item.Actions = append(item.Actions, action)
+	}
+
+	for _, check := range c.PendingSafetyChecks {
+		item.PendingSafetyChecks = append(item.PendingSafetyChecks, SafetyCheck(check))
 	}
 
 	return item
@@ -704,87 +706,6 @@ func computerOutputParts(output any) ([]provider.Part, error) {
 	}
 
 	return []provider.Part{{Text: string(data)}}, nil
-}
-
-func toAddDiff(content string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
-		b.WriteString("+" + line + "\n")
-	}
-	return b.String()
-}
-
-func toReplaceDiff(oldText, newText string) string {
-	var b strings.Builder
-	b.WriteString("@@\n")
-	for _, line := range strings.Split(strings.TrimRight(oldText, "\n"), "\n") {
-		b.WriteString("-" + line + "\n")
-	}
-	for _, line := range strings.Split(strings.TrimRight(newText, "\n"), "\n") {
-		b.WriteString("+" + line + "\n")
-	}
-	return b.String()
-}
-
-// toApplyPatchEnvelope renders an ApplyPatchOperation as the raw patch envelope
-// Codex's freeform apply_patch tool expects as the custom_tool_call input.
-func toApplyPatchEnvelope(op ApplyPatchOperation) string {
-	var b strings.Builder
-	b.WriteString("*** Begin Patch\n")
-
-	switch op.Type {
-	case "create_file":
-		b.WriteString("*** Add File: " + op.Path + "\n")
-	case "delete_file":
-		b.WriteString("*** Delete File: " + op.Path + "\n")
-	default:
-		b.WriteString("*** Update File: " + op.Path + "\n")
-	}
-
-	if op.Diff != "" {
-		b.WriteString(op.Diff)
-		if !strings.HasSuffix(op.Diff, "\n") {
-			b.WriteString("\n")
-		}
-	}
-
-	b.WriteString("*** End Patch\n")
-	return b.String()
-}
-
-// parseApplyPatchEnvelope is the inverse of toApplyPatchEnvelope: it extracts the
-// operation type, path, and diff body from a raw patch envelope produced by Codex.
-func parseApplyPatchEnvelope(input string) ApplyPatchOperation {
-	var op ApplyPatchOperation
-	var body []string
-
-	for _, line := range strings.Split(input, "\n") {
-		switch {
-		case strings.HasPrefix(line, "*** Begin Patch"):
-			continue
-		case strings.HasPrefix(line, "*** End Patch"):
-			continue
-		case strings.HasPrefix(line, "*** Add File: "):
-			op.Type = "create_file"
-			op.Path = strings.TrimPrefix(line, "*** Add File: ")
-		case strings.HasPrefix(line, "*** Update File: "):
-			op.Type = "update_file"
-			op.Path = strings.TrimPrefix(line, "*** Update File: ")
-		case strings.HasPrefix(line, "*** Delete File: "):
-			op.Type = "delete_file"
-			op.Path = strings.TrimPrefix(line, "*** Delete File: ")
-		case strings.HasPrefix(line, "*** Move to: "):
-			continue
-		default:
-			body = append(body, line)
-		}
-	}
-
-	op.Diff = strings.TrimRight(strings.Join(body, "\n"), "\n")
-	if op.Diff != "" {
-		op.Diff += "\n"
-	}
-	return op
 }
 
 func toParts(items []InputContent) ([]provider.Part, error) {

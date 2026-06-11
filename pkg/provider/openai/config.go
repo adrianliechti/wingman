@@ -44,6 +44,13 @@ func (c *Config) isAzure() bool {
 	return strings.Contains(c.url, "openai.azure.com") || strings.Contains(c.url, "cognitiveservices.azure.com")
 }
 
+// isOpenAI reports whether the endpoint hosts OpenAI models and thus supports
+// built-in tools like apply_patch. OpenAI-compatible third-party endpoints
+// (xAI, proxies, …) get function-tool emulation instead.
+func (c *Config) isOpenAI() bool {
+	return c.url == "" || strings.Contains(c.url, "api.openai.com") || c.isAzure()
+}
+
 func (c *Config) init() {
 	if c.url == "" {
 		c.url = "https://api.openai.com/v1/"

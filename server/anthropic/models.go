@@ -128,6 +128,9 @@ type ToolParam struct {
 	// For computer_* tool types
 	DisplayWidthPx  int `json:"display_width_px,omitempty"`
 	DisplayHeightPx int `json:"display_height_px,omitempty"`
+
+	// For text_editor_* tool types
+	MaxCharacters int `json:"max_characters,omitempty"`
 }
 
 type ToolChoice struct {

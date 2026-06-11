@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
@@ -318,14 +320,16 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 		switch {
 		case strings.HasPrefix(t.Type, "text_editor"):
 			result = append(result, provider.Tool{
-				Name: "str_replace_based_edit_tool",
-				Kind: provider.ToolKindTextEditor,
+				Name:          texteditor.NameTextEditor,
+				Kind:          provider.ToolKindTextEditor,
+				MaxCharacters: t.MaxCharacters,
 			})
 
 		case strings.HasPrefix(t.Type, "computer"):
 			result = append(result, provider.Tool{
-				Name: "computer",
-				Kind: provider.ToolKindComputer,
+				Name:    computeruse.Name,
+				Kind:    provider.ToolKindComputer,
+				Dialect: computeruse.DialectAnthropic,
 				Display: &provider.Display{
 					Width:  t.DisplayWidthPx,
 					Height: t.DisplayHeightPx,
@@ -393,10 +397,15 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 			name := c.ToolCall.Name
 			var input any
 
-			if name == "apply_patch" {
-				// Cross-provider: convert apply_patch args to text_editor input
-				input = applyPatchArgsToTextEditorInput(c.ToolCall.Arguments)
-				name = "str_replace_based_edit_tool"
+			if name == texteditor.NameApplyPatch {
+				// Cross-dialect fallback (e.g. mixed histories): convert
+				// apply_patch args to text_editor input
+				input = texteditor.ParseOperation(c.ToolCall.Arguments).Input().Map()
+				name = texteditor.NameTextEditor
+			} else if name == computeruse.Name && c.ToolCall.Kind == provider.ToolKindComputer {
+				// Cross-dialect fallback: degrade OpenAI batched actions to a
+				// single Anthropic action
+				input = computeruse.AnthropicInput(c.ToolCall.Arguments)
 			} else {
 				if c.ToolCall.Arguments != "" {
 					json.Unmarshal([]byte(c.ToolCall.Arguments), &input)
@@ -420,61 +429,6 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 	}
 
 	return result
-}
-
-// applyPatchArgsToTextEditorInput converts apply_patch JSON args to text_editor input format.
-func applyPatchArgsToTextEditorInput(args string) map[string]any {
-	var op struct {
-		Type string `json:"type"`
-		Path string `json:"path"`
-		Diff string `json:"diff"`
-	}
-
-	json.Unmarshal([]byte(args), &op)
-
-	switch op.Type {
-	case "create_file":
-		return map[string]any{
-			"command":   "create",
-			"path":      op.Path,
-			"file_text": parseDiffAdded(op.Diff),
-		}
-	case "update_file":
-		old, new_ := parseDiffOldNew(op.Diff)
-		return map[string]any{
-			"command": "str_replace",
-			"path":    op.Path,
-			"old_str": old,
-			"new_str": new_,
-		}
-	default:
-		return map[string]any{
-			"command": "view",
-			"path":    op.Path,
-		}
-	}
-}
-
-func parseDiffAdded(diff string) string {
-	var lines []string
-	for _, line := range strings.Split(diff, "\n") {
-		if strings.HasPrefix(line, "+") {
-			lines = append(lines, line[1:])
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func parseDiffOldNew(diff string) (string, string) {
-	var oldLines, newLines []string
-	for _, line := range strings.Split(diff, "\n") {
-		if strings.HasPrefix(line, "-") {
-			oldLines = append(oldLines, line[1:])
-		} else if strings.HasPrefix(line, "+") {
-			newLines = append(newLines, line[1:])
-		}
-	}
-	return strings.Join(oldLines, "\n"), strings.Join(newLines, "\n")
 }
 
 func toStopReason(completion *provider.Completion) StopReason {

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -636,32 +638,50 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	for _, t := range provider.FlattenTools(options.Tools) {
 		if t.Kind == provider.ToolKindTextEditor {
-			tools = append(tools, anthropic.BetaToolUnionParam{
-				OfTextEditor20250728: &anthropic.BetaToolTextEditor20250728Param{},
-			})
-			continue
+			if t.Name == texteditor.NameApplyPatch {
+				// apply_patch dialect — emulate as a function tool so calls and
+				// results stay in the client's dialect end-to-end
+				t = texteditor.FunctionTool(t)
+			} else {
+				editor := &anthropic.BetaToolTextEditor20250728Param{}
+
+				if t.MaxCharacters > 0 {
+					editor.MaxCharacters = anthropic.Int(int64(t.MaxCharacters))
+				}
+
+				tools = append(tools, anthropic.BetaToolUnionParam{
+					OfTextEditor20250728: editor,
+				})
+				continue
+			}
 		}
 
 		if t.Kind == provider.ToolKindComputer {
-			req.Betas = append(req.Betas, "computer-use-2025-11-24")
+			if t.Dialect == computeruse.DialectOpenAI {
+				// OpenAI dialect — emulate as a function tool so calls and
+				// results stay in the client's dialect end-to-end
+				t = computeruse.FunctionTool(t)
+			} else {
+				req.Betas = append(req.Betas, "computer-use-2025-11-24")
 
-			w, h := int64(1024), int64(768)
-			if t.Display != nil {
-				if t.Display.Width > 0 {
-					w = int64(t.Display.Width)
+				w, h := int64(1024), int64(768)
+				if t.Display != nil {
+					if t.Display.Width > 0 {
+						w = int64(t.Display.Width)
+					}
+					if t.Display.Height > 0 {
+						h = int64(t.Display.Height)
+					}
 				}
-				if t.Display.Height > 0 {
-					h = int64(t.Display.Height)
-				}
+
+				tools = append(tools, anthropic.BetaToolUnionParam{
+					OfComputerUseTool20251124: &anthropic.BetaToolComputerUse20251124Param{
+						DisplayWidthPx:  w,
+						DisplayHeightPx: h,
+					},
+				})
+				continue
 			}
-
-			tools = append(tools, anthropic.BetaToolUnionParam{
-				OfComputerUseTool20251124: &anthropic.BetaToolComputerUse20251124Param{
-					DisplayWidthPx:  w,
-					DisplayHeightPx: h,
-				},
-			})
-			continue
 		}
 
 		if t.Name == "" {

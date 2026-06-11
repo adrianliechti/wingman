@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 
 	"github.com/google/uuid"
 
@@ -781,6 +783,14 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 	result := &types.ToolConfiguration{}
 
 	for _, t := range tools {
+		if t.Kind == provider.ToolKindTextEditor {
+			t = texteditor.FunctionTool(t)
+		}
+
+		if t.Kind == provider.ToolKindComputer {
+			t = computeruse.FunctionTool(t)
+		}
+
 		if t.Kind != provider.ToolKindFunction {
 			continue
 		}

@@ -311,6 +311,8 @@ type InputComputerCall struct {
 	CallID  string `json:"call_id,omitempty"`
 	Status  string `json:"status,omitempty"`
 	Actions []any  `json:"actions,omitempty"`
+
+	PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks,omitempty"`
 }
 
 // InputComputerCallOutput represents the result of a computer call
@@ -318,6 +320,14 @@ type InputComputerCallOutput struct {
 	CallID string `json:"call_id,omitempty"`
 	Output any    `json:"output,omitempty"`
 	Status string `json:"status,omitempty"`
+
+	AcknowledgedSafetyChecks []SafetyCheck `json:"acknowledged_safety_checks,omitempty"`
+}
+
+type SafetyCheck struct {
+	ID      string `json:"id,omitempty"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // InputApplyPatchCall represents an apply_patch call in the input (for multi-turn)
@@ -893,12 +903,16 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Status  string             `json:"status"`
 				CallID  string             `json:"call_id"`
 				Actions []any              `json:"actions"`
+
+				PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks,omitempty"`
 			}{
 				Type:    r.Type,
 				ID:      r.ComputerCallItem.ID,
 				Status:  r.ComputerCallItem.Status,
 				CallID:  r.ComputerCallItem.CallID,
 				Actions: r.ComputerCallItem.Actions,
+
+				PendingSafetyChecks: r.ComputerCallItem.PendingSafetyChecks,
 			})
 		}
 	case ResponseOutputTypeApplyPatchCall:
@@ -1020,6 +1034,8 @@ type ComputerCallItem struct {
 	CallID  string `json:"call_id"`
 	Status  string `json:"status"`
 	Actions []any  `json:"actions"`
+
+	PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks,omitempty"`
 }
 
 // ApplyPatchCallItem represents an apply_patch tool call in the output
