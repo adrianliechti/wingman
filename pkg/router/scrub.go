@@ -6,13 +6,20 @@ import (
 )
 
 func ScrubMessages(messages []provider.Message) []provider.Message {
-	result := make([]provider.Message, len(messages))
+	result := make([]provider.Message, 0, len(messages))
 
-	for i, m := range messages {
-		result[i] = provider.Message{
-			Role:    m.Role,
-			Content: scrubContent(m.Content),
+	for _, m := range messages {
+		content := scrubContent(m.Content)
+
+		// e.g. an assistant message holding only a compaction block
+		if len(content) == 0 {
+			continue
 		}
+
+		result = append(result, provider.Message{
+			Role:    m.Role,
+			Content: content,
+		})
 	}
 
 	return result
@@ -45,18 +52,27 @@ func scrubContent(content []provider.Content) []provider.Content {
 }
 
 func ScrubOptions(options *provider.CompleteOptions) *provider.CompleteOptions {
-	if options == nil || options.ReasoningOptions == nil {
-		return options
+	if options == nil {
+		return nil
 	}
 
-	if !options.ReasoningOptions.IncludeSignature {
+	includeSignature := options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSignature
+
+	if !includeSignature && options.CompactionOptions == nil {
 		return options
 	}
 
 	cloned := *options
-	reasoning := *options.ReasoningOptions
-	reasoning.IncludeSignature = false
-	cloned.ReasoningOptions = &reasoning
+
+	if includeSignature {
+		reasoning := *options.ReasoningOptions
+		reasoning.IncludeSignature = false
+		cloned.ReasoningOptions = &reasoning
+	}
+
+	// A compaction blob from one provider cannot round-trip through another;
+	// scrubbing it next turn would silently drop the compacted history instead
+	cloned.CompactionOptions = nil
 
 	return &cloned
 }

@@ -168,8 +168,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 							Content: []provider.Content{
 								provider.ReasoningContent(provider.Reasoning{
-									Kind:      provider.ReasoningKindRedacted,
 									Signature: event.Data,
+									Redacted:  true,
 								}),
 							},
 						},
@@ -371,6 +371,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 				switch message.StopReason {
+				case anthropic.BetaStopReasonStopSequence:
+					delta.StopSequence = message.StopSequence
 				case anthropic.BetaStopReasonMaxTokens, anthropic.BetaStopReasonModelContextWindowExceeded:
 					delta.Status = provider.CompletionStatusIncomplete
 				case anthropic.BetaStopReasonRefusal:
@@ -581,7 +583,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 				if c.Reasoning != nil && c.Reasoning.Signature != "" {
 					// Include thinking blocks for conversation continuity
-					if c.Reasoning.Kind == provider.ReasoningKindRedacted {
+					if c.Reasoning.Redacted {
 						blocks = append(blocks, anthropic.NewBetaRedactedThinkingBlock(c.Reasoning.Signature))
 					} else {
 						blocks = append(blocks, anthropic.NewBetaThinkingBlock(c.Reasoning.Signature, c.Reasoning.Text))

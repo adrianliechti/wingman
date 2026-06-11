@@ -248,8 +248,12 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 
 	if completion.Message != nil {
 		result.Content = toContentBlocks(completion.Message.Content, thinkingEnabled(options))
-		reason := toStopReason(completion.Status, completion.Message.Content)
+		reason := toStopReason(completion)
 		result.StopReason = &reason
+
+		if reason == StopReasonStopSequence {
+			result.StopSequence = &completion.StopSequence
+		}
 
 		if reason == StopReasonRefusal {
 			result.StopDetails = &StopDetails{Type: "refusal"}

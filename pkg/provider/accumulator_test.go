@@ -128,6 +128,38 @@ func TestCompletionAccumulatorMergesIDLessReasoning(t *testing.T) {
 	}
 }
 
+// Interleaved thinking yields multiple signed, ID-less blocks per message;
+// merging them would pair the second block's text with an invalid signature.
+func TestCompletionAccumulatorSplitsSignedReasoningBlocks(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "first"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Signature: "SIG_1"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Signature: "BLOB", Redacted: true})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "second"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Signature: "SIG_2"})}}})
+
+	var reasonings []Reasoning
+	for _, c := range acc.Result().Message.Content {
+		if c.Reasoning != nil {
+			reasonings = append(reasonings, *c.Reasoning)
+		}
+	}
+
+	if len(reasonings) != 3 {
+		t.Fatalf("expected 3 reasoning entries, got %d: %+v", len(reasonings), reasonings)
+	}
+	if reasonings[0].Text != "first" || reasonings[0].Signature != "SIG_1" {
+		t.Errorf("block 0: %+v", reasonings[0])
+	}
+	if !reasonings[1].Redacted || reasonings[1].Signature != "BLOB" {
+		t.Errorf("block 1: %+v", reasonings[1])
+	}
+	if reasonings[2].Text != "second" || reasonings[2].Signature != "SIG_2" {
+		t.Errorf("block 2: %+v", reasonings[2])
+	}
+}
+
 func TestCompletionAccumulatorPreservesCompactionOrder(t *testing.T) {
 	acc := CompletionAccumulator{}
 

@@ -53,12 +53,12 @@ func TestToMessage_ThinkingBlocks(t *testing.T) {
 	}
 
 	// redacted_thinking carries only the opaque data blob.
-	if reasonings[1].Text != "" || reasonings[1].Signature != "REDACTED_BLOB" || reasonings[1].Kind != provider.ReasoningKindRedacted {
-		t.Errorf("redacted_thinking block: got (text=%q, sig=%q, kind=%q), want (\"\", \"REDACTED_BLOB\", \"redacted\")",
-			reasonings[1].Text, reasonings[1].Signature, reasonings[1].Kind)
+	if reasonings[1].Text != "" || reasonings[1].Signature != "REDACTED_BLOB" || !reasonings[1].Redacted {
+		t.Errorf("redacted_thinking block: got (text=%q, sig=%q, redacted=%v), want (\"\", \"REDACTED_BLOB\", true)",
+			reasonings[1].Text, reasonings[1].Signature, reasonings[1].Redacted)
 	}
 
-	if reasonings[0].Kind == provider.ReasoningKindRedacted {
+	if reasonings[0].Redacted {
 		t.Error("thinking block should not be marked redacted")
 	}
 
@@ -318,7 +318,7 @@ func TestToTools_PassesThroughRegular(t *testing.T) {
 func TestToContentBlocks_RedactedThinking(t *testing.T) {
 	content := []provider.Content{
 		provider.ReasoningContent(provider.Reasoning{Text: "step", Signature: "SIG"}),
-		provider.ReasoningContent(provider.Reasoning{Kind: provider.ReasoningKindRedacted, Signature: "BLOB"}),
+		provider.ReasoningContent(provider.Reasoning{Signature: "BLOB", Redacted: true}),
 		provider.TextContent("answer"),
 	}
 

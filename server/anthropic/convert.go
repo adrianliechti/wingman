@@ -109,8 +109,8 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 		case "redacted_thinking":
 			// Encrypted thinking block — only the opaque `data` blob round-trips.
 			content = append(content, provider.ReasoningContent(provider.Reasoning{
-				Kind:      provider.ReasoningKindRedacted,
 				Signature: block.Data,
+				Redacted:  true,
 			}))
 
 		case "tool_use":
@@ -355,7 +355,7 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 
 	for _, c := range content {
 		if includeThinking && c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "" || c.Reasoning.Signature != "") {
-			if c.Reasoning.Kind == provider.ReasoningKindRedacted {
+			if c.Reasoning.Redacted {
 				result = append(result, ContentBlock{
 					Type: "redacted_thinking",
 					Data: c.Reasoning.Signature,
@@ -477,18 +477,24 @@ func parseDiffOldNew(diff string) (string, string) {
 	return strings.Join(oldLines, "\n"), strings.Join(newLines, "\n")
 }
 
-func toStopReason(status provider.CompletionStatus, content []provider.Content) StopReason {
-	switch status {
+func toStopReason(completion *provider.Completion) StopReason {
+	switch completion.Status {
 	case provider.CompletionStatusIncomplete:
 		return StopReasonMaxTokens
 	case provider.CompletionStatusRefused:
 		return StopReasonRefusal
 	}
 
-	for _, c := range content {
-		if c.ToolCall != nil {
-			return StopReasonToolUse
+	if completion.Message != nil {
+		for _, c := range completion.Message.Content {
+			if c.ToolCall != nil {
+				return StopReasonToolUse
+			}
 		}
+	}
+
+	if completion.StopSequence != "" {
+		return StopReasonStopSequence
 	}
 
 	return StopReasonEndTurn

@@ -251,7 +251,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		if s.ThinkingEnabled && content.Reasoning != nil && content.Reasoning.Kind == provider.ReasoningKindRedacted && content.Reasoning.Signature != "" {
+		if s.ThinkingEnabled && content.Reasoning != nil && content.Reasoning.Redacted && content.Reasoning.Signature != "" {
 			index, err := s.startBlock(&ContentBlock{
 				Type: "redacted_thinking",
 				Data: content.Reasoning.Signature,
@@ -266,7 +266,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		if s.ThinkingEnabled && content.Reasoning != nil && content.Reasoning.Kind != provider.ReasoningKindRedacted && (content.Reasoning.Text != "" || content.Reasoning.Signature != "") {
+		if s.ThinkingEnabled && content.Reasoning != nil && !content.Reasoning.Redacted && (content.Reasoning.Text != "" || content.Reasoning.Signature != "") {
 			reasoning := content.Reasoning
 
 			// A signature ends a thinking block; a new ID starts the next item
@@ -432,7 +432,7 @@ func (s *StreamingAccumulator) Complete() error {
 
 	// Determine final stop reason from accumulated result
 	if result.Message != nil {
-		s.stopReason = toStopReason(result.Status, result.Message.Content)
+		s.stopReason = toStopReason(result)
 	}
 
 	// Get final usage from accumulated result (prefer accumulated result over tracked values)
@@ -468,12 +468,18 @@ func (s *StreamingAccumulator) Complete() error {
 		}
 	}
 
+	messageDelta := &MessageDelta{
+		StopReason:  s.stopReason,
+		StopDetails: stopDetails,
+	}
+
+	if s.stopReason == StopReasonStopSequence {
+		messageDelta.StopSequence = &result.StopSequence
+	}
+
 	if err := s.emitEvent(StreamEvent{
-		Type: StreamEventMessageDelta,
-		MessageDelta: &MessageDelta{
-			StopReason:  s.stopReason,
-			StopDetails: stopDetails,
-		},
+		Type:         StreamEventMessageDelta,
+		MessageDelta: messageDelta,
 		DeltaUsage: &DeltaUsage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,

@@ -249,7 +249,8 @@ type Completion struct {
 	Model  string
 	Status CompletionStatus
 
-	StopDetails *StopDetails
+	StopDetails  *StopDetails
+	StopSequence string
 
 	Message *Message
 
@@ -310,23 +311,15 @@ const (
 type Reasoning struct {
 	ID string
 
-	Kind ReasoningKind
-
 	Text    string
 	Summary string
 
 	Signature string
-}
 
-// ReasoningKind distinguishes reasoning wire types that carry the same
-// payload shape. The zero value is regular thinking.
-type ReasoningKind string
-
-const (
-	// ReasoningKindRedacted marks an encrypted reasoning item (e.g. Anthropic
+	// Redacted marks an encrypted reasoning item (e.g. Anthropic
 	// redacted_thinking); Signature carries the opaque data blob.
-	ReasoningKindRedacted ReasoningKind = "redacted"
-)
+	Redacted bool
+}
 
 type Compaction struct {
 	ID string

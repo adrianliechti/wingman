@@ -6,8 +6,9 @@ type CompletionAccumulator struct {
 	id    string
 	model string
 
-	status      CompletionStatus
-	stopDetails *StopDetails
+	status       CompletionStatus
+	stopDetails  *StopDetails
+	stopSequence string
 
 	role MessageRole
 
@@ -55,6 +56,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.StopDetails != nil {
 		a.stopDetails = c.StopDetails
+	}
+
+	if c.StopSequence != "" {
+		a.stopSequence = c.StopSequence
 	}
 
 	if c.Message != nil {
@@ -177,8 +182,8 @@ func (a *CompletionAccumulator) Add(c Completion) {
 // the last entry. Collapsing distinct IDs would pair one item's ID with
 // another's encrypted_content, which OpenAI rejects on the next turn.
 func (a *CompletionAccumulator) addReasoning(r *Reasoning) {
-	if r.Kind == ReasoningKindRedacted {
-		a.reasonings = append(a.reasonings, Reasoning{ID: r.ID, Kind: r.Kind, Signature: r.Signature})
+	if r.Redacted {
+		a.reasonings = append(a.reasonings, Reasoning{ID: r.ID, Signature: r.Signature, Redacted: true})
 		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentReasoning, index: len(a.reasonings) - 1})
 		return
 	}
@@ -192,8 +197,11 @@ func (a *CompletionAccumulator) addReasoning(r *Reasoning) {
 				break
 			}
 		}
-	} else if len(a.reasonings) > 0 && a.reasonings[len(a.reasonings)-1].Kind != ReasoningKindRedacted {
-		target = &a.reasonings[len(a.reasonings)-1]
+	} else if len(a.reasonings) > 0 {
+		// A signed or redacted entry is complete; ID-less deltas start a new one
+		if last := &a.reasonings[len(a.reasonings)-1]; !last.Redacted && last.Signature == "" {
+			target = last
+		}
 	}
 
 	if target == nil {
@@ -269,8 +277,9 @@ func (a *CompletionAccumulator) Result() *Completion {
 		ID:    a.id,
 		Model: a.model,
 
-		Status:      a.status,
-		StopDetails: a.stopDetails,
+		Status:       a.status,
+		StopDetails:  a.stopDetails,
+		StopSequence: a.stopSequence,
 
 		Message: &Message{
 			Role:    a.role,

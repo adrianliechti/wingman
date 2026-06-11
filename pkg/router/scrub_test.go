@@ -98,6 +98,8 @@ func TestScrubOptions(t *testing.T) {
 		ReasoningOptions: &provider.ReasoningOptions{
 			IncludeSignature: true,
 		},
+
+		CompactionOptions: &provider.CompactionOptions{Threshold: 1000},
 	}
 
 	result := ScrubOptions(options)
@@ -106,7 +108,50 @@ func TestScrubOptions(t *testing.T) {
 		t.Error("expected IncludeSignature disabled")
 	}
 
-	if !options.ReasoningOptions.IncludeSignature {
+	if result.CompactionOptions != nil {
+		t.Error("expected CompactionOptions removed")
+	}
+
+	if !options.ReasoningOptions.IncludeSignature || options.CompactionOptions == nil {
 		t.Error("original options mutated")
+	}
+}
+
+// A compaction-continuation history starts with an assistant message holding
+// only the compaction block; scrubbing must drop the whole message instead of
+// sending an empty one upstream.
+func TestScrubMessages_DropsEmptiedMessages(t *testing.T) {
+	result := ScrubMessages([]provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.CompactionContent(provider.Compaction{Signature: "ENC"}),
+			},
+		},
+		provider.UserMessage("continue"),
+	})
+
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d: %+v", len(result), result)
+	}
+
+	if result[0].Role != provider.MessageRoleUser {
+		t.Errorf("expected user message to survive, got %+v", result[0])
+	}
+}
+
+func TestScrubMessages_DropsRedactedReasoning(t *testing.T) {
+	result := ScrubMessages([]provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ReasoningContent(provider.Reasoning{Signature: "BLOB", Redacted: true}),
+				provider.TextContent("answer"),
+			},
+		},
+	})
+
+	if len(result) != 1 || len(result[0].Content) != 1 || result[0].Content[0].Text != "answer" {
+		t.Fatalf("expected only text content to survive, got %+v", result)
 	}
 }

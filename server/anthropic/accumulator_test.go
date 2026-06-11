@@ -191,7 +191,7 @@ func TestStreamingAccumulatorRedactedThinking(t *testing.T) {
 		}
 	}
 
-	add(provider.ReasoningContent(provider.Reasoning{Kind: provider.ReasoningKindRedacted, Signature: "BLOB"}))
+	add(provider.ReasoningContent(provider.Reasoning{Signature: "BLOB", Redacted: true}))
 	add(provider.TextContent("hello"))
 
 	if err := acc.Complete(); err != nil {
@@ -224,5 +224,44 @@ func TestStreamingAccumulatorRedactedThinking(t *testing.T) {
 	}
 	if !redactedStopped {
 		t.Error("expected content_block_stop for redacted_thinking block")
+	}
+}
+
+func TestStreamingAccumulatorStopSequence(t *testing.T) {
+	var events []StreamEvent
+	acc := NewStreamingAccumulator("msg_123", "claude-test", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+
+	if err := acc.Add(provider.Completion{
+		Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.TextContent("partial")}},
+	}); err != nil {
+		t.Fatalf("add completion: %v", err)
+	}
+
+	if err := acc.Add(provider.Completion{StopSequence: "END"}); err != nil {
+		t.Fatalf("add stop: %v", err)
+	}
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete stream: %v", err)
+	}
+
+	var delta *MessageDelta
+	for _, event := range events {
+		if event.Type == StreamEventMessageDelta {
+			delta = event.MessageDelta
+		}
+	}
+
+	if delta == nil {
+		t.Fatal("expected message_delta event")
+	}
+	if delta.StopReason != StopReasonStopSequence {
+		t.Errorf("stop reason: got %q, want stop_sequence", delta.StopReason)
+	}
+	if delta.StopSequence == nil || *delta.StopSequence != "END" {
+		t.Errorf("stop sequence: got %v, want END", delta.StopSequence)
 	}
 }
