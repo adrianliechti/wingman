@@ -94,6 +94,8 @@ const (
 	ToolTypeCustom     ToolType = "custom"
 	ToolTypeApplyPatch ToolType = "apply_patch"
 	ToolTypeComputer   ToolType = "computer"
+	ToolTypeShell      ToolType = "shell"
+	ToolTypeLocalShell ToolType = "local_shell"
 	ToolTypeNamespace  ToolType = "namespace"
 	ToolTypeToolSearch ToolType = "tool_search"
 )
@@ -253,6 +255,10 @@ const (
 	InputItemTypeCustomToolCallOutput InputItemType = "custom_tool_call_output"
 	InputItemTypeComputerCall         InputItemType = "computer_call"
 	InputItemTypeComputerCallOutput   InputItemType = "computer_call_output"
+	InputItemTypeShellCall            InputItemType = "shell_call"
+	InputItemTypeShellCallOutput      InputItemType = "shell_call_output"
+	InputItemTypeLocalShellCall       InputItemType = "local_shell_call"
+	InputItemTypeLocalShellCallOutput InputItemType = "local_shell_call_output"
 	InputItemTypeToolSearchCall       InputItemType = "tool_search_call"
 	InputItemTypeToolSearchOutput     InputItemType = "tool_search_output"
 )
@@ -298,6 +304,12 @@ type InputItem struct {
 	// For computer_call_output type
 	*InputComputerCallOutput
 
+	// For shell_call and local_shell_call types
+	*InputShellCall
+
+	// For shell_call_output and local_shell_call_output types
+	*InputShellCallOutput
+
 	// For tool_search_call type
 	*InputToolSearchCall
 
@@ -328,6 +340,27 @@ type SafetyCheck struct {
 	ID      string `json:"id,omitempty"`
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
+}
+
+// InputShellCall represents a shell_call or local_shell_call in the input
+// (for multi-turn). The action carries either {commands, timeout_ms,
+// max_output_length} (shell) or {command, env, timeout_ms, user,
+// working_directory} (local_shell).
+type InputShellCall struct {
+	ID     string          `json:"id,omitempty"`
+	CallID string          `json:"call_id,omitempty"`
+	Status string          `json:"status,omitempty"`
+	Action json.RawMessage `json:"action,omitempty"`
+}
+
+// InputShellCallOutput represents a shell_call_output or
+// local_shell_call_output. Output is a content list for shell and a plain
+// JSON string for local_shell.
+type InputShellCallOutput struct {
+	ID     string          `json:"id,omitempty"`
+	CallID string          `json:"call_id,omitempty"`
+	Status string          `json:"status,omitempty"`
+	Output json.RawMessage `json:"output,omitempty"`
 }
 
 // InputApplyPatchCall represents an apply_patch call in the input (for multi-turn)
@@ -618,6 +651,20 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 			}
 			item.InputComputerCallOutput = &cco
 
+		case InputItemTypeShellCall, InputItemTypeLocalShellCall:
+			var sc InputShellCall
+			if err := json.Unmarshal(raw, &sc); err != nil {
+				return err
+			}
+			item.InputShellCall = &sc
+
+		case InputItemTypeShellCallOutput, InputItemTypeLocalShellCallOutput:
+			var sco InputShellCallOutput
+			if err := json.Unmarshal(raw, &sco); err != nil {
+				return err
+			}
+			item.InputShellCallOutput = &sco
+
 		case InputItemTypeToolSearchCall:
 			var tsc InputToolSearchCall
 			if err := json.Unmarshal(raw, &tsc); err != nil {
@@ -848,6 +895,7 @@ type ResponseOutput struct {
 	*ApplyPatchCallItem
 	*CustomToolCallItem
 	*ComputerCallItem
+	*ShellCallItem
 	*ToolSearchCallItem
 	*ReasoningOutputItem
 	*CompactionOutputItem
@@ -893,6 +941,22 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Namespace: r.FunctionCallOutputItem.Namespace,
 				CallID:    r.FunctionCallOutputItem.CallID,
 				Arguments: r.FunctionCallOutputItem.Arguments,
+			})
+		}
+	case ResponseOutputTypeShellCall, ResponseOutputTypeLocalShellCall:
+		if r.ShellCallItem != nil {
+			return json.Marshal(struct {
+				Type   ResponseOutputType `json:"type"`
+				ID     string             `json:"id"`
+				Status string             `json:"status"`
+				CallID string             `json:"call_id"`
+				Action json.RawMessage    `json:"action,omitempty"`
+			}{
+				Type:   r.Type,
+				ID:     r.ShellCallItem.ID,
+				Status: r.ShellCallItem.Status,
+				CallID: r.ShellCallItem.CallID,
+				Action: r.ShellCallItem.Action,
 			})
 		}
 	case ResponseOutputTypeComputerCall:
@@ -1012,6 +1076,8 @@ var (
 	ResponseOutputTypeApplyPatchCall ResponseOutputType = "apply_patch_call"
 	ResponseOutputTypeCustomToolCall ResponseOutputType = "custom_tool_call"
 	ResponseOutputTypeComputerCall   ResponseOutputType = "computer_call"
+	ResponseOutputTypeShellCall      ResponseOutputType = "shell_call"
+	ResponseOutputTypeLocalShellCall ResponseOutputType = "local_shell_call"
 	ResponseOutputTypeToolSearchCall ResponseOutputType = "tool_search_call"
 	ResponseOutputTypeReasoning      ResponseOutputType = "reasoning"
 	ResponseOutputTypeCompaction     ResponseOutputType = "compaction"
@@ -1496,6 +1562,30 @@ type ApplyPatchCallOutputItemDoneEvent struct {
 }
 
 // ComputerCallOutputItemAddedEvent wraps computer_call in output_item.added
+// ShellCallItem represents a shell_call or local_shell_call in the output;
+// the item type lives on the wrapping ResponseOutput.
+type ShellCallItem struct {
+	ID     string          `json:"id"`
+	Type   string          `json:"type"`
+	CallID string          `json:"call_id"`
+	Status string          `json:"status"`
+	Action json.RawMessage `json:"action,omitempty"`
+}
+
+type ShellCallOutputItemAddedEvent struct {
+	Type           string         `json:"type"` // response.output_item.added
+	SequenceNumber int            `json:"sequence_number"`
+	OutputIndex    int            `json:"output_index"`
+	Item           *ShellCallItem `json:"item"`
+}
+
+type ShellCallOutputItemDoneEvent struct {
+	Type           string         `json:"type"` // response.output_item.done
+	SequenceNumber int            `json:"sequence_number"`
+	OutputIndex    int            `json:"output_index"`
+	Item           *ShellCallItem `json:"item"`
+}
+
 type ComputerCallOutputItemAddedEvent struct {
 	Type           string            `json:"type"` // response.output_item.added
 	SequenceNumber int               `json:"sequence_number"`

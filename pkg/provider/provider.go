@@ -50,6 +50,7 @@ const (
 	ToolKindCustom     ToolKind = "custom"
 	ToolKindTextEditor ToolKind = "text_editor"
 	ToolKindComputer   ToolKind = "computer"
+	ToolKindShell      ToolKind = "shell"
 	ToolKindToolSearch ToolKind = "tool_search"
 )
 

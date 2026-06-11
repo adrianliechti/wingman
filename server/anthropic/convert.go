@@ -10,6 +10,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/server/openai/shared"
@@ -336,6 +337,12 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 				},
 			})
 
+		case strings.HasPrefix(t.Type, "bash"):
+			result = append(result, provider.Tool{
+				Name: shell.NameBash,
+				Kind: provider.ToolKindShell,
+			})
+
 		case t.Type == "" || t.Type == "custom":
 			result = append(result, provider.Tool{
 				Name:        t.Name,
@@ -345,7 +352,7 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 
 		default:
 			return nil, fmt.Errorf(
-				"tools.%d: Input tag '%s' found using 'type' does not match any of the expected tags: 'custom', 'text_editor_*', 'computer_*'",
+				"tools.%d: Input tag '%s' found using 'type' does not match any of the expected tags: 'custom', 'text_editor_*', 'computer_*', 'bash_*'",
 				i, t.Type,
 			)
 		}
@@ -406,6 +413,11 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 				// Cross-dialect fallback: degrade OpenAI batched actions to a
 				// single Anthropic action
 				input = computeruse.AnthropicInput(c.ToolCall.Arguments)
+			} else if (name == shell.NameShell || name == shell.NameLocalShell) && c.ToolCall.Kind == provider.ToolKindShell {
+				// Cross-dialect fallback: render OpenAI shell actions as a
+				// bash command
+				input = shell.BashInput(c.ToolCall.Arguments)
+				name = shell.NameBash
 			} else {
 				if c.ToolCall.Arguments != "" {
 					json.Unmarshal([]byte(c.ToolCall.Arguments), &input)

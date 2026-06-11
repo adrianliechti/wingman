@@ -10,6 +10,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/server/openai/shared"
@@ -350,6 +351,61 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			pendingResults = append(pendingResults, provider.ToolResultContent(result))
 
+		case InputItemTypeShellCall, InputItemTypeLocalShellCall:
+			if item.InputShellCall == nil {
+				continue
+			}
+
+			flushResults()
+
+			call := item.InputShellCall
+
+			name := shell.NameShell
+			if item.Type == InputItemTypeLocalShellCall {
+				name = shell.NameLocalShell
+			}
+
+			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
+				ID:        call.CallID,
+				Kind:      provider.ToolKindShell,
+				Name:      name,
+				Arguments: string(call.Action),
+			}))
+
+		case InputItemTypeShellCallOutput, InputItemTypeLocalShellCallOutput:
+			if item.InputShellCallOutput == nil {
+				continue
+			}
+
+			flushCalls()
+
+			output := item.InputShellCallOutput
+
+			callID := output.CallID
+			if callID == "" {
+				// local_shell_call_output may carry the call id as `id`
+				callID = output.ID
+			}
+
+			text := string(output.Output)
+
+			var plain string
+			if err := json.Unmarshal(output.Output, &plain); err == nil {
+				text = plain
+			}
+
+			payload, _ := json.Marshal(map[string]any{
+				"type":   string(item.Type),
+				"output": json.RawMessage(output.Output),
+			})
+
+			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
+				ID:      callID,
+				Kind:    provider.ToolKindShell,
+				Parts:   []provider.Part{{Text: shell.OutputText(text)}},
+				Payload: payload,
+			}))
+
 		case InputItemTypeToolSearchCall:
 			if item.InputToolSearchCall == nil {
 				continue
@@ -449,6 +505,18 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 				},
 			})
 
+		case ToolTypeShell:
+			result = append(result, provider.Tool{
+				Name: shell.NameShell,
+				Kind: provider.ToolKindShell,
+			})
+
+		case ToolTypeLocalShell:
+			result = append(result, provider.Tool{
+				Name: shell.NameLocalShell,
+				Kind: provider.ToolKindShell,
+			})
+
 		case ToolTypeToolSearch:
 			result = append(result, provider.Tool{
 				Kind:        provider.ToolKindToolSearch,
@@ -507,7 +575,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 		default:
 			return nil, &shared.InvalidValueError{
 				Param:   fmt.Sprintf("tools[%d].type", i),
-				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'function', 'custom', 'apply_patch', 'computer', 'namespace', 'tool_search'.", t.Type),
+				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'function', 'custom', 'apply_patch', 'computer', 'shell', 'local_shell', 'namespace', 'tool_search'.", t.Type),
 			}
 		}
 	}
@@ -536,6 +604,10 @@ func outputKind(name string, tools []Tool) provider.ToolKind {
 		case ToolTypeComputer:
 			if name == "computer" {
 				return provider.ToolKindComputer
+			}
+		case ToolTypeShell, ToolTypeLocalShell:
+			if name == shell.NameShell || name == shell.NameLocalShell || name == shell.NameBash {
+				return provider.ToolKindShell
 			}
 		case ToolTypeToolSearch:
 			if name == "tool_search" {
@@ -659,6 +731,41 @@ func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCall
 	for _, check := range c.PendingSafetyChecks {
 		item.PendingSafetyChecks = append(item.PendingSafetyChecks, SafetyCheck(check))
 	}
+
+	return item
+}
+
+// shellOutputType picks the shell_call or local_shell_call wire item type by
+// the dialect the client originally registered.
+func shellOutputType(tools []Tool) ResponseOutputType {
+	for _, t := range tools {
+		if t.Type == ToolTypeLocalShell {
+			return ResponseOutputTypeLocalShellCall
+		}
+	}
+
+	return ResponseOutputTypeShellCall
+}
+
+// toolCallToShellCall converts a shell ToolCall of any dialect to a
+// shell_call or local_shell_call item for the OpenAI responses API.
+func toolCallToShellCall(call provider.ToolCall, status string, itemType ResponseOutputType) *ShellCallItem {
+	item := &ShellCallItem{
+		ID:     "sh_" + call.ID,
+		Type:   string(itemType),
+		CallID: call.ID,
+		Status: status,
+	}
+
+	var action map[string]any
+
+	if itemType == ResponseOutputTypeLocalShellCall {
+		action = shell.LocalShellAction(call.Arguments)
+	} else {
+		action = shell.ShellAction(call.Arguments)
+	}
+
+	item.Action, _ = json.Marshal(action)
 
 	return item
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 
 	"github.com/openai/openai-go/v3"
@@ -417,6 +418,10 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 
 		if t.Kind == provider.ToolKindComputer {
 			t = computeruse.FunctionTool(t)
+		}
+
+		if t.Kind == provider.ToolKindShell {
+			t = shell.FunctionTool(t)
 		}
 
 		if t.Kind != provider.ToolKindFunction {

@@ -473,6 +473,13 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 					ComputerCallItem: toolCallToComputerCall(call, status),
 				})
 
+			case provider.ToolKindShell:
+				itemType := shellOutputType(opts.Tools)
+				output = append(output, ResponseOutput{
+					Type:          itemType,
+					ShellCallItem: toolCallToShellCall(call, status, itemType),
+				})
+
 			case provider.ToolKindToolSearch:
 				output = append(output, ResponseOutput{
 					Type:               ResponseOutputTypeToolSearchCall,
@@ -735,6 +742,19 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					},
 				})
 
+			case provider.ToolKindShell:
+				return writeEvent(w, "response.output_item.added", ShellCallOutputItemAddedEvent{
+					Type:           "response.output_item.added",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item: &ShellCallItem{
+						ID:     "sh_" + event.ToolCallID,
+						Type:   string(shellOutputType(outputOpts.Tools)),
+						CallID: event.ToolCallID,
+						Status: "in_progress",
+					},
+				})
+
 			case provider.ToolKindToolSearch:
 				return writeEvent(w, "response.output_item.added", ToolSearchCallOutputItemAddedEvent{
 					Type:           "response.output_item.added",
@@ -780,7 +800,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Delta:          event.Delta,
 				})
 
-			case provider.ToolKindTextEditor, provider.ToolKindComputer, provider.ToolKindToolSearch:
+			case provider.ToolKindTextEditor, provider.ToolKindComputer, provider.ToolKindShell, provider.ToolKindToolSearch:
 				return nil
 
 			default:
@@ -811,7 +831,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Input:          input,
 				})
 
-			case provider.ToolKindTextEditor, provider.ToolKindComputer, provider.ToolKindToolSearch:
+			case provider.ToolKindTextEditor, provider.ToolKindComputer, provider.ToolKindShell, provider.ToolKindToolSearch:
 				return nil
 
 			default:
@@ -856,6 +876,14 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					SequenceNumber: nextSeq(),
 					OutputIndex:    event.OutputIndex,
 					Item:           toolCallToComputerCall(call, "completed"),
+				})
+
+			case provider.ToolKindShell:
+				return writeEvent(w, "response.output_item.done", ShellCallOutputItemDoneEvent{
+					Type:           "response.output_item.done",
+					SequenceNumber: nextSeq(),
+					OutputIndex:    event.OutputIndex,
+					Item:           toolCallToShellCall(call, "completed", shellOutputType(outputOpts.Tools)),
 				})
 
 			case provider.ToolKindToolSearch:

@@ -9,6 +9,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 
 	"google.golang.org/grpc"
@@ -157,6 +158,10 @@ func wireTools(tools []provider.Tool) []*Tool {
 
 		if tool.Kind == provider.ToolKindComputer {
 			tool = computeruse.FunctionTool(tool)
+		}
+
+		if tool.Kind == provider.ToolKindShell {
+			tool = shell.FunctionTool(tool)
 		}
 
 		if tool.Kind != provider.ToolKindFunction {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -682,6 +683,18 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				})
 				continue
 			}
+		}
+
+		if t.Kind == provider.ToolKindShell {
+			if t.Name == shell.NameBash || t.Name == "" {
+				tools = append(tools, anthropic.BetaToolUnionParam{
+					OfBashTool20250124: &anthropic.BetaToolBash20250124Param{},
+				})
+				continue
+			}
+
+			// OpenAI shell dialect — emulate as a function tool
+			t = shell.FunctionTool(t)
 		}
 
 		if t.Name == "" {

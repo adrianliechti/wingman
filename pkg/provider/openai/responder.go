@@ -9,6 +9,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
 
 	"github.com/openai/openai-go/v3"
@@ -137,6 +138,16 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer"}), "") {
 						return
 					}
+
+				case responses.ResponseFunctionShellToolCall:
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameShell}), "") {
+						return
+					}
+
+				case responses.ResponseOutputItemLocalShellCall:
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameLocalShell}), "") {
+						return
+					}
 				}
 
 			case responses.ResponseContentPartAddedEvent:
@@ -201,6 +212,16 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				case responses.ResponseComputerToolCall:
 					args, _ := json.Marshal(computerCallToArgs(item))
 					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer", Arguments: string(args)}), "") {
+						return
+					}
+
+				case responses.ResponseFunctionShellToolCall:
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameShell, Arguments: item.Action.RawJSON()}), "") {
+						return
+					}
+
+				case responses.ResponseOutputItemLocalShellCall:
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameLocalShell, Arguments: item.Action.RawJSON()}), "") {
 						return
 					}
 
@@ -548,6 +569,19 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 							OfComputerCallOutput: computerCallOutputParam(c.ToolResult),
 						})
 
+					case provider.ToolKindShell:
+						if item, ok := shellCallOutputParam(c.ToolResult, r.isOpenAI()); ok {
+							result = append(result, item)
+						} else {
+							// emulated function tool — replay as function_call_output
+							result = append(result, responses.ResponseInputItemUnionParam{
+								OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
+									CallID: c.ToolResult.ID,
+									Output: toolResultOutputUnion(c.ToolResult),
+								},
+							})
+						}
+
 					case provider.ToolKindCustom:
 						result = append(result, responses.ResponseInputItemUnionParam{
 							OfCustomToolCallOutput: &responses.ResponseCustomToolCallOutputParam{
@@ -696,6 +730,20 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						calls = append(calls, responses.ResponseInputItemUnionParam{
 							OfComputerCall: &item,
 						})
+
+					case provider.ToolKindShell:
+						if item, ok := shellCallParam(*c.ToolCall, r.isOpenAI()); ok {
+							calls = append(calls, item)
+						} else {
+							// emulated function tool — replay as function_call
+							calls = append(calls, responses.ResponseInputItemUnionParam{
+								OfFunctionCall: &responses.ResponseFunctionToolCallParam{
+									CallID:    c.ToolCall.ID,
+									Name:      c.ToolCall.Name,
+									Arguments: c.ToolCall.Arguments,
+								},
+							})
+						}
 
 					case provider.ToolKindCustom:
 						calls = append(calls, responses.ResponseInputItemUnionParam{
@@ -905,6 +953,26 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 			// Anthropic dialect, or a host without the native computer tool —
 			// emulate as a function tool in the client's dialect
 			t = computeruse.FunctionTool(t)
+		}
+
+		if t.Kind == provider.ToolKindShell {
+			if r.isOpenAI() && t.Name == shell.NameShell {
+				result = append(result, responses.ToolUnionParam{
+					OfShell: &responses.FunctionShellToolParam{},
+				})
+				continue
+			}
+
+			if r.isOpenAI() && t.Name == shell.NameLocalShell {
+				result = append(result, responses.ToolUnionParam{
+					OfLocalShell: &responses.ToolLocalShellParam{},
+				})
+				continue
+			}
+
+			// bash dialect, or a host without the native shell tools — emulate
+			// as a function tool in the client's dialect
+			t = shell.FunctionTool(t)
 		}
 
 		if t.Kind == provider.ToolKindToolSearch {
@@ -1120,6 +1188,100 @@ func computerCallOutputParam(r *provider.ToolResult) *responses.ResponseInputIte
 	}
 
 	return output
+}
+
+// shellCallParam builds the native replay item for a shell call. ok is false
+// when the tool runs emulated (bash dialect or non-OpenAI host) and the call
+// must replay as a function_call instead.
+func shellCallParam(call provider.ToolCall, native bool) (responses.ResponseInputItemUnionParam, bool) {
+	if !native {
+		return responses.ResponseInputItemUnionParam{}, false
+	}
+
+	switch call.Name {
+	case shell.NameShell:
+		data, _ := json.Marshal(map[string]any{
+			"type":    "shell_call",
+			"call_id": call.ID,
+			"status":  "completed",
+			"action":  shell.ShellAction(call.Arguments),
+		})
+
+		item := param.Override[responses.ResponseInputItemShellCallParam](json.RawMessage(data))
+		return responses.ResponseInputItemUnionParam{OfShellCall: &item}, true
+
+	case shell.NameLocalShell:
+		action := shell.LocalShellAction(call.Arguments)
+
+		if _, ok := action["env"]; !ok {
+			action["env"] = map[string]string{}
+		}
+
+		data, _ := json.Marshal(map[string]any{
+			"type":    "local_shell_call",
+			"id":      "lsc_" + call.ID,
+			"call_id": call.ID,
+			"status":  "completed",
+			"action":  action,
+		})
+
+		item := param.Override[responses.ResponseInputItemLocalShellCallParam](json.RawMessage(data))
+		return responses.ResponseInputItemUnionParam{OfLocalShellCall: &item}, true
+	}
+
+	return responses.ResponseInputItemUnionParam{}, false
+}
+
+// shellCallOutputParam rebuilds the native output item from the replay
+// envelope the responses server stores in ToolResult.Payload.
+func shellCallOutputParam(r *provider.ToolResult, native bool) (responses.ResponseInputItemUnionParam, bool) {
+	if !native {
+		return responses.ResponseInputItemUnionParam{}, false
+	}
+
+	var envelope struct {
+		Type   string          `json:"type"`
+		Output json.RawMessage `json:"output"`
+	}
+
+	json.Unmarshal(r.Payload, &envelope)
+
+	if envelope.Type == "local_shell_call_output" {
+		var output string
+		json.Unmarshal(envelope.Output, &output)
+
+		return responses.ResponseInputItemUnionParam{
+			OfLocalShellCallOutput: &responses.ResponseInputItemLocalShellCallOutputParam{
+				ID:     r.ID,
+				Output: output,
+			},
+		}, true
+	}
+
+	output := envelope.Output
+
+	if len(output) == 0 {
+		var text strings.Builder
+		for _, p := range r.Parts {
+			text.WriteString(p.Text)
+		}
+
+		output, _ = json.Marshal([]map[string]any{
+			{
+				"stdout":  text.String(),
+				"outcome": map[string]any{"type": "exit", "exit_code": 0},
+			},
+		})
+	}
+
+	data, _ := json.Marshal(map[string]any{
+		"type":    "shell_call_output",
+		"call_id": r.ID,
+		"output":  output,
+	})
+
+	item := param.Override[responses.ResponseInputItemShellCallOutputParam](json.RawMessage(data))
+	return responses.ResponseInputItemUnionParam{OfShellCallOutput: &item}, true
 }
 
 func computerCallToArgs(item responses.ResponseComputerToolCall) map[string]any {
