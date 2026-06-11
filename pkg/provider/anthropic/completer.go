@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
 	"github.com/adrianliechti/wingman/pkg/provider/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
+	"github.com/adrianliechti/wingman/pkg/provider/toolsearch"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -331,6 +332,12 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 					currentBlock := message.Content[blockIndex]
 
+					// server-executed tools (tool search, web search) resolve
+					// within the turn — their input must not leak as tool calls
+					if currentBlock.Type != "tool_use" {
+						break
+					}
+
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -451,6 +458,18 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.MaxTokens = int64(*options.MaxTokens)
 	}
 
+	var hasToolSearch bool
+
+	for _, t := range options.Tools {
+		if t.Kind == provider.ToolKindToolSearch && t.Execution != "client" {
+			hasToolSearch = true
+		}
+	}
+
+	// Tools a client-executed tool_search returned in prior turns — they must
+	// be available (non-deferred) so the model can call them.
+	var discovered []provider.Tool
+
 	for _, m := range input {
 		switch m.Role {
 		case provider.MessageRoleSystem:
@@ -513,6 +532,26 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 
 				if c.ToolResult != nil {
+					if c.ToolResult.Kind == provider.ToolKindToolSearch {
+						discovered = append(discovered, toolsearch.Tools(c.ToolResult.Payload)...)
+
+						if c.ToolResult.Execution != "client" {
+							// server-side search happened inside another
+							// backend's turn — only the discovered tools matter
+							continue
+						}
+
+						blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
+							OfToolResult: &anthropic.BetaToolResultBlockParam{
+								ToolUseID: c.ToolResult.ID,
+								Content: []anthropic.BetaToolResultBlockParamContentUnion{
+									{OfText: &anthropic.BetaTextBlockParam{Text: string(c.ToolResult.Payload)}},
+								},
+							},
+						})
+						continue
+					}
+
 					var parts []anthropic.BetaToolResultBlockParamContentUnion
 
 					for _, p := range c.ToolResult.Parts {
@@ -612,6 +651,10 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 
 				if c.ToolCall != nil {
+					if c.ToolCall.Kind == provider.ToolKindToolSearch && c.ToolCall.Execution != "client" {
+						continue
+					}
+
 					var input map[string]any
 
 					if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &input); err != nil || input == nil {
@@ -637,7 +680,44 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		}
 	}
 
-	for _, t := range provider.FlattenTools(options.Tools) {
+	toolList := provider.FlattenTools(options.Tools)
+
+	defined := map[string]bool{}
+	for _, t := range toolList {
+		defined[t.Name] = true
+	}
+
+	discoveredNames := map[string]bool{}
+	for _, t := range provider.FlattenTools(discovered) {
+		discoveredNames[t.Name] = true
+
+		if !defined[t.Name] {
+			defined[t.Name] = true
+			toolList = append(toolList, t)
+		}
+	}
+
+	for _, t := range toolList {
+		if t.Kind == provider.ToolKindToolSearch {
+			if t.Execution == "client" {
+				t = toolsearch.FunctionTool(t)
+			} else if strings.Contains(t.Name, "bm25") {
+				tools = append(tools, anthropic.BetaToolUnionParam{
+					OfToolSearchToolBm25_20251119: &anthropic.BetaToolSearchToolBm25_20251119Param{
+						Type: "tool_search_tool_bm25_20251119",
+					},
+				})
+				continue
+			} else {
+				tools = append(tools, anthropic.BetaToolUnionParam{
+					OfToolSearchToolRegex20251119: &anthropic.BetaToolSearchToolRegex20251119Param{
+						Type: "tool_search_tool_regex_20251119",
+					},
+				})
+				continue
+			}
+		}
+
 		if t.Kind == provider.ToolKindTextEditor {
 			if t.Name == texteditor.NameApplyPatch {
 				// apply_patch dialect — emulate as a function tool so calls and
@@ -717,6 +797,12 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 		if t.Description != "" {
 			tool.Description = anthropic.String(t.Description)
+		}
+
+		// deferring requires a search tool to discover the definition, and
+		// tools already discovered in prior turns must stay loaded
+		if t.Deferred != nil && *t.Deferred && hasToolSearch && !discoveredNames[t.Name] {
+			tool.DeferLoading = anthropic.Bool(true)
 		}
 
 		tools = append(tools, anthropic.BetaToolUnionParam{OfTool: &tool})

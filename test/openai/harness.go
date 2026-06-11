@@ -65,16 +65,16 @@ func ModelCapabilities(name string) harness.Capabilities {
 		case strings.Contains(n, "haiku-4-5"):
 			return harness.Capabilities{StructuredOutput: true, Cache: true}
 		case strings.Contains(n, "-4-0"), strings.Contains(n, "opus-4-1"), strings.Contains(n, "-4-5"):
-			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true}
+			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Shell: true}
 		default:
-			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Compaction: true}
+			return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Shell: true, Compaction: true}
 		}
 
 	case strings.Contains(n, "gemini"):
 		return harness.Capabilities{StructuredOutput: true, Audio: true}
 
 	case strings.HasPrefix(n, "gpt-5"):
-		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true}
+		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true, Shell: true}
 
 	case strings.HasPrefix(n, "gpt"), strings.HasPrefix(n, "o3"), strings.HasPrefix(n, "o4"):
 		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true}

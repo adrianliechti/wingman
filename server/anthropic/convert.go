@@ -343,16 +343,30 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 				Kind: provider.ToolKindShell,
 			})
 
-		case t.Type == "" || t.Type == "custom":
+		case strings.HasPrefix(t.Type, "tool_search_tool"):
 			result = append(result, provider.Tool{
+				Name:      t.Name,
+				Kind:      provider.ToolKindToolSearch,
+				Execution: "server",
+			})
+
+		case t.Type == "" || t.Type == "custom":
+			converted := provider.Tool{
 				Name:        t.Name,
 				Description: t.Description,
 				Parameters:  tool.NormalizeSchema(t.InputSchema),
-			})
+			}
+
+			if t.DeferLoading {
+				deferred := true
+				converted.Deferred = &deferred
+			}
+
+			result = append(result, converted)
 
 		default:
 			return nil, fmt.Errorf(
-				"tools.%d: Input tag '%s' found using 'type' does not match any of the expected tags: 'custom', 'text_editor_*', 'computer_*', 'bash_*'",
+				"tools.%d: Input tag '%s' found using 'type' does not match any of the expected tags: 'custom', 'text_editor_*', 'computer_*', 'bash_*', 'tool_search_tool_*'",
 				i, t.Type,
 			)
 		}
@@ -401,6 +415,25 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 		}
 
 		if c.ToolCall != nil {
+			if c.ToolCall.Kind == provider.ToolKindToolSearch && c.ToolCall.Execution != "client" {
+				// server-executed search — informational, no client response expected
+				var input any
+				if c.ToolCall.Arguments != "" {
+					json.Unmarshal([]byte(c.ToolCall.Arguments), &input)
+				}
+				if input == nil {
+					input = map[string]any{}
+				}
+
+				result = append(result, ContentBlock{
+					Type:  "server_tool_use",
+					ID:    c.ToolCall.ID,
+					Name:  "tool_search_tool_regex",
+					Input: input,
+				})
+				continue
+			}
+
 			name := c.ToolCall.Name
 			var input any
 

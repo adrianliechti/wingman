@@ -125,6 +125,8 @@ type ToolParam struct {
 	Description string         `json:"description,omitempty"`
 	InputSchema map[string]any `json:"input_schema,omitempty"`
 
+	DeferLoading bool `json:"defer_loading,omitempty"`
+
 	// For computer_* tool types
 	DisplayWidthPx  int `json:"display_width_px,omitempty"`
 	DisplayHeightPx int `json:"display_height_px,omitempty"`
