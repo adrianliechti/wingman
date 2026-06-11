@@ -3,6 +3,8 @@ package openai
 import (
 	"bytes"
 	"context"
+	"mime"
+	"path"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -41,16 +43,10 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 
 	id := uuid.NewString()
 
-	fileName := input.Name
-
-	if before, ok := strings.CutSuffix(fileName, ".weba"); ok {
-		fileName = before + ".webm"
-	}
-
 	body := openai.AudioTranscriptionNewParams{
 		Model: t.model,
 
-		File: openai.File(bytes.NewReader(input.Content), fileName, input.ContentType),
+		File: openai.File(bytes.NewReader(input.Content), transcriptionFileName(input), input.ContentType),
 
 		ResponseFormat: openai.AudioResponseFormatJSON,
 	}
@@ -87,4 +83,32 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 	// }
 
 	return &result, nil
+}
+
+func transcriptionFileName(input provider.File) string {
+	name := input.Name
+
+	switch strings.ToLower(strings.TrimPrefix(path.Ext(name), ".")) {
+	case "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm":
+		return name
+	}
+
+	stem := strings.TrimSuffix(name, path.Ext(name))
+
+	switch mediaType, _, _ := mime.ParseMediaType(input.ContentType); mediaType {
+	case "audio/flac", "audio/x-flac":
+		return stem + ".flac"
+	case "audio/mp4", "audio/x-m4a":
+		return stem + ".m4a"
+	case "audio/mpeg", "audio/mp3":
+		return stem + ".mp3"
+	case "audio/ogg":
+		return stem + ".ogg"
+	case "audio/wav", "audio/x-wav":
+		return stem + ".wav"
+	case "audio/webm":
+		return stem + ".webm"
+	}
+
+	return name
 }

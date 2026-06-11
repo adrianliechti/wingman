@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 )
 
 // TestConvertRequest_TextEditorNative verifies the Anthropic-dialect text

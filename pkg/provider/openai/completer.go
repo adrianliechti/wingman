@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
-	"github.com/adrianliechti/wingman/pkg/provider/shell"
-	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"

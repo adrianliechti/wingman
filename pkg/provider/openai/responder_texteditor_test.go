@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/texteditor"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 )
 
 func responsesRequestBody(t *testing.T, responder *Responder, messages []provider.Message, options *provider.CompleteOptions) map[string]any {

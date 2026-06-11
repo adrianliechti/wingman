@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/shell"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 )
 
 // TestResponderTools_ShellNative verifies the OpenAI shell dialects use the

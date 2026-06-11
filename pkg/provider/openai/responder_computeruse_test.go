@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
 )
 
 // TestResponderTools_ComputerNative verifies the OpenAI-dialect computer tool

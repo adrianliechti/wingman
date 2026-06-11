@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
 )
 
 // TestConvertRequest_ComputerNative verifies the Anthropic-dialect computer
