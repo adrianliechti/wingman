@@ -3,7 +3,6 @@ package reranker
 import (
 	"context"
 	"errors"
-	"math"
 	"sort"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -53,7 +52,7 @@ func (a *EmbedderAdapter) Rerank(ctx context.Context, query string, texts []stri
 	var results []provider.Ranking
 
 	for i, text := range texts {
-		score := cosineSimilarity(queryResult.Embeddings[0], textsResult.Embeddings[i])
+		score := provider.CosineSimilarity(queryResult.Embeddings[0], textsResult.Embeddings[i])
 
 		results = append(results, provider.Ranking{
 			Text:  text,
@@ -72,31 +71,4 @@ func (a *EmbedderAdapter) Rerank(ctx context.Context, query string, texts []stri
 	}
 
 	return results, nil
-}
-
-func cosineSimilarity(a []float32, b []float32) float32 {
-	if len(a) != len(b) {
-		return 0.0
-	}
-
-	dotproduct := 0.0
-
-	magnitudeA := 0.0
-	magnitudeB := 0.0
-
-	for k := range a {
-		valA := float64(a[k])
-		valB := float64(b[k])
-
-		dotproduct += valA * valB
-
-		magnitudeA += valA * valA
-		magnitudeB += valB * valB
-	}
-
-	if magnitudeA == 0 || magnitudeB == 0 {
-		return 0.0
-	}
-
-	return float32(dotproduct / (math.Sqrt(magnitudeA) * math.Sqrt(magnitudeB)))
 }
