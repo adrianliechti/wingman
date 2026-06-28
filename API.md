@@ -88,22 +88,36 @@ List available models or get a specific model by ID.
 
 **Endpoint:** `POST /v1/images/generations`
 
-| Parameter          | Type   | Description        |
-|--------------------|--------|--------------------|
-| `model`            | String | Model ID           |
-| `prompt`           | String | Image description  |
-| `response_format`  | String | url or b64_json    |
+| Parameter          | Type   | Description                                            |
+|--------------------|--------|-------------------------------------------------------|
+| `model`            | String | Model ID                                              |
+| `prompt`           | String | Image description                                     |
+| `size`             | String | Pixel size (e.g. `1024x1536`) or `auto`               |
+| `aspect_ratio`     | String | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size`   |
+| `quality`          | String | `low`, `medium`, `high` (`standard`/`hd` accepted)    |
+| `resolution`       | String | `512`, `1K`, `2K`, `4K`                                |
+| `background`       | String | `transparent` or `opaque`                             |
+| `output_format`    | String | `png`, `jpeg`, or `webp`                              |
+| `response_format`  | String | url or b64_json                                       |
+
+Geometry and quality are provider-neutral: `size`/`aspect_ratio`/`quality`/`resolution` are mapped to each model's supported values (aspect ratios snap to the nearest available, unsupported options are dropped), so the same request works across providers.
 
 ## Image Edit
 
 **Endpoint:** `POST /v1/images/edits`
 
-| Parameter          | Type   | Description         |
-|--------------------|--------|---------------------|
-| `model`            | String | Model ID            |
-| `prompt`           | String | Edit instructions   |
-| `image`            | File   | Image to edit       |
-| `response_format`  | String | url or b64_json     |
+| Parameter          | Type   | Description                                            |
+|--------------------|--------|-------------------------------------------------------|
+| `model`            | String | Model ID                                              |
+| `prompt`           | String | Edit instructions                                    |
+| `image`            | File   | Image to edit                                         |
+| `size`             | String | Pixel size (e.g. `1024x1536`) or `auto`               |
+| `aspect_ratio`     | String | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size`   |
+| `quality`          | String | `low`, `medium`, `high` (`standard`/`hd` accepted)    |
+| `resolution`       | String | `512`, `1K`, `2K`, `4K`                                |
+| `background`       | String | `transparent` or `opaque`                             |
+| `output_format`    | String | `png`, `jpeg`, or `webp`                              |
+| `response_format`  | String | url or b64_json                                       |
 
 ---
 
@@ -237,14 +251,22 @@ Generate images from text descriptions.
 
 **Endpoint:** `POST /v1/render`
 
-| Parameter    | Type     | Description                 |
-|--------------|----------|-----------------------------|
-| `model`      | String   | Model/provider to use       |
-| `prompt`     | String   | Text description to render  |
-| `file`       | File(s)  | Optional reference images   |
+| Parameter       | Type     | Description                                          |
+|-----------------|----------|-----------------------------------------------------|
+| `model`         | String   | Model/provider to use                               |
+| `input`         | String   | Text description to render                          |
+| `file`          | File(s)  | Optional reference images                           |
+| `size`          | String   | Pixel size (e.g. `1024x1536`) or `auto`             |
+| `aspect_ratio`  | String   | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size` |
+| `quality`       | String   | `low`, `medium`, `high`                             |
+| `resolution`    | String   | `512`, `1K`, `2K`, `4K`                              |
+| `background`    | String   | `transparent` or `opaque`                           |
+
+Returns the raw image bytes. The output format is negotiated via the `Accept` header (`image/png`, `image/jpeg`, `image/webp`). Geometry and quality options are mapped to each model's supported values (see [Image Generation](#image-generation)).
 
 ```bash
-curl -X POST -F "input=a sunset over mountains" http://localhost:8080/v1/render
+curl -X POST -F "input=a sunset over mountains" -F "aspect_ratio=16:9" \
+  -H "Accept: image/webp" http://localhost:8080/v1/render
 ```
 
 ## Search

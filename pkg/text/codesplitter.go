@@ -1,36 +1,59 @@
 package text
 
 import (
-	"sort"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/odvcencio/gotreesitter"
-	"github.com/odvcencio/gotreesitter/grammars"
 )
 
-// CodeSplitter splits code using tree-sitter AST for syntax-aware chunking.
-// It uses AST node depth as semantic level: shallower nodes (top-level declarations)
-// are higher-priority split points than deeper nodes (statements within a function).
+// CodeSplitter splits source code into chunks at structural boundaries.
+//
+// Rather than parsing the code, it uses leading indentation and blank lines as a
+// proxy for nesting depth: a line with less indentation (or one following a blank
+// line) is a higher-priority split point than a deeply nested line. This keeps
+// related lines together while staying language-agnostic and resilient to
+// malformed input.
 type CodeSplitter struct {
 	SplitterOptions
-
-	// Language is the tree-sitter language to use for parsing.
-	// If nil, the splitter falls back to TextSplitter behavior.
-	Language *gotreesitter.Language
 }
 
-// NewCodeSplitter creates a CodeSplitter for the given filename.
-// It auto-detects the language from the file extension using tree-sitter's registry.
-// Returns nil if the language is not supported.
-func NewCodeSplitter(filename string) *CodeSplitter {
-	entry := grammars.DetectLanguage(filename)
-	if entry == nil {
-		return nil
-	}
+// codeIndentCap bounds how many indentation levels are distinguished; deeper
+// nesting collapses into the lowest-priority bucket.
+const codeIndentCap = 8
 
-	lang := entry.Language()
-	if lang == nil {
+// codeExtensions lists the file extensions treated as source code. For anything
+// else NewCodeSplitter returns nil so the caller can fall back to prose splitting.
+var codeExtensions = map[string]bool{
+	".go": true,
+	".py": true, ".pyi": true,
+	".js": true, ".jsx": true, ".mjs": true, ".cjs": true,
+	".ts": true, ".tsx": true,
+	".java": true, ".kt": true, ".kts": true, ".scala": true, ".groovy": true,
+	".c": true, ".h": true, ".cc": true, ".cpp": true, ".cxx": true, ".hpp": true, ".hh": true,
+	".cs": true, ".m": true, ".mm": true,
+	".rs": true, ".swift": true, ".dart": true,
+	".rb": true, ".php": true, ".pl": true, ".pm": true,
+	".sh": true, ".bash": true, ".zsh": true, ".fish": true,
+	".lua": true, ".r": true, ".jl": true,
+	".sql": true,
+	".html": true, ".htm": true, ".xml": true,
+	".css": true, ".scss": true, ".sass": true, ".less": true,
+	".vue": true, ".svelte": true,
+	".json": true, ".yaml": true, ".yml": true, ".toml": true,
+	".proto": true, ".graphql": true, ".gql": true,
+	".tf": true, ".hcl": true,
+	".ex": true, ".exs": true, ".erl": true, ".hrl": true,
+	".clj": true, ".cljs": true, ".cljc": true,
+	".hs": true, ".ml": true, ".mli": true,
+	".vim": true, ".el": true,
+}
+
+// NewCodeSplitter creates a CodeSplitter for the given filename, or nil if the
+// extension is not recognised as source code.
+func NewCodeSplitter(filename string) *CodeSplitter {
+	ext := strings.ToLower(filepath.Ext(filename))
+
+	if !codeExtensions[ext] {
 		return nil
 	}
 
@@ -42,173 +65,84 @@ func NewCodeSplitter(filename string) *CodeSplitter {
 			Normalize:    false,
 			LenFunc:      utf8.RuneCountInString,
 		},
-		Language: lang,
 	}
-}
-
-// codeSection represents a section of code identified by tree-sitter AST traversal.
-type codeSection struct {
-	start int // byte offset
-	end   int // byte offset
-	depth int // AST depth (0 = top-level)
 }
 
 func (s *CodeSplitter) Split(text string) []string {
-	if s.Language == nil {
-		// Fallback to text splitter
-		ts := NewTextSplitter()
-		ts.SplitterOptions = s.SplitterOptions
-		return ts.Split(text)
-	}
-
-	source := []byte(text)
-
-	parser := gotreesitter.NewParser(s.Language)
-
-	tree, err := parser.Parse(source)
-	if err != nil || tree == nil {
-		// Parse failed, fall back to text splitter
-		ts := NewTextSplitter()
-		ts.SplitterOptions = s.SplitterOptions
-		return ts.Split(text)
-	}
-	defer tree.Release()
-
-	root := tree.RootNode()
-	if root == nil {
-		ts := NewTextSplitter()
-		ts.SplitterOptions = s.SplitterOptions
-		return ts.Split(text)
-	}
-
-	// Collect top-level and second-level named nodes as split boundaries
-	sections := s.collectSections(root)
-
-	if len(sections) == 0 {
-		if s.LenFunc(text) <= s.ChunkSize {
-			if s.Trim {
-				text = strings.TrimSpace(text)
-			}
-			if text != "" {
-				return []string{text}
-			}
-			return []string{}
+	if s.LenFunc(text) <= s.ChunkSize {
+		if s.Trim {
+			text = strings.TrimSpace(text)
 		}
-		ts := NewTextSplitter()
-		ts.SplitterOptions = s.SplitterOptions
-		return ts.Split(text)
+		if text == "" {
+			return nil
+		}
+		return []string{text}
 	}
 
-	return s.buildChunksFromSections(text, sections)
+	return s.mergeChunks(text, codeBoundaries(text))
 }
 
-// collectSections walks the AST and collects named nodes with their depth.
-// Only collects nodes up to a reasonable depth for splitting purposes.
-func (s *CodeSplitter) collectSections(root *gotreesitter.Node) []codeSection {
-	var sections []codeSection
-
-	// Walk the tree iteratively using a stack
-	type stackItem struct {
-		node  *gotreesitter.Node
-		depth int
-	}
-
-	maxDepth := 4 // Don't go too deep; we only need meaningful structural boundaries
-	stack := []stackItem{{node: root, depth: 0}}
-
-	for len(stack) > 0 {
-		item := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-
-		node := item.node
-		depth := item.depth
-
-		// Only collect named nodes (skip anonymous tokens like punctuation)
-		if depth > 0 && node.IsNamed() {
-			start := int(node.StartByte())
-			end := int(node.EndByte())
-
-			if start < end {
-				sections = append(sections, codeSection{
-					start: start,
-					end:   end,
-					depth: depth,
-				})
-			}
-		}
-
-		// Push children in reverse order so we process them left-to-right
-		if depth < maxDepth {
-			for i := node.ChildCount() - 1; i >= 0; i-- {
-				child := node.Child(i)
-				if child != nil {
-					stack = append(stack, stackItem{node: child, depth: depth + 1})
-				}
-			}
-		}
-	}
-
-	// Sort by start position
-	sort.Slice(sections, func(i, j int) bool {
-		return sections[i].start < sections[j].start
-	})
-
-	return sections
-}
-
-// buildChunksFromSections builds chunks by merging adjacent sections that fit
-// within the chunk size, preferring to split at shallower (higher-priority) boundaries.
-func (s *CodeSplitter) buildChunksFromSections(text string, sections []codeSection) []string {
-	// Convert sections to boundaries: positions where we can split, with semantic levels.
-	// Lower depth = higher semantic level (better split point).
-	// We invert depth so that depth 1 (top-level declarations) gets the highest level.
-	maxDepth := 0
-	for _, sec := range sections {
-		if sec.depth > maxDepth {
-			maxDepth = sec.depth
-		}
-	}
-
+// codeBoundaries returns the positions where a chunk may start, ranked by how
+// good a split point each is. Every line start is a candidate; lines with less
+// indentation (and lines after a blank line) rank higher so the merger prefers
+// to break between top-level constructs rather than inside them.
+func codeBoundaries(text string) []Boundary {
 	var boundaries []Boundary
-	seen := make(map[int]bool)
 
-	for _, sec := range sections {
-		if seen[sec.start] {
+	n := len(text)
+	lineStart := 0
+	prevBlank := true
+
+	for i := 0; i <= n; i++ {
+		if i < n && text[i] != '\n' {
 			continue
 		}
-		seen[sec.start] = true
 
-		// Invert: depth 1 -> highest level, depth N -> lowest level
-		level := SemanticLevel(maxDepth - sec.depth + int(LevelLineBreak) + 1)
+		indent, blank := measureIndent(text[lineStart:i])
 
-		boundaries = append(boundaries, Boundary{
-			Level: level,
-			Start: sec.start,
-			End:   sec.start, // boundary point is the start of the node
-		})
-	}
+		if lineStart > 0 {
+			level := LevelLineBreak
 
-	// Also add line-break boundaries for finer-grained splitting within large nodes
-	for i := 0; i < len(text); i++ {
-		if text[i] == '\n' {
-			if !seen[i+1] {
-				boundaries = append(boundaries, Boundary{
-					Level: LevelLineBreak,
-					Start: i + 1,
-					End:   i + 1,
-				})
+			if !blank {
+				if indent > codeIndentCap {
+					indent = codeIndentCap
+				}
+
+				level += SemanticLevel(codeIndentCap-indent) + 1
+
+				if prevBlank {
+					level++
+				}
 			}
+
+			boundaries = append(boundaries, Boundary{
+				Level: level,
+				Start: lineStart,
+				End:   lineStart,
+			})
+		}
+
+		prevBlank = blank
+		lineStart = i + 1
+	}
+
+	return boundaries
+}
+
+// measureIndent returns the leading-whitespace width of a line (each space or tab
+// counts as one) and whether the line is blank.
+func measureIndent(line string) (indent int, blank bool) {
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case ' ', '\t':
+			indent++
+		case '\r':
+		default:
+			return indent, false
 		}
 	}
 
-	sort.Slice(boundaries, func(i, j int) bool {
-		if boundaries[i].Start != boundaries[j].Start {
-			return boundaries[i].Start < boundaries[j].Start
-		}
-		return boundaries[i].Level > boundaries[j].Level
-	})
-
-	return s.mergeChunks(text, boundaries)
+	return 0, true
 }
 
 // mergeChunks greedily builds chunks by finding the farthest boundary that keeps

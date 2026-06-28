@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 func sseEvent(eventType, data string) string {
@@ -356,5 +357,69 @@ func TestCompleterStreamingToolArgs(t *testing.T) {
 	}
 	if calls[0].Arguments != `{"city":"Bern"}` {
 		t.Errorf("arguments: got %q", calls[0].Arguments)
+	}
+}
+
+// TestToUsage_CacheInclusiveInputTokens verifies the intermediate Usage uses a
+// cache-inclusive InputTokens total. Anthropic reports input_tokens excluding
+// cached tokens, so the mapping folds cache read/creation back into InputTokens
+// while still exposing the cached subset in the cache fields.
+func TestToUsage_CacheInclusiveInputTokens(t *testing.T) {
+	usage := toUsage(anthropic.BetaUsage{
+		InputTokens:              10,
+		OutputTokens:             7,
+		CacheReadInputTokens:     40,
+		CacheCreationInputTokens: 50,
+	})
+
+	if usage == nil {
+		t.Fatal("expected usage")
+	}
+
+	if usage.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100 (10 fresh + 40 read + 50 creation)", usage.InputTokens)
+	}
+	if usage.OutputTokens != 7 {
+		t.Errorf("OutputTokens = %d, want 7", usage.OutputTokens)
+	}
+	if usage.CacheReadInputTokens != 40 {
+		t.Errorf("CacheReadInputTokens = %d, want 40", usage.CacheReadInputTokens)
+	}
+	if usage.CacheCreationInputTokens != 50 {
+		t.Errorf("CacheCreationInputTokens = %d, want 50", usage.CacheCreationInputTokens)
+	}
+
+	if usage.CacheReadInputTokens+usage.CacheCreationInputTokens > usage.InputTokens {
+		t.Errorf("cache tokens (%d+%d) exceed InputTokens (%d)",
+			usage.CacheReadInputTokens, usage.CacheCreationInputTokens, usage.InputTokens)
+	}
+}
+
+func TestToUsage_ZeroReturnsNil(t *testing.T) {
+	if usage := toUsage(anthropic.BetaUsage{}); usage != nil {
+		t.Fatalf("expected nil usage, got %+v", usage)
+	}
+}
+
+// TestToUsage_ReasoningTokens verifies thinking tokens map to ReasoningTokens
+// as a subset of the reasoning-inclusive OutputTokens.
+func TestToUsage_ReasoningTokens(t *testing.T) {
+	usage := toUsage(anthropic.BetaUsage{
+		InputTokens:         10,
+		OutputTokens:        30,
+		OutputTokensDetails: anthropic.BetaOutputTokensDetails{ThinkingTokens: 12},
+	})
+
+	if usage == nil {
+		t.Fatal("expected usage")
+	}
+	if usage.OutputTokens != 30 {
+		t.Errorf("OutputTokens = %d, want 30 (thinking-inclusive)", usage.OutputTokens)
+	}
+	if usage.ReasoningTokens != 12 {
+		t.Errorf("ReasoningTokens = %d, want 12", usage.ReasoningTokens)
+	}
+	if usage.ReasoningTokens > usage.OutputTokens {
+		t.Errorf("reasoning tokens (%d) exceed OutputTokens (%d)", usage.ReasoningTokens, usage.OutputTokens)
 	}
 }

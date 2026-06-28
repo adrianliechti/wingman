@@ -153,3 +153,61 @@ func TestCompletionAttrsMatchesSemconvShape(t *testing.T) {
 		t.Fatalf("expected at least one text part: %s", raw)
 	}
 }
+
+// UsageAttrs must emit the GenAI semconv usage keys with the spec's inclusive
+// convention: gen_ai.usage.input_tokens counts every prompt token (cache_read +
+// cache_creation are subsets of it) and gen_ai.usage.output_tokens counts every
+// generated token (reasoning.output_tokens is a subset of it). Values below are
+// the spec's own example numbers (docs/gen-ai/anthropic.md).
+func TestUsageAttrsMatchesGenAISemconv(t *testing.T) {
+	attrs := UsageAttrs(&provider.Usage{
+		InputTokens:              100,
+		OutputTokens:             180,
+		ReasoningTokens:          50,
+		CacheReadInputTokens:     50,
+		CacheCreationInputTokens: 25,
+	})
+
+	got := map[string]int64{}
+	for _, kv := range attrs {
+		got[string(kv.Key)] = kv.Value.AsInt64()
+	}
+
+	want := map[string]int64{
+		"gen_ai.usage.input_tokens":                100,
+		"gen_ai.usage.output_tokens":               180,
+		"gen_ai.usage.reasoning.output_tokens":     50,
+		"gen_ai.usage.cache_read.input_tokens":     50,
+		"gen_ai.usage.cache_creation.input_tokens": 25,
+	}
+	for key, val := range want {
+		if got[key] != val {
+			t.Errorf("attr %q: got %d, want %d (all attrs: %v)", key, got[key], val, got)
+		}
+	}
+
+	// Spec convention: cache and reasoning are subsets of the inclusive totals.
+	if got["gen_ai.usage.cache_read.input_tokens"]+got["gen_ai.usage.cache_creation.input_tokens"] > got["gen_ai.usage.input_tokens"] {
+		t.Errorf("cache tokens exceed input_tokens, violating the cache-inclusive convention: %v", got)
+	}
+	if got["gen_ai.usage.reasoning.output_tokens"] > got["gen_ai.usage.output_tokens"] {
+		t.Errorf("reasoning tokens exceed output_tokens, violating the reasoning-inclusive convention: %v", got)
+	}
+}
+
+// Zero-valued usage fields are omitted, and nil usage yields no attributes.
+func TestUsageAttrsOmitsZeroAndNil(t *testing.T) {
+	if attrs := UsageAttrs(nil); attrs != nil {
+		t.Fatalf("nil usage: expected no attrs, got %v", attrs)
+	}
+
+	attrs := UsageAttrs(&provider.Usage{InputTokens: 10, OutputTokens: 5})
+	for _, kv := range attrs {
+		switch string(kv.Key) {
+		case "gen_ai.usage.reasoning.output_tokens",
+			"gen_ai.usage.cache_read.input_tokens",
+			"gen_ai.usage.cache_creation.input_tokens":
+			t.Errorf("zero-valued field %q must be omitted", string(kv.Key))
+		}
+	}
+}

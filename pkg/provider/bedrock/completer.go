@@ -984,10 +984,11 @@ func toUsage(val *types.TokenUsage) *provider.Usage {
 	cacheReadInputTokens := int(aws.ToInt32(val.CacheReadInputTokens))
 	cacheWriteInputTokens := int(aws.ToInt32(val.CacheWriteInputTokens))
 
-	// Normalize InputTokens to include cached tokens (like OpenAI does)
-	// Bedrock reports InputTokens as only new/non-cached tokens
-	// OpenAI reports prompt_tokens as total (cached + non-cached)
-	totalInputTokens := inputTokens + cacheReadInputTokens
+	// Normalize InputTokens to a cache-inclusive total (like OpenAI/Gemini do).
+	// Bedrock reports InputTokens as only new/non-cached tokens, with cache
+	// read/write tokens counted separately; fold them in so the intermediate
+	// Usage has one consistent meaning across providers.
+	totalInputTokens := inputTokens + cacheReadInputTokens + cacheWriteInputTokens
 
 	return &provider.Usage{
 		InputTokens:  totalInputTokens,

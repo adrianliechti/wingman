@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/openai/openai-go/v3"
 )
 
 func TestCompleterInterleavedToolCalls(t *testing.T) {
@@ -143,6 +144,44 @@ func TestConvertMessages_ToolResultImageBridged(t *testing.T) {
 	}
 	if parts[0].(map[string]any)["type"] != "image_url" {
 		t.Errorf("expected image_url part, got %v", parts[0])
+	}
+}
+
+// TestToUsage_CacheInclusiveInputTokens verifies that OpenAI's prompt_tokens
+// (already cache-inclusive) maps straight to InputTokens, with cached_tokens
+// exposed as the cached subset.
+func TestToUsage_CacheInclusiveInputTokens(t *testing.T) {
+	usage := toUsage(openai.CompletionUsage{
+		PromptTokens:     100,
+		CompletionTokens: 7,
+		TotalTokens:      107,
+		PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
+			CachedTokens: 40,
+		},
+		CompletionTokensDetails: openai.CompletionUsageCompletionTokensDetails{
+			ReasoningTokens: 3,
+		},
+	})
+
+	if usage == nil {
+		t.Fatal("expected usage")
+	}
+
+	if usage.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100 (cache-inclusive prompt_tokens)", usage.InputTokens)
+	}
+	if usage.OutputTokens != 7 {
+		t.Errorf("OutputTokens = %d, want 7", usage.OutputTokens)
+	}
+	if usage.ReasoningTokens != 3 {
+		t.Errorf("ReasoningTokens = %d, want 3", usage.ReasoningTokens)
+	}
+	if usage.CacheReadInputTokens != 40 {
+		t.Errorf("CacheReadInputTokens = %d, want 40", usage.CacheReadInputTokens)
+	}
+
+	if usage.CacheReadInputTokens > usage.InputTokens {
+		t.Errorf("cache read tokens (%d) exceed InputTokens (%d)", usage.CacheReadInputTokens, usage.InputTokens)
 	}
 }
 

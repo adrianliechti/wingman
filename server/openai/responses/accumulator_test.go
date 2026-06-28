@@ -129,6 +129,102 @@ func TestStreamingAccumulatorPreservesDistinctReasoningItems(t *testing.T) {
 	}
 }
 
+// A response cut short by max_tokens mid-arguments must not finalize the
+// dangling tool call as completed with truncated JSON. It should be marked
+// incomplete, and no function_call_arguments.done (which would assert the
+// arguments are complete) should be emitted for it.
+func TestStreamingAccumulatorFinalizesTruncatedToolCallAsIncomplete(t *testing.T) {
+	var argsDoneSeen, doneSeen, doneIncomplete bool
+	var doneArgs string
+
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		switch e.Type {
+		case StreamEventFunctionCallArgumentsDone:
+			argsDoneSeen = true
+		case StreamEventFunctionCallDone:
+			doneSeen = true
+			doneIncomplete = e.Incomplete
+			doneArgs = e.Arguments
+		}
+		return nil
+	})
+
+	add := func(c provider.Completion) {
+		t.Helper()
+		if err := acc.Add(c); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "save_note"}),
+	}}})
+	// Partial, unparseable JSON fragment — the brace never closes.
+	add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Arguments: `{"content":"abc`}),
+	}}})
+	// Upstream signals the turn was truncated by max_tokens.
+	add(provider.Completion{Status: provider.CompletionStatusIncomplete})
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if !doneSeen {
+		t.Fatal("expected a function_call.done event")
+	}
+	if !doneIncomplete {
+		t.Fatal("expected the truncated tool call to be finalized as incomplete")
+	}
+	if argsDoneSeen {
+		t.Fatal("did not expect function_call_arguments.done for a truncated tool call")
+	}
+	if doneArgs != `{"content":"abc` {
+		t.Fatalf("expected partial arguments preserved on done event, got %q", doneArgs)
+	}
+}
+
+// The normal path is unaffected: a fully-streamed tool call on a completed
+// response gets arguments.done and a completed (not incomplete) item.
+func TestStreamingAccumulatorFinalizesCompleteToolCallAsCompleted(t *testing.T) {
+	var argsDoneSeen, doneIncomplete bool
+
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		switch e.Type {
+		case StreamEventFunctionCallArgumentsDone:
+			argsDoneSeen = true
+		case StreamEventFunctionCallDone:
+			doneIncomplete = e.Incomplete
+		}
+		return nil
+	})
+
+	add := func(c provider.Completion) {
+		t.Helper()
+		if err := acc.Add(c); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "save_note"}),
+	}}})
+	add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Arguments: `{"content":"abc"}`}),
+	}}})
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if !argsDoneSeen {
+		t.Fatal("expected function_call_arguments.done for a complete tool call")
+	}
+	if doneIncomplete {
+		t.Fatal("did not expect a complete tool call to be marked incomplete")
+	}
+}
+
 func TestStreamingAccumulatorPreservesCompactionOrder(t *testing.T) {
 	var events []StreamEvent
 

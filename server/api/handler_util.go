@@ -52,6 +52,35 @@ func valueInput(r *http.Request) string {
 	return ""
 }
 
+func valueAspect(r *http.Request) provider.AspectRatio {
+	if aspect := provider.ParseAspect(r.FormValue("aspect_ratio")); aspect != "" {
+		return aspect
+	}
+
+	return provider.ParseSizeAspect(r.FormValue("size"))
+}
+
+func acceptFormat(r *http.Request) provider.ImageFormat {
+	for _, value := range strings.Split(r.Header.Get("Accept"), ",") {
+		media := strings.TrimSpace(value)
+
+		if i := strings.IndexByte(media, ';'); i >= 0 {
+			media = strings.TrimSpace(media[:i])
+		}
+
+		switch strings.ToLower(media) {
+		case "image/png":
+			return provider.ImageFormatPNG
+		case "image/jpeg", "image/jpg":
+			return provider.ImageFormatJPEG
+		case "image/webp":
+			return provider.ImageFormatWEBP
+		}
+	}
+
+	return ""
+}
+
 func valueLanguage(r *http.Request) string {
 	if val := r.FormValue("lang"); val != "" {
 		return val

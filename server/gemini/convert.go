@@ -366,10 +366,14 @@ func toUsageMetadata(u *provider.Usage) *UsageMetadata {
 	cached := u.CacheReadInputTokens
 	total := u.InputTokens + u.OutputTokens
 
+	// The intermediate OutputTokens is reasoning-inclusive, while Gemini's
+	// CandidatesTokenCount counts only the visible response and reports thinking
+	// separately in ThoughtsTokenCount.
 	return &UsageMetadata{
 		PromptTokenCount:        u.InputTokens,
 		CachedContentTokenCount: cached,
-		CandidatesTokenCount:    u.OutputTokens,
+		CandidatesTokenCount:    u.OutputTokens - u.ReasoningTokens,
+		ThoughtsTokenCount:      u.ReasoningTokens,
 		TotalTokenCount:         total,
 	}
 }

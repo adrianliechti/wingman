@@ -31,7 +31,7 @@ func main() {
 		panic(err)
 	}
 
-	if err := otel.Setup("wingman", "0.1.0"); err != nil {
+	if err := otel.Setup(); err != nil {
 		panic(err)
 	}
 

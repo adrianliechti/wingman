@@ -78,6 +78,10 @@ type StreamEvent struct {
 	Arguments         string
 	OutputIndex       int
 
+	// Incomplete marks a tool call that was finalized without complete
+	// arguments (e.g. truncated by max_tokens or a cancelled stream).
+	Incomplete bool
+
 	// For reasoning events
 	ReasoningID        string
 	ReasoningText      string
@@ -343,7 +347,10 @@ func (s *StreamingAccumulator) ensureToolCallStarted(callID string, toolCall pro
 	})
 }
 
-// closeToolCall emits arguments.done + output_item.done for the given call.
+// closeToolCall emits output_item.done for the given call. A call whose
+// arguments are complete also gets an arguments.done; an incomplete one
+// (truncated/cancelled mid-arguments) is finalized as incomplete and skips
+// arguments.done, since claiming "done" with truncated JSON is a lie.
 func (s *StreamingAccumulator) closeToolCall(callID string) error {
 	idx, ok := s.toolCallByID[callID]
 	if !ok {
@@ -357,16 +364,20 @@ func (s *StreamingAccumulator) closeToolCall(callID string) error {
 
 	tc.Closed = true
 
-	if err := s.emitEvent(StreamEvent{
-		Type:              StreamEventFunctionCallArgumentsDone,
-		ToolCallID:        tc.ID,
-		ToolCallName:      tc.Name,
-		ToolCallNamespace: tc.Namespace,
-		ToolCallExecution: tc.Execution,
-		Arguments:         tc.Arguments,
-		OutputIndex:       tc.OutputIndex,
-	}); err != nil {
-		return err
+	incomplete := s.toolCallIncomplete(callID)
+
+	if !incomplete {
+		if err := s.emitEvent(StreamEvent{
+			Type:              StreamEventFunctionCallArgumentsDone,
+			ToolCallID:        tc.ID,
+			ToolCallName:      tc.Name,
+			ToolCallNamespace: tc.Namespace,
+			ToolCallExecution: tc.Execution,
+			Arguments:         tc.Arguments,
+			OutputIndex:       tc.OutputIndex,
+		}); err != nil {
+			return err
+		}
 	}
 
 	return s.emitEvent(StreamEvent{
@@ -377,7 +388,28 @@ func (s *StreamingAccumulator) closeToolCall(callID string) error {
 		ToolCallExecution: tc.Execution,
 		Arguments:         tc.Arguments,
 		OutputIndex:       tc.OutputIndex,
+		Incomplete:        incomplete,
 	})
+}
+
+// toolCallIncomplete reports whether a call is being finalized without complete
+// arguments. It only applies to a response that was itself cut short (truncated
+// by max_tokens): such a call either never received arguments or accumulated
+// JSON fragments that don't parse. A normally-completed response never marks a
+// call incomplete — including custom/grammar tools whose input isn't JSON.
+func (s *StreamingAccumulator) toolCallIncomplete(callID string) bool {
+	if s.status != provider.CompletionStatusIncomplete {
+		return false
+	}
+
+	idx, ok := s.toolCallByID[callID]
+	if !ok {
+		return false
+	}
+
+	args := strings.TrimSpace(s.toolCalls[idx].Arguments)
+
+	return args == "" || !json.Valid([]byte(args))
 }
 
 func (s *StreamingAccumulator) toolCallArgumentsComplete(callID string) bool {

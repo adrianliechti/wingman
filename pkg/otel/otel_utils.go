@@ -119,10 +119,6 @@ func EndUserAttrs(ctx context.Context) []KeyValue {
 		attrs = append(attrs, attribute.String("user.full_name", name))
 	}
 
-	if session, ok := ctx.Value(auth.SessionContextKey).(string); ok && session != "" {
-		attrs = append(attrs, attribute.String("session.id", session))
-	}
-
 	return attrs
 }
 
@@ -165,6 +161,10 @@ func UsageAttrs(usage *provider.Usage) []KeyValue {
 
 	if usage.OutputTokens > 0 {
 		attrs = append(attrs, semconv.GenAIUsageOutputTokens(usage.OutputTokens))
+	}
+
+	if usage.ReasoningTokens > 0 {
+		attrs = append(attrs, semconv.GenAIUsageReasoningOutputTokens(usage.ReasoningTokens))
 	}
 
 	if usage.CacheCreationInputTokens > 0 {

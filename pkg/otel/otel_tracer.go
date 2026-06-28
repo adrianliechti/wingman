@@ -29,12 +29,21 @@ func setupTracer(ctx context.Context, resource *sdkresource.Resource) error {
 		return err
 	}
 
-	provider := sdktrace.NewTracerProvider(
+	options := []sdktrace.TracerProviderOption{
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithSpanProcessor(endUserProcessor{}),
 		sdktrace.WithBatcher(exporter, sdktrace.WithBatchTimeout(time.Second)),
 		sdktrace.WithResource(resource),
-	)
+	}
+
+	if endpoint := os.Getenv("INSIGHTS_ENDPOINT"); endpoint != "" {
+		tracesURL := strings.Replace(endpoint, "/v1/metrics", "/v1/traces", 1)
+		if insights, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(tracesURL)); err == nil {
+			options = append(options, sdktrace.WithBatcher(insights, sdktrace.WithBatchTimeout(time.Second)))
+		}
+	}
+
+	provider := sdktrace.NewTracerProvider(options...)
 
 	otel.SetTracerProvider(provider)
 

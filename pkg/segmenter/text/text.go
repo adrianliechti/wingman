@@ -43,7 +43,7 @@ func (p *Provider) Segment(ctx context.Context, input string, options *segmenter
 }
 
 func (p *Provider) createSplitter(options *segmenter.SegmentOptions) text.Splitter {
-	// Try tree-sitter based code splitting first (syntax-aware, 200+ languages)
+	// Try structure-aware code splitting first (indentation-based)
 	if codeSplitter := text.NewCodeSplitter(options.FileName); codeSplitter != nil {
 		if options.SegmentLength != nil {
 			codeSplitter.ChunkSize = *options.SegmentLength

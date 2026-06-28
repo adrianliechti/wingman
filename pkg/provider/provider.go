@@ -97,6 +97,16 @@ type Schema struct {
 	Properties map[string]any
 }
 
+// Usage reports token counts in a provider-neutral form. InputTokens and
+// OutputTokens are inclusive totals: InputTokens counts every prompt token
+// (including cached ones), and OutputTokens counts every generated token
+// (including reasoning ones). The remaining fields are subsets of those totals:
+//
+//	CacheReadInputTokens + CacheCreationInputTokens <= InputTokens
+//	ReasoningTokens <= OutputTokens
+//
+// Each provider's mapping normalizes its native shape to this convention so the
+// server handlers can translate to any wire format without per-provider quirks.
 type Usage struct {
 	InputTokens  int
 	OutputTokens int

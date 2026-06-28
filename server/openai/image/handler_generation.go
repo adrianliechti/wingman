@@ -29,7 +29,14 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	options := &provider.RenderOptions{}
+	options := &provider.RenderOptions{
+		Aspect:     parseAspect(req.Size, req.AspectRatio),
+		Quality:    parseQuality(req.Quality),
+		Resolution: provider.ParseResolution(req.Resolution),
+
+		Background: provider.ParseBackground(req.Background),
+		Format:     provider.ParseFormat(req.OutputFormat),
+	}
 
 	image, err := renderer.Render(r.Context(), req.Prompt, options)
 

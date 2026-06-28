@@ -51,11 +51,34 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		Model: r.model,
 	}
 
+	sizes := r.sizes()
+	transparent := r.supportsTransparent()
+
 	if len(options.Images) == 0 {
-		image, err := r.images.Generate(ctx, openai.ImageGenerateParams{
+		params := openai.ImageGenerateParams{
 			Model:  r.model,
 			Prompt: input,
-		})
+		}
+
+		if size := sizeFor(sizes, options.Aspect); size != "" {
+			params.Size = openai.ImageGenerateParamsSize(size)
+		}
+
+		if quality := qualityValue(options.Quality); quality != "" {
+			params.Quality = openai.ImageGenerateParamsQuality(quality)
+		}
+
+		background := backgroundFor(options.Background, transparent)
+
+		if background != "" {
+			params.Background = openai.ImageGenerateParamsBackground(background)
+		}
+
+		if format := outputFormat(options.Format, background); format != "" {
+			params.OutputFormat = openai.ImageGenerateParamsOutputFormat(format)
+		}
+
+		image, err := r.images.Generate(ctx, params)
 
 		if err != nil {
 			return nil, convertError(err)
@@ -129,14 +152,34 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			files = append(files, openai.File(bytes.NewReader(i.Content), imageName, imageType))
 		}
 
-		image, err := r.images.Edit(ctx, openai.ImageEditParams{
+		params := openai.ImageEditParams{
 			Model:  r.model,
 			Prompt: input,
 
 			Image: openai.ImageEditParamsImageUnion{
 				OfFileArray: files,
 			},
-		})
+		}
+
+		if size := sizeFor(sizes, options.Aspect); size != "" {
+			params.Size = openai.ImageEditParamsSize(size)
+		}
+
+		if quality := qualityValue(options.Quality); quality != "" {
+			params.Quality = openai.ImageEditParamsQuality(quality)
+		}
+
+		background := backgroundFor(options.Background, transparent)
+
+		if background != "" {
+			params.Background = openai.ImageEditParamsBackground(background)
+		}
+
+		if format := outputFormat(options.Format, background); format != "" {
+			params.OutputFormat = openai.ImageEditParamsOutputFormat(format)
+		}
+
+		image, err := r.images.Edit(ctx, params)
 
 		if err != nil {
 			return nil, convertError(err)
@@ -153,6 +196,124 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 	}
 
 	return result, nil
+}
+
+type aspectSize struct {
+	aspect provider.AspectRatio
+	size   string
+}
+
+// Only gpt-image-2 supports the 16:9 / 9:16 sizes; only gpt-image-1 / -mini
+// support a transparent background. dall-e is no longer supported.
+var (
+	gptImage1Sizes = []aspectSize{
+		{provider.AspectRatio1x1, "1024x1024"},
+		{provider.AspectRatio3x2, "1536x1024"},
+		{provider.AspectRatio2x3, "1024x1536"},
+	}
+
+	gptImage2Sizes = []aspectSize{
+		{provider.AspectRatio1x1, "1024x1024"},
+		{provider.AspectRatio3x2, "1536x1024"},
+		{provider.AspectRatio2x3, "1024x1536"},
+		{provider.AspectRatio16x9, "1536x864"},
+		{provider.AspectRatio9x16, "864x1536"},
+	}
+)
+
+func (r *Renderer) sizes() []aspectSize {
+	if strings.HasPrefix(strings.ToLower(r.model), "gpt-image-2") {
+		return gptImage2Sizes
+	}
+
+	return gptImage1Sizes
+}
+
+func (r *Renderer) supportsTransparent() bool {
+	return strings.HasPrefix(strings.ToLower(r.model), "gpt-image-1")
+}
+
+// sizeFor maps a requested aspect ratio to the nearest pixel size the model
+// supports, or "" when none was requested.
+func sizeFor(sizes []aspectSize, aspect provider.AspectRatio) string {
+	if aspect == "" || len(sizes) == 0 {
+		return ""
+	}
+
+	supported := make([]provider.AspectRatio, len(sizes))
+
+	for i, s := range sizes {
+		supported[i] = s.aspect
+	}
+
+	nearest := aspect.Nearest(supported)
+
+	for _, s := range sizes {
+		if s.aspect == nearest {
+			return s.size
+		}
+	}
+
+	return ""
+}
+
+func qualityValue(quality provider.Quality) string {
+	switch quality {
+	case provider.QualityLow:
+		return "low"
+	case provider.QualityMedium:
+		return "medium"
+	case provider.QualityHigh:
+		return "high"
+	}
+
+	return ""
+}
+
+func backgroundValue(background provider.Background) string {
+	switch background {
+	case provider.BackgroundTransparent:
+		return "transparent"
+	case provider.BackgroundOpaque:
+		return "opaque"
+	}
+
+	return ""
+}
+
+func backgroundFor(background provider.Background, transparent bool) string {
+	if background == provider.BackgroundTransparent && !transparent {
+		return ""
+	}
+
+	return backgroundValue(background)
+}
+
+func formatValue(format provider.ImageFormat) string {
+	switch format {
+	case provider.ImageFormatPNG:
+		return "png"
+	case provider.ImageFormatJPEG:
+		return "jpeg"
+	case provider.ImageFormatWEBP:
+		return "webp"
+	}
+
+	return ""
+}
+
+// The edits endpoint flattens a transparent background unless an alpha-capable
+// format is set, so default to png when transparent and no format was requested.
+func outputFormat(format provider.ImageFormat, background string) string {
+	if v := formatValue(format); v != "" {
+		return v
+	}
+
+	if background == "transparent" {
+		return "png"
+	}
+
+	return ""
 }
 
 func (r *Renderer) getData(ctx context.Context, image openai.Image) ([]byte, error) {

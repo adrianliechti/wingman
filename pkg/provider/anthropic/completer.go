@@ -922,13 +922,19 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 		return nil
 	}
 
+	cacheReadInputTokens := int(usage.CacheReadInputTokens)
+	cacheCreationInputTokens := int(usage.CacheCreationInputTokens)
+
 	return &provider.Usage{
-		InputTokens:  int(usage.InputTokens),
+		// Anthropic reports input_tokens excluding cached tokens. Normalize to a
+		// cache-inclusive total so the intermediate Usage has one consistent
+		// meaning across providers (cache fields are the cached subset of it).
+		InputTokens:  int(usage.InputTokens) + cacheReadInputTokens + cacheCreationInputTokens,
 		OutputTokens: int(usage.OutputTokens),
 
 		ReasoningTokens: int(usage.OutputTokensDetails.ThinkingTokens),
 
-		CacheReadInputTokens:     int(usage.CacheReadInputTokens),
-		CacheCreationInputTokens: int(usage.CacheCreationInputTokens),
+		CacheReadInputTokens:     cacheReadInputTokens,
+		CacheCreationInputTokens: cacheCreationInputTokens,
 	}
 }

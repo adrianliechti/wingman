@@ -50,9 +50,6 @@ func (p *observableTool) Execute(ctx context.Context, tool string, parameters ma
 			semconv.GenAIToolName(tool),
 			semconv.GenAIToolType("function"),
 		}
-		if p.provider != "" {
-			baseAttrs = append(baseAttrs, semconv.GenAIProviderNameKey.String(p.provider))
-		}
 
 		span.SetAttributes(KeyValues(
 			baseAttrs,

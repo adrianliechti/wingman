@@ -29,7 +29,14 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	options := &provider.RenderOptions{}
+	options := &provider.RenderOptions{
+		Aspect:     valueAspect(r),
+		Quality:    provider.ParseQuality(r.FormValue("quality")),
+		Resolution: provider.ParseResolution(r.FormValue("resolution")),
+
+		Background: provider.ParseBackground(r.FormValue("background")),
+		Format:     acceptFormat(r),
+	}
 
 	if files, err := readFiles(r); err == nil {
 		options.Images = append(options.Images, files...)

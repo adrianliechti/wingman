@@ -49,6 +49,10 @@ func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.C
 	header := r.Header.Get("Authorization")
 
 	if header == "" {
+		header = r.Header.Get("X-Forwarded-Access-Token")
+	}
+
+	if header == "" {
 		return ctx, errors.New("missing authorization header")
 	}
 

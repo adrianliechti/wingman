@@ -56,6 +56,7 @@ func TestPromptCacheRead(t *testing.T) {
 				}
 				lastUsage = resp.Body["usage"]
 				if cacheRead := getInt(t, resp.Body, "usage", "cache_read_input_tokens"); cacheRead > 0 {
+					assertAnthropicCacheAccounting(t, resp.Body)
 					return
 				}
 			}
@@ -83,6 +84,38 @@ func buildLongSystemPrompt(seed string) string {
 			i)
 	}
 	return b.String()
+}
+
+// assertAnthropicCacheAccounting verifies the Anthropic-wire usage convention:
+// input_tokens excludes both cache-read and cache-creation tokens (those are
+// reported in their own fields). This is a regression guard for the Bedrock
+// path, which used to fold cache-read tokens into input_tokens and double-count
+// them. Counts are not compared against the reference (cache state diverges);
+// only the wire convention is asserted.
+func assertAnthropicCacheAccounting(t *testing.T, body map[string]any) {
+	t.Helper()
+
+	input := getInt(t, body, "usage", "input_tokens")
+	output := getInt(t, body, "usage", "output_tokens")
+	cacheRead := getInt(t, body, "usage", "cache_read_input_tokens")
+	cacheCreation := getInt(t, body, "usage", "cache_creation_input_tokens")
+
+	if output <= 0 {
+		t.Errorf("expected output_tokens > 0, got %d (usage: %v)", output, body["usage"])
+	}
+
+	// With a fully-cached system prompt, the fresh input_tokens should be small
+	// relative to the cached tokens. The bug folded cache_read into input_tokens,
+	// which would make input_tokens >= cacheRead. Assert it stays well below.
+	if cacheRead > 0 && input >= cacheRead {
+		t.Errorf("input_tokens (%d) should exclude cache_read_input_tokens (%d); "+
+			"looks like cached tokens were double-counted (usage: %v)",
+			input, cacheRead, body["usage"])
+	}
+
+	if input < 0 || cacheRead < 0 || cacheCreation < 0 {
+		t.Errorf("negative token counts in usage: %v", body["usage"])
+	}
 }
 
 func getInt(t *testing.T, m map[string]any, path ...string) int {

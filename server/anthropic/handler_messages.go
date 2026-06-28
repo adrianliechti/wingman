@@ -232,7 +232,9 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 
 	if completion.Usage != nil {
 		result.Usage = Usage{
-			InputTokens:  completion.Usage.InputTokens,
+			// The intermediate Usage.InputTokens is cache-inclusive; Anthropic's
+			// wire input_tokens excludes cached tokens, so subtract them back out.
+			InputTokens:  anthropicInputTokens(completion.Usage),
 			OutputTokens: completion.Usage.OutputTokens,
 
 			CacheReadInputTokens:     completion.Usage.CacheReadInputTokens,
@@ -266,6 +268,18 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 	}
 
 	writeJson(w, result)
+}
+
+// anthropicInputTokens converts the cache-inclusive intermediate input-token
+// count into Anthropic's wire convention, where input_tokens excludes tokens
+// served from or written to the cache (those are reported separately). Clamped
+// at zero to stay robust against any upstream rounding.
+func anthropicInputTokens(usage *provider.Usage) int {
+	tokens := usage.InputTokens - usage.CacheReadInputTokens - usage.CacheCreationInputTokens
+	if tokens < 0 {
+		return 0
+	}
+	return tokens
 }
 
 func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, req MessageRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {

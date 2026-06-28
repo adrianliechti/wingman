@@ -5,6 +5,16 @@ type ImageCreateRequest struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`
 
+	Size        string `json:"size,omitempty"`
+	AspectRatio string `json:"aspect_ratio,omitempty"`
+
+	Quality    string `json:"quality,omitempty"`
+	Resolution string `json:"resolution,omitempty"`
+
+	Background string `json:"background,omitempty"`
+
+	OutputFormat string `json:"output_format,omitempty"`
+
 	ResponseFormat string `json:"response_format,omitempty"`
 }
 

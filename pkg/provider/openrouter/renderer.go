@@ -6,16 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/google/uuid"
 )
 
 var _ provider.Renderer = (*Renderer)(nil)
-
-var dataURLPattern = regexp.MustCompile(`data:[a-zA-Z]+/[a-zA-Z0-9.+_-]+;base64,\s*(.+)`)
 
 type Renderer struct {
 	*Config
@@ -27,32 +23,58 @@ func NewRenderer(model string, options ...Option) (*Renderer, error) {
 	}, nil
 }
 
+type imagesResponse struct {
+	Data []imageData `json:"data"`
+}
+
+type imageData struct {
+	B64JSON   string `json:"b64_json"`
+	MediaType string `json:"media_type"`
+}
+
 func (r *Renderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Rendering, error) {
 	if options == nil {
 		options = new(provider.RenderOptions)
 	}
 
-	var content any
+	body := map[string]any{
+		"model":  r.model,
+		"prompt": input,
+	}
 
-	if len(options.Images) == 0 {
-		content = input
-	} else {
-		parts := []map[string]any{
-			{
-				"type": "text",
-				"text": input,
-			},
-		}
+	if options.Aspect != "" {
+		body["aspect_ratio"] = string(options.Aspect)
+	}
+
+	if options.Quality != "" {
+		body["quality"] = string(options.Quality)
+	}
+
+	if resolution := resolution(options.Resolution); resolution != "" {
+		body["resolution"] = resolution
+	}
+
+	if options.Background != "" {
+		body["background"] = string(options.Background)
+	}
+
+	if options.Format != "" {
+		body["output_format"] = string(options.Format)
+	}
+
+	if len(options.Images) > 0 {
+		references := make([]map[string]any, 0, len(options.Images))
 
 		for _, img := range options.Images {
 			contentType := img.ContentType
+
 			if contentType == "" {
 				contentType = "image/png"
 			}
 
 			dataURL := fmt.Sprintf("data:%s;base64,%s", contentType, base64.StdEncoding.EncodeToString(img.Content))
 
-			parts = append(parts, map[string]any{
+			references = append(references, map[string]any{
 				"type": "image_url",
 				"image_url": map[string]any{
 					"url": dataURL,
@@ -60,71 +82,29 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			})
 		}
 
-		content = parts
+		body["input_references"] = references
 	}
 
-	body := map[string]any{
-		"model": r.model,
-		"messages": []map[string]any{
-			{
-				"role":    "user",
-				"content": content,
-			},
-		},
-		"modalities": []string{"image"},
-		"stream":     false,
-	}
+	var result imagesResponse
 
-	var result map[string]any
-
-	if err := doRequest(ctx, r.client, r.url+"/chat/completions", r.token, body, &result); err != nil {
+	if err := doRequest(ctx, r.client, r.url+"/images", r.token, body, &result); err != nil {
 		return nil, err
 	}
 
-	message, err := extractMessage(result)
+	if len(result.Data) == 0 || result.Data[0].B64JSON == "" {
+		return nil, errors.New("no image data in response")
+	}
+
+	data, err := base64.StdEncoding.DecodeString(result.Data[0].B64JSON)
 
 	if err != nil {
 		return nil, err
 	}
 
-	images, ok := message["images"].([]any)
+	contentType := result.Data[0].MediaType
 
-	if !ok || len(images) == 0 {
-		return nil, errors.New("no images in response")
-	}
-
-	img, ok := images[0].(map[string]any)
-
-	if !ok {
-		return nil, errors.New("invalid image in response")
-	}
-
-	imageURL, ok := img["image_url"].(map[string]any)
-
-	if !ok {
-		return nil, errors.New("no image URL in response")
-	}
-
-	url, ok := imageURL["url"].(string)
-
-	if !ok || url == "" {
-		return nil, errors.New("no image URL in response")
-	}
-
-	if !strings.HasPrefix(url, "data:") {
-		return nil, errors.New("unsupported image URL format: expected data URL")
-	}
-
-	match := dataURLPattern.FindStringSubmatch(url)
-
-	if len(match) != 2 {
-		return nil, errors.New("invalid data URL")
-	}
-
-	data, err := base64.StdEncoding.DecodeString(match[1])
-
-	if err != nil {
-		return nil, err
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
 	}
 
 	return &provider.Rendering{
@@ -132,6 +112,21 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		Model: r.model,
 
 		Content:     data,
-		ContentType: http.DetectContentType(data),
+		ContentType: contentType,
 	}, nil
+}
+
+func resolution(value provider.Resolution) string {
+	switch value {
+	case provider.Resolution512:
+		return "512"
+	case provider.Resolution1K:
+		return "1K"
+	case provider.Resolution2K:
+		return "2K"
+	case provider.Resolution4K:
+		return "4K"
+	}
+
+	return ""
 }

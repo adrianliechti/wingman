@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 
@@ -48,23 +47,4 @@ func doRequest(ctx context.Context, client *http.Client, url, token string, body
 	}
 
 	return json.NewDecoder(resp.Body).Decode(result)
-}
-
-func extractMessage(result map[string]any) (map[string]any, error) {
-	choices, ok := result["choices"].([]any)
-	if !ok || len(choices) == 0 {
-		return nil, errors.New("no choices in response")
-	}
-
-	choice, ok := choices[0].(map[string]any)
-	if !ok {
-		return nil, errors.New("invalid choice in response")
-	}
-
-	message, ok := choice["message"].(map[string]any)
-	if !ok {
-		return nil, errors.New("no message in response")
-	}
-
-	return message, nil
 }

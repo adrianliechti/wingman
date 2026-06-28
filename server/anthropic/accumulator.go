@@ -164,7 +164,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		inputTokens := 0
 		var cacheReadInputTokens, cacheCreationInputTokens int
 		if c.Usage != nil {
-			inputTokens = c.Usage.InputTokens
+			inputTokens = anthropicInputTokens(c.Usage)
 			s.inputTokens = inputTokens
 			cacheReadInputTokens = c.Usage.CacheReadInputTokens
 			cacheCreationInputTokens = c.Usage.CacheCreationInputTokens
@@ -201,7 +201,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	// Update usage tokens if provided
 	if c.Usage != nil {
 		if c.Usage.InputTokens > 0 {
-			s.inputTokens = c.Usage.InputTokens
+			s.inputTokens = anthropicInputTokens(c.Usage)
 		}
 		if c.Usage.OutputTokens > 0 {
 			s.outputTokens = c.Usage.OutputTokens
@@ -441,8 +441,8 @@ func (s *StreamingAccumulator) Complete() error {
 	var cacheReadInputTokens, cacheCreationInputTokens int
 	var outputTokensDetails *OutputTokensDetails
 	if result.Usage != nil {
-		if result.Usage.InputTokens > inputTokens {
-			inputTokens = result.Usage.InputTokens
+		if resultInputTokens := anthropicInputTokens(result.Usage); resultInputTokens > inputTokens {
+			inputTokens = resultInputTokens
 		}
 		if result.Usage.OutputTokens > outputTokens {
 			outputTokens = result.Usage.OutputTokens

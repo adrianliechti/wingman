@@ -52,7 +52,7 @@ func ModelCapabilities(name string) harness.Capabilities {
 
 	switch {
 	case strings.Contains(n, "bedrock"):
-		return harness.Capabilities{Thinking: true, StructuredOutput: true}
+		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, TextEditor: true, ComputerUse: true, Shell: true}
 
 	case strings.Contains(n, "claude"):
 		switch {

@@ -50,6 +50,10 @@ tasks:
   lgtm:
     cmds:
       - docker run -it --rm -p 3000:3000 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm
+  
+  insights:
+    cmds:
+      - docker run -it --rm -p 4318:4318 ghcr.io/adrianliechti/wingman-insights
 
   docs:render:
     desc: Render docs/architecture.html → docs/architecture.png (needs Node + playwright)

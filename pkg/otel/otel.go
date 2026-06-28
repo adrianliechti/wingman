@@ -2,27 +2,35 @@ package otel
 
 import (
 	"context"
+	"os"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
-func Setup(serviceName, serviceVersion string) error {
+func Setup() error {
 	if !EnableTelemetry {
 		return nil
 	}
 
 	ctx := context.Background()
 
+	attributes := []attribute.KeyValue{
+		semconv.ServiceName("wingman"),
+	}
+
+	if val := os.Getenv("TELEMETRY_NAME"); val != "" {
+		attributes = append(attributes, semconv.ServiceName(val))
+	}
+
+	if val := os.Getenv("TELEMETRY_VERSION"); val != "" {
+		attributes = append(attributes, semconv.ServiceVersion(val))
+	}
+
 	resource, err := resource.New(ctx,
 		resource.WithFromEnv(),
-		resource.WithHost(),
-		resource.WithProcess(),
-		resource.WithTelemetrySDK(),
-		resource.WithAttributes(
-			semconv.ServiceName(serviceName),
-			semconv.ServiceVersion(serviceVersion),
-		),
+		resource.WithAttributes(attributes...),
 	)
 
 	if err != nil {

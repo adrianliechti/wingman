@@ -15,7 +15,8 @@ func TestStreamingAccumulatorEmitsCacheUsage(t *testing.T) {
 
 	err := acc.Add(provider.Completion{
 		Usage: &provider.Usage{
-			InputTokens:              0,
+			// Cache-inclusive intermediate total: 10 fresh + 40 read + 50 write.
+			InputTokens:              100,
 			CacheReadInputTokens:     40,
 			CacheCreationInputTokens: 50,
 		},
@@ -40,6 +41,9 @@ func TestStreamingAccumulatorEmitsCacheUsage(t *testing.T) {
 	if start.Message == nil {
 		t.Fatal("expected message_start payload")
 	}
+	if start.Message.Usage.InputTokens != 10 {
+		t.Fatalf("expected message_start input tokens 10 (cache-exclusive), got %d", start.Message.Usage.InputTokens)
+	}
 	if start.Message.Usage.CacheReadInputTokens != 40 {
 		t.Fatalf("expected message_start cache read input tokens 40, got %d", start.Message.Usage.CacheReadInputTokens)
 	}
@@ -55,6 +59,9 @@ func TestStreamingAccumulatorEmitsCacheUsage(t *testing.T) {
 	}
 	if delta == nil {
 		t.Fatal("expected message_delta usage")
+	}
+	if delta.InputTokens != 10 {
+		t.Fatalf("expected message_delta input tokens 10 (cache-exclusive), got %d", delta.InputTokens)
 	}
 	if delta.CacheReadInputTokens != 40 {
 		t.Fatalf("expected message_delta cache read input tokens 40, got %d", delta.CacheReadInputTokens)
@@ -263,5 +270,57 @@ func TestStreamingAccumulatorStopSequence(t *testing.T) {
 	}
 	if delta.StopSequence == nil || *delta.StopSequence != "END" {
 		t.Errorf("stop sequence: got %v, want END", delta.StopSequence)
+	}
+}
+
+// Output and thinking tokens must survive the streaming round-trip: the final
+// message_delta carries output_tokens and reports the reasoning subset in
+// output_tokens_details.thinking_tokens, while input_tokens stays cache-exclusive.
+func TestStreamingAccumulatorEmitsThinkingUsage(t *testing.T) {
+	var events []StreamEvent
+	acc := NewStreamingAccumulator("msg_123", "claude-test", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+	acc.ThinkingEnabled = true
+
+	err := acc.Add(provider.Completion{
+		Usage: &provider.Usage{
+			// Cache-inclusive intermediate total: 10 fresh + 40 read + 50 write.
+			InputTokens:              100,
+			OutputTokens:             30,
+			ReasoningTokens:          12,
+			CacheReadInputTokens:     40,
+			CacheCreationInputTokens: 50,
+		},
+	})
+	if err != nil {
+		t.Fatalf("add completion: %v", err)
+	}
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete stream: %v", err)
+	}
+
+	var delta *DeltaUsage
+	for _, event := range events {
+		if event.Type == StreamEventMessageDelta {
+			delta = event.DeltaUsage
+		}
+	}
+	if delta == nil {
+		t.Fatal("expected message_delta usage")
+	}
+	if delta.InputTokens != 10 {
+		t.Fatalf("expected message_delta input tokens 10 (cache-exclusive), got %d", delta.InputTokens)
+	}
+	if delta.OutputTokens != 30 {
+		t.Fatalf("expected message_delta output tokens 30 (thinking-inclusive), got %d", delta.OutputTokens)
+	}
+	if delta.OutputTokensDetails == nil {
+		t.Fatal("expected message_delta output_tokens_details")
+	}
+	if delta.OutputTokensDetails.ThinkingTokens != 12 {
+		t.Fatalf("expected message_delta thinking tokens 12, got %d", delta.OutputTokensDetails.ThinkingTokens)
 	}
 }
