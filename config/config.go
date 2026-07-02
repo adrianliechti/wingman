@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/auth"
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/guard"
 	"github.com/adrianliechti/wingman/pkg/mcp"
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -39,6 +40,8 @@ type Config struct {
 	segmenter  map[string]segmenter.Provider
 	summarizer map[string]summarizer.Provider
 	translator map[string]translator.Provider
+
+	guard map[string]guard.Provider
 
 	scraper    map[string]scraper.Provider
 	searcher   map[string]searcher.Provider
@@ -101,6 +104,10 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := c.registerGuards(file); err != nil {
+		return nil, err
+	}
+
 	if err := c.registerResearchers(file); err != nil {
 		return nil, err
 	}
@@ -131,6 +138,8 @@ type configFile struct {
 	Segmenters  yaml.Node `yaml:"segmenters"`
 	Summarizers yaml.Node `yaml:"summarizers"`
 	Translators yaml.Node `yaml:"translators"`
+
+	Guards yaml.Node `yaml:"guards"`
 
 	Scrapers    yaml.Node `yaml:"scrapers"`
 	Searchers   yaml.Node `yaml:"searchers"`
