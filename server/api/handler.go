@@ -34,6 +34,8 @@ func (h *Handler) Attach(r chi.Router) {
 	r.Post("/rerank", h.handleRerank)
 	r.Post("/segment", h.handleSegment)
 
+	r.Post("/guard", h.handleGuard)
+
 	r.Post("/summarize", h.handleSummarize)
 	r.Post("/translate", h.handleTranslate)
 	r.Post("/transcribe", h.handleTranscribe)
