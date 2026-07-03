@@ -34,6 +34,10 @@ func TestUsageTokensCorrectness(t *testing.T) {
 		},
 	}
 
+	reference := referenceUsage(shortBody, longBody, func(t *testing.T, body map[string]any) messagesUsageResult {
+		return messagesUsage(t, h, h.Anthropic, h.ReferenceModel, body)
+	})
+
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
 			h.SkipUnlessConfigured(t, model.Name)
@@ -53,16 +57,7 @@ func TestUsageTokensCorrectness(t *testing.T) {
 
 			// Tendency must match the reference account's direction. We compare
 			// the *delta sign*, never the magnitudes.
-			refShort := messagesUsage(t, h, h.Anthropic, h.ReferenceModel, shortBody)
-			refLong := messagesUsage(t, h, h.Anthropic, h.ReferenceModel, longBody)
-
-			refShort.assertInvariants(t, "reference short")
-			refLong.assertInvariants(t, "reference long")
-
-			if refLong.totalInput() <= refShort.totalInput() {
-				t.Fatalf("reference did not show expected tendency: long total %d <= short total %d",
-					refLong.totalInput(), refShort.totalInput())
-			}
+			refShort, refLong := reference(t)
 
 			if (long.totalInput() > short.totalInput()) != (refLong.totalInput() > refShort.totalInput()) {
 				t.Errorf("total-input tendency disagrees with reference: "+
@@ -89,12 +84,16 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 		},
 	}
 
+	reference := referenceUsage(shortBody, longBody, func(t *testing.T, body map[string]any) messagesUsageResult {
+		return messagesUsageSSE(t, h, h.Anthropic, h.ReferenceModel, body)
+	})
+
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
 			h.SkipUnlessConfigured(t, model.Name)
 
-			short := messagesUsageSSE(t, h, model.Name, shortBody)
-			long := messagesUsageSSE(t, h, model.Name, longBody)
+			short := messagesUsageSSE(t, h, h.Wingman, model.Name, shortBody)
+			long := messagesUsageSSE(t, h, h.Wingman, model.Name, longBody)
 
 			short.assertInvariants(t, "short stream")
 			long.assertInvariants(t, "long stream")
@@ -103,7 +102,109 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 				t.Errorf("expected long prompt streaming total input (%d) > short prompt streaming total input (%d)\nshort=%+v long=%+v",
 					long.totalInput(), short.totalInput(), short, long)
 			}
+
+			refShort, refLong := reference(t)
+
+			if (long.totalInput() > short.totalInput()) != (refLong.totalInput() > refShort.totalInput()) {
+				t.Errorf("streaming total-input tendency disagrees with reference: "+
+					"wingman short/long=%d/%d, reference short/long=%d/%d",
+					short.totalInput(), long.totalInput(), refShort.totalInput(), refLong.totalInput())
+			}
 		})
+	}
+}
+
+// TestUsageTokensThinking verifies the thinking-token split end-to-end: with
+// extended thinking enabled, usage.output_tokens_details.thinking_tokens is
+// reported as a subset of output_tokens, matching the reference account's
+// behavior. Bedrock models are exempt from the thinking > 0 requirement — the
+// AWS Converse API reports no reasoning bucket in its usage, so the spend
+// stays folded into output_tokens there.
+func TestUsageTokensThinking(t *testing.T) {
+	h := anthropic.New(t)
+
+	body := map[string]any{
+		"max_tokens": 16000,
+		"thinking": map[string]any{
+			"type":          "enabled",
+			"budget_tokens": 5000,
+		},
+		"messages": []map[string]any{
+			{"role": "user", "content": "How many r's are in strawberry?"},
+		},
+	}
+
+	var ref *messagesUsageResult
+	reference := func(t *testing.T) messagesUsageResult {
+		t.Helper()
+		if ref == nil {
+			u := messagesUsage(t, h, h.Anthropic, h.ReferenceModel, body)
+			u.assertInvariants(t, "reference thinking")
+			if u.thinking <= 0 {
+				t.Fatalf("reference did not report thinking_tokens > 0 with thinking enabled: %+v", u)
+			}
+			ref = &u
+		}
+		return *ref
+	}
+
+	for _, model := range anthropic.DefaultModels() {
+		if !model.Capabilities.Thinking {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			h.SkipUnlessConfigured(t, model.Name)
+
+			u := messagesUsage(t, h, h.Wingman, model.Name, body)
+			u.assertInvariants(t, "thinking")
+
+			if strings.Contains(strings.ToLower(model.Name), "bedrock") {
+				return
+			}
+
+			refUsage := reference(t)
+
+			if u.thinking <= 0 {
+				t.Errorf("expected thinking_tokens > 0 with thinking enabled (reference reports %d), got %+v",
+					refUsage.thinking, u)
+			}
+
+			// The visible answer costs tokens on top of the thinking spend.
+			if u.thinking > 0 && u.output <= u.thinking {
+				t.Errorf("expected output_tokens (%d) > thinking_tokens (%d)", u.output, u.thinking)
+			}
+		})
+	}
+}
+
+// referenceUsage returns a lazy, memoized fetch of the reference account's
+// short/long usage. The reference does not depend on the model under test, so
+// it is requested at most once per test (subtests run sequentially) and only
+// when at least one model is actually configured. The reference's own
+// invariants and tendency are asserted on first fetch.
+func referenceUsage(shortBody, longBody map[string]any, fetch func(t *testing.T, body map[string]any) messagesUsageResult) func(t *testing.T) (messagesUsageResult, messagesUsageResult) {
+	var cached *[2]messagesUsageResult
+
+	return func(t *testing.T) (messagesUsageResult, messagesUsageResult) {
+		t.Helper()
+
+		if cached == nil {
+			short := fetch(t, shortBody)
+			long := fetch(t, longBody)
+
+			short.assertInvariants(t, "reference short")
+			long.assertInvariants(t, "reference long")
+
+			if long.totalInput() <= short.totalInput() {
+				t.Fatalf("reference did not show expected tendency: long total %d <= short total %d",
+					long.totalInput(), short.totalInput())
+			}
+
+			cached = &[2]messagesUsageResult{short, long}
+		}
+
+		return cached[0], cached[1]
 	}
 }
 
@@ -112,6 +213,7 @@ type messagesUsageResult struct {
 	output        int
 	cacheRead     int
 	cacheCreation int
+	thinking      int
 }
 
 // totalInput is the provider-neutral, cache-inclusive prompt cost: fresh input
@@ -133,6 +235,10 @@ func (u messagesUsageResult) assertInvariants(t *testing.T, label string) {
 	if u.output <= 0 {
 		t.Errorf("[%s] expected output_tokens > 0, got %d", label, u.output)
 	}
+	// thinking_tokens are a subset of output_tokens.
+	if u.thinking < 0 || u.thinking > u.output {
+		t.Errorf("[%s] thinking_tokens (%d) must be within [0, output_tokens=%d]", label, u.thinking, u.output)
+	}
 }
 
 func messagesUsage(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, model string, body map[string]any) messagesUsageResult {
@@ -146,24 +252,44 @@ func messagesUsage(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, mode
 	return messagesUsageFromMap(t, resp.Body["usage"])
 }
 
-func messagesUsageSSE(t *testing.T, h *anthropic.Harness, model string, body map[string]any) messagesUsageResult {
+func messagesUsageSSE(t *testing.T, h *anthropic.Harness, ep harness.Endpoint, model string, body map[string]any) messagesUsageResult {
 	t.Helper()
 
 	req := anthropic.WithModel(body, model)
 	req["stream"] = true
-	events := anthropic.PostMessagesSSE(t, h, h.Wingman, req)
+	events := anthropic.PostMessagesSSE(t, h, ep, req)
+
+	// Usage is spread across the stream: message_start carries the input-side
+	// counts, the final message_delta the cumulative output count (and some
+	// backends repeat the input fields there). Merge per field, later events win.
+	merged := map[string]any{}
+	deltaUsage := false
 
 	for _, event := range events {
-		if event.Event != "message_delta" {
-			continue
+		var usage map[string]any
+
+		switch event.Event {
+		case "message_start":
+			if msg, ok := event.Data["message"].(map[string]any); ok {
+				usage, _ = msg["usage"].(map[string]any)
+			}
+		case "message_delta":
+			usage, _ = event.Data["usage"].(map[string]any)
+			deltaUsage = deltaUsage || usage != nil
 		}
-		if usage, ok := event.Data["usage"]; ok {
-			return messagesUsageFromMap(t, usage)
+
+		for key, value := range usage {
+			if value != nil {
+				merged[key] = value
+			}
 		}
 	}
 
-	t.Fatalf("no message_delta usage event found in %d events", len(events))
-	return messagesUsageResult{}
+	if !deltaUsage {
+		t.Fatalf("[%s] no message_delta usage event found in %d events", ep.Name, len(events))
+	}
+
+	return messagesUsageFromMap(t, merged)
 }
 
 func messagesUsageFromMap(t *testing.T, usage any) messagesUsageResult {
@@ -179,6 +305,7 @@ func messagesUsageFromMap(t *testing.T, usage any) messagesUsageResult {
 		output:        getInt(t, obj, "output_tokens"),
 		cacheRead:     getInt(t, obj, "cache_read_input_tokens"),
 		cacheCreation: getInt(t, obj, "cache_creation_input_tokens"),
+		thinking:      getInt(t, obj, "output_tokens_details", "thinking_tokens"),
 	}
 }
 
