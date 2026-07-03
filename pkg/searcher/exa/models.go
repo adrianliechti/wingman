@@ -30,5 +30,7 @@ type SearchResult struct {
 	URL   string `json:"url"`
 	Title string `json:"title"`
 
+	PublishedDate string `json:"publishedDate"`
+
 	Text string `json:"text"`
 }

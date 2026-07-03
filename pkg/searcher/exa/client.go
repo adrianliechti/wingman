@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/searcher"
 )
@@ -109,6 +110,10 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 
 			Title:   r.Title,
 			Content: r.Text,
+		}
+
+		if t, err := time.Parse(time.RFC3339, r.PublishedDate); err == nil {
+			result.Timestamp = &t
 		}
 
 		results = append(results, result)

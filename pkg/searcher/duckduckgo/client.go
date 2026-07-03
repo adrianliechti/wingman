@@ -120,6 +120,10 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 
 		results = append(results, result)
 
+		if options.Limit != nil && len(results) >= *options.Limit {
+			break
+		}
+
 		resultURL = ""
 		resultTitle = ""
 		resultSnippet = ""

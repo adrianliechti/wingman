@@ -45,7 +45,13 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	props := map[string]any{
 		"query": map[string]any{
 			"type":        "string",
-			"description": "The natural-language search query. Do not include site: or other search operators.",
+			"description": "The natural-language search query. Do not include site: or other search operators; use allowed_domains/blocked_domains instead.",
+		},
+		"max_results": map[string]any{
+			"type":        "integer",
+			"minimum":     1,
+			"maximum":     10,
+			"description": fmt.Sprintf("Number of results to return (default %d). Use 8-10 for broad discovery, 2-3 for a quick fact check.", c.limit),
 		},
 		"location": map[string]any{
 			"type":        "string",
@@ -82,7 +88,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        ToolName,
-			Description: "Search the public web and return a list of sources (URL, title, snippet) the assistant can cite. Use for current events, named entities, or anything that may have changed since training.",
+			Description: "Search the public web and return ranked sources (title, URL, snippet, publication date when known). Use for current events, named entities, or anything that may have changed since training. Start with one broad query, then narrower follow-ups for unresolved facets; independent queries can be issued in parallel. Snippets are short — fetch a promising URL to read the full page.",
 
 			Parameters: map[string]any{
 				"type":       "object",
@@ -104,8 +110,14 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, errors.New("search: missing query parameter")
 	}
 
+	limit := c.limit
+
+	if n, ok := parameters["max_results"].(float64); ok {
+		limit = min(max(int(n), 1), 10)
+	}
+
 	options := &searcher.SearchOptions{
-		Limit: &c.limit,
+		Limit: &limit,
 	}
 
 	if cat, _ := parameters["category"].(string); cat != "" {
@@ -148,8 +160,12 @@ func formatResults(hits []searcher.Result) string {
 		if title == "" {
 			title = h.Source
 		}
-		fmt.Fprintf(&b, "%d. [%s](%s)\n", i+1, title, h.Source)
-		if s := snippet(h.Content, 240); s != "" {
+		fmt.Fprintf(&b, "%d. [%s](%s)", i+1, title, h.Source)
+		if h.Timestamp != nil {
+			fmt.Fprintf(&b, " — %s", h.Timestamp.Format("2006-01-02"))
+		}
+		b.WriteString("\n")
+		if s := snippet(h.Content, 400); s != "" {
 			fmt.Fprintf(&b, "   %s\n", s)
 		}
 	}
@@ -175,11 +191,16 @@ func collectStrings(v any) []string {
 
 func snippet(text string, max int) string {
 	text = strings.TrimSpace(text)
-	if max <= 0 || len(text) <= max {
+	if max <= 0 {
 		return text
 	}
 
-	cut := text[:max]
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+
+	cut := string(runes[:max])
 	if i := strings.LastIndexAny(cut, " \n\t"); i > max/2 {
 		cut = cut[:i]
 	}

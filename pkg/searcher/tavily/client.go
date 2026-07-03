@@ -46,6 +46,10 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 		"search_depth": "advanced",
 	}
 
+	if options.Limit != nil {
+		body["max_results"] = *options.Limit
+	}
+
 	if len(options.Include) > 0 {
 		body["include_domains"] = options.Include
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -35,7 +34,7 @@ const (
 	toolWebFetch  = "web_fetch"
 )
 
-var ErrBudgetExceeded = errors.New("agent researcher: tool-call budget exceeded")
+const finalizePrompt = "The tool-call budget is exhausted. Do not request more tools. Write the final answer now using only the evidence already gathered, with inline citations to the sources you retrieved. If the evidence is incomplete, state exactly what is missing."
 
 type Client struct {
 	completer provider.Completer
@@ -131,19 +130,25 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 	}
 
 	s := &state{
-		instructions:       instructions,
-		tools:              tools,
-		client:             c,
-		maxTotalFetchChars: c.maxTotalFetchChars,
+		instructions: instructions,
+		tools:        tools,
+		client:       c,
 	}
 
 	for {
-		if s.toolCalls >= c.maxToolCalls {
-			return nil, ErrBudgetExceeded
+		exhausted := s.toolCalls >= c.maxToolCalls
+
+		opts := completeOptions
+		if exhausted {
+			final := *completeOptions
+			final.Tools = nil
+			opts = &final
+
+			messages = append(messages, provider.UserMessage(finalizePrompt))
 		}
 
 		acc := provider.CompletionAccumulator{}
-		for completion, err := range c.completer.Complete(ctx, messages, completeOptions) {
+		for completion, err := range c.completer.Complete(ctx, messages, opts) {
 			if err != nil {
 				return nil, err
 			}
@@ -158,26 +163,36 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 		messages = append(messages, *result.Message)
 
 		calls := result.Message.ToolCalls()
-		if len(calls) == 0 {
+		if exhausted || len(calls) == 0 {
 			return &researcher.Result{Content: result.Message.Text()}, nil
 		}
 
 		remaining := c.maxToolCalls - s.toolCalls
-		if len(calls) > remaining {
-			calls = calls[:remaining]
-		}
-		s.toolCalls += len(calls)
 
-		toolMessages := s.runCalls(ctx, calls)
+		run := calls
+		var skipped []provider.ToolCall
+		if len(calls) > remaining {
+			run, skipped = calls[:remaining], calls[remaining:]
+		}
+		s.toolCalls += len(run)
+
+		toolMessages := s.runCalls(ctx, run)
+		for _, tc := range skipped {
+			toolMessages = append(toolMessages, provider.ToolMessage(tc.ID, "Error: tool-call budget exhausted; this call was not executed."))
+		}
+
+		if remaining := c.maxToolCalls - s.toolCalls; remaining > 0 && remaining <= max(2, c.maxToolCalls/5) {
+			appendText(&toolMessages[len(toolMessages)-1], fmt.Sprintf("\n\n[%d tool call(s) remaining — close the most important gap, then answer]", remaining))
+		}
+
 		messages = append(messages, toolMessages...)
 	}
 }
 
 type state struct {
-	instructions       string
-	tools              map[string]tool.Provider
-	client             *Client
-	maxTotalFetchChars int
+	instructions string
+	tools        map[string]tool.Provider
+	client       *Client
 
 	mu           sync.Mutex
 	toolCalls    int
@@ -209,7 +224,7 @@ func (s *state) runCall(ctx context.Context, tc provider.ToolCall) provider.Mess
 
 	if tc.Name == toolWebFetch {
 		s.mu.Lock()
-		over := s.fetchedBytes >= s.maxTotalFetchChars
+		over := s.fetchedBytes >= s.client.maxTotalFetchChars
 		s.mu.Unlock()
 
 		if over {
@@ -250,7 +265,7 @@ func (c *Client) summarize(ctx context.Context, instructions, page string) strin
 	}
 
 	messages := []provider.Message{
-		provider.SystemMessage(`You are a precise extractor. Given a fetched web page and a research question, produce a concise extract (5-12 sentences) of facts relevant to the question. Preserve the page URL (the "Source:" line at the top). Drop boilerplate, ads, navigation, unrelated paragraphs. If the page is not relevant, say so in one sentence.`),
+		provider.SystemMessage(`You extract evidence from a fetched web page for a research task. Keep the "Source:" line at the top, then list every fact relevant to the question — preserve exact figures, dates, proper names, and short verbatim quotes where the wording matters. Keep any trailing truncation notice verbatim. Drop navigation, ads, boilerplate, and unrelated sections. If nothing on the page is relevant, reply exactly: Not relevant: <one-line reason>.`),
 		provider.UserMessage(fmt.Sprintf("Research question:\n%s\n\nPage:\n%s", instructions, page)),
 	}
 
@@ -266,6 +281,15 @@ func (c *Client) summarize(ctx context.Context, instructions, page string) strin
 		return ""
 	}
 	return msg.Text()
+}
+
+func appendText(m *provider.Message, text string) {
+	for i := range m.Content {
+		if r := m.Content[i].ToolResult; r != nil && len(r.Parts) > 0 {
+			r.Parts[len(r.Parts)-1].Text += text
+			return
+		}
+	}
 }
 
 func renderResult(p tool.Provider, name string, value any) string {
