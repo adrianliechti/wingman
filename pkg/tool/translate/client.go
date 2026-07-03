@@ -41,18 +41,18 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        ToolName,
-			Description: "Translate text to the given target language. The upstream translation service decides which language codes are valid and will return an error for unsupported ones.",
+			Description: "Translate text into a target language; the source language is detected automatically. Pass the text verbatim — do not pre-translate or summarize it. Returns only the translated text.",
 
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"text": map[string]any{
 						"type":        "string",
-						"description": "The text to translate.",
+						"description": "The text to translate, verbatim.",
 					},
 					"lang": map[string]any{
 						"type":        "string",
-						"description": "Target language as an ISO 639-1 / BCP-47 code (e.g. 'de', 'en', 'fr', 'pt-BR').",
+						"description": "Target language as an ISO 639-1 / BCP-47 code (e.g. 'de', 'en', 'fr', 'pt-BR'). The translation service returns an error for unsupported codes.",
 					},
 				},
 				"required": []string{"text", "lang"},

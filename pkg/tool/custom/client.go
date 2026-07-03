@@ -89,14 +89,22 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 
 	data := resp.GetData()
 
-	var result map[string]any
+	var object map[string]any
 
-	if err := json.Unmarshal([]byte(data), &result); err == nil {
-		return result, nil
+	if err := json.Unmarshal([]byte(data), &object); err == nil {
+		return object, nil
 	}
 
-	if err := yaml.Unmarshal([]byte(data), &result); err == nil {
-		return result, nil
+	var list []any
+
+	if err := json.Unmarshal([]byte(data), &list); err == nil {
+		return list, nil
+	}
+
+	var document map[string]any
+
+	if err := yaml.Unmarshal([]byte(data), &document); err == nil {
+		return document, nil
 	}
 
 	return data, nil
