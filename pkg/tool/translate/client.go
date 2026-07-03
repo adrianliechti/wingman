@@ -52,7 +52,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 					},
 					"lang": map[string]any{
 						"type":        "string",
-						"description": "Target language as an ISO 639-1 / BCP-47 code (e.g. 'de', 'en', 'fr', 'pt-BR'). The translation service returns an error for unsupported codes.",
+						"description": "Target language as an ISO 639-1 / BCP-47 code (e.g. 'de', 'en', 'fr', 'pt-BR'). Malformed codes are rejected.",
 					},
 				},
 				"required": []string{"text", "lang"},

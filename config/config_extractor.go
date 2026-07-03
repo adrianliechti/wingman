@@ -88,7 +88,7 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 		}
 
 		if _, ok := extractor.(otel.Extractor); !ok {
-			extractor = otel.NewExtractor(id, "", extractor)
+			extractor = otel.NewExtractor(config.Type, id, extractor)
 		}
 
 		extractors = append(extractors, extractor)
@@ -132,6 +132,10 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 }
 
 func llmExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
+	if context.Completer == nil {
+		return nil, errors.New("extractor model not found: " + cfg.Model)
+	}
+
 	return adapter.FromCompleter(context.Completer), nil
 }
 

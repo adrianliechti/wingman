@@ -43,7 +43,6 @@ type searcherConfig struct {
 
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
-
 }
 
 type searcherContext struct {
@@ -107,7 +106,7 @@ func createSearcher(cfg searcherConfig, context searcherContext) (searcher.Provi
 		return tavilySearch(cfg, context)
 
 	case "custom", "wingman-searcher":
-		return customSearcher(cfg)
+		return customSearcher(cfg, context)
 
 	default:
 		return nil, errors.New("invalid search type: " + cfg.Type)
@@ -156,7 +155,7 @@ func tavilySearch(cfg searcherConfig, context searcherContext) (searcher.Provide
 	return tavily.New(cfg.Token, options...)
 }
 
-func customSearcher(cfg searcherConfig) (searcher.Provider, error) {
+func customSearcher(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {
 	var options []custom.Option
 
 	if category := cfg.Vars["category"]; category != "" {

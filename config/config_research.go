@@ -56,7 +56,6 @@ type researcherConfig struct {
 
 	Effort    string `yaml:"effort"`
 	Verbosity string `yaml:"verbosity"`
-
 }
 
 type researcherContext struct {
@@ -69,7 +68,6 @@ type researcherContext struct {
 
 	Effort    provider.Effort
 	Verbosity provider.Verbosity
-
 }
 
 func (cfg *Config) registerResearchers(f *configFile) error {
@@ -91,7 +89,6 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 		context := researcherContext{
 			Effort:    provider.Effort(config.Effort),
 			Verbosity: provider.Verbosity(config.Verbosity),
-
 		}
 
 		if p, err := cfg.Completer(config.Model); err == nil {

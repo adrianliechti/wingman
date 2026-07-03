@@ -131,7 +131,7 @@ func textSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
 	return text.New()
 }
 
-func customSegmenter(cfg segmenterConfig) (*custom.Client, error) {
+func customSegmenter(cfg segmenterConfig) (segmenter.Provider, error) {
 	var options []custom.Option
 
 	return custom.New(cfg.URL, options...)

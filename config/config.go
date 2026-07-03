@@ -173,4 +173,3 @@ func parseFile(path string) (*configFile, error) {
 
 	return &config, nil
 }
-

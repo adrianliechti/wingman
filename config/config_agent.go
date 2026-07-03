@@ -10,7 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/agent/react"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/template"
 	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
@@ -29,7 +28,6 @@ type agentConfig struct {
 
 	Model string `yaml:"model"`
 
-	Template string    `yaml:"template"`
 	Messages []message `yaml:"messages"`
 
 	Tools []string `yaml:"tools"`
@@ -43,13 +41,14 @@ type agentConfig struct {
 type agentContext struct {
 	Completer provider.Completer
 
-	Template *template.Template
 	Messages []provider.Message
 
 	Tools map[string]tool.Provider
 
 	Effort    provider.Effort
 	Verbosity provider.Verbosity
+
+	Temperature *float32
 }
 
 func (cfg *Config) registerAgents(f *configFile) error {
@@ -75,6 +74,8 @@ func (cfg *Config) registerAgents(f *configFile) error {
 
 			Effort:    provider.Effort(config.Effort),
 			Verbosity: provider.Verbosity(config.Verbosity),
+
+			Temperature: config.Temperature,
 		}
 
 		if config.Model != "" {
@@ -91,16 +92,6 @@ func (cfg *Config) registerAgents(f *configFile) error {
 			}
 
 			context.Tools[t] = tool
-		}
-
-		if config.Template != "" {
-			template, err := parseTemplate(config.Template)
-
-			if err != nil {
-				return err
-			}
-
-			context.Template = template
 		}
 
 		if config.Messages != nil {
@@ -161,6 +152,10 @@ func reactAgent(cfg agentConfig, context agentContext) (provider.Completer, erro
 		options = append(options, react.WithVerbosity(context.Verbosity))
 	}
 
+	if context.Temperature != nil {
+		options = append(options, react.WithTemperature(*context.Temperature))
+	}
+
 	return react.New(cfg.Model, options...)
 }
 
@@ -181,6 +176,10 @@ func assistantAgent(cfg agentConfig, context agentContext) (provider.Completer, 
 
 	if context.Verbosity != "" {
 		options = append(options, assistant.WithVerbosity(context.Verbosity))
+	}
+
+	if context.Temperature != nil {
+		options = append(options, assistant.WithTemperature(*context.Temperature))
 	}
 
 	return assistant.New(cfg.Model, options...)

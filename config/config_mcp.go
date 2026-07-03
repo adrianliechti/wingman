@@ -118,15 +118,9 @@ func createMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {
 }
 
 func serverMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {
-	name := cfg.Name
-
-	if cfg.Name != "" {
-		name = cfg.Name
-	}
-
 	tools := slices.Collect(maps.Values(context.Tools))
 
-	return server.New(name, tools)
+	return server.New(cfg.Name, tools)
 }
 
 func proxyMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {

@@ -133,14 +133,12 @@ func (s *Server) refreshTools() error {
 				}
 			}
 
-			tool := &mcp.Tool{
+			s.server.AddTool(&mcp.Tool{
 				Name:        t.Name,
 				Description: t.Description,
 
 				InputSchema: schema,
-			}
-
-			s.server.AddTool(tool, handler)
+			}, handler)
 		}
 	}
 

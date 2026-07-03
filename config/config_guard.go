@@ -2,9 +2,8 @@ package config
 
 import (
 	"errors"
-	"strings"
-
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/guard"
 	"github.com/adrianliechti/wingman/pkg/guard/custom"

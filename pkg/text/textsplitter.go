@@ -11,8 +11,7 @@ import (
 type SemanticLevel int
 
 const (
-	LevelChar SemanticLevel = iota
-	LevelWord
+	LevelWord SemanticLevel = iota
 	LevelSentence
 	LevelLineBreak
 )
@@ -101,12 +100,23 @@ func (s *TextSplitter) findSplitPositions(text string) []splitPosition {
 
 			positions = append(positions, splitPosition{offset: end, level: level})
 		} else if (ch == '.' || ch == '!' || ch == '?') && i+1 < n && unicode.IsSpace(rune(text[i+1])) {
-			// Sentence boundary: skip trailing whitespace
+			// Sentence boundary: skip trailing whitespace (\r\n counts as one line ending)
 			end := i + 1
+			newlines := 0
 			for end < n && unicode.IsSpace(rune(text[end])) {
+				if text[end] == '\n' || (text[end] == '\r' && (end+1 >= n || text[end+1] != '\n')) {
+					newlines++
+				}
 				end++
 			}
-			positions = append(positions, splitPosition{offset: end, level: LevelSentence})
+
+			level := LevelSentence
+			if newlines >= 2 {
+				level = LevelLineBreak // paragraph break
+			}
+
+			positions = append(positions, splitPosition{offset: end, level: level})
+			i = end - 1
 		} else if ch == ' ' || ch == '\t' {
 			// Word boundary
 			end := i + 1
@@ -122,14 +132,25 @@ func (s *TextSplitter) findSplitPositions(text string) []splitPosition {
 }
 
 // buildChunks greedily fills chunks by finding the farthest split point that fits.
+// Prefix lengths are precomputed once so size checks are O(1) instead of
+// re-measuring text from the cursor for every candidate position.
 func (s *TextSplitter) buildChunks(text string, positions []splitPosition) []string {
+	prefix := make([]int, len(positions))
+	last, lastLen := 0, 0
+	for i, p := range positions {
+		lastLen += s.LenFunc(text[last:p.offset])
+		prefix[i] = lastLen
+		last = p.offset
+	}
+	totalLen := lastLen + s.LenFunc(text[last:])
+
 	var result []string
-	cursor := 0
+	cursor, cursorLen := 0, 0
 	textLen := len(text)
 
 	for cursor < textLen {
-		remaining := text[cursor:]
-		if s.LenFunc(remaining) <= s.ChunkSize {
+		if totalLen-cursorLen <= s.ChunkSize {
+			remaining := text[cursor:]
 			if s.Trim {
 				remaining = strings.TrimSpace(remaining)
 			}
@@ -139,7 +160,7 @@ func (s *TextSplitter) buildChunks(text string, positions []splitPosition) []str
 			break
 		}
 
-		bestEnd := s.findBestSplit(text, positions, cursor)
+		bestEnd, bestLen := s.findBestSplit(text, positions, prefix, cursor, cursorLen)
 
 		chunk := text[cursor:bestEnd]
 		if s.Trim {
@@ -151,15 +172,12 @@ func (s *TextSplitter) buildChunks(text string, positions []splitPosition) []str
 
 		// Handle overlap
 		if s.ChunkOverlap > 0 && bestEnd < textLen {
-			overlapStart := s.findOverlapStart(text, positions, cursor, bestEnd)
-			if overlapStart > cursor {
-				cursor = overlapStart
-			} else {
-				cursor = bestEnd
+			if idx := s.findOverlapStart(positions, prefix, cursor, bestEnd, bestLen); idx >= 0 {
+				cursor, cursorLen = positions[idx].offset, prefix[idx]
+				continue
 			}
-		} else {
-			cursor = bestEnd
 		}
+		cursor, cursorLen = bestEnd, bestLen
 	}
 
 	return result
@@ -167,28 +185,22 @@ func (s *TextSplitter) buildChunks(text string, positions []splitPosition) []str
 
 // findBestSplit finds the farthest split point from cursor that keeps the chunk within size.
 // Tries higher semantic levels first for better split quality.
-func (s *TextSplitter) findBestSplit(text string, positions []splitPosition, cursor int) int {
-	// Binary search for the first position after cursor
+// Returns the split offset and the prefix length at that offset.
+func (s *TextSplitter) findBestSplit(text string, positions []splitPosition, prefix []int, cursor, cursorLen int) (int, int) {
+	// The window of positions after cursor whose chunk fits within size
 	startIdx := sort.Search(len(positions), func(i int) bool {
 		return positions[i].offset > cursor
 	})
+	endIdx := sort.Search(len(positions), func(i int) bool {
+		return prefix[i]-cursorLen > s.ChunkSize
+	})
 
-	// Try each level from highest to lowest
+	// Try each level from highest to lowest, farthest position first
 	for level := LevelLineBreak; level >= LevelWord; level-- {
-		best := -1
-		for i := startIdx; i < len(positions); i++ {
-			p := positions[i]
-			if p.level < level {
-				continue
+		for i := endIdx - 1; i >= startIdx; i-- {
+			if positions[i].level >= level {
+				return positions[i].offset, prefix[i]
 			}
-			if s.LenFunc(text[cursor:p.offset]) <= s.ChunkSize {
-				best = p.offset
-			} else {
-				break // positions are ordered by offset, no point continuing
-			}
-		}
-		if best > cursor {
-			return best
 		}
 	}
 
@@ -204,31 +216,25 @@ func (s *TextSplitter) findBestSplit(text string, positions []splitPosition, cur
 	}
 	if end <= cursor {
 		end = cursor + 1
+		size = s.LenFunc(text[cursor:end])
 	}
-	return end
+	return end, cursorLen + size
 }
 
 // findOverlapStart finds where to start the next chunk for overlap.
-// It finds the earliest split position whose distance to chunkEnd is within ChunkOverlap,
-// maximizing the overlap while respecting the limit.
-func (s *TextSplitter) findOverlapStart(text string, positions []splitPosition, cursor, chunkEnd int) int {
-	// Binary search for the first position after cursor
+// It returns the index of the earliest split position whose distance to the chunk
+// end is within ChunkOverlap (maximizing the overlap), or -1 if there is none.
+func (s *TextSplitter) findOverlapStart(positions []splitPosition, prefix []int, cursor, chunkEnd, chunkEndLen int) int {
 	startIdx := sort.Search(len(positions), func(i int) bool {
 		return positions[i].offset > cursor
 	})
 
-	best := chunkEnd
-	for i := startIdx; i < len(positions); i++ {
-		p := positions[i]
-		if p.offset >= chunkEnd {
-			break
-		}
-		overlapSize := s.LenFunc(text[p.offset:chunkEnd])
-		if overlapSize <= s.ChunkOverlap {
-			// This is the earliest (farthest back) position that fits — gives max overlap
-			best = p.offset
-			break
-		}
+	idx := startIdx + sort.Search(len(positions)-startIdx, func(i int) bool {
+		return chunkEndLen-prefix[startIdx+i] <= s.ChunkOverlap
+	})
+
+	if idx < len(positions) && positions[idx].offset < chunkEnd {
+		return idx
 	}
-	return best
+	return -1
 }

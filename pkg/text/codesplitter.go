@@ -2,6 +2,7 @@ package text
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -147,16 +148,26 @@ func measureIndent(line string) (indent int, blank bool) {
 
 // mergeChunks greedily builds chunks by finding the farthest boundary that keeps
 // the chunk within size limits, preferring higher semantic levels.
+// Prefix lengths are precomputed once so size checks are O(1) instead of
+// re-measuring text from the cursor for every candidate boundary.
 func (s *CodeSplitter) mergeChunks(text string, boundaries []Boundary) []string {
+	prefix := make([]int, len(boundaries))
+	last, lastLen := 0, 0
+	for i, b := range boundaries {
+		lastLen += s.LenFunc(text[last:b.Start])
+		prefix[i] = lastLen
+		last = b.Start
+	}
+	totalLen := lastLen + s.LenFunc(text[last:])
+
 	var result []string
-	cursor := 0
+	cursor, cursorLen := 0, 0
 	textLen := len(text)
 
 	for cursor < textLen {
-		// Find all boundary positions after cursor
-		remaining := text[cursor:]
-		if s.LenFunc(remaining) <= s.ChunkSize {
+		if totalLen-cursorLen <= s.ChunkSize {
 			// Everything left fits in one chunk
+			remaining := text[cursor:]
 			if s.Trim {
 				remaining = strings.TrimSpace(remaining)
 			}
@@ -166,48 +177,22 @@ func (s *CodeSplitter) mergeChunks(text string, boundaries []Boundary) []string 
 			break
 		}
 
-		// Find the best split point: the farthest boundary that keeps chunk within size
-		bestEnd := -1
+		// The window of boundaries after cursor whose chunk fits within size
+		startIdx := sort.Search(len(boundaries), func(i int) bool {
+			return boundaries[i].Start > cursor
+		})
+		endIdx := sort.Search(len(boundaries), func(i int) bool {
+			return prefix[i]-cursorLen > s.ChunkSize
+		})
 
-		// Determine the max semantic level available
-		maxLevel := SemanticLevel(0)
-		for _, b := range boundaries {
-			if b.Start > cursor && b.Level > maxLevel {
-				maxLevel = b.Level
-			}
-		}
-
-		// Try from highest semantic level down
-		for level := maxLevel; level >= LevelLineBreak; level-- {
-			// Collect boundary positions at this level or higher
-			var positions []int
-			for _, b := range boundaries {
-				if b.Start > cursor && b.Level >= level {
-					positions = append(positions, b.Start)
-				}
-			}
-
-			if len(positions) == 0 {
-				continue
-			}
-
-			// Binary search for the farthest position that fits
-			low, high := 0, len(positions)-1
-			found := -1
-			for low <= high {
-				mid := (low + high) / 2
-				chunk := text[cursor:positions[mid]]
-				if s.LenFunc(chunk) <= s.ChunkSize {
-					found = positions[mid]
-					low = mid + 1
-				} else {
-					high = mid - 1
-				}
-			}
-
-			if found > cursor {
-				bestEnd = found
-				break
+		// Pick the farthest boundary at the highest semantic level in the window
+		bestEnd, bestLen := -1, 0
+		bestLevel := SemanticLevel(-1)
+		for i := startIdx; i < endIdx; i++ {
+			if boundaries[i].Level >= bestLevel {
+				bestLevel = boundaries[i].Level
+				bestEnd = boundaries[i].Start
+				bestLen = prefix[i]
 			}
 		}
 
@@ -224,8 +209,9 @@ func (s *CodeSplitter) mergeChunks(text string, boundaries []Boundary) []string 
 			}
 			if end <= cursor {
 				end = cursor + 1
+				size = s.LenFunc(text[cursor:end])
 			}
-			bestEnd = end
+			bestEnd, bestLen = end, cursorLen+size
 		}
 
 		chunk := text[cursor:bestEnd]
@@ -238,24 +224,15 @@ func (s *CodeSplitter) mergeChunks(text string, boundaries []Boundary) []string 
 
 		// Handle overlap: find the earliest boundary whose distance to bestEnd fits in ChunkOverlap
 		if s.ChunkOverlap > 0 && bestEnd < textLen {
-			overlapStart := bestEnd
-			for _, b := range boundaries {
-				if b.Start <= cursor || b.Start >= bestEnd {
-					continue
-				}
-				if s.LenFunc(text[b.Start:bestEnd]) <= s.ChunkOverlap {
-					overlapStart = b.Start
-					break
-				}
+			idx := startIdx + sort.Search(len(boundaries)-startIdx, func(i int) bool {
+				return bestLen-prefix[startIdx+i] <= s.ChunkOverlap
+			})
+			if idx < len(boundaries) && boundaries[idx].Start < bestEnd {
+				cursor, cursorLen = boundaries[idx].Start, prefix[idx]
+				continue
 			}
-			if overlapStart > cursor && overlapStart < bestEnd {
-				cursor = overlapStart
-			} else {
-				cursor = bestEnd
-			}
-		} else {
-			cursor = bestEnd
 		}
+		cursor, cursorLen = bestEnd, bestLen
 	}
 
 	return result

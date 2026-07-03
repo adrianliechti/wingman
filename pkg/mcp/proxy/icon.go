@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -129,7 +130,12 @@ func resolveIcon(hc *http.Client, icon mcp.Icon) (string, []byte, bool) {
 			return mimeType, data, true
 		}
 
-		return mimeType, []byte(encoded), true
+		decoded, err := url.PathUnescape(encoded)
+		if err != nil {
+			return "", nil, false
+		}
+
+		return mimeType, []byte(decoded), true
 	}
 
 	resp, err := hc.Get(icon.Source)
