@@ -78,7 +78,7 @@ type routerContext struct {
 func (cfg *Config) registerRouters(f *configFile) error {
 	var configs map[string]routerConfig
 
-	if err := f.Routers.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Routers, &configs); err != nil {
 		return err
 	}
 

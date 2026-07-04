@@ -55,7 +55,7 @@ type summarizerContext struct {
 func (cfg *Config) registerSummarizers(f *configFile) error {
 	var configs map[string]summarizerConfig
 
-	if err := f.Summarizers.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Summarizers, &configs); err != nil {
 		return err
 	}
 

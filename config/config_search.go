@@ -52,7 +52,7 @@ type searcherContext struct {
 func (cfg *Config) registerSearchers(f *configFile) error {
 	var configs map[string]searcherConfig
 
-	if err := f.Searchers.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Searchers, &configs); err != nil {
 		return err
 	}
 

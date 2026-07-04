@@ -54,7 +54,7 @@ type agentContext struct {
 func (cfg *Config) registerAgents(f *configFile) error {
 	var configs map[string]agentConfig
 
-	if err := f.Agents.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Agents, &configs); err != nil {
 		return err
 	}
 

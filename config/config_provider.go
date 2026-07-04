@@ -17,7 +17,7 @@ func (cfg *Config) registerProviders(f *configFile) error {
 	for _, p := range f.Providers {
 		models := map[string]modelConfig{}
 
-		if err := p.Models.Decode(&models); err != nil {
+		if err := decodeStrict(&p.Models, &models); err != nil {
 			var ids []string
 
 			if err := p.Models.Decode(&ids); err != nil {

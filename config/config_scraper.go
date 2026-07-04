@@ -52,7 +52,7 @@ type scraperContext struct {
 func (cfg *Config) registerScrapers(f *configFile) error {
 	var configs map[string]scraperConfig
 
-	if err := f.Scrapers.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Scrapers, &configs); err != nil {
 		return err
 	}
 

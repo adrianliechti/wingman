@@ -73,7 +73,7 @@ type researcherContext struct {
 func (cfg *Config) registerResearchers(f *configFile) error {
 	var configs map[string]researcherConfig
 
-	if err := f.Researchers.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Researchers, &configs); err != nil {
 		return err
 	}
 

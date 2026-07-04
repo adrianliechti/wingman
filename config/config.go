@@ -153,6 +153,23 @@ type configFile struct {
 	MCPs yaml.Node `yaml:"mcps"`
 }
 
+func decodeStrict(node *yaml.Node, out any) error {
+	if node.IsZero() {
+		return nil
+	}
+
+	data, err := yaml.Marshal(node)
+
+	if err != nil {
+		return err
+	}
+
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+
+	return decoder.Decode(out)
+}
+
 func parseFile(path string) (*configFile, error) {
 	data, err := os.ReadFile(path)
 

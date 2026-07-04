@@ -87,7 +87,7 @@ type toolContext struct {
 func (cfg *Config) registerTools(f *configFile) error {
 	var configs map[string]toolConfig
 
-	if err := f.Tools.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Tools, &configs); err != nil {
 		return err
 	}
 

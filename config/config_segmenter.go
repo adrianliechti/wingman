@@ -55,7 +55,7 @@ type segmenterContext struct {
 func (cfg *Config) registerSegmenters(f *configFile) error {
 	var configs map[string]segmenterConfig
 
-	if err := f.Segmenters.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Segmenters, &configs); err != nil {
 		return err
 	}
 

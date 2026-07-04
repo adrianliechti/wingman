@@ -57,7 +57,7 @@ type translatorContext struct {
 func (cfg *Config) registerTranslators(f *configFile) error {
 	var configs map[string]translatorConfig
 
-	if err := f.Translators.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Translators, &configs); err != nil {
 		return err
 	}
 

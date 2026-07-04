@@ -58,7 +58,7 @@ type extractorContext struct {
 func (cfg *Config) registerExtractors(f *configFile) error {
 	var configs map[string]extractorConfig
 
-	if err := f.Extractors.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Extractors, &configs); err != nil {
 		return err
 	}
 

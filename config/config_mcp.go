@@ -67,7 +67,7 @@ type mcpContext struct {
 func (cfg *Config) registerMCP(f *configFile) error {
 	var configs map[string]mcpConfig
 
-	if err := f.MCPs.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.MCPs, &configs); err != nil {
 		return err
 	}
 

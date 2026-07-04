@@ -52,7 +52,7 @@ type guardContext struct {
 func (cfg *Config) registerGuards(f *configFile) error {
 	var configs map[string]guardConfig
 
-	if err := f.Guards.Decode(&configs); err != nil {
+	if err := decodeStrict(&f.Guards, &configs); err != nil {
 		return err
 	}
 
