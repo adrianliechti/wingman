@@ -6,7 +6,7 @@ import (
 )
 
 // lruCache is a small, fixed-capacity, concurrency-safe map of request
-// fingerprint to chosen candidate index.
+// fingerprint to routing decision.
 type lruCache struct {
 	mu sync.Mutex
 
@@ -18,7 +18,7 @@ type lruCache struct {
 
 type lruEntry struct {
 	key   uint64
-	value int
+	value decision
 }
 
 func newLRU(capacity int) *lruCache {
@@ -34,7 +34,7 @@ func newLRU(capacity int) *lruCache {
 	}
 }
 
-func (c *lruCache) get(key uint64) (int, bool) {
+func (c *lruCache) get(key uint64) (decision, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -43,10 +43,10 @@ func (c *lruCache) get(key uint64) (int, bool) {
 		return el.Value.(*lruEntry).value, true
 	}
 
-	return 0, false
+	return decision{}, false
 }
 
-func (c *lruCache) put(key uint64, value int) {
+func (c *lruCache) put(key uint64, value decision) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

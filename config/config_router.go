@@ -44,9 +44,10 @@ type routerConfig struct {
 	// purely local.
 	Embedder string `yaml:"embedder"`
 
-	// Threshold is the minimum cosine similarity for the embedding tier to
-	// resolve a pick (default 0.75). Only used when Embedder is set.
-	Threshold float64 `yaml:"threshold"`
+	// Margin is the minimum cosine-similarity advantage the best candidate
+	// must hold over the runner-up for the embedding tier to resolve a pick
+	// (default 0.05). Only used when Embedder is set.
+	Margin float64 `yaml:"margin"`
 
 	// Completer is the model id of a completer (resolved via cfg.Completer, like
 	// "model" elsewhere). The classifier uses it as the optional LLM-as-judge
@@ -91,14 +92,6 @@ func (cfg *Config) registerRouters(f *configFile) error {
 		}
 
 		if strings.ToLower(config.Type) == "classifier" {
-			completer, err := cfg.createClassifier(config)
-
-			if err != nil {
-				return err
-			}
-
-			cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))
-
 			continue
 		}
 
@@ -125,6 +118,27 @@ func (cfg *Config) registerRouters(f *configFile) error {
 		}
 
 		completer, err := createRouter(config, context)
+
+		if err != nil {
+			return err
+		}
+
+		cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))
+	}
+
+	// Classifiers register last, so their candidates can reference sibling
+	// routers (e.g. an adaptive load-balancer as a candidate) regardless of
+	// document order.
+	for _, node := range f.Routers.Content {
+		id := node.Value
+
+		config, ok := configs[node.Value]
+
+		if !ok || strings.ToLower(config.Type) != "classifier" {
+			continue
+		}
+
+		completer, err := cfg.createClassifier(config)
 
 		if err != nil {
 			return err
@@ -182,7 +196,7 @@ func (cfg *Config) createClassifier(config routerConfig) (provider.Completer, er
 	}
 
 	options := classifier.Options{
-		Threshold:    config.Threshold,
+		Margin:       config.Margin,
 		DefaultIndex: defaultIndex,
 	}
 

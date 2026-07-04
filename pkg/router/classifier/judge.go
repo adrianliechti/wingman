@@ -6,12 +6,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 const (
-	judgeTimeout   = 3 * time.Second
+	judgeTimeout   = 10 * time.Second
 	maxJudgeChars  = 1500
 	judgeSchemaKey = "model_index"
 )
@@ -26,7 +27,7 @@ var judgeSchema = &provider.Schema{
 		"properties": map[string]any{
 			judgeSchemaKey: map[string]any{
 				"type":        "integer",
-				"description": "the index of the cheapest candidate model that can handle the task well",
+				"description": "the index of the chosen candidate model",
 			},
 		},
 
@@ -35,18 +36,23 @@ var judgeSchema = &provider.Schema{
 	},
 }
 
-// judgePick asks the judge model to choose among the eligible candidates. It is
-// bounded by a short timeout and never errors: any failure (timeout, transport,
-// bad JSON, out-of-range index) returns -1 and the caller keeps its prior pick.
+// judgePick asks the judge model to choose among the eligible candidates. The
+// options are renumbered 0..n-1 (models reliably answer with the ordinal
+// position, so gaps in the original indices invite off-by-position picks) and
+// each line carries the candidate's relative cost, since the judge is asked
+// for the cheapest sufficient option. Reasoning effort is pinned to minimal so
+// the pick fits its timeout. It never errors: any failure (timeout, transport,
+// bad JSON, out-of-range index) returns -1 and the caller keeps its prior
+// pick.
 func (c *Completer) judgePick(ctx context.Context, s signals, eligible []int) int {
-	if c.judge == nil {
+	if c.judge == nil || s.queryText == "" {
 		return -1
 	}
 
 	var prompt strings.Builder
 
 	prompt.WriteString("Task:\n")
-	prompt.WriteString(truncate(s.queryText, maxJudgeChars))
+	prompt.WriteString(truncateText(s.queryText, maxJudgeChars))
 	prompt.WriteString("\n\n")
 
 	if s.hasImage {
@@ -59,21 +65,33 @@ func (c *Completer) judgePick(ctx context.Context, s signals, eligible []int) in
 
 	prompt.WriteString("\nCandidate models:\n")
 
-	for _, i := range eligible {
+	for k, i := range eligible {
+		card := c.candidates[i].Card
+
+		if card == "" {
+			card = c.candidates[i].Model
+		}
+
 		prompt.WriteString("[")
-		prompt.WriteString(strconv.Itoa(i))
+		prompt.WriteString(strconv.Itoa(k))
 		prompt.WriteString("] ")
-		prompt.WriteString(c.candidates[i].Card)
-		prompt.WriteByte('\n')
+		prompt.WriteString(card)
+		prompt.WriteString(" (relative cost: ")
+		prompt.WriteString(strconv.FormatFloat(c.candidates[i].Cost, 'f', -1, 64))
+		prompt.WriteString(")\n")
 	}
 
 	messages := []provider.Message{
-		provider.SystemMessage("You route a task to a model. Choose the cheapest candidate that can handle the task well and reply with its index."),
+		provider.SystemMessage("You route a task to a model. Choose the lowest-cost candidate that can still handle the task well and reply with its index."),
 		provider.UserMessage(prompt.String()),
 	}
 
 	options := &provider.CompleteOptions{
 		Schema: judgeSchema,
+
+		ReasoningOptions: &provider.ReasoningOptions{
+			Effort: provider.EffortMinimal,
+		},
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, judgeTimeout)
@@ -105,17 +123,22 @@ func (c *Completer) judgePick(ctx context.Context, s signals, eligible []int) in
 		return -1
 	}
 
-	if !containsInt(eligible, data.ModelIndex) {
+	if data.ModelIndex < 0 || data.ModelIndex >= len(eligible) {
 		return -1
 	}
 
-	return data.ModelIndex
+	return eligible[data.ModelIndex]
 }
 
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+// truncateText caps s at n bytes without splitting a UTF-8 rune.
+func truncateText(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
 
-	return s
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+
+	return s[:n]
 }

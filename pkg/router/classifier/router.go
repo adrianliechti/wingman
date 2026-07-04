@@ -8,8 +8,8 @@
 //
 // With no embedder and no judge configured it is a pure local heuristic router,
 // adding zero network latency to the hot path — the intended default for
-// high-volume, single-shot traffic. Every step fails safe to a default
-// candidate and can never break a request.
+// high-volume, single-shot traffic. Every request carries an eligible fallback
+// candidate, so a single bad backend can never break it.
 package classifier
 
 import (
@@ -44,9 +44,11 @@ type Options struct {
 	// Embedder enables Tier 2 (embedding similarity). Nil disables it.
 	Embedder provider.Embedder
 
-	// Threshold is the minimum cosine similarity for the embedding tier to
-	// resolve a pick (default 0.75). Only used when Embedder is set.
-	Threshold float64
+	// Margin is the minimum cosine-similarity advantage the best candidate
+	// must hold over the runner-up for the embedding tier to resolve a pick
+	// (default 0.05). A relative margin transfers across embedding models,
+	// unlike an absolute similarity threshold. Only used when Embedder is set.
+	Margin float64
 
 	// Judge enables Tier 3 (LLM-as-judge). Nil disables it.
 	Judge provider.Completer
@@ -56,22 +58,30 @@ type Options struct {
 }
 
 const (
-	defaultThreshold  = 0.75
+	defaultMargin     = 0.05
 	decisionCacheSize = 1024
 
-	// ambiguityMargin is how close (in difficulty units) the estimated task
-	// difficulty must be to a candidate's MaxDifficulty boundary before the
-	// heuristic is considered uncertain and the request escalates.
+	// ambiguityMargin is the assumed error of the difficulty estimate. The
+	// heuristic is uncertain only when shifting the score by this much would
+	// change the picked candidate; a score near a boundary that both sides
+	// resolve to the same model needs no escalation.
 	ambiguityMargin = 0.4
 )
+
+// decision is a routing outcome: the picked candidate and the eligible
+// fallback to stream from when the pick fails before producing output.
+type decision struct {
+	index    int
+	fallback int
+}
 
 type Completer struct {
 	candidates []Candidate
 
 	defaultIndex int
 
-	embedder  provider.Embedder
-	threshold float64
+	embedder provider.Embedder
+	margin   float64
 
 	judge provider.Completer
 
@@ -92,9 +102,9 @@ func NewCompleter(candidates []Candidate, opts Options) (*Completer, error) {
 		def = 0
 	}
 
-	thresh := opts.Threshold
-	if thresh <= 0 {
-		thresh = defaultThreshold
+	margin := opts.Margin
+	if margin <= 0 {
+		margin = defaultMargin
 	}
 
 	c := &Completer{
@@ -102,8 +112,8 @@ func NewCompleter(candidates []Candidate, opts Options) (*Completer, error) {
 
 		defaultIndex: def,
 
-		embedder:  opts.Embedder,
-		threshold: thresh,
+		embedder: opts.Embedder,
+		margin:   margin,
 
 		judge: opts.Judge,
 
@@ -112,23 +122,32 @@ func NewCompleter(candidates []Candidate, opts Options) (*Completer, error) {
 
 	if opts.Embedder != nil {
 		c.centroids = newCentroidCache(candidates, opts.Embedder)
+
+		// Pre-warm the centroids off the request path, so the first ambiguous
+		// request doesn't pay the example-embedding latency.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), warmupTimeout)
+			defer cancel()
+
+			c.centroids.get(ctx)
+		}()
 	}
 
 	return c, nil
 }
 
 func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
-	index := c.classify(ctx, messages, options)
+	d := c.classify(ctx, messages, options)
 
 	return func(yield func(*provider.Completion, error) bool) {
 		emitted := false
 
-		for completion, err := range c.candidates[index].Completer.Complete(ctx, messages, options) {
-			// A hard failure before any output is produced falls back once to
-			// the default candidate, so a single bad backend can't break the
-			// request. Once output has streamed, errors propagate normally.
-			if err != nil && !emitted && index != c.defaultIndex {
-				for completion, err := range c.candidates[c.defaultIndex].Completer.Complete(ctx, messages, options) {
+		for completion, err := range c.candidates[d.index].Completer.Complete(ctx, messages, options) {
+			// A hard failure before any output is produced falls back once, so
+			// a single bad backend can't break the request. Once output has
+			// streamed, errors propagate normally.
+			if err != nil && !emitted && d.fallback != d.index {
+				for completion, err := range c.candidates[d.fallback].Completer.Complete(ctx, messages, options) {
 					if !yield(completion, err) {
 						return
 					}
@@ -137,7 +156,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				return
 			}
 
-			if completion != nil {
+			// Only meaningful output counts as emitted: providers yield a
+			// role-only delta as the first stream chunk, and a stream that
+			// dies right after it should still fall back.
+			if completion != nil && completion.Message != nil && len(completion.Message.Content) > 0 {
 				emitted = true
 			}
 
@@ -145,26 +167,39 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				return
 			}
 		}
+
+		// A stream that completed without any content is an empty answer —
+		// treat it like a failure and retry on the fallback.
+		if !emitted && d.fallback != d.index {
+			for completion, err := range c.candidates[d.fallback].Completer.Complete(ctx, messages, options) {
+				if !yield(completion, err) {
+					return
+				}
+			}
+		}
 	}
 }
 
-// classify resolves the chosen candidate index for a request, caching the
-// decision so a task's own tool round-trips don't re-run the cascade.
-func (c *Completer) classify(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) int {
+// classify resolves the routing decision for a request, caching it so a task's
+// own tool round-trips don't re-run the cascade.
+func (c *Completer) classify(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) decision {
 	s := extractSignals(messages, options)
 	fp := fingerprint(s)
 
-	if index, ok := c.decisionCache.get(fp); ok {
-		return index
+	// A cached decision must still satisfy the hard constraints: the
+	// fingerprint is keyed on the user instruction, but tool round-trips grow
+	// the context and can push it past a cached candidate's MaxContext.
+	if d, ok := c.decisionCache.get(fp); ok && isEligible(c.candidates[d.index], s) && isEligible(c.candidates[d.fallback], s) {
+		return d
 	}
 
-	index := c.decide(ctx, s)
-	c.decisionCache.put(fp, index)
+	d := c.decide(ctx, s)
+	c.decisionCache.put(fp, d)
 
-	return index
+	return d
 }
 
-func (c *Completer) decide(ctx context.Context, s signals) int {
+func (c *Completer) decide(ctx context.Context, s signals) decision {
 	// Tier 1: hard-constraint prefilter.
 	eligible := make([]int, 0, len(c.candidates))
 
@@ -175,54 +210,81 @@ func (c *Completer) decide(ctx context.Context, s signals) int {
 	}
 
 	if len(eligible) == 0 {
-		return c.defaultIndex
+		return decision{c.defaultIndex, c.defaultIndex}
 	}
 
 	if len(eligible) == 1 {
-		return eligible[0]
+		return decision{eligible[0], eligible[0]}
 	}
 
 	// Tier 1: difficulty estimate + cheapest-good-enough pick.
 	score := difficultyScore(s)
-	level := roundLevel(score)
 
-	pick := c.cheapestClearing(eligible, level)
+	pick := c.cheapestClearing(eligible, roundLevel(score))
 
-	confident := true
-
-	for _, i := range eligible {
-		boundary := float64(c.candidates[i].MaxDifficulty) + 0.5
-
-		if abs(score-boundary) < ambiguityMargin {
-			confident = false
-			break
-		}
-	}
+	// Pick stability decides confidence: escalation buys nothing when the
+	// score, shifted by the estimate's assumed error in either direction,
+	// still resolves to the same candidate.
+	confident := c.cheapestClearing(eligible, roundLevel(score-ambiguityMargin)) == pick &&
+		c.cheapestClearing(eligible, roundLevel(score+ambiguityMargin)) == pick
 
 	if confident || (c.embedder == nil && c.judge == nil) {
-		return pick
+		return c.resolve(eligible, pick)
 	}
 
-	// Tier 2: embedding similarity.
+	// Tier 2: embedding similarity. Only a resolved pick (best clears the
+	// runner-up by the margin) may override the heuristic — an indecisive
+	// argmax is noise, not signal.
 	if c.embedder != nil {
-		if best, resolved := c.embedPick(ctx, s, eligible); best >= 0 {
-			if resolved || c.judge == nil {
-				return best
-			}
-
-			pick = best
+		if best, resolved := c.embedPick(ctx, s, eligible); resolved {
+			return c.resolve(eligible, best)
 		}
 	}
 
 	// Tier 3: LLM-as-judge (optional). The decision is cached by classify, so a
 	// task's tool round-trips don't re-issue this call.
 	if c.judge != nil {
-		if k := c.judgePick(ctx, s, eligible); k >= 0 && containsInt(eligible, k) {
-			return k
+		if k := c.judgePick(ctx, s, eligible); k >= 0 {
+			return c.resolve(eligible, k)
 		}
 	}
 
-	return pick
+	return c.resolve(eligible, pick)
+}
+
+// resolve pairs a pick with its fallback: the default candidate when it is
+// eligible and not already the pick, otherwise the most capable other eligible
+// candidate (ties broken by cost). With no alternative the pick backs itself.
+func (c *Completer) resolve(eligible []int, index int) decision {
+	if index != c.defaultIndex {
+		for _, i := range eligible {
+			if i == c.defaultIndex {
+				return decision{index, c.defaultIndex}
+			}
+		}
+	}
+
+	fallback := index
+
+	for _, i := range eligible {
+		if i == index {
+			continue
+		}
+
+		if fallback == index {
+			fallback = i
+			continue
+		}
+
+		ci := c.candidates[i]
+		cf := c.candidates[fallback]
+
+		if ci.MaxDifficulty > cf.MaxDifficulty || (ci.MaxDifficulty == cf.MaxDifficulty && ci.Cost < cf.Cost) {
+			fallback = i
+		}
+	}
+
+	return decision{index, fallback}
 }
 
 // cheapestClearing returns the cheapest eligible candidate whose MaxDifficulty
@@ -257,22 +319,4 @@ func (c *Completer) cheapestClearing(eligible []int, level int) int {
 	}
 
 	return best
-}
-
-func containsInt(xs []int, v int) bool {
-	for _, x := range xs {
-		if x == v {
-			return true
-		}
-	}
-
-	return false
-}
-
-func abs(x float64) float64 {
-	if x < 0 {
-		return -x
-	}
-
-	return x
 }
