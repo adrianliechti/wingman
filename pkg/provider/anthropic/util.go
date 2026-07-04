@@ -115,6 +115,67 @@ func isLegacyModel(model string) bool {
 	return false
 }
 
+// AlwaysThinkingModels reject an explicit `thinking: {type: "disabled"}` —
+// thinking cannot be turned off on these models.
+var AlwaysThinkingModels = []string{
+	"fable-5",
+	"mythos-5",
+	"mythos-preview",
+}
+
+func isAlwaysThinkingModel(model string) bool {
+	model = strings.ToLower(model)
+
+	for _, p := range AlwaysThinkingModels {
+		if strings.Contains(model, p) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// NoSamplingModels reject temperature/top_p/top_k outright, regardless of
+// thinking state. Claude Sonnet 5 only rejects non-default values, but since
+// omitting the field has the same effect as passing the default, it is
+// treated the same way here rather than guessing what "default" means.
+var NoSamplingModels = []string{
+	"fable-5",
+	"mythos-5",
+	"mythos-preview",
+
+	"opus-4-7",
+	"opus-4-8",
+
+	"sonnet-5",
+}
+
+func isNoSamplingModel(model string) bool {
+	model = strings.ToLower(model)
+
+	for _, p := range NoSamplingModels {
+		if strings.Contains(model, p) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// disabledThinking returns the thinking config that explicitly turns
+// thinking off. Always-thinking models reject `{type: "disabled"}` outright,
+// so for those (and legacy models, which don't take a thinking config at
+// all) the field is left omitted instead.
+func disabledThinking(model string) anthropic.BetaThinkingConfigParamUnion {
+	if isLegacyModel(model) || isAlwaysThinkingModel(model) {
+		return anthropic.BetaThinkingConfigParamUnion{}
+	}
+
+	return anthropic.BetaThinkingConfigParamUnion{
+		OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
+	}
+}
+
 func ensureAdditionalPropertiesFalse(schema map[string]any) map[string]any {
 	if schema == nil {
 		return schema

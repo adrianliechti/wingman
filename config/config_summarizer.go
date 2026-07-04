@@ -2,16 +2,14 @@ package config
 
 import (
 	"errors"
-	"strings"
-
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/summarizer"
 	"github.com/adrianliechti/wingman/pkg/summarizer"
 	"github.com/adrianliechti/wingman/pkg/summarizer/custom"
-
 )
 
 func (cfg *Config) RegisterSummarizer(id string, p summarizer.Provider) {
@@ -46,7 +44,6 @@ type summarizerConfig struct {
 
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
-
 }
 
 type summarizerContext struct {
@@ -119,6 +116,10 @@ func createSummarizer(cfg summarizerConfig, context summarizerContext) (summariz
 }
 
 func llmSummarizer(cfg summarizerConfig, context summarizerContext) (summarizer.Provider, error) {
+	if context.Completer == nil {
+		return nil, errors.New("summarizer model not found: " + cfg.Model)
+	}
+
 	return adapter.FromCompleter(context.Completer), nil
 }
 

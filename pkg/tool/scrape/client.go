@@ -53,7 +53,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        ToolName,
-			Description: "Fetch the content of a public web page (HTML/text/PDF) and return its text so the assistant can quote and cite it.",
+			Description: "Fetch a public web page (HTML/text/PDF) and return its extracted text so the assistant can quote and cite it. Long pages are truncated; a trailing notice then gives the start_index to pass to read the next part.",
 
 			Parameters: map[string]any{
 				"type": "object",
@@ -62,6 +62,11 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 					"url": map[string]any{
 						"type":        "string",
 						"description": "The absolute URL to fetch. Must include scheme (http or https).",
+					},
+					"start_index": map[string]any{
+						"type":        "integer",
+						"minimum":     0,
+						"description": "Character offset to continue reading a page whose previous fetch ended with a truncation notice. Omit for a first fetch.",
 					},
 				},
 
@@ -91,12 +96,17 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, ErrURLNotAllowed
 	}
 
+	start := 0
+	if n, ok := parameters["start_index"].(float64); ok && n > 0 {
+		start = int(n)
+	}
+
 	doc, err := c.scraper.Scrape(ctx, raw, &scraper.ScrapeOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	text := truncate(doc.Text, c.maxChars)
+	text := paginate(doc.Text, start, c.maxChars)
 
 	return formatDocument(raw, text), nil
 }
@@ -110,17 +120,26 @@ func (c *Client) Result(name string, value any) provider.ToolResult {
 	}
 }
 
-// truncate limits text to at most max characters (runes), so multi-byte
-// characters are never split mid-rune. A non-positive max means no limit.
-func truncate(text string, max int) string {
-	if max <= 0 {
-		return text
-	}
+// paginate returns a window of at most max characters (runes) starting at
+// start, so multi-byte characters are never split mid-rune. A truncated
+// window ends with a notice telling the model how to continue. A
+// non-positive max means no limit.
+func paginate(text string, start, max int) string {
 	runes := []rune(text)
-	if len(runes) <= max {
-		return text
+	total := len(runes)
+
+	if start >= total {
+		return fmt.Sprintf("[start_index %d is beyond the end of the page (%d characters total)]", start, total)
 	}
-	return string(runes[:max])
+	if start > 0 {
+		runes = runes[start:]
+	}
+	if max <= 0 || len(runes) <= max {
+		return string(runes)
+	}
+
+	end := start + max
+	return string(runes[:max]) + fmt.Sprintf("\n\n[Truncated: showing characters %d-%d of %d. Fetch again with start_index=%d to continue.]", start, end, total, end)
 }
 
 func formatDocument(source, text string) string {

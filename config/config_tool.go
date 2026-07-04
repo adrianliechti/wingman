@@ -22,12 +22,12 @@ import (
 	"github.com/adrianliechti/wingman/pkg/otel"
 )
 
-func (c *Config) RegisterTool(id string, p tool.Provider) {
-	if c.tools == nil {
-		c.tools = make(map[string]tool.Provider)
+func (cfg *Config) RegisterTool(id string, p tool.Provider) {
+	if cfg.tools == nil {
+		cfg.tools = make(map[string]tool.Provider)
 	}
 
-	c.tools[id] = p
+	cfg.tools[id] = p
 }
 
 func (cfg *Config) Tools() []tool.Provider {

@@ -44,10 +44,44 @@ func TestExecute_FetchesAndTruncates(t *testing.T) {
 	if !strings.HasPrefix(text, "Source: https://example.com/page\n\n") {
 		t.Errorf("missing source header in:\n%s", text)
 	}
-	// 50 chars of body + "Source: https://example.com/page\n\n" prefix
-	bodyLen := len(text) - len("Source: https://example.com/page\n\n")
-	if bodyLen != 50 {
-		t.Errorf("body length = %d, want 50", bodyLen)
+	if !strings.Contains(text, strings.Repeat("x", 50)+"\n\n[Truncated: showing characters 0-50 of 1000. Fetch again with start_index=50 to continue.]") {
+		t.Errorf("missing truncated body with notice in:\n%s", text)
+	}
+}
+
+func TestExecute_StartIndexContinues(t *testing.T) {
+	long := strings.Repeat("a", 50) + strings.Repeat("b", 50)
+	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: long}}, WithMaxChars(50))
+
+	got, err := c.Execute(context.Background(), ToolName, map[string]any{
+		"url":         "https://example.com/page",
+		"start_index": float64(50),
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	text := got.(string)
+	if !strings.Contains(text, strings.Repeat("b", 50)) {
+		t.Errorf("missing continuation in:\n%s", text)
+	}
+	if strings.Contains(text, "Truncated") {
+		t.Errorf("unexpected truncation notice in:\n%s", text)
+	}
+}
+
+func TestExecute_StartIndexBeyondEnd(t *testing.T) {
+	c, _ := New(&fakeScraper{doc: &scraper.Document{Text: "short"}})
+
+	got, err := c.Execute(context.Background(), ToolName, map[string]any{
+		"url":         "https://example.com/page",
+		"start_index": float64(100),
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(got.(string), "beyond the end of the page (5 characters total)") {
+		t.Errorf("got:\n%s", got)
 	}
 }
 

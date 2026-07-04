@@ -72,13 +72,13 @@ func (s *Server) refresh() {
 func (s *Server) refreshTools() error {
 	ctx := context.Background()
 
-	var resultErrr error
+	var resultErr error
 
 	for _, p := range s.tools {
 		tools, err := p.Tools(ctx)
 
 		if err != nil {
-			resultErrr = errors.Join(resultErrr, err)
+			resultErr = errors.Join(resultErr, err)
 			continue
 		}
 
@@ -88,13 +88,18 @@ func (s *Server) refreshTools() error {
 			schema := new(jsonschema.Schema)
 
 			if err := schema.UnmarshalJSON(data); err != nil {
-				resultErrr = errors.Join(resultErrr, err)
+				resultErr = errors.Join(resultErr, err)
 				continue
 			}
 
 			handler := func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				var args map[string]any
-				json.Unmarshal(req.Params.Arguments, &args)
+
+				if len(req.Params.Arguments) > 0 {
+					if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+						return nil, err
+					}
+				}
 
 				result, err := p.Execute(ctx, t.Name, args)
 
@@ -128,16 +133,14 @@ func (s *Server) refreshTools() error {
 				}
 			}
 
-			tool := &mcp.Tool{
+			s.server.AddTool(&mcp.Tool{
 				Name:        t.Name,
 				Description: t.Description,
 
 				InputSchema: schema,
-			}
-
-			s.server.AddTool(tool, handler)
+			}, handler)
 		}
 	}
 
-	return resultErrr
+	return resultErr
 }

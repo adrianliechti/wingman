@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+option go_package = "github.com/adrianliechti/wingman/pkg/guard/custom;custom";
+
+package guard;
+
+service Guard {
+  rpc Check (CheckRequest) returns (CheckResponse) {}
+}
+
+message CheckRequest {
+  string text = 1;
+}
+
+message CheckResponse {
+  bool flagged = 1;
+
+  repeated Category categories = 2;
+}
+
+message Category {
+  string name = 1;
+  double score = 2;
+}

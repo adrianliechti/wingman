@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/searcher"
 )
@@ -155,6 +156,41 @@ func TestExecute_MissingQuery(t *testing.T) {
 	c, _ := New(&fakeSearcher{})
 	if _, err := c.Execute(context.Background(), ToolName, map[string]any{}); err == nil {
 		t.Fatal("expected error for missing query")
+	}
+}
+
+func TestExecute_MaxResultsOverridesLimit(t *testing.T) {
+	f := &fakeSearcher{}
+	c, _ := New(f, WithLimit(5))
+
+	if _, err := c.Execute(context.Background(), ToolName, map[string]any{
+		"query":       "go release",
+		"max_results": float64(8),
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if f.options.Limit == nil || *f.options.Limit != 8 {
+		t.Errorf("limit = %v, want 8", f.options.Limit)
+	}
+
+	if _, err := c.Execute(context.Background(), ToolName, map[string]any{
+		"query":       "go release",
+		"max_results": float64(50),
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if f.options.Limit == nil || *f.options.Limit != 10 {
+		t.Errorf("limit = %v, want clamped to 10", f.options.Limit)
+	}
+}
+
+func TestFormatResults_Timestamp(t *testing.T) {
+	ts := time.Date(2026, 5, 1, 9, 30, 0, 0, time.UTC)
+	got := formatResults([]searcher.Result{
+		{Source: "https://go.dev/x", Title: "Go", Content: "body", Timestamp: &ts},
+	})
+	if !strings.Contains(got, "— 2026-05-01\n") {
+		t.Errorf("missing timestamp in:\n%s", got)
 	}
 }
 

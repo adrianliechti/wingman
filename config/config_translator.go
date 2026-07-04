@@ -2,9 +2,8 @@ package config
 
 import (
 	"errors"
-	"strings"
-
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -13,7 +12,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/translator/azure"
 	"github.com/adrianliechti/wingman/pkg/translator/custom"
 	"github.com/adrianliechti/wingman/pkg/translator/deepl"
-
 )
 
 func (cfg *Config) RegisterTranslator(id string, p translator.Provider) {
@@ -48,7 +46,6 @@ type translatorConfig struct {
 
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
-
 }
 
 type translatorContext struct {
@@ -127,6 +124,10 @@ func createTranslator(cfg translatorConfig, context translatorContext) (translat
 }
 
 func llmTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
+	if context.Completer == nil {
+		return nil, errors.New("translator model not found: " + cfg.Model)
+	}
+
 	return adapter.FromCompleter(context.Completer), nil
 }
 

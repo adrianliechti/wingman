@@ -11,6 +11,7 @@ const (
 	UserContextKey    contextKey = "auth.user"
 	EmailContextKey   contextKey = "auth.email"
 	NameContextKey    contextKey = "auth.name"
+	PeerContextKey    contextKey = "auth.peer"
 	GroupsContextKey  contextKey = "auth.groups"
 	SessionContextKey contextKey = "auth.session"
 	TokenContextKey   contextKey = "auth.token"

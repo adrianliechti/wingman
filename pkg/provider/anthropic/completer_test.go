@@ -192,6 +192,87 @@ func TestConvertRequest_RedactedThinking(t *testing.T) {
 	}
 }
 
+// TestConvertRequest_ThinkingOmittedByDefault verifies that without explicit
+// reasoning options, thinking is left unset rather than forced off — so
+// models that default to adaptive thinking when the field is omitted (e.g.
+// Claude Sonnet 5) keep that default.
+func TestConvertRequest_ThinkingOmittedByDefault(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-sonnet-5")
+
+	body := requestBody(t, completer, []provider.Message{provider.UserMessage("hi")}, nil)
+
+	if _, present := body["thinking"]; present {
+		t.Errorf("expected thinking omitted, got %v", body["thinking"])
+	}
+}
+
+// TestConvertRequest_ThinkingExplicitDisable verifies an explicit disable
+// request is actually sent, instead of being silently dropped (which would
+// leave adaptive-by-default models thinking anyway).
+func TestConvertRequest_ThinkingExplicitDisable(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-sonnet-5")
+
+	body := requestBody(t, completer, []provider.Message{provider.UserMessage("hi")}, &provider.CompleteOptions{
+		ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeDisabled},
+	})
+
+	thinking, ok := body["thinking"].(map[string]any)
+	if !ok {
+		t.Fatal("expected thinking")
+	}
+	if thinking["type"] != "disabled" {
+		t.Errorf("thinking type: got %v, want disabled", thinking["type"])
+	}
+}
+
+// TestConvertRequest_ThinkingExplicitDisableAlwaysThinkingModel verifies
+// always-thinking models (which reject an explicit `disabled`) omit the
+// field instead of sending a value the API would 400 on.
+func TestConvertRequest_ThinkingExplicitDisableAlwaysThinkingModel(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-fable-5")
+
+	body := requestBody(t, completer, []provider.Message{provider.UserMessage("hi")}, &provider.CompleteOptions{
+		ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeDisabled},
+	})
+
+	if _, present := body["thinking"]; present {
+		t.Errorf("expected thinking omitted, got %v", body["thinking"])
+	}
+}
+
+// TestConvertRequest_TemperatureDroppedForNoSamplingModel verifies
+// temperature is never forwarded to models that reject sampling parameters
+// outright (Sonnet 5, Opus 4.7/4.8, Fable 5), even when thinking is left at
+// its default.
+func TestConvertRequest_TemperatureDroppedForNoSamplingModel(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-sonnet-5")
+
+	temp := float32(0.5)
+	body := requestBody(t, completer, []provider.Message{provider.UserMessage("hi")}, &provider.CompleteOptions{
+		Temperature: &temp,
+	})
+
+	if _, present := body["temperature"]; present {
+		t.Errorf("expected temperature dropped, got %v", body["temperature"])
+	}
+}
+
+// TestConvertRequest_TemperatureKeptForMidTierModel verifies temperature
+// still passes through for models without the blanket sampling-parameter
+// restriction (e.g. Opus 4.6) when thinking isn't active.
+func TestConvertRequest_TemperatureKeptForMidTierModel(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-opus-4-6")
+
+	temp := float32(0.5)
+	body := requestBody(t, completer, []provider.Message{provider.UserMessage("hi")}, &provider.CompleteOptions{
+		Temperature: &temp,
+	})
+
+	if got, ok := body["temperature"].(float64); !ok || got != 0.5 {
+		t.Errorf("temperature: got %v, want 0.5", body["temperature"])
+	}
+}
+
 // TestConvertRequest_CompactionDefaultTrigger verifies compaction without a
 // threshold omits the trigger so the upstream default applies.
 func TestConvertRequest_CompactionDefaultTrigger(t *testing.T) {

@@ -19,7 +19,8 @@ var _ mcp.Provider = (*Server)(nil)
 type Server struct {
 	url *neturl.URL
 
-	rt http.RoundTripper
+	rt    http.RoundTripper
+	proxy *httputil.ReverseProxy
 
 	iconMu sync.Mutex
 	icon   atomic.Pointer[iconCache]
@@ -44,25 +45,21 @@ func New(url string, headers map[string]string, exchanger *obo.Exchanger) (*Serv
 		rt: rt,
 	}
 
-	return s, nil
-}
-
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	proxy := &httputil.ReverseProxy{
-		Transport: s.rt,
+	s.proxy = &httputil.ReverseProxy{
+		Transport: rt,
 
 		FlushInterval: -1,
 
 		Rewrite: func(r *httputil.ProxyRequest) {
-			r.SetURL(s.url)
+			r.SetURL(u)
 			r.SetXForwarded()
 
 			// remove trailing slash if the original request did not have one
-			if !strings.HasSuffix(s.url.Path, "/") && r.In.URL.Path == "/" {
+			if !strings.HasSuffix(u.Path, "/") && r.In.URL.Path == "/" {
 				r.Out.URL.Path = strings.TrimRight(r.Out.URL.Path, "/")
 			}
 
-			r.Out.Host = s.url.Host
+			r.Out.Host = u.Host
 		},
 
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -71,7 +68,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	proxy.ServeHTTP(w, r)
+	return s, nil
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.proxy.ServeHTTP(w, r)
 }
 
 type rt struct {

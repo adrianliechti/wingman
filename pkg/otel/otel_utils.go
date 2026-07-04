@@ -119,6 +119,10 @@ func EndUserAttrs(ctx context.Context) []KeyValue {
 		attrs = append(attrs, attribute.String("user.full_name", name))
 	}
 
+	if peer, ok := ctx.Value(auth.PeerContextKey).(string); ok && peer != "" {
+		attrs = append(attrs, attribute.String("service.peer.name", peer))
+	}
+
 	return attrs
 }
 

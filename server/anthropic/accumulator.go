@@ -314,12 +314,17 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			if reasoning.Signature != "" {
 				s.thinkingSigned = true
 
+				id := reasoning.ID
+				if id == "" {
+					id = s.thinkingID
+				}
+
 				if err := s.emitEvent(StreamEvent{
 					Type:  StreamEventContentBlockDelta,
 					Index: s.thinkingIndex,
 					Delta: &Delta{
 						Type:      "signature_delta",
-						Signature: reasoning.Signature,
+						Signature: encodeSignature(id, reasoning.Signature),
 					},
 				}); err != nil {
 					return err

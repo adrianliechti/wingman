@@ -33,6 +33,10 @@ func TestUsageTokensCorrectness(t *testing.T) {
 		},
 	}
 
+	reference := referenceUsage(shortBody, longBody, func(t *testing.T, body map[string]any) geminiUsageResult {
+		return geminiUsage(t, h, h.Gemini, h.ReferenceModel, body)
+	})
+
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
 			h.SkipUnlessConfigured(t, model.Name)
@@ -50,16 +54,7 @@ func TestUsageTokensCorrectness(t *testing.T) {
 
 			// Tendency must match the reference account's direction. We compare
 			// the *delta sign*, never the magnitudes.
-			refShort := geminiUsage(t, h, h.Gemini, h.ReferenceModel, shortBody)
-			refLong := geminiUsage(t, h, h.Gemini, h.ReferenceModel, longBody)
-
-			if refShort.prompt <= 0 || refLong.prompt <= 0 {
-				t.Fatalf("reference promptTokenCount not positive: short=%d long=%d", refShort.prompt, refLong.prompt)
-			}
-			if refLong.prompt <= refShort.prompt {
-				t.Fatalf("reference did not show expected tendency: long prompt %d <= short prompt %d",
-					refLong.prompt, refShort.prompt)
-			}
+			refShort, refLong := reference(t)
 
 			if (long.prompt > short.prompt) != (refLong.prompt > refShort.prompt) {
 				t.Errorf("prompt-token tendency disagrees with reference: "+
@@ -84,12 +79,16 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 		},
 	}
 
+	reference := referenceUsage(shortBody, longBody, func(t *testing.T, body map[string]any) geminiUsageResult {
+		return geminiUsageSSE(t, h, h.Gemini, h.ReferenceModel, body)
+	})
+
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
 			h.SkipUnlessConfigured(t, model.Name)
 
-			short := geminiUsageSSE(t, h, model.Name, shortBody)
-			long := geminiUsageSSE(t, h, model.Name, longBody)
+			short := geminiUsageSSE(t, h, h.Wingman, model.Name, shortBody)
+			long := geminiUsageSSE(t, h, h.Wingman, model.Name, longBody)
 
 			short.assertInvariants(t, "short stream")
 			long.assertInvariants(t, "long stream")
@@ -98,7 +97,47 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 				t.Errorf("expected long prompt streaming promptTokenCount (%d) > short prompt streaming promptTokenCount (%d)\nshort=%+v long=%+v",
 					long.prompt, short.prompt, short, long)
 			}
+
+			refShort, refLong := reference(t)
+
+			if (long.prompt > short.prompt) != (refLong.prompt > refShort.prompt) {
+				t.Errorf("streaming prompt-token tendency disagrees with reference: "+
+					"wingman short/long=%d/%d, reference short/long=%d/%d",
+					short.prompt, long.prompt, refShort.prompt, refLong.prompt)
+			}
 		})
+	}
+}
+
+// referenceUsage returns a lazy, memoized fetch of the reference account's
+// short/long usage. The reference does not depend on the model under test, so
+// it is requested at most once per test (subtests run sequentially) and only
+// when at least one model is actually configured. Only the prompt count and
+// tendency are asserted — reference responses are not held to wingman's wire
+// invariants (e.g. implicit-caching details differ per account).
+func referenceUsage(shortBody, longBody map[string]any, fetch func(t *testing.T, body map[string]any) geminiUsageResult) func(t *testing.T) (geminiUsageResult, geminiUsageResult) {
+	var cached *[2]geminiUsageResult
+
+	return func(t *testing.T) (geminiUsageResult, geminiUsageResult) {
+		t.Helper()
+
+		if cached == nil {
+			short := fetch(t, shortBody)
+			long := fetch(t, longBody)
+
+			if short.prompt <= 0 || long.prompt <= 0 {
+				t.Fatalf("reference promptTokenCount not positive: short=%d long=%d", short.prompt, long.prompt)
+			}
+
+			if long.prompt <= short.prompt {
+				t.Fatalf("reference did not show expected tendency: long prompt %d <= short prompt %d",
+					long.prompt, short.prompt)
+			}
+
+			cached = &[2]geminiUsageResult{short, long}
+		}
+
+		return cached[0], cached[1]
 	}
 }
 
@@ -106,9 +145,11 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 // thinking enabled, thoughtsTokenCount is reported separately and the visible
 // candidatesTokenCount excludes it (a regression guard for the wire mapping
 // candidatesTokenCount = OutputTokens - ReasoningTokens). The strict total
-// identity is asserted for every thinking-capable model; thoughts > 0 is only
-// required for Gemini-native models, since cross-provider thinking translation
-// through the Gemini surface is model-dependent.
+// identity is asserted for every thinking-capable model, and thoughts > 0 is
+// required cross-provider (claude's thinking_tokens and gpt's reasoning_tokens
+// both surface here as thoughtsTokenCount). Bedrock models are exempt — the
+// AWS Converse API reports no reasoning bucket in its usage, so the spend
+// stays folded into candidatesTokenCount there.
 func TestUsageTokensThinking(t *testing.T) {
 	h := gemini.New(t)
 
@@ -134,8 +175,8 @@ func TestUsageTokensThinking(t *testing.T) {
 			u := geminiUsage(t, h, h.Wingman, model.Name, body)
 			u.assertInvariants(t, "thinking")
 
-			native := strings.Contains(strings.ToLower(model.Name), "gemini")
-			if native && u.thoughts <= 0 {
+			bedrock := strings.Contains(strings.ToLower(model.Name), "bedrock")
+			if !bedrock && u.thoughts <= 0 {
 				t.Errorf("expected thoughtsTokenCount > 0 with thinking enabled, got %d (%+v)", u.thoughts, u)
 			}
 
@@ -192,10 +233,10 @@ func geminiUsage(t *testing.T, h *gemini.Harness, ep harness.Endpoint, model str
 	return geminiUsageFromMap(t, resp.Body["usageMetadata"])
 }
 
-func geminiUsageSSE(t *testing.T, h *gemini.Harness, model string, body map[string]any) geminiUsageResult {
+func geminiUsageSSE(t *testing.T, h *gemini.Harness, ep harness.Endpoint, model string, body map[string]any) geminiUsageResult {
 	t.Helper()
 
-	events := gemini.PostGeminiSSE(t, h, h.Wingman, model, gemini.WithModel(body, model))
+	events := gemini.PostGeminiSSE(t, h, ep, model, gemini.WithModel(body, model))
 
 	// usageMetadata is emitted on every chunk and accumulates; the final usage
 	// is carried by the last event that reports a positive totalTokenCount.
@@ -214,7 +255,7 @@ func geminiUsageSSE(t *testing.T, h *gemini.Harness, model string, body map[stri
 	}
 
 	if !found {
-		t.Fatalf("no usageMetadata with totalTokenCount > 0 found in %d events", len(events))
+		t.Fatalf("[%s] no usageMetadata with totalTokenCount > 0 found in %d events", ep.Name, len(events))
 	}
 	return last
 }

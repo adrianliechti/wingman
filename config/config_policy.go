@@ -12,6 +12,8 @@ import (
 type policyConfig struct {
 	Type string `yaml:"type"`
 
+	URL string `yaml:"url"`
+
 	Path string `yaml:"path"`
 }
 
@@ -44,5 +46,9 @@ func createPolicy(cfg policyConfig) (policy.Provider, error) {
 }
 
 func opaPolicy(cfg policyConfig) (policy.Provider, error) {
-	return opa.New(cfg.Path)
+	if cfg.URL != "" {
+		return opa.NewClient(cfg.URL)
+	}
+
+	return opa.NewFile(cfg.Path)
 }

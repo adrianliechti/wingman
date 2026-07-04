@@ -2,6 +2,7 @@ package searcher
 
 import (
 	"context"
+	"time"
 )
 
 type Provider interface {
@@ -29,6 +30,8 @@ type Result struct {
 
 	Title   string
 	Content string
+
+	Timestamp *time.Time
 
 	Metadata map[string]string
 }

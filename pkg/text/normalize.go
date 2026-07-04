@@ -9,6 +9,7 @@ import (
 var (
 	reWindowsNewline   = regexp.MustCompile(`\r\n`)
 	reCarriageReturn   = regexp.MustCompile(`\r`)
+	reWhitespaceLines  = regexp.MustCompile(`(?m)^[^\S\n]+$`)
 	reBlankLines       = regexp.MustCompile(`\n{3,}`)
 	reHorizontalSpaces = regexp.MustCompile(`[^\S\n]{2,}`)
 )
@@ -29,7 +30,7 @@ var zeroWidthChars = strings.NewReplacer(
 //   - Removes BOM and zero-width Unicode characters
 //   - Replaces non-breaking spaces (U+00A0) with regular spaces
 //   - Normalizes line endings to \n
-//   - Collapses excessive blank lines to a single blank line
+//   - Collapses excessive blank lines (including whitespace-only lines) to a single blank line
 //   - Collapses runs of horizontal whitespace to a single space
 func Normalize(text string) string {
 	// Decode HTML entities (handles &amp; &lt; &gt; &nbsp; &#160; &#x00A0; etc.)
@@ -46,6 +47,9 @@ func Normalize(text string) string {
 	// Normalize line endings to \n
 	text = reWindowsNewline.ReplaceAllString(text, "\n")
 	text = reCarriageReturn.ReplaceAllString(text, "\n")
+
+	// Strip whitespace-only lines so they collapse as blank lines
+	text = reWhitespaceLines.ReplaceAllString(text, "")
 
 	// Collapse 3+ consecutive newlines to 2 (preserves paragraph breaks)
 	text = reBlankLines.ReplaceAllString(text, "\n\n")
