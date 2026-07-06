@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"os"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
@@ -18,7 +17,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/translator"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 )
 
 type Config struct {
@@ -164,10 +163,7 @@ func decodeStrict(node *yaml.Node, out any) error {
 		return err
 	}
 
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-
-	return decoder.Decode(out)
+	return yaml.Load(data, out, yaml.WithKnownFields())
 }
 
 func parseFile(path string) (*configFile, error) {
@@ -181,10 +177,7 @@ func parseFile(path string) (*configFile, error) {
 
 	var config configFile
 
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-
-	if err := decoder.Decode(&config); err != nil {
+	if err := yaml.Load(data, &config, yaml.WithKnownFields()); err != nil {
 		return nil, err
 	}
 

@@ -8,7 +8,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	reranker "github.com/adrianliechti/wingman/pkg/provider/adapter/reranker"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func (cfg *Config) registerProviders(f *configFile) error {
