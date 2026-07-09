@@ -196,7 +196,8 @@ func responseUsage(usage *provider.Usage) *Usage {
 	return &Usage{
 		InputTokens: usage.InputTokens,
 		InputTokensDetails: &InputTokensDetails{
-			CachedTokens: usage.CacheReadInputTokens,
+			CachedTokens:     usage.CacheReadInputTokens,
+			CacheWriteTokens: usage.CacheCreationInputTokens,
 		},
 
 		OutputTokens: usage.OutputTokens,

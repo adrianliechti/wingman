@@ -166,8 +166,12 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		case provider.EffortHigh:
 			req.ReasoningEffort = openai.ReasoningEffortHigh
 
-		case provider.EffortXHigh, provider.EffortMax:
+		case provider.EffortXHigh:
 			req.ReasoningEffort = openai.ReasoningEffortXhigh
+
+		case provider.EffortMax:
+			// GPT-5.6+; no SDK constant yet
+			req.ReasoningEffort = openai.ReasoningEffort("max")
 
 		default:
 			if reasoning.Type == provider.ReasoningTypeAdaptive {

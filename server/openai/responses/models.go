@@ -871,7 +871,8 @@ type Usage struct {
 
 // InputTokensDetails contains detailed input token breakdown
 type InputTokensDetails struct {
-	CachedTokens int `json:"cached_tokens"`
+	CachedTokens     int `json:"cached_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens"`
 }
 
 // OutputTokensDetails contains detailed output token breakdown

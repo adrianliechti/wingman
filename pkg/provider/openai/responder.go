@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"iter"
+	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -368,8 +369,12 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		case provider.EffortHigh:
 			req.Reasoning.Effort = responses.ReasoningEffortHigh
 
-		case provider.EffortXHigh, provider.EffortMax:
+		case provider.EffortXHigh:
 			req.Reasoning.Effort = responses.ReasoningEffortXhigh
+
+		case provider.EffortMax:
+			// GPT-5.6+; no SDK constant yet
+			req.Reasoning.Effort = responses.ReasoningEffort("max")
 
 		default:
 			if reasoning.Type == provider.ReasoningTypeAdaptive {
@@ -1347,7 +1352,7 @@ func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
 		return nil
 	}
 
-	return &provider.Usage{
+	result := &provider.Usage{
 		InputTokens:  int(usage.InputTokens),
 		OutputTokens: int(usage.OutputTokens),
 
@@ -1355,6 +1360,15 @@ func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
 
 		CacheReadInputTokens: int(usage.InputTokensDetails.CachedTokens),
 	}
+
+	// GPT-5.6+; not yet a typed SDK field
+	if f, ok := usage.InputTokensDetails.JSON.ExtraFields["cache_write_tokens"]; ok {
+		if n, err := strconv.Atoi(f.Raw()); err == nil {
+			result.CacheCreationInputTokens = n
+		}
+	}
+
+	return result
 }
 
 func convertResponsesToolChoice(opts *provider.ToolOptions) responses.ResponseNewParamsToolChoiceUnion {
