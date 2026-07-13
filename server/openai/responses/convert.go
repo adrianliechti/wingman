@@ -161,6 +161,10 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				}
 			}
 
+			if r.Signature == "" && r.Summary == "" && r.Text == "" {
+				continue
+			}
+
 			pendingReasoning = append(pendingReasoning, provider.ReasoningContent(r))
 
 		case InputItemTypeCompaction:
@@ -447,6 +451,46 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 	return result, nil
 }
 
+func requestTools(tools []Tool, items []InputItem) []Tool {
+	result := append([]Tool(nil), tools...)
+
+	for _, item := range items {
+		if item.Type != InputItemTypeAdditionalTools || item.InputAdditionalTools == nil {
+			continue
+		}
+
+		// The provider abstraction has a request-wide tool list. Codex's
+		// Responses Lite request puts additional_tools first, so promoting its
+		// tools here preserves the effective availability for that request.
+		// Hosted tools such as web_search cannot run on BYOK providers like
+		// Azure, so omit those while retaining every portable tool Wingman can
+		// forward.
+		for _, additionalTool := range item.InputAdditionalTools.Tools {
+			if supportedToolType(additionalTool.Type) {
+				result = append(result, additionalTool)
+			}
+		}
+	}
+
+	return result
+}
+
+func supportedToolType(toolType ToolType) bool {
+	switch toolType {
+	case ToolTypeFunction,
+		ToolTypeCustom,
+		ToolTypeApplyPatch,
+		ToolTypeComputer,
+		ToolTypeShell,
+		ToolTypeLocalShell,
+		ToolTypeNamespace,
+		ToolTypeToolSearch:
+		return true
+	default:
+		return false
+	}
+}
+
 func toTools(tools []Tool) ([]provider.Tool, error) {
 	var result []provider.Tool
 
@@ -578,6 +622,13 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 				Description: t.Description,
 				Tools:       children,
 			})
+
+		case ToolTypeWebSearch:
+			// web_search is hosted by OpenAI and is unavailable on BYOK
+			// backends such as Azure. Codex advertises it even when using a
+			// custom provider, so accept and omit it instead of rejecting the
+			// entire request.
+			continue
 
 		default:
 			return nil, &shared.InvalidValueError{

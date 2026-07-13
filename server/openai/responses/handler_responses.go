@@ -39,6 +39,8 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Tools = requestTools(req.Tools, req.Input.Items)
+
 	tools, err := toTools(req.Tools)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)

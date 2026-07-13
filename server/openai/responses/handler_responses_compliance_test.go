@@ -461,6 +461,45 @@ func TestReasoningRoundTripFromCodexTurn(t *testing.T) {
 	}
 }
 
+// OpenAI accepts an ID-only reasoning item as a no-op, but some Azure
+// endpoints reject it. This is the shape emitted by older VS Code BYOK clients
+// after encrypted_content is lost at the vscode.lm adapter boundary.
+func TestEmptyIDOnlyReasoningIsSkipped(t *testing.T) {
+	payload := `[
+		{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "go"}]},
+		{"type": "reasoning", "id": "rs_missing_blob", "summary": []},
+		{"type": "reasoning", "id": "rs_visible", "summary": [{"type": "summary_text", "text": "visible reasoning"}]},
+		{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}
+	]`
+
+	var input ResponsesInput
+	if err := json.Unmarshal([]byte(payload), &input); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	messages, err := toMessages(input.Items, "")
+	if err != nil {
+		t.Fatalf("toMessages: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d: %+v", len(messages), messages)
+	}
+
+	var reasonings []provider.Reasoning
+	for _, content := range messages[1].Content {
+		if content.Reasoning != nil {
+			reasonings = append(reasonings, *content.Reasoning)
+		}
+	}
+
+	if len(reasonings) != 1 {
+		t.Fatalf("expected only the non-empty reasoning item, got %+v", reasonings)
+	}
+	if reasonings[0].ID != "rs_visible" || reasonings[0].Summary != "visible reasoning" {
+		t.Fatalf("unexpected preserved reasoning item: %+v", reasonings[0])
+	}
+}
+
 // Parallel tool calls (Codex emits three function_call items back-to-back)
 // must collapse into a single assistant message with multiple tool calls.
 func TestParallelFunctionCallsCollapseIntoOneAssistant(t *testing.T) {

@@ -43,6 +43,68 @@ func TestConvertResponsesRequest_ReasoningMax(t *testing.T) {
 	}
 }
 
+// Replayed reasoning without encrypted_content is not portable across
+// Responses API backends. Omit it in the OpenAI provider even when visible
+// summary or reasoning text remains.
+func TestConvertResponsesRequest_SkipsUnsignedReasoning(t *testing.T) {
+	messages := []provider.Message{
+		{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ReasoningContent(provider.Reasoning{
+					ID:      "rs_unsigned",
+					Summary: "visible summary",
+					Text:    "visible reasoning",
+				}),
+				provider.ReasoningContent(provider.Reasoning{
+					ID:        "rs_signed",
+					Summary:   "signed summary",
+					Signature: "ENC_123",
+				}),
+			},
+		},
+	}
+
+	for _, endpoint := range []string{"", "https://test.openai.azure.com/openai/v1"} {
+		responder, err := NewResponder(endpoint, "gpt-5.4")
+		if err != nil {
+			t.Fatalf("new responder for %q: %v", endpoint, err)
+		}
+		request, err := responder.convertResponsesRequest(messages, &provider.CompleteOptions{})
+		if err != nil {
+			t.Fatalf("convert request for %q: %v", endpoint, err)
+		}
+		reasoning := reasoningInputItems(t, request)
+		if len(reasoning) != 1 || reasoning[0]["id"] != "rs_signed" || reasoning[0]["encrypted_content"] != "ENC_123" {
+			t.Fatalf("request for %q retained unsigned reasoning: %+v", endpoint, reasoning)
+		}
+	}
+}
+
+func reasoningInputItems(t *testing.T, request *responses.ResponseNewParams) []map[string]any {
+	t.Helper()
+
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	var payload struct {
+		Input []map[string]any `json:"input"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+
+	var result []map[string]any
+	for _, item := range payload.Input {
+		if item["type"] == "reasoning" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 // TestToResponseUsage_CacheWriteTokens verifies cache_write_tokens (GPT-5.6
 // usage detail, not yet typed in the SDK) maps to CacheCreationInputTokens.
 func TestToResponseUsage_CacheWriteTokens(t *testing.T) {

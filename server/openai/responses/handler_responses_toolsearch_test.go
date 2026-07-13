@@ -150,6 +150,66 @@ func TestToolSearchRequestAndResponse(t *testing.T) {
 	}
 }
 
+// TestAdditionalToolsInputReachesProvider covers Codex Responses Lite, which
+// puts its tool definitions in a leading additional_tools input item and omits
+// the request-level tools field.
+func TestAdditionalToolsInputReachesProvider(t *testing.T) {
+	const modelID = "additional-tools-model"
+
+	completer := &toolSearchCompleter{
+		t:     t,
+		reply: provider.ToolCall{ID: "call_customer", Name: "get_customer", Arguments: `{"customer_id":"cus_123"}`},
+	}
+
+	cfg := &config.Config{Policy: noop.New()}
+	cfg.RegisterCompleter(modelID, completer)
+
+	body := []byte(`{
+		"model": "` + modelID + `",
+		"stream": false,
+		"input": [
+			{
+				"type": "additional_tools",
+				"role": "developer",
+				"tools": [
+					{
+						"type": "function",
+						"name": "get_customer",
+						"description": "Look up a customer by ID.",
+						"parameters": {
+							"type": "object",
+							"properties": {"customer_id": {"type": "string"}},
+							"required": ["customer_id"],
+							"additionalProperties": false
+						}
+					},
+					{"type": "web_search"}
+				]
+			},
+			{
+				"type": "message",
+				"role": "user",
+				"content": [{"type": "input_text", "text": "Look up cus_123."}]
+			}
+		]
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	New(cfg).handleResponses(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(completer.gotTools) != 1 || completer.gotTools[0].Name != "get_customer" {
+		t.Fatalf("additional_tools did not reach provider: %+v", completer.gotTools)
+	}
+	if len(completer.gotMessages) != 1 || completer.gotMessages[0].Role != provider.MessageRoleUser {
+		t.Fatalf("conversation input changed unexpectedly: %+v", completer.gotMessages)
+	}
+}
+
 // TestToolSearchOutputRoundTripsToProvider verifies that a prior
 // tool_search_output input item — the result codex returned to the model on a
 // previous turn — passes through to the provider as a ToolResult with

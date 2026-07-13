@@ -646,7 +646,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				}
 
 				if c.Reasoning != nil {
-					if c.Reasoning.ID == "" {
+					if c.Reasoning.ID == "" || c.Reasoning.Signature == "" {
 						continue
 					}
 

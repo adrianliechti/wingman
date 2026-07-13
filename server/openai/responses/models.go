@@ -98,6 +98,7 @@ const (
 	ToolTypeLocalShell ToolType = "local_shell"
 	ToolTypeNamespace  ToolType = "namespace"
 	ToolTypeToolSearch ToolType = "tool_search"
+	ToolTypeWebSearch  ToolType = "web_search"
 )
 
 // Tool represents a tool in the request
@@ -245,6 +246,7 @@ type InputItemType string
 
 const (
 	InputItemTypeMessage              InputItemType = "message"
+	InputItemTypeAdditionalTools      InputItemType = "additional_tools"
 	InputItemTypeReasoning            InputItemType = "reasoning"
 	InputItemTypeCompaction           InputItemType = "compaction"
 	InputItemTypeFunctionCall         InputItemType = "function_call"
@@ -273,6 +275,9 @@ type InputItem struct {
 
 	// For message type
 	*InputMessage
+
+	// For additional_tools type
+	*InputAdditionalTools
 
 	// For reasoning type
 	*InputReasoning
@@ -315,6 +320,15 @@ type InputItem struct {
 
 	// For tool_search_output type
 	*InputToolSearchOutput
+}
+
+// InputAdditionalTools makes tools available from this point in the input.
+// Codex Responses Lite sends this as the first input item instead of using the
+// request-level tools field.
+type InputAdditionalTools struct {
+	ID    string      `json:"id,omitempty"`
+	Role  MessageRole `json:"role"`
+	Tools []Tool      `json:"tools"`
 }
 
 // InputComputerCall represents a computer call in the input (for multi-turn)
@@ -580,6 +594,13 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 			}
 			item.Type = InputItemTypeMessage
 			item.InputMessage = &msg
+
+		case InputItemTypeAdditionalTools:
+			var additionalTools InputAdditionalTools
+			if err := json.Unmarshal(raw, &additionalTools); err != nil {
+				return err
+			}
+			item.InputAdditionalTools = &additionalTools
 
 		case InputItemTypeReasoning:
 			var reasoning InputReasoning
