@@ -7,7 +7,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
-	"github.com/adrianliechti/wingman/pkg/provider/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/pkg/provider/xai"
@@ -92,9 +91,6 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 	case "xai":
 		return xaiCompleter(cfg, model)
 
-	case "custom":
-		return customCompleter(cfg, model)
-
 	default:
 		return nil, errors.New("invalid completer type: " + cfg.Type)
 	}
@@ -176,10 +172,4 @@ func xaiCompleter(cfg providerConfig, model modelContext) (provider.Completer, e
 	}
 
 	return xai.NewCompleter(model.ID, options...)
-}
-
-func customCompleter(cfg providerConfig, model modelContext) (provider.Completer, error) {
-	var options []custom.Option
-
-	return custom.NewCompleter(cfg.URL, options...)
 }

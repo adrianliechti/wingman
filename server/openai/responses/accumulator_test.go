@@ -225,6 +225,173 @@ func TestStreamingAccumulatorFinalizesCompleteToolCallAsCompleted(t *testing.T) 
 	}
 }
 
+// The pipeline is fragments-only: fragments pass through verbatim — even ones
+// that coincidentally restate the accumulated prefix — and arguments.done
+// matches what the deltas rebuild. Snapshot backends are normalized by the
+// provider adapters before chunks reach this surface.
+func TestStreamingAccumulatorPassesFragmentsThrough(t *testing.T) {
+	var deltas []string
+	var doneArgs string
+
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		switch e.Type {
+		case StreamEventFunctionCallArgumentsDelta:
+			deltas = append(deltas, e.Delta)
+		case StreamEventFunctionCallArgumentsDone:
+			doneArgs = e.Arguments
+		}
+		return nil
+	})
+
+	add := func(c provider.Completion) {
+		t.Helper()
+		if err := acc.Add(c); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "get_data", Arguments: `{"a":`}),
+	}}})
+	add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Arguments: `{"a":1}}`}),
+	}}})
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if doneArgs != `{"a":{"a":1}}` {
+		t.Fatalf("arguments.done: got %q", doneArgs)
+	}
+
+	var rebuilt string
+	for _, d := range deltas {
+		rebuilt += d
+	}
+	if rebuilt != doneArgs {
+		t.Fatalf("deltas rebuild %q, done says %q", rebuilt, doneArgs)
+	}
+}
+
+// A function call that streamed no argument bytes must deliver "{}" on both
+// the delta stream and arguments.done — never an empty string.
+func TestStreamingAccumulatorNormalizesEmptyArguments(t *testing.T) {
+	var deltas []string
+	var doneArgs, itemDoneArgs string
+
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		switch e.Type {
+		case StreamEventFunctionCallArgumentsDelta:
+			deltas = append(deltas, e.Delta)
+		case StreamEventFunctionCallArgumentsDone:
+			doneArgs = e.Arguments
+		case StreamEventFunctionCallDone:
+			itemDoneArgs = e.Arguments
+		}
+		return nil
+	})
+
+	if err := acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "get_time"}),
+	}}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if doneArgs != "{}" {
+		t.Fatalf("arguments.done: got %q, want {}", doneArgs)
+	}
+	if itemDoneArgs != "{}" {
+		t.Fatalf("output_item.done: got %q, want {}", itemDoneArgs)
+	}
+
+	var rebuilt string
+	for _, d := range deltas {
+		rebuilt += d
+	}
+	if rebuilt != "{}" {
+		t.Fatalf("deltas rebuild %q, want {}", rebuilt)
+	}
+
+	result := acc.Result()
+	for _, c := range result.Message.Content {
+		if c.ToolCall != nil && c.ToolCall.Arguments != "{}" {
+			t.Fatalf("result arguments: got %q, want {}", c.ToolCall.Arguments)
+		}
+	}
+}
+
+// Custom (grammar) tools take free-form text where empty input is valid —
+// no "{}" must be fabricated for them.
+func TestStreamingAccumulatorKeepsEmptyCustomToolInput(t *testing.T) {
+	var deltas []string
+
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		if e.Type == StreamEventFunctionCallArgumentsDelta {
+			deltas = append(deltas, e.Delta)
+		}
+		return nil
+	})
+
+	if err := acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Kind: provider.ToolKindCustom, Name: "run_query"}),
+	}}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if len(deltas) != 0 {
+		t.Fatalf("expected no fabricated deltas for custom tool, got %v", deltas)
+	}
+
+	result := acc.Result()
+	for _, c := range result.Message.Content {
+		if c.ToolCall != nil {
+			if c.ToolCall.Arguments != "" {
+				t.Fatalf("custom input: got %q, want empty", c.ToolCall.Arguments)
+			}
+			if c.ToolCall.Kind != provider.ToolKindCustom {
+				t.Fatalf("kind lost in result: %+v", c.ToolCall)
+			}
+		}
+	}
+}
+
+func TestStreamingAccumulatorResultPreservesToolCallMetadata(t *testing.T) {
+	acc := NewStreamingAccumulator(func(StreamEvent) error { return nil })
+
+	if err := acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "search", Namespace: "web", Arguments: `{"q":"x"}`}),
+	}}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	var call *provider.ToolCall
+	for _, c := range acc.Result().Message.Content {
+		if c.ToolCall != nil {
+			call = c.ToolCall
+		}
+	}
+
+	if call == nil {
+		t.Fatal("expected tool call in result")
+	}
+	if call.Namespace != "web" {
+		t.Fatalf("namespace: got %q, want web", call.Namespace)
+	}
+}
+
 func TestStreamingAccumulatorPreservesCompactionOrder(t *testing.T) {
 	var events []StreamEvent
 

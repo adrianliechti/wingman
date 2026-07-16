@@ -63,6 +63,107 @@ func TestCompleterInterleavedToolCalls(t *testing.T) {
 	}
 }
 
+// Argument deltas are true fragments per the OpenAI streaming spec — the
+// completer must relay them verbatim, even when a fragment coincidentally
+// restates the accumulated prefix (e.g. nested objects repeating a key).
+func TestCompleterRelaysFragmentsVerbatim(t *testing.T) {
+	chunks := []string{
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"get_data","arguments":"{\"a\":"}}]}}]}`,
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"a\":1}}"}}]}}]}`,
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		for _, chunk := range chunks {
+			w.Write([]byte("data: " + chunk + "\n\n"))
+		}
+
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	completer, err := NewCompleter(server.URL, "test")
+	if err != nil {
+		t.Fatalf("new completer: %v", err)
+	}
+
+	var fragments string
+
+	acc := provider.CompletionAccumulator{}
+
+	for completion, err := range completer.Complete(t.Context(), []provider.Message{provider.UserMessage("hi")}, nil) {
+		if err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+
+		if completion.Message != nil {
+			for _, c := range completion.Message.Content {
+				if c.ToolCall != nil {
+					fragments += c.ToolCall.Arguments
+				}
+			}
+		}
+
+		acc.Add(*completion)
+	}
+
+	if fragments != `{"a":{"a":1}}` {
+		t.Errorf("emitted fragments rebuild %q, want verbatim relay", fragments)
+	}
+
+	calls := acc.Result().Message.ToolCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Arguments != `{"a":{"a":1}}` {
+		t.Errorf("accumulated arguments: got %q", calls[0].Arguments)
+	}
+}
+
+// A backend that never streams argument bytes for a call must still yield
+// parseable arguments after accumulation.
+func TestCompleterEmptyToolArgumentsAccumulateToEmptyObject(t *testing.T) {
+	chunks := []string{
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"get_time","arguments":""}}]}}]}`,
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		for _, chunk := range chunks {
+			w.Write([]byte("data: " + chunk + "\n\n"))
+		}
+
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	completer, err := NewCompleter(server.URL, "test")
+	if err != nil {
+		t.Fatalf("new completer: %v", err)
+	}
+
+	acc := provider.CompletionAccumulator{}
+
+	for completion, err := range completer.Complete(t.Context(), []provider.Message{provider.UserMessage("hi")}, nil) {
+		if err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+		acc.Add(*completion)
+	}
+
+	calls := acc.Result().Message.ToolCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Arguments != "{}" {
+		t.Errorf("arguments: got %q, want {}", calls[0].Arguments)
+	}
+}
+
 func convertedMessages(t *testing.T, messages []provider.Message) []map[string]any {
 	t.Helper()
 

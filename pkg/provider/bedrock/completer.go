@@ -162,6 +162,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 		toolAliases := provider.ToolAliases(options.Tools)
 		toolCallIDs := map[int32]string{}
+		toolArgsSeen := map[int32]bool{}
 
 		for event := range resp.GetStream().Events() {
 			switch v := event.(type) {
@@ -301,6 +302,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					}
 
 				case *types.ContentBlockDeltaMemberToolUse:
+					if aws.ToString(b.Value.Input) != "" {
+						toolArgsSeen[aws.ToInt32(v.Value.ContentBlockIndex)] = true
+					}
+
 					delta := &provider.Completion{
 						ID:    id,
 						Model: c.model,
@@ -333,6 +338,31 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case *types.ConverseStreamOutputMemberContentBlockStop:
+				// Tool use blocks without input deltas would otherwise
+				// accumulate empty arguments downstream — normalize to "{}"
+				blockIndex := aws.ToInt32(v.Value.ContentBlockIndex)
+
+				if callID, ok := toolCallIDs[blockIndex]; ok && !toolArgsSeen[blockIndex] && options.Schema == nil {
+					delta := &provider.Completion{
+						ID:    id,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									ID:        callID,
+									Arguments: "{}",
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+				}
 
 			case *types.ConverseStreamOutputMemberMessageStop:
 				delta := &provider.Completion{

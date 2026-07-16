@@ -26,6 +26,18 @@ type CompletionAccumulator struct {
 	contentOrder []accumulatedContentRef
 }
 
+// NormalizeToolCallArguments returns well-formed arguments for a finalized
+// tool call. A function call that streamed no argument bytes must surface as
+// "{}" — empty strings fail JSON parsing in clients and tool runtimes.
+// Custom (grammar) tools take free-form text where empty input is valid.
+func NormalizeToolCallArguments(call ToolCall) ToolCall {
+	if call.Arguments == "" && call.Kind != ToolKindCustom {
+		call.Arguments = "{}"
+	}
+
+	return call
+}
+
 type accumulatedContentKind int
 
 const (
@@ -93,65 +105,8 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			}
 
 			if c.ToolCall != nil {
-				if c.ToolCall.ID != "" {
-					found := false
-					for i := range a.toolCalls {
-						if a.toolCalls[i].ID == c.ToolCall.ID {
-							found = true
-							break
-						}
-					}
-					if !found {
-						a.toolCalls = append(a.toolCalls, ToolCall{
-							ID:   c.ToolCall.ID,
-							Kind: c.ToolCall.Kind,
-						})
-						a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentToolCall, index: len(a.toolCalls) - 1})
-					}
-					a.lastToolCallID = c.ToolCall.ID
-				}
-
-				if len(a.toolCalls) == 0 {
-					continue
-				}
-
-				toolCallIndex := -1
-				targetID := c.ToolCall.ID
-
-				if targetID == "" {
-					targetID = a.lastToolCallID
-				}
-
-				for i := range a.toolCalls {
-					if a.toolCalls[i].ID == targetID {
-						toolCallIndex = i
-						break
-					}
-				}
-
-				if toolCallIndex == -1 {
-					continue
-				}
-
-				if c.ToolCall.Kind != "" {
-					a.toolCalls[toolCallIndex].Kind = c.ToolCall.Kind
-				}
-
-				if c.ToolCall.Name != "" {
-					a.toolCalls[toolCallIndex].Name = c.ToolCall.Name
-				}
-
-				if c.ToolCall.Namespace != "" {
-					a.toolCalls[toolCallIndex].Namespace = c.ToolCall.Namespace
-				}
-
-				if c.ToolCall.Execution != "" {
-					a.toolCalls[toolCallIndex].Execution = c.ToolCall.Execution
-				}
-
-				a.toolCalls[toolCallIndex].Arguments += c.ToolCall.Arguments
+				a.addToolCall(c.ToolCall)
 			}
-
 		}
 	}
 
@@ -251,6 +206,58 @@ func (a *CompletionAccumulator) addCompaction(c *Compaction) {
 	}
 }
 
+// Deltas without an ID merge into the most recently seen call.
+func (a *CompletionAccumulator) addToolCall(c *ToolCall) {
+	targetID := c.ID
+
+	if targetID == "" {
+		targetID = a.lastToolCallID
+	}
+
+	if targetID == "" {
+		return
+	}
+
+	var target *ToolCall
+
+	for i := range a.toolCalls {
+		if a.toolCalls[i].ID == targetID {
+			target = &a.toolCalls[i]
+			break
+		}
+	}
+
+	if target == nil {
+		if c.ID == "" {
+			return
+		}
+
+		a.toolCalls = append(a.toolCalls, ToolCall{ID: c.ID})
+		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentToolCall, index: len(a.toolCalls) - 1})
+		target = &a.toolCalls[len(a.toolCalls)-1]
+	}
+
+	a.lastToolCallID = targetID
+
+	if c.Kind != "" {
+		target.Kind = c.Kind
+	}
+
+	if c.Name != "" {
+		target.Name = c.Name
+	}
+
+	if c.Namespace != "" {
+		target.Namespace = c.Namespace
+	}
+
+	if c.Execution != "" {
+		target.Execution = c.Execution
+	}
+
+	target.Arguments += c.Arguments
+}
+
 func (a *CompletionAccumulator) Result() *Completion {
 	var content []Content
 
@@ -269,7 +276,15 @@ func (a *CompletionAccumulator) Result() *Completion {
 			content = append(content, RefusalContent(a.refusal.String()))
 
 		case accumulatedContentToolCall:
-			content = append(content, ToolCallContent(a.toolCalls[ref.index]))
+			call := a.toolCalls[ref.index]
+
+			// A truncated call keeps its empty arguments — fabricating "{}"
+			// would disguise an aborted call as a valid zero-argument one.
+			if a.status != CompletionStatusIncomplete {
+				call = NormalizeToolCallArguments(call)
+			}
+
+			content = append(content, ToolCallContent(call))
 		}
 	}
 

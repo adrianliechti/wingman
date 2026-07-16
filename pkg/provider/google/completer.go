@@ -479,13 +479,18 @@ func toContent(content *genai.Content, toolAliases map[string]provider.Tool) []p
 		}
 
 		if p.FunctionCall != nil {
-			data, _ := json.Marshal(p.FunctionCall.Args)
+			args := "{}"
+
+			if len(p.FunctionCall.Args) > 0 {
+				data, _ := json.Marshal(p.FunctionCall.Args)
+				args = string(data)
+			}
 
 			call := provider.UnflattenToolCall(toolAliases, provider.ToolCall{
 				ID: formatToolID(p.FunctionCall.ID, p.FunctionCall.Name, p.ThoughtSignature),
 
 				Name:      p.FunctionCall.Name,
-				Arguments: string(data),
+				Arguments: args,
 			})
 
 			parts = append(parts, provider.ToolCallContent(call))

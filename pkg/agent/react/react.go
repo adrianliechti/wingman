@@ -192,11 +192,11 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 
 		accID := uuid.New().String()
 
-		toolNamesByID := map[string]string{}
-		var lastToolCallID string
-
 		for {
 			acc := provider.CompletionAccumulator{}
+
+			toolNamesByID := map[string]string{}
+			var lastToolCallID string
 
 			for completion, err := range c.completer.Complete(ctx, input, inputOptions) {
 				if err != nil {

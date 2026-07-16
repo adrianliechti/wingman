@@ -5,6 +5,98 @@ import (
 	"testing"
 )
 
+func accumulatedToolCalls(t *testing.T, acc *CompletionAccumulator) []ToolCall {
+	t.Helper()
+
+	result := acc.Result()
+	if result.Message == nil {
+		t.Fatal("expected message")
+	}
+
+	var calls []ToolCall
+	for _, c := range result.Message.Content {
+		if c.ToolCall != nil {
+			calls = append(calls, *c.ToolCall)
+		}
+	}
+
+	return calls
+}
+
+func TestCompletionAccumulatorConcatsToolCallFragments(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_1", Name: "get_weather"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_1", Arguments: `{"location":`})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{Arguments: `"Paris"}`})}}})
+
+	calls := accumulatedToolCalls(t, &acc)
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Arguments != `{"location":"Paris"}` {
+		t.Errorf("arguments: got %q", calls[0].Arguments)
+	}
+}
+
+// The pipeline is fragments-only: the accumulator must append verbatim, even
+// when a fragment coincidentally restates the accumulated prefix (adapters
+// normalize snapshot backends before chunks get here). Guessing at this layer
+// truncated arguments like {"a":{"a":1}} to {"a":1}}.
+func TestCompletionAccumulatorAppendsPrefixCollidingFragments(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_1", Name: "get_data", Arguments: `{"a":`})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_1", Arguments: `{"a":1}}`})}}})
+
+	calls := accumulatedToolCalls(t, &acc)
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Arguments != `{"a":{"a":1}}` {
+		t.Errorf("arguments: got %q", calls[0].Arguments)
+	}
+}
+
+func TestCompletionAccumulatorNormalizesEmptyArguments(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_1", Name: "get_time"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_2", Kind: ToolKindCustom, Name: "run_query"})}}})
+
+	calls := accumulatedToolCalls(t, &acc)
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Arguments != "{}" {
+		t.Errorf("function call arguments: got %q, want {}", calls[0].Arguments)
+	}
+	if calls[1].Arguments != "" {
+		t.Errorf("custom call arguments: got %q, want empty", calls[1].Arguments)
+	}
+}
+
+// A call truncated by max_tokens keeps its empty arguments — "{}" would
+// disguise the aborted call as a valid zero-argument one.
+func TestCompletionAccumulatorKeepsEmptyArgumentsWhenIncomplete(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_1", Name: "get_time"})}}})
+	acc.Add(Completion{Status: CompletionStatusIncomplete})
+
+	calls := accumulatedToolCalls(t, &acc)
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Arguments != "" {
+		t.Errorf("arguments: got %q, want empty", calls[0].Arguments)
+	}
+}
+
 func TestCompletionAccumulatorPreservesCacheUsage(t *testing.T) {
 	acc := CompletionAccumulator{}
 

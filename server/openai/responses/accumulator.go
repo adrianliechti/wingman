@@ -109,6 +109,7 @@ type StreamEventHandler func(event StreamEvent) error
 type accumulatedToolCall struct {
 	ID string // call ID (e.g. call_xxx)
 
+	Kind        provider.ToolKind
 	Name        string
 	Namespace   string
 	Execution   string
@@ -365,6 +366,23 @@ func (s *StreamingAccumulator) closeToolCall(callID string) error {
 	tc.Closed = true
 
 	incomplete := s.toolCallIncomplete(callID)
+
+	// A function call that streamed no argument bytes must still deliver
+	// parseable arguments — surface the canonical empty object.
+	if !incomplete && tc.Arguments == "" && tc.Kind != provider.ToolKindCustom {
+		tc.Arguments = "{}"
+
+		if err := s.emitEvent(StreamEvent{
+			Type:              StreamEventFunctionCallArgumentsDelta,
+			ToolCallID:        tc.ID,
+			ToolCallName:      tc.Name,
+			ToolCallNamespace: tc.Namespace,
+			Delta:             tc.Arguments,
+			OutputIndex:       tc.OutputIndex,
+		}); err != nil {
+			return err
+		}
+	}
 
 	if !incomplete {
 		if err := s.emitEvent(StreamEvent{
@@ -915,6 +933,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			// Accumulate name and arguments
 			entry := &s.toolCalls[s.toolCallByID[currentID]]
 
+			if tc.Kind != "" {
+				entry.Kind = tc.Kind
+			}
+
 			if tc.Name != "" {
 				entry.Name = tc.Name
 			}
@@ -1086,11 +1108,23 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 	for i := range s.toolCalls {
 		tc := &s.toolCalls[i]
-		content = append(content, provider.ToolCallContent(provider.ToolCall{
+
+		call := provider.ToolCall{
 			ID:        tc.ID,
+			Kind:      tc.Kind,
 			Name:      tc.Name,
+			Namespace: tc.Namespace,
+			Execution: tc.Execution,
 			Arguments: tc.Arguments,
-		}))
+		}
+
+		// A truncated call keeps its empty arguments — fabricating "{}"
+		// would disguise an aborted call as a valid zero-argument one.
+		if s.status != provider.CompletionStatusIncomplete {
+			call = provider.NormalizeToolCallArguments(call)
+		}
+
+		content = append(content, provider.ToolCallContent(call))
 	}
 
 	return &provider.Completion{

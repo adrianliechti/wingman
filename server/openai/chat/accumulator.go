@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"slices"
+
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
@@ -51,16 +53,18 @@ type StreamingAccumulator struct {
 	// Tool call tracking
 	currentToolCallID string
 	toolCallIndices   map[string]int
+	toolCallArgsSeen  map[string]bool
 }
 
 // NewStreamingAccumulator creates a new StreamingAccumulator with an event handler
 func NewStreamingAccumulator(model string, handler StreamEventHandler) *StreamingAccumulator {
 	return &StreamingAccumulator{
-		handler:         handler,
-		id:              "chatcmpl-" + uuid.NewString(),
-		model:           model,
-		finishReason:    FinishReasonStop,
-		toolCallIndices: make(map[string]int),
+		handler:          handler,
+		id:               "chatcmpl-" + uuid.NewString(),
+		model:            model,
+		finishReason:     FinishReasonStop,
+		toolCallIndices:  make(map[string]int),
+		toolCallArgsSeen: make(map[string]bool),
 	}
 }
 
@@ -106,12 +110,20 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		}
 
 		if calls := oaiToolCalls(c.Message.Content); len(calls) > 0 {
-			for i, call := range calls {
+			// OpenAI streams id/type/name only on a call's first chunk;
+			// clients accumulate name and arguments with += keyed by index,
+			// so repeating them would corrupt client state.
+			chunks := make([]ToolCall, 0, len(calls))
+
+			for _, call := range calls {
+				first := false
+
 				if call.ID != "" {
 					s.currentToolCallID = call.ID
 
-					if _, found := s.toolCallIndices[s.currentToolCallID]; !found {
-						s.toolCallIndices[s.currentToolCallID] = len(s.toolCallIndices)
+					if _, found := s.toolCallIndices[call.ID]; !found {
+						s.toolCallIndices[call.ID] = len(s.toolCallIndices)
+						first = true
 					}
 				}
 
@@ -119,17 +131,37 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					continue
 				}
 
-				idx := s.toolCallIndices[s.currentToolCallID]
-				calls[i] = ToolCall{
-					ID:       s.currentToolCallID,
-					Index:    &idx,
-					Type:     call.Type,
-					Function: call.Function,
+				if call.Function != nil && call.Function.Arguments != "" {
+					s.toolCallArgsSeen[s.currentToolCallID] = true
 				}
+
+				idx := s.toolCallIndices[s.currentToolCallID]
+
+				chunk := ToolCall{
+					Index:    &idx,
+					Function: &FunctionCall{},
+				}
+
+				if call.Function != nil {
+					chunk.Function.Arguments = call.Function.Arguments
+				}
+
+				if first {
+					chunk.ID = s.currentToolCallID
+					chunk.Type = call.Type
+
+					if call.Function != nil {
+						chunk.Function.Name = call.Function.Name
+					}
+				}
+
+				chunks = append(chunks, chunk)
 			}
 
-			s.finishReason = FinishReasonToolCalls
-			message.ToolCalls = calls
+			if len(chunks) > 0 {
+				s.finishReason = FinishReasonToolCalls
+				message.ToolCalls = chunks
+			}
 		}
 
 		chunk.Choices = []ChatCompletionChoice{
@@ -162,6 +194,49 @@ func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 		s.finishReason = FinishReasonLength
 	case provider.CompletionStatusRefused:
 		s.finishReason = FinishReasonContentFilter
+	}
+
+	// Calls that streamed no argument bytes must still deliver parseable
+	// arguments — clients rebuild them purely from deltas.
+	if s.finishReason == FinishReasonToolCalls {
+		for _, id := range s.pendingArgumentIDs() {
+			idx := s.toolCallIndices[id]
+
+			chunk := &ChatCompletion{
+				Object:  "chat.completion.chunk",
+				ID:      result.ID,
+				Model:   result.Model,
+				Created: 0, // Will be set by handler
+				Choices: []ChatCompletionChoice{
+					{
+						Delta: &ChatCompletionMessage{
+							ToolCalls: []ToolCall{
+								{
+									Index:    &idx,
+									Function: &FunctionCall{Arguments: "{}"},
+								},
+							},
+						},
+					},
+				},
+				ServiceTier: "default",
+			}
+
+			if chunk.ID == "" {
+				chunk.ID = s.id
+			}
+
+			if chunk.Model == "" {
+				chunk.Model = s.model
+			}
+
+			if err := s.emitEvent(StreamEvent{
+				Type:  StreamEventChunk,
+				Chunk: chunk,
+			}); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Emit finish chunk with reason
@@ -239,6 +314,24 @@ func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 		Type:       StreamEventDone,
 		Completion: result,
 	})
+}
+
+// pendingArgumentIDs returns tool call IDs without streamed arguments,
+// ordered by their emitted index.
+func (s *StreamingAccumulator) pendingArgumentIDs() []string {
+	ids := make([]string, 0, len(s.toolCallIndices))
+
+	for id := range s.toolCallIndices {
+		if !s.toolCallArgsSeen[id] {
+			ids = append(ids, id)
+		}
+	}
+
+	slices.SortFunc(ids, func(a, b string) int {
+		return s.toolCallIndices[a] - s.toolCallIndices[b]
+	})
+
+	return ids
 }
 
 // Error emits an error event

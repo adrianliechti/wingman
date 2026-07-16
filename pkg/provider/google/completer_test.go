@@ -140,3 +140,30 @@ func TestToCompletionUsage_ReasoningAndCacheInclusive(t *testing.T) {
 		t.Errorf("reasoning tokens (%d) exceed OutputTokens (%d)", usage.ReasoningTokens, usage.OutputTokens)
 	}
 }
+
+func TestToContent_EmptyFunctionCallArgs(t *testing.T) {
+	content := &genai.Content{
+		Parts: []*genai.Part{
+			{FunctionCall: &genai.FunctionCall{Name: "get_time"}},
+			{FunctionCall: &genai.FunctionCall{Name: "get_weather", Args: map[string]any{"location": "Paris"}}},
+		},
+	}
+
+	var calls []provider.ToolCall
+
+	for _, c := range toContent(content, nil) {
+		if c.ToolCall != nil {
+			calls = append(calls, *c.ToolCall)
+		}
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d: %+v", len(calls), calls)
+	}
+	if calls[0].Arguments != "{}" {
+		t.Errorf("empty args: got %q, want {}", calls[0].Arguments)
+	}
+	if calls[1].Arguments != `{"location":"Paris"}` {
+		t.Errorf("args: got %q", calls[1].Arguments)
+	}
+}
