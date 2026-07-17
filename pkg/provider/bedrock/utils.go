@@ -46,3 +46,32 @@ func outputEffort(e provider.Effort) string {
 	}
 	return ""
 }
+
+func ensureAdditionalPropertiesFalse(schema map[string]any) map[string]any {
+	if schema == nil {
+		return schema
+	}
+
+	schemaType, _ := schema["type"].(string)
+	if schemaType == "object" {
+		if _, ok := schema["additionalProperties"]; !ok {
+			schema["additionalProperties"] = false
+		}
+
+		if props, ok := schema["properties"].(map[string]any); ok {
+			for key, val := range props {
+				if propSchema, ok := val.(map[string]any); ok {
+					props[key] = ensureAdditionalPropertiesFalse(propSchema)
+				}
+			}
+		}
+	}
+
+	if schemaType == "array" {
+		if items, ok := schema["items"].(map[string]any); ok {
+			schema["items"] = ensureAdditionalPropertiesFalse(items)
+		}
+	}
+
+	return schema
+}

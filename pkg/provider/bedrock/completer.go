@@ -562,9 +562,18 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 			tool.Description = aws.String(options.Schema.Description)
 		}
 
+		if options.Schema.Strict != nil {
+			tool.Strict = options.Schema.Strict
+		}
+
 		properties := options.Schema.Properties
 		if properties == nil {
 			properties = map[string]any{"type": "object"}
+		}
+
+		// strict validation requires additionalProperties: false on every object
+		if options.Schema.Strict != nil && *options.Schema.Strict {
+			properties = ensureAdditionalPropertiesFalse(properties)
 		}
 
 		tool.InputSchema = &types.ToolInputSchemaMemberJson{
@@ -836,6 +845,10 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 
 		if t.Description != "" {
 			tool.Description = aws.String(t.Description)
+		}
+
+		if t.Strict != nil {
+			tool.Strict = t.Strict
 		}
 
 		if len(t.Parameters) > 0 {

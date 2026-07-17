@@ -2,6 +2,7 @@ package responses
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"time"
 
@@ -308,9 +309,13 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 				}
 			}
 
+			// clone before normalizing — t.Parameters is the request's map and
+			// must not leak echo-only defaults into the upstream provider call
 			if t.Parameters != nil {
 				if _, ok := t.Parameters["additionalProperties"]; !ok {
-					t.Parameters["additionalProperties"] = false
+					params := maps.Clone(t.Parameters)
+					params["additionalProperties"] = false
+					t.Parameters = params
 				}
 			}
 

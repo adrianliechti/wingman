@@ -806,6 +806,20 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			return nil, errors.New("invalid tool parameters schema")
 		}
 
+		// Unmarshal only fills properties/required/type — carry all other
+		// top-level keywords (additionalProperties, $defs, anyOf, ...) which
+		// strict mode in particular depends on
+		for key, value := range t.Parameters {
+			switch key {
+			case "type", "properties", "required":
+			default:
+				if schema.ExtraFields == nil {
+					schema.ExtraFields = map[string]any{}
+				}
+				schema.ExtraFields[key] = value
+			}
+		}
+
 		tool := anthropic.BetaToolParam{
 			Name: t.Name,
 
@@ -814,6 +828,10 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 		if t.Description != "" {
 			tool.Description = anthropic.String(t.Description)
+		}
+
+		if t.Strict != nil {
+			tool.Strict = anthropic.Bool(*t.Strict)
 		}
 
 		// deferring requires a search tool to discover the definition, and
