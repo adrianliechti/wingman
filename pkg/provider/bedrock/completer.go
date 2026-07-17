@@ -572,8 +572,9 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		}
 
 		// strict validation requires additionalProperties: false on every object
+		// and rejects constraint keywords other providers accept
 		if options.Schema.Strict != nil && *options.Schema.Strict {
-			properties = ensureAdditionalPropertiesFalse(properties)
+			properties = ensureAdditionalPropertiesFalse(sanitizeStrictSchema(properties))
 		}
 
 		tool.InputSchema = &types.ToolInputSchemaMemberJson{
@@ -851,9 +852,16 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 			tool.Strict = t.Strict
 		}
 
-		if len(t.Parameters) > 0 {
+		params := t.Parameters
+
+		// strict validation rejects constraint keywords other providers accept
+		if t.Strict != nil && *t.Strict {
+			params = sanitizeStrictSchema(params)
+		}
+
+		if len(params) > 0 {
 			tool.InputSchema = &types.ToolInputSchemaMemberJson{
-				Value: document.NewLazyDocument(t.Parameters),
+				Value: document.NewLazyDocument(params),
 			}
 		}
 

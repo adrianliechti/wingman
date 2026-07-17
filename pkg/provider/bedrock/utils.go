@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -74,4 +75,109 @@ func ensureAdditionalPropertiesFalse(schema map[string]any) map[string]any {
 	}
 
 	return schema
+}
+
+// Formats the strict-mode grammar compiler supports; others must be stripped.
+var strictSupportedFormats = map[string]bool{
+	"date-time": true, "time": true, "date": true, "duration": true,
+	"email": true, "hostname": true, "uri": true,
+	"ipv4": true, "ipv6": true, "uuid": true,
+}
+
+// Strict-mode schema validation rejects value-constraint keywords that other
+// providers accept (numerical bounds, string lengths, array sizes, custom
+// formats). Mirror the official SDKs: strip them client-side and fold them
+// into the description so the model still sees the intent. Returns a copied
+// schema along modified paths; the input is never mutated.
+func sanitizeStrictSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+
+	result := make(map[string]any, len(schema))
+
+	var stripped []string
+
+	for key, value := range schema {
+		switch key {
+		case "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+			"minLength", "maxLength",
+			"maxItems", "uniqueItems", "minContains", "maxContains",
+			"minProperties", "maxProperties":
+			stripped = append(stripped, fmt.Sprintf("%s %v", key, value))
+			continue
+
+		case "format":
+			if s, ok := value.(string); ok && !strictSupportedFormats[s] {
+				stripped = append(stripped, "format "+s)
+				continue
+			}
+			result[key] = value
+
+		case "minItems":
+			// only 0 and 1 are supported
+			if f, ok := value.(float64); ok && f <= 1 {
+				result[key] = value
+			} else {
+				stripped = append(stripped, fmt.Sprintf("minItems %v", value))
+			}
+
+		// maps of named sub-schemas — keys are names, values are schemas
+		case "properties", "$defs", "definitions", "patternProperties":
+			if m, ok := value.(map[string]any); ok {
+				sub := make(map[string]any, len(m))
+				for name, propSchema := range m {
+					if ps, ok := propSchema.(map[string]any); ok {
+						sub[name] = sanitizeStrictSchema(ps)
+					} else {
+						sub[name] = propSchema
+					}
+				}
+				result[key] = sub
+			} else {
+				result[key] = value
+			}
+
+		// single sub-schema values
+		case "items", "contains", "propertyNames", "not", "if", "then", "else":
+			if m, ok := value.(map[string]any); ok {
+				result[key] = sanitizeStrictSchema(m)
+			} else {
+				result[key] = value
+			}
+
+		// lists of sub-schemas
+		case "anyOf", "allOf", "oneOf", "prefixItems":
+			if arr, ok := value.([]any); ok {
+				sub := make([]any, len(arr))
+				for i, item := range arr {
+					if m, ok := item.(map[string]any); ok {
+						sub[i] = sanitizeStrictSchema(m)
+					} else {
+						sub[i] = item
+					}
+				}
+				result[key] = sub
+			} else {
+				result[key] = value
+			}
+
+		default:
+			result[key] = value
+		}
+	}
+
+	// keep the model aware of stripped constraints — they are no longer
+	// grammar-enforced, but still guide generation
+	if len(stripped) > 0 {
+		hint := "Constraints: " + strings.Join(stripped, ", ")
+
+		if desc, ok := result["description"].(string); ok && desc != "" {
+			result["description"] = desc + " (" + hint + ")"
+		} else {
+			result["description"] = hint
+		}
+	}
+
+	return result
 }

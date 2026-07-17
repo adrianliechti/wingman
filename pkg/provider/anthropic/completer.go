@@ -798,9 +798,16 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			continue
 		}
 
+		params := t.Parameters
+
+		// strict validation rejects constraint keywords other providers accept
+		if t.Strict != nil && *t.Strict {
+			params = sanitizeStrictSchema(params)
+		}
+
 		var schema anthropic.BetaToolInputSchemaParam
 
-		schemaData, _ := json.Marshal(t.Parameters)
+		schemaData, _ := json.Marshal(params)
 
 		if err := json.Unmarshal(schemaData, &schema); err != nil {
 			return nil, errors.New("invalid tool parameters schema")
@@ -809,7 +816,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		// Unmarshal only fills properties/required/type — carry all other
 		// top-level keywords (additionalProperties, $defs, anyOf, ...) which
 		// strict mode in particular depends on
-		for key, value := range t.Parameters {
+		for key, value := range params {
 			switch key {
 			case "type", "properties", "required":
 			default:
@@ -845,7 +852,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	if options.Schema != nil && options.Schema.Properties != nil {
 		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{
-			Schema: ensureAdditionalPropertiesFalse(options.Schema.Properties),
+			Schema: ensureAdditionalPropertiesFalse(sanitizeStrictSchema(options.Schema.Properties)),
 		}
 	}
 
