@@ -567,11 +567,12 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 			properties = map[string]any{"type": "object"}
 		}
 
-		// Only forward strict when explicitly enabled. strict=false carries no
-		// information and Anthropic models on Bedrock reject the unknown tool
-		// field. Strict mode also requires additionalProperties: false on every
-		// object and rejects constraint keywords other providers accept.
-		if options.Schema.Strict != nil && *options.Schema.Strict {
+		// Only forward strict when explicitly enabled and the model supports it:
+		// strict=false carries no information, and models without structured
+		// output reject the field itself. Strict mode also requires
+		// additionalProperties: false on every object and rejects constraint
+		// keywords other providers accept.
+		if options.Schema.Strict != nil && *options.Schema.Strict && supportsStrictTools(c.model) {
 			tool.Strict = options.Schema.Strict
 			properties = ensureAdditionalPropertiesFalse(sanitizeStrictSchema(properties))
 		}
@@ -849,11 +850,11 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 
 		params := t.Parameters
 
-		// Only forward strict when explicitly enabled. strict=false carries no
-		// information and Anthropic models on Bedrock reject the unknown tool
-		// field ("tools.0.custom.strict: Extra inputs are not permitted").
-		// Strict mode also rejects constraint keywords other providers accept.
-		if t.Strict != nil && *t.Strict {
+		// Only forward strict when explicitly enabled and the model supports it:
+		// strict=false carries no information, and models without structured
+		// output reject the field itself. Strict mode also rejects constraint
+		// keywords other providers accept, so sanitize only when it is sent.
+		if t.Strict != nil && *t.Strict && supportsStrictTools(c.model) {
 			tool.Strict = t.Strict
 			params = sanitizeStrictSchema(params)
 		}

@@ -11,7 +11,7 @@ import (
 // tool is passed through to the Converse tool specification, and that tools
 // without the flag stay untouched.
 func TestConvertToolConfig_Strict(t *testing.T) {
-	c := &Completer{Config: &Config{model: "anthropic.claude-opus-4-8-v1:0"}}
+	c := &Completer{Config: &Config{model: "anthropic.claude-opus-4-5-20251101-v1:0"}}
 
 	strict := true
 
@@ -56,10 +56,62 @@ func TestConvertToolConfig_StrictFalse(t *testing.T) {
 	}
 }
 
+// TestConvertToolConfig_StrictUnsupportedModel verifies strict=true is dropped
+// for models without structured-output support. Bedrock rejects the whole
+// request with "tools.N.custom.strict: Extra inputs are not permitted", so the
+// flag must not be forwarded and the schema must stay unsanitized.
+func TestConvertToolConfig_StrictUnsupportedModel(t *testing.T) {
+	c := &Completer{Config: &Config{model: "eu.anthropic.claude-opus-4-8"}}
+
+	strict := true
+
+	tc := c.convertToolConfig([]provider.Tool{
+		{Name: "list_files", Strict: &strict, Parameters: testSchema},
+	}, nil)
+
+	for _, tool := range tc.Tools {
+		if spec, ok := tool.(*types.ToolMemberToolSpec); ok {
+			if spec.Value.Strict != nil {
+				t.Errorf("strict forwarded to model without structured output: %+v", spec.Value)
+			}
+		}
+	}
+}
+
+func TestSupportsStrictTools(t *testing.T) {
+	supported := []string{
+		"eu.anthropic.claude-opus-4-5-20251101-v1:0",
+		"eu.anthropic.claude-opus-4-6-v1",
+		"eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+		"eu.anthropic.claude-sonnet-4-6",
+		"eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+		"openai.gpt-oss-120b",
+	}
+
+	unsupported := []string{
+		"eu.anthropic.claude-opus-4-8",
+		"eu.anthropic.claude-opus-4-7",
+		"eu.anthropic.claude-sonnet-5",
+		"eu.anthropic.claude-fable-5",
+	}
+
+	for _, m := range supported {
+		if !supportsStrictTools(m) {
+			t.Errorf("expected strict support for %q", m)
+		}
+	}
+
+	for _, m := range unsupported {
+		if supportsStrictTools(m) {
+			t.Errorf("expected no strict support for %q", m)
+		}
+	}
+}
+
 // TestConvertConverseInput_SchemaStrict verifies schema-mode strict propagates
 // to the forced structured-output tool.
 func TestConvertConverseInput_SchemaStrict(t *testing.T) {
-	c := &Completer{Config: &Config{model: "anthropic.claude-opus-4-8-v1:0"}}
+	c := &Completer{Config: &Config{model: "anthropic.claude-opus-4-5-20251101-v1:0"}}
 
 	strict := true
 

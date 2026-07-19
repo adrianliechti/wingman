@@ -32,6 +32,37 @@ func isLegacyModel(model string) bool {
 	return false
 }
 
+// Structured outputs (strict tool use) is supported by the Claude 4.5 and 4.6
+// models. Newer ones (4.7, 4.8, 5.x) reject the field outright with
+// "tools.N.custom.strict: Extra inputs are not permitted", so this is an
+// allowlist: omitting strict degrades to unconstrained tool calls, while
+// sending it to a model that lacks support fails the whole request.
+var StrictToolModels = []string{
+	"sonnet-4-5",
+	"sonnet-4-6",
+
+	"opus-4-5",
+	"opus-4-6",
+
+	"haiku-4-5",
+}
+
+func supportsStrictTools(model string) bool {
+	if !isClaudeModel(model) {
+		return true
+	}
+
+	model = strings.ToLower(model)
+
+	for _, p := range StrictToolModels {
+		if strings.Contains(model, p) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func outputEffort(e provider.Effort) string {
 	switch e {
 	case provider.EffortMinimal, provider.EffortLow:
