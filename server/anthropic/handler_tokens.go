@@ -3,22 +3,17 @@ package anthropic
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/adrianliechti/wingman/pkg/tokens"
 )
 
-const (
-	charsPerToken     = 4
-	jsonCharsPerToken = 3
-
-	// Structural framing per message (role delimiters and separators).
-	messageTokenOverhead = 3
-
-	// System prompt the API injects whenever any tool is defined.
-	toolUseSystemOverhead = 264
-
-	// Flat per-image estimate; Anthropic downsizes to ~1.15MP before counting.
-	imageTokens = 1300
-)
-
+// handleCountTokens estimates input tokens for a Messages API request. The
+// wire format is converted to the common provider format (the same conversion
+// the completion path uses), and pkg/tokens picks the tokenizer family and
+// framing from the model — so cross-model calls (a GPT model served through
+// this Anthropic-style endpoint) are counted with the right tokenizer. No
+// tokenizer data files; typical error ≤ ~10% (see pkg/tokens calibration
+// tests).
 func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	var req CountTokensRequest
 
@@ -27,92 +22,39 @@ func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tokens int
+	var system string
 
 	if req.System != nil {
-		system, err := parseSystemContent(req.System)
+		text, err := parseSystemContent(req.System)
 
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		tokens += textTokens(system)
+
+		system = text
 	}
 
-	for _, msg := range req.Messages {
-		tokens += messageTokens(msg)
+	messages, err := toMessages(system, req.Messages)
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
 
-	if len(req.Tools) > 0 {
-		tokens += toolUseSystemOverhead
+	tools, err := toTools(req.Tools)
 
-		for _, tool := range req.Tools {
-			tokens += toolTokens(tool)
-		}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
+
+	count := tokens.Estimate(req.Model, tokens.Input{
+		Messages: messages,
+		Tools:    tools,
+	})
 
 	writeJson(w, CountTokensResponse{
-		InputTokens: tokens,
+		InputTokens: count,
 	})
-}
-
-func messageTokens(msg MessageParam) int {
-	blocks, err := parseContentBlocks(msg.Content)
-	if err != nil {
-		return messageTokenOverhead + jsonTokens(msg.Content)
-	}
-
-	return messageTokenOverhead + blocksTokens(blocks)
-}
-
-func blocksTokens(blocks []ContentBlockParam) int {
-	var total int
-
-	for _, block := range blocks {
-		switch block.Type {
-		case "text":
-			total += textTokens(block.Text)
-		case "thinking":
-			total += textTokens(block.Thinking)
-		case "tool_use":
-			total += textTokens(block.Name)
-			total += jsonTokens(block.Input)
-		case "tool_result":
-			total += toolResultTokens(block.Content)
-		case "image":
-			total += imageTokens
-		}
-	}
-
-	return total
-}
-
-func toolResultTokens(content any) int {
-	blocks, err := parseContentBlocks(content)
-	if err != nil {
-		return jsonTokens(content)
-	}
-
-	return blocksTokens(blocks)
-}
-
-func toolTokens(tool ToolParam) int {
-	total := textTokens(tool.Name)
-	total += textTokens(tool.Description)
-	total += jsonTokens(tool.InputSchema)
-
-	return total
-}
-
-func textTokens(s string) int {
-	return len(s) / charsPerToken
-}
-
-func jsonTokens(v any) int {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return 0
-	}
-
-	return len(data) / jsonCharsPerToken
 }

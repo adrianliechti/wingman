@@ -1,0 +1,458 @@
+{
+ "claude-2026": {
+  "camel_case": {
+   "text": "getUserPreferences setMaxRetryCount parseIso8601Timestamp\nbuildHttpClientFactory isFeatureFlagEnabled deserializeResponsePayload\ncomputeExponentialBackoffMillis validateJsonSchemaStrict\nextractBearerTokenFromHeader normalizeUnicodeWhitespace",
+   "tokens": 112
+  },
+  "chat_emoji": {
+   "text": "Team update 🎉 We shipped the counter! 🚀 Huge thanks to\n@maria and @jonas 🙏 — benchmarks look great 📈 (p95 under 2ms ⚡).\nNext up: 🧪 more calibration, 🌍 i18n corpus, and 🔐 auth for the admin panel.\nCelebrate on Friday? 🍕🍺",
+   "tokens": 126
+  },
+  "code_go": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}",
+   "tokens": 258
+  },
+  "code_java": {
+   "text": "public final class RetryPolicy {\n    private final int maxAttempts;\n    private final Duration initialBackoff;\n\n    public static RetryPolicy exponential(int maxAttempts, Duration initialBackoff) {\n        return new RetryPolicy(maxAttempts, initialBackoff);\n    }\n\n    public \u003cT\u003e T execute(Callable\u003cT\u003e callable) throws Exception {\n        Exception lastException = null;\n        for (int attempt = 0; attempt \u003c maxAttempts; attempt++) {\n            try {\n                return callable.call();\n            } catch (TransientException e) {\n                lastException = e;\n                Thread.sleep(initialBackoff.toMillis() * (1L \u003c\u003c attempt));\n            }\n        }\n        throw lastException;\n    }\n}",
+   "tokens": 246
+  },
+  "code_py": {
+   "text": "import asyncio\nfrom dataclasses import dataclass, field\nfrom typing import Optional\n\n@dataclass\nclass RateLimiter:\n    rate: float\n    burst: int = 10\n    _tokens: float = field(default=0.0, init=False)\n\n    async def acquire(self, n: int = 1) -\u003e None:\n        while self._tokens \u003c n:\n            await asyncio.sleep(1.0 / self.rate)\n            self._tokens = min(self.burst, self._tokens + 1)\n        self._tokens -= n\n\ndef chunk(items: list[str], size: int) -\u003e list[list[str]]:\n    return [items[i:i + size] for i in range(0, len(items), size)]",
+   "tokens": 216
+  },
+  "code_shell": {
+   "text": "#!/usr/bin/env bash\nset -euo pipefail\nreadonly BACKUP_DIR=\"/var/backups/pg/$(date +%F)\"\nmkdir -p \"$BACKUP_DIR\"\nfor db in $(psql -Atc \"SELECT datname FROM pg_database WHERE NOT datistemplate\"); do\n  pg_dump --format=custom --file=\"$BACKUP_DIR/$db.dump\" \"$db\" \\\n    || { echo \"backup failed: $db\" \u003e\u00262; exit 1; }\ndone\nfind /var/backups/pg -maxdepth 1 -mtime +14 -exec rm -rf {} +",
+   "tokens": 211
+  },
+  "code_sql": {
+   "text": "SELECT r.region, DATE_TRUNC('week', u.created_at) AS week,\n       COUNT(*) AS requests, SUM(u.tokens_in) AS tokens_in,\n       ROUND(AVG(u.latency_ms)::numeric, 1) AS avg_latency\nFROM usage_events u\nJOIN regions r ON r.id = u.region_id\nWHERE u.created_at \u003e= NOW() - INTERVAL '90 days'\n  AND u.status NOT IN ('cancelled', 'failed')\nGROUP BY 1, 2 HAVING COUNT(*) \u003e 100\nORDER BY week DESC, tokens_in DESC LIMIT 50;",
+   "tokens": 231
+  },
+  "code_ts": {
+   "text": "export interface CountResult {\n  tokens: number;\n  model: string;\n  exact: boolean;\n}\n\nexport async function countAll(\n  texts: string[],\n  opts: { model?: string; concurrency?: number } = {},\n): Promise\u003cCountResult[]\u003e {\n  const { model = \"claude-opus-4-8\", concurrency = 4 } = opts;\n  const results: CountResult[] = [];\n  for (const batch of chunks(texts, concurrency)) {\n    results.push(...(await Promise.all(batch.map((t) =\u003e countOne(t, model)))));\n  }\n  return results;\n}",
+   "tokens": 192
+  },
+  "csv_numbers": {
+   "text": "date,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75",
+   "tokens": 157
+  },
+  "data_hex": {
+   "text": "00000000  7f 45 4c 46 02 01 01 00  00 00 00 00 00 00 00 00  |.ELF............|\n00000010  03 00 3e 00 01 00 00 00  50 4a 02 00 00 00 00 00  |..\u003e.....PJ......|\n00000020  40 00 00 00 00 00 00 00  28 fd 30 00 00 00 00 00  |@.......(.0.....|",
+   "tokens": 140
+  },
+  "data_urls": {
+   "text": "https://api.example.com/v2/models?page=3\u0026per_page=50\u0026sort=-created\nftp://mirror.example.org/pub/dists/stable/main/binary-amd64/Packages.gz\npostgres://svc_ro:s3cr3t@db-replica-2.internal:5432/analytics?sslmode=require\ngit+ssh://git@github.com/example/tokencounter.git@v1.4.2#egg=tokencounter",
+   "tokens": 142
+  },
+  "holdout_mixed": {
+   "text": "Meeting notes 19.07.2026 — attendees: A. Keller, J. Müller 🤝\nAction items: ① migrate the billing cron to the new scheduler (owner: JM, due\nFriday); ② review the München datacenter failover runbook; ③ price out 1M-token\ncontext tier — draft in €/CHF, compare with USD list prices. Next sync: Tue 10:00.",
+   "tokens": 128
+  },
+  "holdout_prose": {
+   "text": "Alpine glaciers have retreated substantially over the past\nfour decades, and the trend has accelerated since the early two-thousands.\nResearchers combine satellite imagery with in-situ stake measurements to\nestimate annual mass balance, expressed in metres of water equivalent. The\nresulting series show pronounced negative balances in heatwave years.",
+   "tokens": 109
+  },
+  "holdout_python": {
+   "text": "def rolling_mean(values: list[float], window: int) -\u003e list[float]:\n    if window \u003c= 0:\n        raise ValueError(f\"window must be positive, got {window}\")\n    out: list[float] = []\n    acc = 0.0\n    for i, v in enumerate(values):\n        acc += v\n        if i \u003e= window:\n            acc -= values[i - window]\n        if i \u003e= window - 1:\n            out.append(acc / window)\n    return out",
+   "tokens": 139
+  },
+  "json_data": {
+   "text": "{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}",
+   "tokens": 218
+  },
+  "logs": {
+   "text": "2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0",
+   "tokens": 223
+  },
+  "long_code": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}\n\n{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}\n\n2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0\n\ndate,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75\n\n# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 1051
+  },
+  "long_prose": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.\n\nDie Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.\n\nRFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top\n\nTokenizer vocabularies are trained on large corpora with byte-pair\nencoding: starting from raw bytes, the most frequent adjacent pairs are merged\niteratively until the target vocabulary size is reached. The resulting merge\ntable determines how any new text is segmented. Two models trained with\ndifferent corpora or different merge budgets therefore segment identical text\ndifferently, which is why cross-model token counts cannot be converted with a\nsingle universal constant — the ratio depends on the content's character\ndistribution, language, and formatting conventions.",
+   "tokens": 696
+  },
+  "markdown": {
+   "text": "# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 183
+  },
+  "markup_html": {
+   "text": "\u003c!doctype html\u003e\n\u003csection class=\"pricing\" data-tier=\"pro\"\u003e\n  \u003ch2\u003ePro Plan\u003c/h2\u003e\n  \u003cul\u003e\n    \u003cli\u003e\u003cstrong\u003e1M\u003c/strong\u003e tokens context \u0026mdash; \u003cem\u003eno premium\u003c/em\u003e\u003c/li\u003e\n    \u003cli\u003ePriority support via \u003ca href=\"mailto:help@example.com\"\u003eemail\u003c/a\u003e\u003c/li\u003e\n  \u003c/ul\u003e\n  \u003cbutton type=\"button\" aria-label=\"Choose Pro\"\u003eCHF 49/month\u003c/button\u003e\n\u003c/section\u003e",
+   "tokens": 148
+  },
+  "markup_yaml": {
+   "text": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: tokencounter\n  labels: { app: tokencounter, tier: api }\nspec:\n  replicas: 3\n  template:\n    spec:\n      containers:\n        - name: api\n          image: ghcr.io/example/tokencounter:v1.4.2\n          resources:\n            limits: { cpu: \"500m\", memory: 512Mi }\n          env:\n            - name: LOG_LEVEL\n              value: info",
+   "tokens": 158
+  },
+  "mixed_tech": {
+   "text": "RFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top",
+   "tokens": 177
+  },
+  "prose_de": {
+   "text": "Die Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.",
+   "tokens": 188
+  },
+  "prose_en": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.",
+   "tokens": 152
+  },
+  "prose_fr": {
+   "text": "Le conseil municipal a approuvé jeudi soir le nouveau plan de\nmobilité, qui prévoit l'extension des pistes cyclables le long de la rivière et\nla limitation de la vitesse à trente kilomètres par heure dans les quartiers\nrésidentiels. Les associations de commerçants craignent toutefois une baisse de\nfréquentation du centre-ville pendant la durée des travaux.",
+   "tokens": 137
+  },
+  "prose_ja": {
+   "text": "気象庁は本日、関東地方の梅雨明けを発表しました。平年より五日早く、\n昨年と比べて一週間ほど早い梅雨明けとなります。今後一週間は高気圧に覆われ、\n最高気温が三十五度を超える猛暑日が続く見込みです。熱中症への対策を心がけてください。",
+   "tokens": 113
+  },
+  "prose_ru": {
+   "text": "Московский метрополитен объявил о продлении фиолетовой линии на\nтри станции к концу следующего года. Новые платформы будут оборудованы\nсовременными системами навигации, а пересадочные узлы свяжут линию с\nпригородными электричками. Стоимость проекта оценивается в несколько\nмиллиардов рублей.",
+   "tokens": 107
+  },
+  "prose_zh": {
+   "text": "东京国立博物馆本周宣布，将于秋季举办一场关于江户时代浮世绘的特别展览。\n展览将展出超过两百幅木版画，其中包括葛饰北斋和歌川广重的代表作。策展人表示，\n此次展览旨在展示浮世绘对十九世纪欧洲印象派绘画的深远影响。门票将于下月初开始发售，\n预计参观人数将创下历史新高。",
+   "tokens": 146
+  }
+ },
+ "claude-legacy": {
+  "camel_case": {
+   "text": "getUserPreferences setMaxRetryCount parseIso8601Timestamp\nbuildHttpClientFactory isFeatureFlagEnabled deserializeResponsePayload\ncomputeExponentialBackoffMillis validateJsonSchemaStrict\nextractBearerTokenFromHeader normalizeUnicodeWhitespace",
+   "tokens": 62
+  },
+  "chat_emoji": {
+   "text": "Team update 🎉 We shipped the counter! 🚀 Huge thanks to\n@maria and @jonas 🙏 — benchmarks look great 📈 (p95 under 2ms ⚡).\nNext up: 🧪 more calibration, 🌍 i18n corpus, and 🔐 auth for the admin panel.\nCelebrate on Friday? 🍕🍺",
+   "tokens": 101
+  },
+  "code_go": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}",
+   "tokens": 193
+  },
+  "code_java": {
+   "text": "public final class RetryPolicy {\n    private final int maxAttempts;\n    private final Duration initialBackoff;\n\n    public static RetryPolicy exponential(int maxAttempts, Duration initialBackoff) {\n        return new RetryPolicy(maxAttempts, initialBackoff);\n    }\n\n    public \u003cT\u003e T execute(Callable\u003cT\u003e callable) throws Exception {\n        Exception lastException = null;\n        for (int attempt = 0; attempt \u003c maxAttempts; attempt++) {\n            try {\n                return callable.call();\n            } catch (TransientException e) {\n                lastException = e;\n                Thread.sleep(initialBackoff.toMillis() * (1L \u003c\u003c attempt));\n            }\n        }\n        throw lastException;\n    }\n}",
+   "tokens": 181
+  },
+  "code_py": {
+   "text": "import asyncio\nfrom dataclasses import dataclass, field\nfrom typing import Optional\n\n@dataclass\nclass RateLimiter:\n    rate: float\n    burst: int = 10\n    _tokens: float = field(default=0.0, init=False)\n\n    async def acquire(self, n: int = 1) -\u003e None:\n        while self._tokens \u003c n:\n            await asyncio.sleep(1.0 / self.rate)\n            self._tokens = min(self.burst, self._tokens + 1)\n        self._tokens -= n\n\ndef chunk(items: list[str], size: int) -\u003e list[list[str]]:\n    return [items[i:i + size] for i in range(0, len(items), size)]",
+   "tokens": 178
+  },
+  "code_shell": {
+   "text": "#!/usr/bin/env bash\nset -euo pipefail\nreadonly BACKUP_DIR=\"/var/backups/pg/$(date +%F)\"\nmkdir -p \"$BACKUP_DIR\"\nfor db in $(psql -Atc \"SELECT datname FROM pg_database WHERE NOT datistemplate\"); do\n  pg_dump --format=custom --file=\"$BACKUP_DIR/$db.dump\" \"$db\" \\\n    || { echo \"backup failed: $db\" \u003e\u00262; exit 1; }\ndone\nfind /var/backups/pg -maxdepth 1 -mtime +14 -exec rm -rf {} +",
+   "tokens": 151
+  },
+  "code_sql": {
+   "text": "SELECT r.region, DATE_TRUNC('week', u.created_at) AS week,\n       COUNT(*) AS requests, SUM(u.tokens_in) AS tokens_in,\n       ROUND(AVG(u.latency_ms)::numeric, 1) AS avg_latency\nFROM usage_events u\nJOIN regions r ON r.id = u.region_id\nWHERE u.created_at \u003e= NOW() - INTERVAL '90 days'\n  AND u.status NOT IN ('cancelled', 'failed')\nGROUP BY 1, 2 HAVING COUNT(*) \u003e 100\nORDER BY week DESC, tokens_in DESC LIMIT 50;",
+   "tokens": 154
+  },
+  "code_ts": {
+   "text": "export interface CountResult {\n  tokens: number;\n  model: string;\n  exact: boolean;\n}\n\nexport async function countAll(\n  texts: string[],\n  opts: { model?: string; concurrency?: number } = {},\n): Promise\u003cCountResult[]\u003e {\n  const { model = \"claude-opus-4-8\", concurrency = 4 } = opts;\n  const results: CountResult[] = [];\n  for (const batch of chunks(texts, concurrency)) {\n    results.push(...(await Promise.all(batch.map((t) =\u003e countOne(t, model)))));\n  }\n  return results;\n}",
+   "tokens": 150
+  },
+  "csv_numbers": {
+   "text": "date,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75",
+   "tokens": 147
+  },
+  "data_hex": {
+   "text": "00000000  7f 45 4c 46 02 01 01 00  00 00 00 00 00 00 00 00  |.ELF............|\n00000010  03 00 3e 00 01 00 00 00  50 4a 02 00 00 00 00 00  |..\u003e.....PJ......|\n00000020  40 00 00 00 00 00 00 00  28 fd 30 00 00 00 00 00  |@.......(.0.....|",
+   "tokens": 137
+  },
+  "data_urls": {
+   "text": "https://api.example.com/v2/models?page=3\u0026per_page=50\u0026sort=-created\nftp://mirror.example.org/pub/dists/stable/main/binary-amd64/Packages.gz\npostgres://svc_ro:s3cr3t@db-replica-2.internal:5432/analytics?sslmode=require\ngit+ssh://git@github.com/example/tokencounter.git@v1.4.2#egg=tokencounter",
+   "tokens": 117
+  },
+  "holdout_mixed": {
+   "text": "Meeting notes 19.07.2026 — attendees: A. Keller, J. Müller 🤝\nAction items: ① migrate the billing cron to the new scheduler (owner: JM, due\nFriday); ② review the München datacenter failover runbook; ③ price out 1M-token\ncontext tier — draft in €/CHF, compare with USD list prices. Next sync: Tue 10:00.",
+   "tokens": 102
+  },
+  "holdout_prose": {
+   "text": "Alpine glaciers have retreated substantially over the past\nfour decades, and the trend has accelerated since the early two-thousands.\nResearchers combine satellite imagery with in-situ stake measurements to\nestimate annual mass balance, expressed in metres of water equivalent. The\nresulting series show pronounced negative balances in heatwave years.",
+   "tokens": 68
+  },
+  "holdout_python": {
+   "text": "def rolling_mean(values: list[float], window: int) -\u003e list[float]:\n    if window \u003c= 0:\n        raise ValueError(f\"window must be positive, got {window}\")\n    out: list[float] = []\n    acc = 0.0\n    for i, v in enumerate(values):\n        acc += v\n        if i \u003e= window:\n            acc -= values[i - window]\n        if i \u003e= window - 1:\n            out.append(acc / window)\n    return out",
+   "tokens": 118
+  },
+  "json_data": {
+   "text": "{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}",
+   "tokens": 162
+  },
+  "logs": {
+   "text": "2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0",
+   "tokens": 178
+  },
+  "long_code": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}\n\n{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}\n\n2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0\n\ndate,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75\n\n# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 804
+  },
+  "long_prose": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.\n\nDie Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.\n\nRFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top\n\nTokenizer vocabularies are trained on large corpora with byte-pair\nencoding: starting from raw bytes, the most frequent adjacent pairs are merged\niteratively until the target vocabulary size is reached. The resulting merge\ntable determines how any new text is segmented. Two models trained with\ndifferent corpora or different merge budgets therefore segment identical text\ndifferently, which is why cross-model token counts cannot be converted with a\nsingle universal constant — the ratio depends on the content's character\ndistribution, language, and formatting conventions.",
+   "tokens": 481
+  },
+  "markdown": {
+   "text": "# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 117
+  },
+  "markup_html": {
+   "text": "\u003c!doctype html\u003e\n\u003csection class=\"pricing\" data-tier=\"pro\"\u003e\n  \u003ch2\u003ePro Plan\u003c/h2\u003e\n  \u003cul\u003e\n    \u003cli\u003e\u003cstrong\u003e1M\u003c/strong\u003e tokens context \u0026mdash; \u003cem\u003eno premium\u003c/em\u003e\u003c/li\u003e\n    \u003cli\u003ePriority support via \u003ca href=\"mailto:help@example.com\"\u003eemail\u003c/a\u003e\u003c/li\u003e\n  \u003c/ul\u003e\n  \u003cbutton type=\"button\" aria-label=\"Choose Pro\"\u003eCHF 49/month\u003c/button\u003e\n\u003c/section\u003e",
+   "tokens": 121
+  },
+  "markup_yaml": {
+   "text": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: tokencounter\n  labels: { app: tokencounter, tier: api }\nspec:\n  replicas: 3\n  template:\n    spec:\n      containers:\n        - name: api\n          image: ghcr.io/example/tokencounter:v1.4.2\n          resources:\n            limits: { cpu: \"500m\", memory: 512Mi }\n          env:\n            - name: LOG_LEVEL\n              value: info",
+   "tokens": 125
+  },
+  "mixed_tech": {
+   "text": "RFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top",
+   "tokens": 132
+  },
+  "prose_de": {
+   "text": "Die Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.",
+   "tokens": 133
+  },
+  "prose_en": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.",
+   "tokens": 101
+  },
+  "prose_fr": {
+   "text": "Le conseil municipal a approuvé jeudi soir le nouveau plan de\nmobilité, qui prévoit l'extension des pistes cyclables le long de la rivière et\nla limitation de la vitesse à trente kilomètres par heure dans les quartiers\nrésidentiels. Les associations de commerçants craignent toutefois une baisse de\nfréquentation du centre-ville pendant la durée des travaux.",
+   "tokens": 97
+  },
+  "prose_ja": {
+   "text": "気象庁は本日、関東地方の梅雨明けを発表しました。平年より五日早く、\n昨年と比べて一週間ほど早い梅雨明けとなります。今後一週間は高気圧に覆われ、\n最高気温が三十五度を超える猛暑日が続く見込みです。熱中症への対策を心がけてください。",
+   "tokens": 115
+  },
+  "prose_ru": {
+   "text": "Московский метрополитен объявил о продлении фиолетовой линии на\nтри станции к концу следующего года. Новые платформы будут оборудованы\nсовременными системами навигации, а пересадочные узлы свяжут линию с\nпригородными электричками. Стоимость проекта оценивается в несколько\nмиллиардов рублей.",
+   "tokens": 108
+  },
+  "prose_zh": {
+   "text": "东京国立博物馆本周宣布，将于秋季举办一场关于江户时代浮世绘的特别展览。\n展览将展出超过两百幅木版画，其中包括葛饰北斋和歌川广重的代表作。策展人表示，\n此次展览旨在展示浮世绘对十九世纪欧洲印象派绘画的深远影响。门票将于下月初开始发售，\n预计参观人数将创下历史新高。",
+   "tokens": 148
+  }
+ },
+ "gpt-cl100k": {
+  "camel_case": {
+   "text": "getUserPreferences setMaxRetryCount parseIso8601Timestamp\nbuildHttpClientFactory isFeatureFlagEnabled deserializeResponsePayload\ncomputeExponentialBackoffMillis validateJsonSchemaStrict\nextractBearerTokenFromHeader normalizeUnicodeWhitespace",
+   "tokens": 42
+  },
+  "chat_emoji": {
+   "text": "Team update 🎉 We shipped the counter! 🚀 Huge thanks to\n@maria and @jonas 🙏 — benchmarks look great 📈 (p95 under 2ms ⚡).\nNext up: 🧪 more calibration, 🌍 i18n corpus, and 🔐 auth for the admin panel.\nCelebrate on Friday? 🍕🍺",
+   "tokens": 82
+  },
+  "code_go": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}",
+   "tokens": 137
+  },
+  "code_java": {
+   "text": "public final class RetryPolicy {\n    private final int maxAttempts;\n    private final Duration initialBackoff;\n\n    public static RetryPolicy exponential(int maxAttempts, Duration initialBackoff) {\n        return new RetryPolicy(maxAttempts, initialBackoff);\n    }\n\n    public \u003cT\u003e T execute(Callable\u003cT\u003e callable) throws Exception {\n        Exception lastException = null;\n        for (int attempt = 0; attempt \u003c maxAttempts; attempt++) {\n            try {\n                return callable.call();\n            } catch (TransientException e) {\n                lastException = e;\n                Thread.sleep(initialBackoff.toMillis() * (1L \u003c\u003c attempt));\n            }\n        }\n        throw lastException;\n    }\n}",
+   "tokens": 142
+  },
+  "code_py": {
+   "text": "import asyncio\nfrom dataclasses import dataclass, field\nfrom typing import Optional\n\n@dataclass\nclass RateLimiter:\n    rate: float\n    burst: int = 10\n    _tokens: float = field(default=0.0, init=False)\n\n    async def acquire(self, n: int = 1) -\u003e None:\n        while self._tokens \u003c n:\n            await asyncio.sleep(1.0 / self.rate)\n            self._tokens = min(self.burst, self._tokens + 1)\n        self._tokens -= n\n\ndef chunk(items: list[str], size: int) -\u003e list[list[str]]:\n    return [items[i:i + size] for i in range(0, len(items), size)]",
+   "tokens": 152
+  },
+  "code_shell": {
+   "text": "#!/usr/bin/env bash\nset -euo pipefail\nreadonly BACKUP_DIR=\"/var/backups/pg/$(date +%F)\"\nmkdir -p \"$BACKUP_DIR\"\nfor db in $(psql -Atc \"SELECT datname FROM pg_database WHERE NOT datistemplate\"); do\n  pg_dump --format=custom --file=\"$BACKUP_DIR/$db.dump\" \"$db\" \\\n    || { echo \"backup failed: $db\" \u003e\u00262; exit 1; }\ndone\nfind /var/backups/pg -maxdepth 1 -mtime +14 -exec rm -rf {} +",
+   "tokens": 124
+  },
+  "code_sql": {
+   "text": "SELECT r.region, DATE_TRUNC('week', u.created_at) AS week,\n       COUNT(*) AS requests, SUM(u.tokens_in) AS tokens_in,\n       ROUND(AVG(u.latency_ms)::numeric, 1) AS avg_latency\nFROM usage_events u\nJOIN regions r ON r.id = u.region_id\nWHERE u.created_at \u003e= NOW() - INTERVAL '90 days'\n  AND u.status NOT IN ('cancelled', 'failed')\nGROUP BY 1, 2 HAVING COUNT(*) \u003e 100\nORDER BY week DESC, tokens_in DESC LIMIT 50;",
+   "tokens": 117
+  },
+  "code_ts": {
+   "text": "export interface CountResult {\n  tokens: number;\n  model: string;\n  exact: boolean;\n}\n\nexport async function countAll(\n  texts: string[],\n  opts: { model?: string; concurrency?: number } = {},\n): Promise\u003cCountResult[]\u003e {\n  const { model = \"claude-opus-4-8\", concurrency = 4 } = opts;\n  const results: CountResult[] = [];\n  for (const batch of chunks(texts, concurrency)) {\n    results.push(...(await Promise.all(batch.map((t) =\u003e countOne(t, model)))));\n  }\n  return results;\n}",
+   "tokens": 125
+  },
+  "csv_numbers": {
+   "text": "date,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75",
+   "tokens": 142
+  },
+  "data_hex": {
+   "text": "00000000  7f 45 4c 46 02 01 01 00  00 00 00 00 00 00 00 00  |.ELF............|\n00000010  03 00 3e 00 01 00 00 00  50 4a 02 00 00 00 00 00  |..\u003e.....PJ......|\n00000020  40 00 00 00 00 00 00 00  28 fd 30 00 00 00 00 00  |@.......(.0.....|",
+   "tokens": 138
+  },
+  "data_urls": {
+   "text": "https://api.example.com/v2/models?page=3\u0026per_page=50\u0026sort=-created\nftp://mirror.example.org/pub/dists/stable/main/binary-amd64/Packages.gz\npostgres://svc_ro:s3cr3t@db-replica-2.internal:5432/analytics?sslmode=require\ngit+ssh://git@github.com/example/tokencounter.git@v1.4.2#egg=tokencounter",
+   "tokens": 95
+  },
+  "holdout_mixed": {
+   "text": "Meeting notes 19.07.2026 — attendees: A. Keller, J. Müller 🤝\nAction items: ① migrate the billing cron to the new scheduler (owner: JM, due\nFriday); ② review the München datacenter failover runbook; ③ price out 1M-token\ncontext tier — draft in €/CHF, compare with USD list prices. Next sync: Tue 10:00.",
+   "tokens": 94
+  },
+  "holdout_prose": {
+   "text": "Alpine glaciers have retreated substantially over the past\nfour decades, and the trend has accelerated since the early two-thousands.\nResearchers combine satellite imagery with in-situ stake measurements to\nestimate annual mass balance, expressed in metres of water equivalent. The\nresulting series show pronounced negative balances in heatwave years.",
+   "tokens": 63
+  },
+  "holdout_python": {
+   "text": "def rolling_mean(values: list[float], window: int) -\u003e list[float]:\n    if window \u003c= 0:\n        raise ValueError(f\"window must be positive, got {window}\")\n    out: list[float] = []\n    acc = 0.0\n    for i, v in enumerate(values):\n        acc += v\n        if i \u003e= window:\n            acc -= values[i - window]\n        if i \u003e= window - 1:\n            out.append(acc / window)\n    return out",
+   "tokens": 100
+  },
+  "json_data": {
+   "text": "{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}",
+   "tokens": 137
+  },
+  "logs": {
+   "text": "2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0",
+   "tokens": 162
+  },
+  "long_code": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}\n\n{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}\n\n2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0\n\ndate,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75\n\n# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 685
+  },
+  "long_prose": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.\n\nDie Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.\n\nRFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top\n\nTokenizer vocabularies are trained on large corpora with byte-pair\nencoding: starting from raw bytes, the most frequent adjacent pairs are merged\niteratively until the target vocabulary size is reached. The resulting merge\ntable determines how any new text is segmented. Two models trained with\ndifferent corpora or different merge budgets therefore segment identical text\ndifferently, which is why cross-model token counts cannot be converted with a\nsingle universal constant — the ratio depends on the content's character\ndistribution, language, and formatting conventions.",
+   "tokens": 425
+  },
+  "markdown": {
+   "text": "# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 105
+  },
+  "markup_html": {
+   "text": "\u003c!doctype html\u003e\n\u003csection class=\"pricing\" data-tier=\"pro\"\u003e\n  \u003ch2\u003ePro Plan\u003c/h2\u003e\n  \u003cul\u003e\n    \u003cli\u003e\u003cstrong\u003e1M\u003c/strong\u003e tokens context \u0026mdash; \u003cem\u003eno premium\u003c/em\u003e\u003c/li\u003e\n    \u003cli\u003ePriority support via \u003ca href=\"mailto:help@example.com\"\u003eemail\u003c/a\u003e\u003c/li\u003e\n  \u003c/ul\u003e\n  \u003cbutton type=\"button\" aria-label=\"Choose Pro\"\u003eCHF 49/month\u003c/button\u003e\n\u003c/section\u003e",
+   "tokens": 107
+  },
+  "markup_yaml": {
+   "text": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: tokencounter\n  labels: { app: tokencounter, tier: api }\nspec:\n  replicas: 3\n  template:\n    spec:\n      containers:\n        - name: api\n          image: ghcr.io/example/tokencounter:v1.4.2\n          resources:\n            limits: { cpu: \"500m\", memory: 512Mi }\n          env:\n            - name: LOG_LEVEL\n              value: info",
+   "tokens": 108
+  },
+  "mixed_tech": {
+   "text": "RFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top",
+   "tokens": 109
+  },
+  "prose_de": {
+   "text": "Die Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.",
+   "tokens": 111
+  },
+  "prose_en": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.",
+   "tokens": 96
+  },
+  "prose_fr": {
+   "text": "Le conseil municipal a approuvé jeudi soir le nouveau plan de\nmobilité, qui prévoit l'extension des pistes cyclables le long de la rivière et\nla limitation de la vitesse à trente kilomètres par heure dans les quartiers\nrésidentiels. Les associations de commerçants craignent toutefois une baisse de\nfréquentation du centre-ville pendant la durée des travaux.",
+   "tokens": 99
+  },
+  "prose_ja": {
+   "text": "気象庁は本日、関東地方の梅雨明けを発表しました。平年より五日早く、\n昨年と比べて一週間ほど早い梅雨明けとなります。今後一週間は高気圧に覆われ、\n最高気温が三十五度を超える猛暑日が続く見込みです。熱中症への対策を心がけてください。",
+   "tokens": 138
+  },
+  "prose_ru": {
+   "text": "Московский метрополитен объявил о продлении фиолетовой линии на\nтри станции к концу следующего года. Новые платформы будут оборудованы\nсовременными системами навигации, а пересадочные узлы свяжут линию с\nпригородными электричками. Стоимость проекта оценивается в несколько\nмиллиардов рублей.",
+   "tokens": 138
+  },
+  "prose_zh": {
+   "text": "东京国立博物馆本周宣布，将于秋季举办一场关于江户时代浮世绘的特别展览。\n展览将展出超过两百幅木版画，其中包括葛饰北斋和歌川广重的代表作。策展人表示，\n此次展览旨在展示浮世绘对十九世纪欧洲印象派绘画的深远影响。门票将于下月初开始发售，\n预计参观人数将创下历史新高。",
+   "tokens": 168
+  }
+ },
+ "gpt-o200k": {
+  "camel_case": {
+   "text": "getUserPreferences setMaxRetryCount parseIso8601Timestamp\nbuildHttpClientFactory isFeatureFlagEnabled deserializeResponsePayload\ncomputeExponentialBackoffMillis validateJsonSchemaStrict\nextractBearerTokenFromHeader normalizeUnicodeWhitespace",
+   "tokens": 44
+  },
+  "chat_emoji": {
+   "text": "Team update 🎉 We shipped the counter! 🚀 Huge thanks to\n@maria and @jonas 🙏 — benchmarks look great 📈 (p95 under 2ms ⚡).\nNext up: 🧪 more calibration, 🌍 i18n corpus, and 🔐 auth for the admin panel.\nCelebrate on Friday? 🍕🍺",
+   "tokens": 72
+  },
+  "code_go": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}",
+   "tokens": 143
+  },
+  "code_java": {
+   "text": "public final class RetryPolicy {\n    private final int maxAttempts;\n    private final Duration initialBackoff;\n\n    public static RetryPolicy exponential(int maxAttempts, Duration initialBackoff) {\n        return new RetryPolicy(maxAttempts, initialBackoff);\n    }\n\n    public \u003cT\u003e T execute(Callable\u003cT\u003e callable) throws Exception {\n        Exception lastException = null;\n        for (int attempt = 0; attempt \u003c maxAttempts; attempt++) {\n            try {\n                return callable.call();\n            } catch (TransientException e) {\n                lastException = e;\n                Thread.sleep(initialBackoff.toMillis() * (1L \u003c\u003c attempt));\n            }\n        }\n        throw lastException;\n    }\n}",
+   "tokens": 142
+  },
+  "code_py": {
+   "text": "import asyncio\nfrom dataclasses import dataclass, field\nfrom typing import Optional\n\n@dataclass\nclass RateLimiter:\n    rate: float\n    burst: int = 10\n    _tokens: float = field(default=0.0, init=False)\n\n    async def acquire(self, n: int = 1) -\u003e None:\n        while self._tokens \u003c n:\n            await asyncio.sleep(1.0 / self.rate)\n            self._tokens = min(self.burst, self._tokens + 1)\n        self._tokens -= n\n\ndef chunk(items: list[str], size: int) -\u003e list[list[str]]:\n    return [items[i:i + size] for i in range(0, len(items), size)]",
+   "tokens": 150
+  },
+  "code_shell": {
+   "text": "#!/usr/bin/env bash\nset -euo pipefail\nreadonly BACKUP_DIR=\"/var/backups/pg/$(date +%F)\"\nmkdir -p \"$BACKUP_DIR\"\nfor db in $(psql -Atc \"SELECT datname FROM pg_database WHERE NOT datistemplate\"); do\n  pg_dump --format=custom --file=\"$BACKUP_DIR/$db.dump\" \"$db\" \\\n    || { echo \"backup failed: $db\" \u003e\u00262; exit 1; }\ndone\nfind /var/backups/pg -maxdepth 1 -mtime +14 -exec rm -rf {} +",
+   "tokens": 127
+  },
+  "code_sql": {
+   "text": "SELECT r.region, DATE_TRUNC('week', u.created_at) AS week,\n       COUNT(*) AS requests, SUM(u.tokens_in) AS tokens_in,\n       ROUND(AVG(u.latency_ms)::numeric, 1) AS avg_latency\nFROM usage_events u\nJOIN regions r ON r.id = u.region_id\nWHERE u.created_at \u003e= NOW() - INTERVAL '90 days'\n  AND u.status NOT IN ('cancelled', 'failed')\nGROUP BY 1, 2 HAVING COUNT(*) \u003e 100\nORDER BY week DESC, tokens_in DESC LIMIT 50;",
+   "tokens": 120
+  },
+  "code_ts": {
+   "text": "export interface CountResult {\n  tokens: number;\n  model: string;\n  exact: boolean;\n}\n\nexport async function countAll(\n  texts: string[],\n  opts: { model?: string; concurrency?: number } = {},\n): Promise\u003cCountResult[]\u003e {\n  const { model = \"claude-opus-4-8\", concurrency = 4 } = opts;\n  const results: CountResult[] = [];\n  for (const batch of chunks(texts, concurrency)) {\n    results.push(...(await Promise.all(batch.map((t) =\u003e countOne(t, model)))));\n  }\n  return results;\n}",
+   "tokens": 125
+  },
+  "csv_numbers": {
+   "text": "date,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75",
+   "tokens": 142
+  },
+  "data_hex": {
+   "text": "00000000  7f 45 4c 46 02 01 01 00  00 00 00 00 00 00 00 00  |.ELF............|\n00000010  03 00 3e 00 01 00 00 00  50 4a 02 00 00 00 00 00  |..\u003e.....PJ......|\n00000020  40 00 00 00 00 00 00 00  28 fd 30 00 00 00 00 00  |@.......(.0.....|",
+   "tokens": 137
+  },
+  "data_urls": {
+   "text": "https://api.example.com/v2/models?page=3\u0026per_page=50\u0026sort=-created\nftp://mirror.example.org/pub/dists/stable/main/binary-amd64/Packages.gz\npostgres://svc_ro:s3cr3t@db-replica-2.internal:5432/analytics?sslmode=require\ngit+ssh://git@github.com/example/tokencounter.git@v1.4.2#egg=tokencounter",
+   "tokens": 95
+  },
+  "holdout_mixed": {
+   "text": "Meeting notes 19.07.2026 — attendees: A. Keller, J. Müller 🤝\nAction items: ① migrate the billing cron to the new scheduler (owner: JM, due\nFriday); ② review the München datacenter failover runbook; ③ price out 1M-token\ncontext tier — draft in €/CHF, compare with USD list prices. Next sync: Tue 10:00.",
+   "tokens": 88
+  },
+  "holdout_prose": {
+   "text": "Alpine glaciers have retreated substantially over the past\nfour decades, and the trend has accelerated since the early two-thousands.\nResearchers combine satellite imagery with in-situ stake measurements to\nestimate annual mass balance, expressed in metres of water equivalent. The\nresulting series show pronounced negative balances in heatwave years.",
+   "tokens": 64
+  },
+  "holdout_python": {
+   "text": "def rolling_mean(values: list[float], window: int) -\u003e list[float]:\n    if window \u003c= 0:\n        raise ValueError(f\"window must be positive, got {window}\")\n    out: list[float] = []\n    acc = 0.0\n    for i, v in enumerate(values):\n        acc += v\n        if i \u003e= window:\n            acc -= values[i - window]\n        if i \u003e= window - 1:\n            out.append(acc / window)\n    return out",
+   "tokens": 104
+  },
+  "json_data": {
+   "text": "{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}",
+   "tokens": 137
+  },
+  "logs": {
+   "text": "2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0",
+   "tokens": 162
+  },
+  "long_code": {
+   "text": "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)\n\tdefer cancel()\n\tvar req CountRequest\n\tif err := json.NewDecoder(r.Body).Decode(\u0026req); err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n\t\treturn\n\t}\n\tresult, err := s.counter.CountText(ctx, req.Text)\n\tif err != nil {\n\t\ts.logger.Error(\"count failed\", \"error\", err)\n\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(CountResponse{Tokens: result})\n}\n\n{\"users\":[{\"id\":18234,\"name\":\"Beatrice Okonkwo\",\"email\":\"b.okonkwo@example.org\",\n\"roles\":[\"admin\",\"billing\"],\"last_login\":\"2026-07-14T09:12:44Z\",\"preferences\":\n{\"theme\":\"dark\",\"locale\":\"en-CH\",\"notifications\":{\"email\":true,\"push\":false}}},\n{\"id\":18235,\"name\":\"Marcel Dubois\",\"email\":\"marcel.d@example.fr\",\"roles\":[\"viewer\"],\n\"last_login\":null,\"preferences\":{\"theme\":\"light\",\"locale\":\"fr-FR\"}}],\"total\":2,\n\"page\":1,\"per_page\":50,\"has_more\":false}\n\n2026-07-19T08:14:02.331Z INFO  api.request method=POST path=/v1/count status=200 dur=142ms\n2026-07-19T08:14:02.518Z WARN  cache.evict reason=capacity entries=512 freed_mb=48\n2026-07-19T08:14:03.001Z ERROR upstream.timeout host=api.anthropic.com attempt=2 backoff=800ms\n2026-07-19T08:14:03.804Z INFO  api.request method=POST path=/v1/count status=200 dur=98ms\n2026-07-19T08:14:04.112Z DEBUG pool.stats active=14 idle=6 waiting=0\n\ndate,region,requests,tokens_in,tokens_out,cost_usd\n2026-07-01,eu-west,148223,90412887,3311208,512.44\n2026-07-02,eu-west,151890,92876441,3402551,526.03\n2026-07-03,us-east,203441,124055902,4519083,701.88\n2026-07-04,us-east,99823,61233470,2201456,344.19\n2026-07-05,ap-northeast,77202,47881236,1744023,268.75\n\n# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 697
+  },
+  "long_prose": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.\n\nDie Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.\n\nRFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top\n\nTokenizer vocabularies are trained on large corpora with byte-pair\nencoding: starting from raw bytes, the most frequent adjacent pairs are merged\niteratively until the target vocabulary size is reached. The resulting merge\ntable determines how any new text is segmented. Two models trained with\ndifferent corpora or different merge budgets therefore segment identical text\ndifferently, which is why cross-model token counts cannot be converted with a\nsingle universal constant — the ratio depends on the content's character\ndistribution, language, and formatting conventions.",
+   "tokens": 403
+  },
+  "markdown": {
+   "text": "# Deployment Guide\n\n## Prerequisites\n\n- Kubernetes cluster **1.29+** with an ingress controller\n- `kubectl` configured against the target context\n- A PostgreSQL instance reachable from the cluster\n\n## Steps\n\n1. Create the namespace: `kubectl create ns tokencounter`\n2. Apply the manifests: `kubectl apply -k deploy/overlays/prod`\n3. Verify the rollout: `kubectl rollout status deploy/api`\n\n\u003e **Note:** secrets are managed via external-secrets; never commit them.",
+   "tokens": 111
+  },
+  "markup_html": {
+   "text": "\u003c!doctype html\u003e\n\u003csection class=\"pricing\" data-tier=\"pro\"\u003e\n  \u003ch2\u003ePro Plan\u003c/h2\u003e\n  \u003cul\u003e\n    \u003cli\u003e\u003cstrong\u003e1M\u003c/strong\u003e tokens context \u0026mdash; \u003cem\u003eno premium\u003c/em\u003e\u003c/li\u003e\n    \u003cli\u003ePriority support via \u003ca href=\"mailto:help@example.com\"\u003eemail\u003c/a\u003e\u003c/li\u003e\n  \u003c/ul\u003e\n  \u003cbutton type=\"button\" aria-label=\"Choose Pro\"\u003eCHF 49/month\u003c/button\u003e\n\u003c/section\u003e",
+   "tokens": 105
+  },
+  "markup_yaml": {
+   "text": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: tokencounter\n  labels: { app: tokencounter, tier: api }\nspec:\n  replicas: 3\n  template:\n    spec:\n      containers:\n        - name: api\n          image: ghcr.io/example/tokencounter:v1.4.2\n          resources:\n            limits: { cpu: \"500m\", memory: 512Mi }\n          env:\n            - name: LOG_LEVEL\n              value: info",
+   "tokens": 108
+  },
+  "mixed_tech": {
+   "text": "RFC 9110 defines the semantics of HTTP: request methods like GET,\nPOST and PATCH; status codes such as 200 (OK), 404 (Not Found) and 429 (Too Many\nRequests); and header fields including Cache-Control, ETag and Authorization.\nImplementations MUST treat header field names as case-insensitive, e.g.\ncontent-type and Content-Type are equivalent. URIs follow RFC 3986 — scheme,\nauthority, path, query and fragment: https://api.example.com/v1/items?page=2#top",
+   "tokens": 109
+  },
+  "prose_de": {
+   "text": "Die Zürcher Verkehrsbetriebe haben angekündigt, dass die Tramlinie\nvier wegen Bauarbeiten am Bellevue während der Sommerferien umgeleitet wird.\nFahrgäste werden gebeten, auf die Buslinien auszuweichen oder die Verbindung über\nden Hauptbahnhof zu nutzen. Die Arbeiten dienen der Erneuerung der Gleisanlagen\nund sollen bis Ende August abgeschlossen sein, sofern die Witterung es zulässt.",
+   "tokens": 89
+  },
+  "prose_en": {
+   "text": "The measurement of token consumption is a recurring concern when\nbuilding applications on top of large language models. Costs scale linearly with\ntokens, context windows are bounded in tokens, and rate limits are enforced in\ntokens per minute. Yet the mapping from human-readable text to tokens is opaque:\nit depends on the vocabulary learned during tokenizer training, which differs\nbetween model providers and even between model generations from the same\nprovider. A practical engineering approach is to measure rather than assume.",
+   "tokens": 96
+  },
+  "prose_fr": {
+   "text": "Le conseil municipal a approuvé jeudi soir le nouveau plan de\nmobilité, qui prévoit l'extension des pistes cyclables le long de la rivière et\nla limitation de la vitesse à trente kilomètres par heure dans les quartiers\nrésidentiels. Les associations de commerçants craignent toutefois une baisse de\nfréquentation du centre-ville pendant la durée des travaux.",
+   "tokens": 76
+  },
+  "prose_ja": {
+   "text": "気象庁は本日、関東地方の梅雨明けを発表しました。平年より五日早く、\n昨年と比べて一週間ほど早い梅雨明けとなります。今後一週間は高気圧に覆われ、\n最高気温が三十五度を超える猛暑日が続く見込みです。熱中症への対策を心がけてください。",
+   "tokens": 93
+  },
+  "prose_ru": {
+   "text": "Московский метрополитен объявил о продлении фиолетовой линии на\nтри станции к концу следующего года. Новые платформы будут оборудованы\nсовременными системами навигации, а пересадочные узлы свяжут линию с\nпригородными электричками. Стоимость проекта оценивается в несколько\nмиллиардов рублей.",
+   "tokens": 82
+  },
+  "prose_zh": {
+   "text": "东京国立博物馆本周宣布，将于秋季举办一场关于江户时代浮世绘的特别展览。\n展览将展出超过两百幅木版画，其中包括葛饰北斋和歌川广重的代表作。策展人表示，\n此次展览旨在展示浮世绘对十九世纪欧洲印象派绘画的深远影响。门票将于下月初开始发售，\n预计参观人数将创下历史新高。",
+   "tokens": 106
+  }
+ }
+}

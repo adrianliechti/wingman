@@ -27,6 +27,7 @@ func New(cfg *config.Config) *Handler {
 
 func (h *Handler) Attach(r chi.Router) {
 	r.Post("/responses", h.handleResponses)
+	r.Post("/responses/input_tokens", h.handleInputTokens)
 }
 
 func writeJson(w http.ResponseWriter, v any) {
