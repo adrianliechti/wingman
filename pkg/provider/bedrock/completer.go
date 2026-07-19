@@ -562,18 +562,17 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 			tool.Description = aws.String(options.Schema.Description)
 		}
 
-		if options.Schema.Strict != nil {
-			tool.Strict = options.Schema.Strict
-		}
-
 		properties := options.Schema.Properties
 		if properties == nil {
 			properties = map[string]any{"type": "object"}
 		}
 
-		// strict validation requires additionalProperties: false on every object
-		// and rejects constraint keywords other providers accept
+		// Only forward strict when explicitly enabled. strict=false carries no
+		// information and Anthropic models on Bedrock reject the unknown tool
+		// field. Strict mode also requires additionalProperties: false on every
+		// object and rejects constraint keywords other providers accept.
 		if options.Schema.Strict != nil && *options.Schema.Strict {
+			tool.Strict = options.Schema.Strict
 			properties = ensureAdditionalPropertiesFalse(sanitizeStrictSchema(properties))
 		}
 
@@ -848,14 +847,14 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 			tool.Description = aws.String(t.Description)
 		}
 
-		if t.Strict != nil {
-			tool.Strict = t.Strict
-		}
-
 		params := t.Parameters
 
-		// strict validation rejects constraint keywords other providers accept
+		// Only forward strict when explicitly enabled. strict=false carries no
+		// information and Anthropic models on Bedrock reject the unknown tool
+		// field ("tools.0.custom.strict: Extra inputs are not permitted").
+		// Strict mode also rejects constraint keywords other providers accept.
 		if t.Strict != nil && *t.Strict {
+			tool.Strict = t.Strict
 			params = sanitizeStrictSchema(params)
 		}
 

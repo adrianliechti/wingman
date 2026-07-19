@@ -35,6 +35,27 @@ func TestConvertToolConfig_Strict(t *testing.T) {
 	}
 }
 
+// TestConvertToolConfig_StrictFalse verifies an explicit strict=false is not
+// forwarded: Anthropic models on Bedrock reject the unknown tool field with
+// "tools.0.custom.strict: Extra inputs are not permitted".
+func TestConvertToolConfig_StrictFalse(t *testing.T) {
+	c := &Completer{Config: &Config{model: "anthropic.claude-opus-4-8-v1:0"}}
+
+	strict := false
+
+	tc := c.convertToolConfig([]provider.Tool{
+		{Name: "search_agent", Strict: &strict, Parameters: testSchema},
+	}, nil)
+
+	for _, tool := range tc.Tools {
+		if spec, ok := tool.(*types.ToolMemberToolSpec); ok {
+			if spec.Value.Strict != nil {
+				t.Errorf("strict=false unexpectedly forwarded: %+v", spec.Value)
+			}
+		}
+	}
+}
+
 // TestConvertConverseInput_SchemaStrict verifies schema-mode strict propagates
 // to the forced structured-output tool.
 func TestConvertConverseInput_SchemaStrict(t *testing.T) {
