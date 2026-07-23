@@ -97,6 +97,7 @@ func TestStreamingAccumulatorInterleavedToolCalls(t *testing.T) {
 
 	starts := map[int]string{}
 	args := map[int]string{}
+	lifecycle := map[int]string{}
 	stops := 0
 
 	for _, event := range events {
@@ -106,11 +107,19 @@ func TestStreamingAccumulatorInterleavedToolCalls(t *testing.T) {
 				t.Fatalf("duplicate content_block_start for index %d", event.Index)
 			}
 			starts[event.Index] = event.ContentBlock.ID
+			lifecycle[event.Index] = "open"
 		case StreamEventContentBlockDelta:
+			if lifecycle[event.Index] != "open" {
+				t.Fatalf("content_block_delta for index %d while block is %q", event.Index, lifecycle[event.Index])
+			}
 			if event.Delta.Type == "input_json_delta" {
 				args[event.Index] += event.Delta.PartialJSON
 			}
 		case StreamEventContentBlockStop:
+			if lifecycle[event.Index] != "open" {
+				t.Fatalf("content_block_stop for index %d while block is %q", event.Index, lifecycle[event.Index])
+			}
+			lifecycle[event.Index] = "stopped"
 			stops++
 		}
 	}
@@ -120,6 +129,11 @@ func TestStreamingAccumulatorInterleavedToolCalls(t *testing.T) {
 	}
 	if stops != 2 {
 		t.Fatalf("expected 2 content_block_stop events, got %d", stops)
+	}
+	for index, state := range lifecycle {
+		if state != "stopped" {
+			t.Errorf("block %d lifecycle ended in %q", index, state)
+		}
 	}
 	if starts[0] != "tool_a" || starts[1] != "tool_b" {
 		t.Fatalf("unexpected block ids: %v", starts)

@@ -68,6 +68,8 @@ type ToolResult struct {
 
 	Kind ToolKind
 
+	IsError bool
+
 	// Execution is set on tool_search_output results to indicate "server"
 	// (hosted) or "client" (BYOT) execution.
 	Execution string

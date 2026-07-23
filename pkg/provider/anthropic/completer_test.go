@@ -154,6 +154,32 @@ func TestConvertRequest_ToolResultsFirst(t *testing.T) {
 	}
 }
 
+func TestConvertRequest_ToolResultError(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-test")
+
+	messages := []provider.Message{
+		{
+			Role: provider.MessageRoleUser,
+			Content: []provider.Content{
+				provider.ToolResultContent(provider.ToolResult{
+					ID:      "toolu_1",
+					IsError: true,
+					Parts:   []provider.Part{{Text: "permission denied"}},
+				}),
+			},
+		},
+	}
+
+	body := requestBody(t, completer, messages, nil)
+	msgs := body["messages"].([]any)
+	content := msgs[0].(map[string]any)["content"].([]any)
+	result := content[0].(map[string]any)
+
+	if result["is_error"] != true {
+		t.Fatalf("is_error: got %v, want true", result["is_error"])
+	}
+}
+
 // TestConvertRequest_RedactedThinking verifies redacted reasoning round-trips
 // as a redacted_thinking input block, not a thinking block with a bogus
 // signature.
@@ -203,6 +229,19 @@ func TestConvertRequest_ThinkingOmittedByDefault(t *testing.T) {
 
 	if _, present := body["thinking"]; present {
 		t.Errorf("expected thinking omitted, got %v", body["thinking"])
+	}
+}
+
+func TestConvertRequest_MaxTokensZero(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-test")
+	zero := 0
+
+	body := requestBody(t, completer, []provider.Message{provider.UserMessage("warmup")}, &provider.CompleteOptions{
+		MaxTokens: &zero,
+	})
+
+	if got, ok := body["max_tokens"].(float64); !ok || got != 0 {
+		t.Fatalf("max_tokens: got %v, want 0", body["max_tokens"])
 	}
 }
 
@@ -392,8 +431,51 @@ func TestCompleterStreamingStopSequence(t *testing.T) {
 	if result.StopSequence != "END" {
 		t.Errorf("stop sequence: got %q, want END", result.StopSequence)
 	}
+	if result.StopReason != provider.StopReasonStopSequence {
+		t.Errorf("stop reason: got %q, want %q", result.StopReason, provider.StopReasonStopSequence)
+	}
 	if result.Status != "" {
 		t.Errorf("status: got %q, want empty", result.Status)
+	}
+}
+
+func TestCompleterStreamingPreservesContextWindowStopReason(t *testing.T) {
+	events := []string{
+		sseEvent("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-test","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":1}}}`),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		sseEvent("message_delta", `{"type":"message_delta","delta":{"stop_reason":"model_context_window_exceeded","stop_sequence":null},"usage":{"output_tokens":4}}`),
+		sseEvent("message_stop", `{"type":"message_stop"}`),
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, e := range events {
+			w.Write([]byte(e))
+		}
+	}))
+	defer server.Close()
+
+	completer, err := NewCompleter(server.URL, "claude-test")
+	if err != nil {
+		t.Fatalf("new completer: %v", err)
+	}
+
+	acc := provider.CompletionAccumulator{}
+	for completion, err := range completer.Complete(t.Context(), []provider.Message{provider.UserMessage("hi")}, nil) {
+		if err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+		acc.Add(*completion)
+	}
+
+	result := acc.Result()
+	if result.StopReason != provider.StopReasonContextExceeded {
+		t.Fatalf("stop reason: got %q, want %q", result.StopReason, provider.StopReasonContextExceeded)
+	}
+	if result.Status != provider.CompletionStatusIncomplete {
+		t.Fatalf("status: got %q, want %q", result.Status, provider.CompletionStatusIncomplete)
 	}
 }
 

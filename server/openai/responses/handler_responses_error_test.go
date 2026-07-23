@@ -55,21 +55,22 @@ func TestResponseErrorPrecedesResponseFailed(t *testing.T) {
 
 	stream := rec.Body.String()
 
-	errorIdx := strings.Index(stream, "event: response.error")
+	errorIdx := strings.Index(stream, "event: error")
 	failedIdx := strings.Index(stream, "event: response.failed")
 
 	if errorIdx < 0 {
-		t.Fatalf("expected response.error event\n--- STREAM ---\n%s", stream)
+		t.Fatalf("expected error event\n--- STREAM ---\n%s", stream)
 	}
 	if failedIdx < 0 {
 		t.Fatalf("expected response.failed event\n--- STREAM ---\n%s", stream)
 	}
 	if errorIdx >= failedIdx {
-		t.Fatalf("expected response.error BEFORE response.failed; got error at %d, failed at %d\n--- STREAM ---\n%s", errorIdx, failedIdx, stream)
+		t.Fatalf("expected error BEFORE response.failed; got error at %d, failed at %d\n--- STREAM ---\n%s", errorIdx, failedIdx, stream)
 	}
 
 	mustContain := []string{
-		`"type":"response.error"`,
+		`"type":"error"`,
+		`"param":null`,
 		`"message":"upstream blew up"`,
 		`"type":"response.failed"`,
 		`"status":"failed"`,
@@ -83,7 +84,7 @@ func TestResponseErrorPrecedesResponseFailed(t *testing.T) {
 
 func TestResponseErrorOnUpfrontFailureReturnsHTTPError(t *testing.T) {
 	// When the upstream errors before any SSE headers are sent, the handler
-	// writes a JSON HTTP error and does not emit response.error events.
+	// writes a JSON HTTP error and does not emit SSE error events.
 	cfg := &config.Config{Policy: noop.New()}
 	cfg.RegisterCompleter(errorTestModel, upfrontErrCompleter{err: errors.New("nope")})
 
@@ -97,10 +98,10 @@ func TestResponseErrorOnUpfrontFailureReturnsHTTPError(t *testing.T) {
 
 	New(cfg).handleResponses(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "response.error") {
+	if strings.Contains(rec.Body.String(), "event: error") {
 		t.Fatalf("did not expect SSE event payload in JSON error response: %s", rec.Body.String())
 	}
 }

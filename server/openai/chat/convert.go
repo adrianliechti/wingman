@@ -93,9 +93,17 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 				content = append(content, provider.TextContent(*m.Content))
 			}
 
+			if m.Refusal != nil && *m.Refusal != "" {
+				content = append(content, provider.RefusalContent(*m.Refusal))
+			}
+
 			for _, c := range m.Contents {
 				if c.Type == MessageContentTypeText {
 					content = append(content, provider.TextContent(c.Text))
+				}
+
+				if c.Type == MessageContentTypeRefusal && c.Refusal != "" {
+					content = append(content, provider.RefusalContent(c.Refusal))
 				}
 
 				if c.Type == MessageContentTypeFile && c.File != nil {

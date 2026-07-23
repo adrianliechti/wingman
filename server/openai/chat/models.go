@@ -157,16 +157,18 @@ type ChatCompletionMessage struct {
 type MessageContentType string
 
 var (
-	MessageContentTypeText  MessageContentType = "text"
-	MessageContentTypeFile  MessageContentType = "file"
-	MessageContentTypeImage MessageContentType = "image_url"
-	MessageContentTypeAudio MessageContentType = "input_audio"
+	MessageContentTypeText    MessageContentType = "text"
+	MessageContentTypeRefusal MessageContentType = "refusal"
+	MessageContentTypeFile    MessageContentType = "file"
+	MessageContentTypeImage   MessageContentType = "image_url"
+	MessageContentTypeAudio   MessageContentType = "input_audio"
 )
 
 type MessageContent struct {
 	Type MessageContentType `json:"type,omitempty"`
 
-	Text string `json:"text,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Refusal string `json:"refusal,omitempty"`
 
 	File  *MessageContentFile  `json:"file,omitempty"`
 	Image *MessageContentImage `json:"image_url,omitempty"`
@@ -318,6 +320,21 @@ func (t *ToolChoice) UnmarshalJSON(data []byte) error {
 			{Type: legacy.Type, Function: legacy.Function},
 		}
 
+		return nil
+	}
+
+	// object: {"type": "allowed_tools", "allowed_tools": {"mode": "...", "tools": [...]}}
+	var official struct {
+		Type         string `json:"type"`
+		AllowedTools *struct {
+			Mode  ToolChoiceMode          `json:"mode"`
+			Tools []ToolChoiceAllowedTool `json:"tools"`
+		} `json:"allowed_tools"`
+	}
+
+	if err := json.Unmarshal(data, &official); err == nil && official.Type == "allowed_tools" && official.AllowedTools != nil {
+		t.Mode = official.AllowedTools.Mode
+		t.AllowedTools = official.AllowedTools.Tools
 		return nil
 	}
 

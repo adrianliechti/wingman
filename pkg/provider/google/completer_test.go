@@ -109,6 +109,37 @@ func TestConvertContent_PendingSignaturePreferred(t *testing.T) {
 	}
 }
 
+func TestConvertContent_ToolResultError(t *testing.T) {
+	message := provider.Message{
+		Role: provider.MessageRoleUser,
+		Content: []provider.Content{
+			provider.ToolResultContent(provider.ToolResult{
+				ID:      "call_1::search",
+				IsError: true,
+				Parts:   []provider.Part{{Text: `{"code":"permission_denied"}`}},
+			}),
+		},
+	}
+
+	content, err := convertContent(message, map[string]string{"call_1": "search"})
+	if err != nil {
+		t.Fatalf("convertContent: %v", err)
+	}
+
+	if len(content.Parts) != 1 || content.Parts[0].FunctionResponse == nil {
+		t.Fatalf("expected 1 function response part, got %+v", content.Parts)
+	}
+
+	response := content.Parts[0].FunctionResponse.Response
+	errorValue, ok := response["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("error response: got %#v", response)
+	}
+	if errorValue["code"] != "permission_denied" {
+		t.Fatalf("error code: got %v", errorValue["code"])
+	}
+}
+
 // TestToCompletionUsage_ReasoningAndCacheInclusive verifies that Gemini's
 // thoughts tokens are exposed as ReasoningTokens and folded into the
 // reasoning-inclusive OutputTokens, and that PromptTokenCount (already

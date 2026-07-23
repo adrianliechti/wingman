@@ -7,6 +7,7 @@ type CompletionAccumulator struct {
 	model string
 
 	status       CompletionStatus
+	stopReason   StopReason
 	stopDetails  *StopDetails
 	stopSequence string
 
@@ -64,6 +65,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Status != "" {
 		a.status = c.Status
+	}
+
+	if c.StopReason != "" {
+		a.stopReason = c.StopReason
 	}
 
 	if c.StopDetails != nil {
@@ -293,6 +298,7 @@ func (a *CompletionAccumulator) Result() *Completion {
 		Model: a.model,
 
 		Status:       a.status,
+		StopReason:   a.stopReason,
 		StopDetails:  a.stopDetails,
 		StopSequence: a.stopSequence,
 

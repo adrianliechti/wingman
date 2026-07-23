@@ -243,12 +243,28 @@ const (
 	CompletionStatusRefused    CompletionStatus = "refused"
 )
 
+// StopReason preserves the provider's native completion boundary when it has
+// semantics that CompletionStatus alone cannot represent.
+type StopReason string
+
+const (
+	StopReasonEndTurn         StopReason = "end_turn"
+	StopReasonMaxTokens       StopReason = "max_tokens"
+	StopReasonStopSequence    StopReason = "stop_sequence"
+	StopReasonToolUse         StopReason = "tool_use"
+	StopReasonPauseTurn       StopReason = "pause_turn"
+	StopReasonCompaction      StopReason = "compaction"
+	StopReasonRefusal         StopReason = "refusal"
+	StopReasonContextExceeded StopReason = "context_exceeded"
+)
+
 type Completion struct {
 	ID string
 
 	Model  string
 	Status CompletionStatus
 
+	StopReason   StopReason
 	StopDetails  *StopDetails
 	StopSequence string
 

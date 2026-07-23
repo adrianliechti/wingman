@@ -108,6 +108,34 @@ func TestConvertAssistantContent_Reasoning(t *testing.T) {
 	}
 }
 
+func TestConvertUserContent_ToolResultError(t *testing.T) {
+	content, err := convertUserContent(provider.Message{
+		Role: provider.MessageRoleUser,
+		Content: []provider.Content{
+			provider.ToolResultContent(provider.ToolResult{
+				ID:      "toolu_1",
+				IsError: true,
+				Parts:   []provider.Part{{Text: "permission denied"}},
+			}),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(content) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(content))
+	}
+
+	result, ok := content[0].(*types.ContentBlockMemberToolResult)
+	if !ok {
+		t.Fatalf("block 0: got %T", content[0])
+	}
+	if result.Value.Status != types.ToolResultStatusError {
+		t.Fatalf("status: got %q, want %q", result.Value.Status, types.ToolResultStatusError)
+	}
+}
+
 // TestToUsage_CacheInclusiveInputTokens verifies the intermediate Usage uses a
 // cache-inclusive InputTokens total. Bedrock reports InputTokens as only the
 // fresh (non-cached) tokens, with cache read/write counted separately, so the

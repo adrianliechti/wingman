@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -25,6 +26,11 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	var req MessageRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := validateMessageRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -109,8 +115,8 @@ func toCompleteOptions(req MessageRequest) (*provider.CompleteOptions, error) {
 		}
 	}
 
-	if req.MaxTokens > 0 {
-		options.MaxTokens = &req.MaxTokens
+	if req.MaxTokens != nil {
+		options.MaxTokens = req.MaxTokens
 	}
 
 	// Handle structured output via output_config.format (canonical) or the
@@ -198,6 +204,38 @@ func toCompleteOptions(req MessageRequest) (*provider.CompleteOptions, error) {
 	}
 
 	return options, nil
+}
+
+func validateMessageRequest(req MessageRequest) error {
+	if req.MaxTokens == nil {
+		return fmt.Errorf("max_tokens: Field required")
+	}
+
+	if *req.MaxTokens < 0 {
+		return fmt.Errorf("max_tokens: Must be greater than or equal to 0")
+	}
+
+	if *req.MaxTokens != 0 {
+		return nil
+	}
+
+	if req.Stream {
+		return fmt.Errorf("stream: Cannot be enabled when max_tokens is 0")
+	}
+
+	if req.Thinking != nil && req.Thinking.Type == "enabled" {
+		return fmt.Errorf("thinking: Cannot be enabled when max_tokens is 0")
+	}
+
+	if req.OutputFormat != nil || (req.OutputConfig != nil && req.OutputConfig.Format != nil) {
+		return fmt.Errorf("output_config.format: Cannot be set when max_tokens is 0")
+	}
+
+	if req.ToolChoice != nil && (req.ToolChoice.Type == "any" || req.ToolChoice.Type == "tool") {
+		return fmt.Errorf("tool_choice: Cannot force tool use when max_tokens is 0")
+	}
+
+	return nil
 }
 
 func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request, req MessageRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {

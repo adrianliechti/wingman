@@ -258,6 +258,18 @@ func convertContent(message provider.Message, toolCallNames map[string]string) (
 					}
 				}
 
+				if c.ToolResult.IsError {
+					var errorValue any = text
+					if existing, ok := parameters["error"]; ok {
+						errorValue = existing
+					} else if output, ok := parameters["output"]; ok && len(parameters) == 1 {
+						errorValue = output
+					} else if len(parameters) > 0 {
+						errorValue = parameters
+					}
+					parameters = map[string]any{"error": errorValue}
+				}
+
 				id, encodedName, signature := parseToolID(c.ToolResult.ID)
 
 				// Resolve the tool name: prefer the encoded round-trip form

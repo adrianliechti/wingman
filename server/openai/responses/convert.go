@@ -717,7 +717,7 @@ func toolCallToApplyPatchCall(call provider.ToolCall, status string) *ApplyPatch
 		op = texteditor.ParseOperation(call.Arguments)
 	}
 
-	item.Operation = ApplyPatchOperation{
+	item.Operation = &ApplyPatchOperation{
 		Type: op.Type,
 		Path: op.Path,
 		Diff: op.Diff,
@@ -778,6 +778,9 @@ func toolCallToComputerCall(call provider.ToolCall, status string) *ComputerCall
 		Type:   "computer_call",
 		CallID: call.ID,
 		Status: status,
+
+		Actions:             []any{},
+		PendingSafetyChecks: []SafetyCheck{},
 	}
 
 	c := computeruse.ParseCall(call.Arguments)
@@ -805,6 +808,20 @@ func shellOutputType(tools []Tool) ResponseOutputType {
 	return ResponseOutputTypeShellCall
 }
 
+// shellLocalEnvironment is the environment for shell calls executed by the
+// client, the only mode wingman supports.
+var shellLocalEnvironment = json.RawMessage(`{"type":"local"}`)
+
+// emptyShellAction is the placeholder action for a call whose commands are
+// not yet known (output_item.added) or were lost to truncation.
+func emptyShellAction(itemType ResponseOutputType) json.RawMessage {
+	if itemType == ResponseOutputTypeLocalShellCall {
+		return json.RawMessage(`{"type":"exec","command":[]}`)
+	}
+
+	return json.RawMessage(`{"commands":[]}`)
+}
+
 // toolCallToShellCall converts a shell ToolCall of any dialect to a
 // shell_call or local_shell_call item for the OpenAI responses API.
 func toolCallToShellCall(call provider.ToolCall, status string, itemType ResponseOutputType) *ShellCallItem {
@@ -821,9 +838,14 @@ func toolCallToShellCall(call provider.ToolCall, status string, itemType Respons
 		action = shell.LocalShellAction(call.Arguments)
 	} else {
 		action = shell.ShellAction(call.Arguments)
+		item.Environment = shellLocalEnvironment
 	}
 
-	item.Action, _ = json.Marshal(action)
+	if action == nil {
+		item.Action = emptyShellAction(itemType)
+	} else {
+		item.Action, _ = json.Marshal(action)
+	}
 
 	return item
 }
@@ -835,6 +857,10 @@ func toolCallToToolSearchCall(call provider.ToolCall, status string) *ToolSearch
 		CallID:    call.ID,
 		Status:    status,
 		Execution: call.Execution,
+		Arguments: json.RawMessage("{}"),
+	}
+	if item.Execution == "" {
+		item.Execution = "server"
 	}
 	if call.Arguments != "" {
 		item.Arguments = json.RawMessage(call.Arguments)
@@ -955,6 +981,9 @@ func toInputContent(items []InputContent) ([]provider.Content, error) {
 		switch c.Type {
 		case InputContentText, OutputContentText:
 			result = append(result, provider.TextContent(c.Text))
+
+		case InputContentRefusal:
+			result = append(result, provider.RefusalContent(c.Refusal))
 
 		case InputContentImage:
 			file, err := shared.ToFile(c.ImageURL)

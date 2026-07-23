@@ -140,6 +140,10 @@ type ToolChoice struct {
 	// {"type":"file_search"} or {"type":"mcp","server_label":"x","name":"y"}.
 	// When set, Mode is also Auto so dispatch falls back to the auto path.
 	Hosted *HostedToolChoice `json:"-"`
+
+	// raw preserves the client's original JSON so the response echo is
+	// byte-faithful regardless of how the value was normalized internally.
+	raw json.RawMessage
 }
 
 type ToolChoiceMode string
@@ -174,7 +178,38 @@ var hostedToolChoiceTypes = map[string]struct{}{
 	"mcp":                  {},
 }
 
+// MarshalJSON echoes the exact value the client sent when available; a
+// ToolChoice built in code falls back to the official wire shapes.
+func (t ToolChoice) MarshalJSON() ([]byte, error) {
+	if len(t.raw) > 0 {
+		return t.raw, nil
+	}
+
+	if t.Hosted != nil {
+		return json.Marshal(t.Hosted)
+	}
+
+	if len(t.AllowedTools) == 0 {
+		return json.Marshal(string(t.Mode))
+	}
+
+	if t.Mode == ToolChoiceModeRequired && len(t.AllowedTools) == 1 && t.AllowedTools[0].Name != "" {
+		return json.Marshal(map[string]string{
+			"type": "function",
+			"name": t.AllowedTools[0].Name,
+		})
+	}
+
+	return json.Marshal(map[string]any{
+		"type":  "allowed_tools",
+		"mode":  t.Mode,
+		"tools": t.AllowedTools,
+	})
+}
+
 func (t *ToolChoice) UnmarshalJSON(data []byte) error {
+	t.raw = append(json.RawMessage(nil), data...)
+
 	var mode string
 
 	if err := json.Unmarshal(data, &mode); err == nil {
@@ -803,6 +838,8 @@ type InputContent struct {
 	Type InputContentType `json:"type,omitempty"`
 	Text string           `json:"text,omitempty"`
 
+	Refusal string `json:"refusal,omitempty"`
+
 	ImageURL string `json:"image_url,omitempty"`
 
 	Filename string `json:"filename,omitempty"`
@@ -813,9 +850,10 @@ type InputContent struct {
 type InputContentType string
 
 const (
-	InputContentText  InputContentType = "input_text"
-	InputContentImage InputContentType = "input_image"
-	InputContentFile  InputContentType = "input_file"
+	InputContentText    InputContentType = "input_text"
+	InputContentImage   InputContentType = "input_image"
+	InputContentFile    InputContentType = "input_file"
+	InputContentRefusal InputContentType = "refusal"
 
 	OutputContentText InputContentType = "output_text"
 )
@@ -835,7 +873,7 @@ type Response struct {
 	Output []ResponseOutput `json:"output"`
 
 	Error             *ResponseError `json:"error"`
-	IncompleteDetails *any           `json:"incomplete_details"`
+	IncompleteDetails *IncompleteDetails `json:"incomplete_details"`
 
 	Instructions       *string `json:"instructions"`
 	MaxOutputTokens    *int    `json:"max_output_tokens"`
@@ -855,11 +893,9 @@ type Response struct {
 	ToolChoice any   `json:"tool_choice"`
 	Tools      []any `json:"tools"`
 
-	TopLogprobs      int     `json:"top_logprobs"`
-	TopP             float32 `json:"top_p"`
-	Truncation       string  `json:"truncation"`
-	FrequencyPenalty float32 `json:"frequency_penalty"`
-	PresencePenalty  float32 `json:"presence_penalty"`
+	TopLogprobs int     `json:"top_logprobs"`
+	TopP        float32 `json:"top_p"`
+	Truncation  string  `json:"truncation"`
 
 	PromptCacheKey       *string `json:"prompt_cache_key"`
 	PromptCacheRetention *string `json:"prompt_cache_retention"`
@@ -903,10 +939,13 @@ type OutputTokensDetails struct {
 
 // ResponseError contains error details when a response fails
 type ResponseError struct {
-	Type    string `json:"type"`            // e.g., "server_error", "invalid_request"
-	Code    string `json:"code,omitempty"`  // Optional error code for additional detail
-	Param   string `json:"param,omitempty"` // The input parameter related to the error
-	Message string `json:"message"`         // Human-readable error message
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// IncompleteDetails explains why a response stopped short
+type IncompleteDetails struct {
+	Reason string `json:"reason"` // max_output_tokens, content_filter
 }
 
 type ResponseOutput struct {
@@ -967,22 +1006,44 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 		}
 	case ResponseOutputTypeShellCall, ResponseOutputTypeLocalShellCall:
 		if r.ShellCallItem != nil {
+			action := r.ShellCallItem.Action
+			if len(action) == 0 {
+				action = emptyShellAction(r.Type)
+			}
+
+			environment := r.ShellCallItem.Environment
+			if len(environment) == 0 && r.Type == ResponseOutputTypeShellCall {
+				environment = shellLocalEnvironment
+			}
+
 			return json.Marshal(struct {
-				Type   ResponseOutputType `json:"type"`
-				ID     string             `json:"id"`
-				Status string             `json:"status"`
-				CallID string             `json:"call_id"`
-				Action json.RawMessage    `json:"action,omitempty"`
+				Type        ResponseOutputType `json:"type"`
+				ID          string             `json:"id"`
+				Status      string             `json:"status"`
+				CallID      string             `json:"call_id"`
+				Action      json.RawMessage    `json:"action"`
+				Environment json.RawMessage    `json:"environment,omitempty"`
 			}{
-				Type:   r.Type,
-				ID:     r.ShellCallItem.ID,
-				Status: r.ShellCallItem.Status,
-				CallID: r.ShellCallItem.CallID,
-				Action: r.ShellCallItem.Action,
+				Type:        r.Type,
+				ID:          r.ShellCallItem.ID,
+				Status:      r.ShellCallItem.Status,
+				CallID:      r.ShellCallItem.CallID,
+				Action:      action,
+				Environment: environment,
 			})
 		}
 	case ResponseOutputTypeComputerCall:
 		if r.ComputerCallItem != nil {
+			actions := r.ComputerCallItem.Actions
+			if actions == nil {
+				actions = []any{}
+			}
+
+			checks := r.ComputerCallItem.PendingSafetyChecks
+			if checks == nil {
+				checks = []SafetyCheck{}
+			}
+
 			return json.Marshal(struct {
 				Type    ResponseOutputType `json:"type"`
 				ID      string             `json:"id"`
@@ -990,25 +1051,25 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				CallID  string             `json:"call_id"`
 				Actions []any              `json:"actions"`
 
-				PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks,omitempty"`
+				PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks"`
 			}{
 				Type:    r.Type,
 				ID:      r.ComputerCallItem.ID,
 				Status:  r.ComputerCallItem.Status,
 				CallID:  r.ComputerCallItem.CallID,
-				Actions: r.ComputerCallItem.Actions,
+				Actions: actions,
 
-				PendingSafetyChecks: r.ComputerCallItem.PendingSafetyChecks,
+				PendingSafetyChecks: checks,
 			})
 		}
 	case ResponseOutputTypeApplyPatchCall:
 		if r.ApplyPatchCallItem != nil {
 			return json.Marshal(struct {
-				Type      ResponseOutputType  `json:"type"`
-				ID        string              `json:"id"`
-				Status    string              `json:"status"`
-				CallID    string              `json:"call_id"`
-				Operation ApplyPatchOperation `json:"operation"`
+				Type      ResponseOutputType   `json:"type"`
+				ID        string               `json:"id"`
+				Status    string               `json:"status"`
+				CallID    string               `json:"call_id"`
+				Operation *ApplyPatchOperation `json:"operation,omitempty"`
 			}{
 				Type:      r.Type,
 				ID:        r.ApplyPatchCallItem.ID,
@@ -1019,20 +1080,30 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 		}
 	case ResponseOutputTypeToolSearchCall:
 		if r.ToolSearchCallItem != nil {
+			execution := r.ToolSearchCallItem.Execution
+			if execution == "" {
+				execution = "server"
+			}
+
+			arguments := r.ToolSearchCallItem.Arguments
+			if len(arguments) == 0 {
+				arguments = json.RawMessage("{}")
+			}
+
 			return json.Marshal(struct {
 				Type      ResponseOutputType `json:"type"`
 				ID        string             `json:"id"`
 				Status    string             `json:"status"`
 				CallID    string             `json:"call_id"`
-				Execution string             `json:"execution,omitempty"`
-				Arguments json.RawMessage    `json:"arguments,omitempty"`
+				Execution string             `json:"execution"`
+				Arguments json.RawMessage    `json:"arguments"`
 			}{
 				Type:      r.Type,
 				ID:        r.ToolSearchCallItem.ID,
 				Status:    r.ToolSearchCallItem.Status,
 				CallID:    r.ToolSearchCallItem.CallID,
-				Execution: r.ToolSearchCallItem.Execution,
-				Arguments: r.ToolSearchCallItem.Arguments,
+				Execution: execution,
+				Arguments: arguments,
 			})
 		}
 	case ResponseOutputTypeCustomToolCall:
@@ -1075,7 +1146,7 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Type             ResponseOutputType `json:"type"`
 				ID               string             `json:"id"`
 				Content          string             `json:"content,omitempty"`
-				EncryptedContent string             `json:"encrypted_content,omitempty"`
+				EncryptedContent string             `json:"encrypted_content"`
 			}{
 				Type:             r.Type,
 				ID:               r.CompactionOutputItem.ID,
@@ -1111,8 +1182,8 @@ type ToolSearchCallItem struct {
 	Type      string          `json:"type"` // tool_search_call
 	CallID    string          `json:"call_id"`
 	Status    string          `json:"status"`
-	Execution string          `json:"execution,omitempty"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Execution string          `json:"execution"`
+	Arguments json.RawMessage `json:"arguments"`
 }
 
 // ComputerCallItem represents a computer use tool call in the output
@@ -1123,16 +1194,16 @@ type ComputerCallItem struct {
 	Status  string `json:"status"`
 	Actions []any  `json:"actions"`
 
-	PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks,omitempty"`
+	PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks"`
 }
 
 // ApplyPatchCallItem represents an apply_patch tool call in the output
 type ApplyPatchCallItem struct {
-	ID        string              `json:"id"`
-	Type      string              `json:"type"` // apply_patch_call
-	CallID    string              `json:"call_id"`
-	Status    string              `json:"status"`
-	Operation ApplyPatchOperation `json:"operation"`
+	ID        string               `json:"id"`
+	Type      string               `json:"type"` // apply_patch_call
+	CallID    string               `json:"call_id"`
+	Status    string               `json:"status"`
+	Operation *ApplyPatchOperation `json:"operation,omitempty"`
 }
 
 type ApplyPatchOperation struct {
@@ -1303,6 +1374,7 @@ type FunctionCallArgumentsDoneEvent struct {
 	SequenceNumber int    `json:"sequence_number"`
 	ItemID         string `json:"item_id"`
 	OutputIndex    int    `json:"output_index"`
+	Name           string `json:"name"`
 	Arguments      string `json:"arguments"`
 }
 
@@ -1338,7 +1410,7 @@ type CompactionOutputItem struct {
 	ID               string `json:"id"`
 	Type             string `json:"type"` // compaction
 	Content          string `json:"content,omitempty"`
-	EncryptedContent string `json:"encrypted_content,omitempty"`
+	EncryptedContent string `json:"encrypted_content"`
 }
 
 // CompactionOutputItemAddedEvent is emitted when a compaction item is added
@@ -1524,13 +1596,13 @@ type RefusalDoneEvent struct {
 
 // ResponseErrorEvent is a stream-level error event. Distinct from
 // response.failed, which carries a full Response with status=failed.
-// https://platform.openai.com/docs/api-reference/responses-streaming/response/error
+// https://platform.openai.com/docs/api-reference/responses-streaming/error
 type ResponseErrorEvent struct {
-	Type           string `json:"type"` // response.error
-	SequenceNumber int    `json:"sequence_number"`
-	Code           string `json:"code,omitempty"`
-	Message        string `json:"message"`
-	Param          string `json:"param,omitempty"`
+	Type           string  `json:"type"` // error
+	SequenceNumber int     `json:"sequence_number"`
+	Code           *string `json:"code"`
+	Message        string  `json:"message"`
+	Param          *string `json:"param"`
 }
 
 // CustomToolCallInputDeltaEvent is emitted while a custom tool's input streams
@@ -1587,11 +1659,12 @@ type ApplyPatchCallOutputItemDoneEvent struct {
 // ShellCallItem represents a shell_call or local_shell_call in the output;
 // the item type lives on the wrapping ResponseOutput.
 type ShellCallItem struct {
-	ID     string          `json:"id"`
-	Type   string          `json:"type"`
-	CallID string          `json:"call_id"`
-	Status string          `json:"status"`
-	Action json.RawMessage `json:"action,omitempty"`
+	ID          string          `json:"id"`
+	Type        string          `json:"type"`
+	CallID      string          `json:"call_id"`
+	Status      string          `json:"status"`
+	Action      json.RawMessage `json:"action"`
+	Environment json.RawMessage `json:"environment,omitempty"`
 }
 
 type ShellCallOutputItemAddedEvent struct {

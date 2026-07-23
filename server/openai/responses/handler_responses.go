@@ -24,7 +24,7 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	completer, err := h.Completer(req.Model)
 
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, http.StatusNotFound, err)
 		return
 	}
 
@@ -183,6 +183,14 @@ func responseStatus(status provider.CompletionStatus) string {
 	}
 }
 
+func itemStatus(incomplete bool) string {
+	if incomplete {
+		return "incomplete"
+	}
+
+	return "completed"
+}
+
 func responseModel(completion *provider.Completion, defaultModel string) string {
 	if completion != nil && completion.Model != "" {
 		return completion.Model
@@ -219,10 +227,6 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	resp.Store = false
 	resp.ServiceTier = "default"
 
-	if resp.PromptCacheRetention == nil {
-		resp.PromptCacheRetention = new("in_memory")
-	}
-
 	resp.ParallelToolCalls = true
 	if req.ParallelToolCalls != nil {
 		resp.ParallelToolCalls = *req.ParallelToolCalls
@@ -233,9 +237,7 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 		resp.Temperature = *req.Temperature
 	}
 
-	resp.TopP = 0.98
-	resp.FrequencyPenalty = 0.0
-	resp.PresencePenalty = 0.0
+	resp.TopP = 1
 	resp.TopLogprobs = 0
 	if req.Truncation != "" {
 		resp.Truncation = req.Truncation
@@ -248,6 +250,10 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	}
 
 	resp.MaxOutputTokens = req.MaxOutputTokens
+
+	if resp.Status == "incomplete" && resp.IncompleteDetails == nil {
+		resp.IncompleteDetails = &IncompleteDetails{Reason: "max_output_tokens"}
+	}
 
 	if req.Reasoning != nil {
 		resp.Reasoning = req.Reasoning
@@ -284,16 +290,9 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 		resp.Text.Verbosity = VerbosityMedium
 	}
 
+	// ToolChoice.MarshalJSON echoes the client's original value verbatim
 	if req.ToolChoice != nil {
-		switch {
-		case req.ToolChoice.Hosted != nil:
-			resp.ToolChoice = req.ToolChoice.Hosted
-		case len(req.ToolChoice.AllowedTools) == 0 && req.ToolChoice.Mode != "":
-			// Echo tool_choice as a string when it's a simple mode (matching OpenAI behavior)
-			resp.ToolChoice = string(req.ToolChoice.Mode)
-		default:
-			resp.ToolChoice = req.ToolChoice
-		}
+		resp.ToolChoice = req.ToolChoice
 	} else {
 		resp.ToolChoice = "auto"
 	}
@@ -379,6 +378,13 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 	refusal := message.Refusal()
 	textEmitted := false
 	refusalEmitted := false
+
+	// Only the item cut short by truncation is incomplete; everything that
+	// finished before it stays completed. The truncated item is the last one.
+	incomplete := status == "incomplete"
+	if incomplete {
+		status = "completed"
+	}
 
 	for _, content := range message.Content {
 		if opts.IncludeReasoning {
@@ -529,7 +535,33 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 		}
 	}
 
+	if incomplete && len(output) > 0 {
+		setOutputStatus(&output[len(output)-1], "incomplete")
+	}
+
 	return output
+}
+
+// setOutputStatus overrides the status of whichever item variant is set.
+func setOutputStatus(o *ResponseOutput, status string) {
+	switch {
+	case o.OutputMessage != nil:
+		o.OutputMessage.Status = status
+	case o.ReasoningOutputItem != nil:
+		o.ReasoningOutputItem.Status = status
+	case o.FunctionCallOutputItem != nil:
+		o.FunctionCallOutputItem.Status = status
+	case o.CustomToolCallItem != nil:
+		o.CustomToolCallItem.Status = status
+	case o.ApplyPatchCallItem != nil:
+		o.ApplyPatchCallItem.Status = status
+	case o.ComputerCallItem != nil:
+		o.ComputerCallItem.Status = status
+	case o.ShellCallItem != nil:
+		o.ShellCallItem.Status = status
+	case o.ToolSearchCallItem != nil:
+		o.ToolSearchCallItem.Status = status
+	}
 }
 
 func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
@@ -667,7 +699,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				SequenceNumber: nextSeq(),
 				ItemID:         messageID,
 				OutputIndex:    event.OutputIndex,
-				ContentIndex:   0,
+				ContentIndex:   event.ContentIndex,
 				Part: &RefusalContentPart{
 					Type:    "refusal",
 					Refusal: "",
@@ -680,7 +712,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				SequenceNumber: nextSeq(),
 				ItemID:         messageID,
 				OutputIndex:    event.OutputIndex,
-				ContentIndex:   0,
+				ContentIndex:   event.ContentIndex,
 				Delta:          event.Delta,
 			})
 
@@ -690,7 +722,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				SequenceNumber: nextSeq(),
 				ItemID:         messageID,
 				OutputIndex:    event.OutputIndex,
-				ContentIndex:   0,
+				ContentIndex:   event.ContentIndex,
 				Refusal:        event.RefusalText,
 			})
 
@@ -700,7 +732,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				SequenceNumber: nextSeq(),
 				ItemID:         messageID,
 				OutputIndex:    event.OutputIndex,
-				ContentIndex:   0,
+				ContentIndex:   event.ContentIndex,
 				Part: &RefusalContentPart{
 					Type:    "refusal",
 					Refusal: event.RefusalText,
@@ -747,32 +779,51 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 						Type:   "computer_call",
 						CallID: event.ToolCallID,
 						Status: "in_progress",
+
+						Actions:             []any{},
+						PendingSafetyChecks: []SafetyCheck{},
 					},
 				})
 
 			case provider.ToolKindShell:
+				itemType := shellOutputType(outputOpts.Tools)
+
+				item := &ShellCallItem{
+					ID:     "sh_" + event.ToolCallID,
+					Type:   string(itemType),
+					CallID: event.ToolCallID,
+					Status: "in_progress",
+					Action: emptyShellAction(itemType),
+				}
+
+				if itemType == ResponseOutputTypeShellCall {
+					item.Environment = shellLocalEnvironment
+				}
+
 				return writeEvent(w, "response.output_item.added", ShellCallOutputItemAddedEvent{
 					Type:           "response.output_item.added",
 					SequenceNumber: nextSeq(),
 					OutputIndex:    event.OutputIndex,
-					Item: &ShellCallItem{
-						ID:     "sh_" + event.ToolCallID,
-						Type:   string(shellOutputType(outputOpts.Tools)),
-						CallID: event.ToolCallID,
-						Status: "in_progress",
-					},
+					Item:           item,
 				})
 
 			case provider.ToolKindToolSearch:
+				execution := event.ToolCallExecution
+				if execution == "" {
+					execution = "server"
+				}
+
 				return writeEvent(w, "response.output_item.added", ToolSearchCallOutputItemAddedEvent{
 					Type:           "response.output_item.added",
 					SequenceNumber: nextSeq(),
 					OutputIndex:    event.OutputIndex,
 					Item: &ToolSearchCallItem{
-						ID:     "tsc_" + event.ToolCallID,
-						Type:   "tool_search_call",
-						CallID: event.ToolCallID,
-						Status: "in_progress",
+						ID:        "tsc_" + event.ToolCallID,
+						Type:      "tool_search_call",
+						CallID:    event.ToolCallID,
+						Status:    "in_progress",
+						Execution: execution,
+						Arguments: json.RawMessage("{}"),
 					},
 				})
 
@@ -848,6 +899,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					SequenceNumber: nextSeq(),
 					ItemID:         "fc_" + event.ToolCallID,
 					OutputIndex:    event.OutputIndex,
+					Name:           event.ToolCallName,
 					Arguments:      event.Arguments,
 				})
 			}
@@ -861,10 +913,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				Arguments: event.Arguments,
 			}
 
-			status := "completed"
-			if event.Incomplete {
-				status = "incomplete"
-			}
+			status := itemStatus(event.Incomplete)
 
 			switch outputOpts.kindOf(event.ToolCallName) {
 			case provider.ToolKindCustom:
@@ -1098,7 +1147,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			item := &ReasoningOutputItem{
 				ID:     event.ReasoningID,
 				Type:   "reasoning",
-				Status: "completed",
+				Status: itemStatus(event.Incomplete),
 
 				Summary: []ReasoningOutputSummary{},
 				Content: []ReasoningOutputContentPart{},
@@ -1148,7 +1197,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				Item: &OutputItem{
 					ID:      messageID,
 					Type:    "message",
-					Status:  "completed",
+					Status:  itemStatus(event.Incomplete),
 					Content: content,
 					Phase:   "final_answer",
 					Role:    MessageRoleAssistant,
@@ -1194,10 +1243,12 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		case StreamEventResponseError:
 			shared.WriteSSERetry(w, event.Error)
 
-			return writeEvent(w, "response.error", ResponseErrorEvent{
-				Type:           "response.error",
+			code := shared.ErrorTypeFromError(event.Error)
+
+			return writeEvent(w, "error", ResponseErrorEvent{
+				Type:           "error",
 				SequenceNumber: nextSeq(),
-				Code:           shared.ErrorTypeFromError(event.Error),
+				Code:           &code,
 				Message:        event.Error.Error(),
 			})
 
@@ -1209,7 +1260,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				Model:     req.Model,
 				Output:    []ResponseOutput{},
 				Error: &ResponseError{
-					Type:    shared.ErrorTypeFromError(event.Error),
+					Code:    shared.ErrorTypeFromError(event.Error),
 					Message: event.Error.Error(),
 				},
 			}
@@ -1234,7 +1285,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	for completion, err := range completer.Complete(r.Context(), messages, options) {
 		if err != nil {
 			if !headersSent {
-				writeError(w, http.StatusBadRequest, err)
+				writeError(w, http.StatusBadGateway, err)
 				return
 			}
 
@@ -1261,7 +1312,6 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	http.NewResponseController(w).Flush()
 }
 
@@ -1270,7 +1320,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 
 	for c, err := range completer.Complete(r.Context(), messages, options) {
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			writeError(w, http.StatusBadGateway, err)
 			return
 		}
 

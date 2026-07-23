@@ -144,6 +144,7 @@ type StreamingAccumulator struct {
 	hasRefusalPart     bool // True if we emitted content_part.added (refusal)
 	messageClosed      bool // True if we emitted output_item.done for message
 	messageOutputIndex int  // Output index for the message item
+	textWithheld       bool // True if text arrived after tool calls and flushes last
 	streamedText       strings.Builder
 	streamedRefusal    strings.Builder
 
@@ -283,9 +284,20 @@ func (s *StreamingAccumulator) ensureMessageRefusalPart() error {
 	s.hasRefusalPart = true
 
 	return s.emitEvent(StreamEvent{
-		Type:        StreamEventRefusalContentPartAdded,
-		OutputIndex: s.messageOutputIndex,
+		Type:         StreamEventRefusalContentPartAdded,
+		OutputIndex:  s.messageOutputIndex,
+		ContentIndex: s.refusalContentIndex(),
 	})
+}
+
+// refusalContentIndex places the refusal part after the text part when the
+// message carries both.
+func (s *StreamingAccumulator) refusalContentIndex() int {
+	if s.hasContentPart || s.streamedText.Len() > 0 {
+		return 1
+	}
+
+	return 0
 }
 
 // trackToolCall ensures a tool call entry exists and returns its effective ID,
@@ -564,6 +576,7 @@ func (s *StreamingAccumulator) closeReasoning() error {
 		ReasoningSummary:   reasoningSummary,
 		ReasoningSignature: s.reasoningSignature,
 		OutputIndex:        s.reasoningOutputIndex,
+		Incomplete:         s.status == provider.CompletionStatusIncomplete,
 	}); err != nil {
 		return err
 	}
@@ -621,17 +634,19 @@ func (s *StreamingAccumulator) closeMessage() error {
 
 	if s.streamedRefusal.Len() > 0 {
 		if err := s.emitEvent(StreamEvent{
-			Type:        StreamEventRefusalDone,
-			RefusalText: refusal,
-			OutputIndex: s.messageOutputIndex,
+			Type:         StreamEventRefusalDone,
+			RefusalText:  refusal,
+			OutputIndex:  s.messageOutputIndex,
+			ContentIndex: s.refusalContentIndex(),
 		}); err != nil {
 			return err
 		}
 
 		if err := s.emitEvent(StreamEvent{
-			Type:        StreamEventRefusalContentPartDone,
-			RefusalText: refusal,
-			OutputIndex: s.messageOutputIndex,
+			Type:         StreamEventRefusalContentPartDone,
+			RefusalText:  refusal,
+			OutputIndex:  s.messageOutputIndex,
+			ContentIndex: s.refusalContentIndex(),
 		}); err != nil {
 			return err
 		}
@@ -642,6 +657,7 @@ func (s *StreamingAccumulator) closeMessage() error {
 		Text:        text,
 		RefusalText: refusal,
 		OutputIndex: s.messageOutputIndex,
+		Incomplete:  s.status == provider.CompletionStatusIncomplete,
 	})
 }
 
@@ -844,6 +860,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 			s.streamedRefusal.WriteString(content.Refusal)
 
+			if len(s.toolCalls) > 0 && !s.hasOutputItem {
+				s.textWithheld = true
+			}
+
 			if len(s.toolCalls) == 0 {
 				if err := s.closeReasoning(); err != nil {
 					return err
@@ -857,9 +877,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				}
 
 				if err := s.emitEvent(StreamEvent{
-					Type:        StreamEventRefusalDelta,
-					Delta:       content.Refusal,
-					OutputIndex: s.messageOutputIndex,
+					Type:         StreamEventRefusalDelta,
+					Delta:        content.Refusal,
+					OutputIndex:  s.messageOutputIndex,
+					ContentIndex: s.refusalContentIndex(),
 				}); err != nil {
 					return err
 				}
@@ -880,6 +901,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 
 			s.streamedText.WriteString(content.Text)
+
+			if len(s.toolCalls) > 0 && !s.hasOutputItem {
+				s.textWithheld = true
+			}
 
 			if len(s.toolCalls) == 0 {
 				if err := s.closeReasoning(); err != nil {
@@ -989,6 +1014,16 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
+	// Close open tool calls before flushing withheld trailing text: items must
+	// stream strictly sequentially, and the message item's output index (assigned
+	// below) follows the calls it trailed. closeToolCall is idempotent, so calls
+	// already closed inline (when a later call started) are no-ops here.
+	for i := range s.toolCalls {
+		if err := s.closeToolCall(s.toolCalls[i].ID); err != nil {
+			return err
+		}
+	}
+
 	if (s.streamedText.Len() > 0 || s.streamedRefusal.Len() > 0) && !s.hasOutputItem {
 		s.hasOutputItem = true
 		s.messageOutputIndex = s.reserveOutputIndex()
@@ -1020,17 +1055,19 @@ func (s *StreamingAccumulator) Complete() error {
 
 		if s.streamedRefusal.Len() > 0 {
 			if err := s.emitEvent(StreamEvent{
-				Type:        StreamEventRefusalContentPartAdded,
-				OutputIndex: s.messageOutputIndex,
+				Type:         StreamEventRefusalContentPartAdded,
+				OutputIndex:  s.messageOutputIndex,
+				ContentIndex: s.refusalContentIndex(),
 			}); err != nil {
 				return err
 			}
 			s.hasRefusalPart = true
 
 			if err := s.emitEvent(StreamEvent{
-				Type:        StreamEventRefusalDelta,
-				Delta:       s.streamedRefusal.String(),
-				OutputIndex: s.messageOutputIndex,
+				Type:         StreamEventRefusalDelta,
+				Delta:        s.streamedRefusal.String(),
+				OutputIndex:  s.messageOutputIndex,
+				ContentIndex: s.refusalContentIndex(),
 			}); err != nil {
 				return err
 			}
@@ -1039,14 +1076,6 @@ func (s *StreamingAccumulator) Complete() error {
 
 	if err := s.closeMessage(); err != nil {
 		return err
-	}
-
-	// Flush any tool calls still open. closeToolCall is idempotent, so calls
-	// already closed inline (when a later call started) are no-ops here.
-	for i := range s.toolCalls {
-		if err := s.closeToolCall(s.toolCalls[i].ID); err != nil {
-			return err
-		}
 	}
 
 	terminalType := StreamEventResponseCompleted
@@ -1093,16 +1122,28 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 		}))
 	}
 
+	// Withheld trailing text flushes as the last output item; defer it past
+	// the tool calls so the snapshot matches the streamed output indices.
+	var withheld []provider.Content
+
 	for _, ref := range s.contentOrder {
 		switch ref.kind {
 		case streamContentCompaction:
 			content = append(content, provider.CompactionContent(s.compactions[ref.index]))
 
 		case streamContentText:
-			content = append(content, provider.TextContent(s.streamedText.String()))
+			if s.textWithheld {
+				withheld = append(withheld, provider.TextContent(s.streamedText.String()))
+			} else {
+				content = append(content, provider.TextContent(s.streamedText.String()))
+			}
 
 		case streamContentRefusal:
-			content = append(content, provider.RefusalContent(s.streamedRefusal.String()))
+			if s.textWithheld {
+				withheld = append(withheld, provider.RefusalContent(s.streamedRefusal.String()))
+			} else {
+				content = append(content, provider.RefusalContent(s.streamedRefusal.String()))
+			}
 		}
 	}
 
@@ -1126,6 +1167,8 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 		content = append(content, provider.ToolCallContent(call))
 	}
+
+	content = append(content, withheld...)
 
 	return &provider.Completion{
 		ID:     s.id,

@@ -28,6 +28,10 @@ func ToFile(url string) (*provider.File, error) {
 
 		defer resp.Body.Close()
 
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("unable to fetch url (%s): %s", url, resp.Status)
+		}
+
 		data, err := io.ReadAll(resp.Body)
 
 		if err != nil {

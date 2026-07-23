@@ -381,6 +381,25 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 				switch message.StopReason {
+				case anthropic.BetaStopReasonEndTurn:
+					delta.StopReason = provider.StopReasonEndTurn
+				case anthropic.BetaStopReasonMaxTokens:
+					delta.StopReason = provider.StopReasonMaxTokens
+				case anthropic.BetaStopReasonStopSequence:
+					delta.StopReason = provider.StopReasonStopSequence
+				case anthropic.BetaStopReasonToolUse:
+					delta.StopReason = provider.StopReasonToolUse
+				case anthropic.BetaStopReasonPauseTurn:
+					delta.StopReason = provider.StopReasonPauseTurn
+				case anthropic.BetaStopReasonCompaction:
+					delta.StopReason = provider.StopReasonCompaction
+				case anthropic.BetaStopReasonRefusal:
+					delta.StopReason = provider.StopReasonRefusal
+				case anthropic.BetaStopReasonModelContextWindowExceeded:
+					delta.StopReason = provider.StopReasonContextExceeded
+				}
+
+				switch message.StopReason {
 				case anthropic.BetaStopReasonStopSequence:
 					delta.StopSequence = message.StopSequence
 				case anthropic.BetaStopReasonMaxTokens, anthropic.BetaStopReasonModelContextWindowExceeded:
@@ -556,13 +575,18 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 							continue
 						}
 
-						blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
-							OfToolResult: &anthropic.BetaToolResultBlockParam{
-								ToolUseID: c.ToolResult.ID,
-								Content: []anthropic.BetaToolResultBlockParamContentUnion{
-									{OfText: &anthropic.BetaTextBlockParam{Text: string(c.ToolResult.Payload)}},
-								},
+						result := &anthropic.BetaToolResultBlockParam{
+							ToolUseID: c.ToolResult.ID,
+							Content: []anthropic.BetaToolResultBlockParamContentUnion{
+								{OfText: &anthropic.BetaTextBlockParam{Text: string(c.ToolResult.Payload)}},
 							},
+						}
+						if c.ToolResult.IsError {
+							result.IsError = anthropic.Bool(true)
+						}
+
+						blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
+							OfToolResult: result,
 						})
 						continue
 					}
@@ -616,11 +640,16 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						}
 					}
 
+					result := &anthropic.BetaToolResultBlockParam{
+						ToolUseID: c.ToolResult.ID,
+						Content:   parts,
+					}
+					if c.ToolResult.IsError {
+						result.IsError = anthropic.Bool(true)
+					}
+
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
-						OfToolResult: &anthropic.BetaToolResultBlockParam{
-							ToolUseID: c.ToolResult.ID,
-							Content:   parts,
-						},
+						OfToolResult: result,
 					})
 				}
 			}

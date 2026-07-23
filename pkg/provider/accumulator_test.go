@@ -136,6 +136,16 @@ func TestCompletionAccumulatorPreservesCacheUsage(t *testing.T) {
 	}
 }
 
+func TestCompletionAccumulatorPreservesStopReason(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{StopReason: StopReasonPauseTurn})
+
+	if got := acc.Result().StopReason; got != StopReasonPauseTurn {
+		t.Fatalf("stop reason: got %q, want %q", got, StopReasonPauseTurn)
+	}
+}
+
 // When a streaming response carries two reasoning items, each must end up
 // as its own Reasoning entry. Collapsing them pairs item 1's ID with
 // item 2's encrypted_content, which OpenAI rejects on the next turn with

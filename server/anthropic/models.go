@@ -10,7 +10,7 @@ type MessageRequest struct {
 	Model             string             `json:"model"`
 	Messages          []MessageParam     `json:"messages"`
 	System            any                `json:"system,omitempty"` // string or []SystemBlock
-	MaxTokens         int                `json:"max_tokens,omitempty"`
+	MaxTokens         *int               `json:"max_tokens"`
 	Stream            bool               `json:"stream,omitempty"`
 	Temperature       *float32           `json:"temperature,omitempty"`
 	TopP              *float32           `json:"top_p,omitempty"`
@@ -204,11 +204,14 @@ type BlockCaller struct {
 type StopReason string
 
 const (
-	StopReasonEndTurn      StopReason = "end_turn"
-	StopReasonMaxTokens    StopReason = "max_tokens"
-	StopReasonStopSequence StopReason = "stop_sequence"
-	StopReasonToolUse      StopReason = "tool_use"
-	StopReasonRefusal      StopReason = "refusal"
+	StopReasonEndTurn                    StopReason = "end_turn"
+	StopReasonMaxTokens                  StopReason = "max_tokens"
+	StopReasonStopSequence               StopReason = "stop_sequence"
+	StopReasonToolUse                    StopReason = "tool_use"
+	StopReasonPauseTurn                  StopReason = "pause_turn"
+	StopReasonCompaction                 StopReason = "compaction"
+	StopReasonRefusal                    StopReason = "refusal"
+	StopReasonModelContextWindowExceeded StopReason = "model_context_window_exceeded"
 )
 
 type StopDetails struct {

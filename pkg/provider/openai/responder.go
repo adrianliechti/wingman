@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"iter"
-	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -1352,23 +1351,15 @@ func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
 		return nil
 	}
 
-	result := &provider.Usage{
+	return &provider.Usage{
 		InputTokens:  int(usage.InputTokens),
 		OutputTokens: int(usage.OutputTokens),
 
 		ReasoningTokens: int(usage.OutputTokensDetails.ReasoningTokens),
 
-		CacheReadInputTokens: int(usage.InputTokensDetails.CachedTokens),
+		CacheReadInputTokens:     int(usage.InputTokensDetails.CachedTokens),
+		CacheCreationInputTokens: int(usage.InputTokensDetails.CacheWriteTokens),
 	}
-
-	// GPT-5.6+; not yet a typed SDK field
-	if f, ok := usage.InputTokensDetails.JSON.ExtraFields["cache_write_tokens"]; ok {
-		if n, err := strconv.Atoi(f.Raw()); err == nil {
-			result.CacheCreationInputTokens = n
-		}
-	}
-
-	return result
 }
 
 func convertResponsesToolChoice(opts *provider.ToolOptions) responses.ResponseNewParamsToolChoiceUnion {

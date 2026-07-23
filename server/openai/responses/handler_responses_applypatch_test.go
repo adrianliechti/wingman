@@ -49,8 +49,7 @@ func routeApplyPatch(t *testing.T, opts responseOutputOptions, completions []pro
 				items = append(items, wireItem{eventType: "output_item.done", itemType: "custom_tool_call", name: item.Name, input: item.Input})
 			case provider.ToolKindTextEditor:
 				item := toolCallToApplyPatchCall(call, "completed")
-				op := item.Operation
-				items = append(items, wireItem{eventType: "output_item.done", itemType: "apply_patch_call", operation: &op})
+				items = append(items, wireItem{eventType: "output_item.done", itemType: "apply_patch_call", operation: item.Operation})
 			default:
 				items = append(items, wireItem{eventType: "output_item.done", itemType: "function_call"})
 			}

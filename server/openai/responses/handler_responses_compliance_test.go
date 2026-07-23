@@ -111,16 +111,14 @@ func TestResponseDefaultsEchoesReasoningContextFromRequest(t *testing.T) {
 
 // Event shape for response.function_call_arguments.done:
 //
-//	{type, sequence_number, item_id, output_index, arguments}
-//
-// wingman previously emitted an extra `name` field, which is not part of this
-// event payload.
-func TestFunctionCallArgumentsDoneEventHasNoNameField(t *testing.T) {
+//	{type, sequence_number, item_id, output_index, name, arguments}
+func TestFunctionCallArgumentsDoneEventIncludesName(t *testing.T) {
 	data, err := json.Marshal(FunctionCallArgumentsDoneEvent{
 		Type:           "response.function_call_arguments.done",
 		SequenceNumber: 7,
 		ItemID:         "fc_call_abc",
 		OutputIndex:    2,
+		Name:           "get_weather",
 		Arguments:      "{}",
 	})
 	if err != nil {
@@ -132,11 +130,7 @@ func TestFunctionCallArgumentsDoneEventHasNoNameField(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if _, ok := got["name"]; ok {
-		t.Fatalf("function_call_arguments.done must not carry `name`, got %s", data)
-	}
-
-	wantKeys := []string{"type", "sequence_number", "item_id", "output_index", "arguments"}
+	wantKeys := []string{"type", "sequence_number", "item_id", "output_index", "name", "arguments"}
 	for _, k := range wantKeys {
 		if _, ok := got[k]; !ok {
 			t.Errorf("missing required field %q in %s", k, data)

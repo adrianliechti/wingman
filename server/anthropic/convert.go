@@ -150,8 +150,9 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 			}
 
 			content = append(content, provider.ToolResultContent(provider.ToolResult{
-				ID:    block.ToolUseID,
-				Parts: parts,
+				ID:      block.ToolUseID,
+				IsError: block.IsError,
+				Parts:   parts,
 			}))
 
 		case "compaction":
@@ -488,6 +489,25 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 }
 
 func toStopReason(completion *provider.Completion) StopReason {
+	switch completion.StopReason {
+	case provider.StopReasonEndTurn:
+		return StopReasonEndTurn
+	case provider.StopReasonMaxTokens:
+		return StopReasonMaxTokens
+	case provider.StopReasonStopSequence:
+		return StopReasonStopSequence
+	case provider.StopReasonToolUse:
+		return StopReasonToolUse
+	case provider.StopReasonPauseTurn:
+		return StopReasonPauseTurn
+	case provider.StopReasonCompaction:
+		return StopReasonCompaction
+	case provider.StopReasonRefusal:
+		return StopReasonRefusal
+	case provider.StopReasonContextExceeded:
+		return StopReasonModelContextWindowExceeded
+	}
+
 	switch completion.Status {
 	case provider.CompletionStatusIncomplete:
 		return StopReasonMaxTokens

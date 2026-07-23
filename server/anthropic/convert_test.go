@@ -67,6 +67,58 @@ func TestToMessage_ThinkingBlocks(t *testing.T) {
 	}
 }
 
+func TestToMessage_ToolResultError(t *testing.T) {
+	body := []byte(`[
+		{"type":"tool_result","tool_use_id":"toolu_1","is_error":true,"content":"permission denied"}
+	]`)
+
+	var blocks []ContentBlockParam
+	if err := json.Unmarshal(body, &blocks); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	msg, err := toMessage(0, MessageParam{Role: MessageRoleUser, Content: blocksToAny(blocks)})
+	if err != nil {
+		t.Fatalf("toMessage: %v", err)
+	}
+
+	if len(msg.Content) != 1 || msg.Content[0].ToolResult == nil {
+		t.Fatalf("expected one tool result, got %+v", msg.Content)
+	}
+
+	result := msg.Content[0].ToolResult
+	if !result.IsError {
+		t.Fatal("expected tool result error flag")
+	}
+	if len(result.Parts) != 1 || result.Parts[0].Text != "permission denied" {
+		t.Fatalf("tool result parts: %+v", result.Parts)
+	}
+}
+
+func TestToStopReasonPreservesNativeReason(t *testing.T) {
+	tests := []struct {
+		input provider.StopReason
+		want  StopReason
+	}{
+		{provider.StopReasonEndTurn, StopReasonEndTurn},
+		{provider.StopReasonMaxTokens, StopReasonMaxTokens},
+		{provider.StopReasonStopSequence, StopReasonStopSequence},
+		{provider.StopReasonToolUse, StopReasonToolUse},
+		{provider.StopReasonPauseTurn, StopReasonPauseTurn},
+		{provider.StopReasonCompaction, StopReasonCompaction},
+		{provider.StopReasonRefusal, StopReasonRefusal},
+		{provider.StopReasonContextExceeded, StopReasonModelContextWindowExceeded},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.input), func(t *testing.T) {
+			if got := toStopReason(&provider.Completion{StopReason: tc.input}); got != tc.want {
+				t.Fatalf("stop reason: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestToMessage_DocumentBlocks verifies that document content blocks flow
 // through correctly. Base64 (PDF) sources become File content; URL sources
 // are fetched (no provider consumes raw URLs); plain-text sources inline as

@@ -379,9 +379,20 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 				switch v.Value.StopReason {
-				case types.StopReasonMaxTokens, types.StopReasonModelContextWindowExceeded:
+				case types.StopReasonEndTurn:
+					delta.StopReason = provider.StopReasonEndTurn
+				case types.StopReasonToolUse:
+					delta.StopReason = provider.StopReasonToolUse
+				case types.StopReasonMaxTokens:
+					delta.StopReason = provider.StopReasonMaxTokens
 					delta.Status = provider.CompletionStatusIncomplete
+				case types.StopReasonModelContextWindowExceeded:
+					delta.StopReason = provider.StopReasonContextExceeded
+					delta.Status = provider.CompletionStatusIncomplete
+				case types.StopReasonStopSequence:
+					delta.StopReason = provider.StopReasonStopSequence
 				case types.StopReasonGuardrailIntervened, types.StopReasonContentFiltered:
+					delta.StopReason = provider.StopReasonRefusal
 					delta.Status = provider.CompletionStatusRefused
 				}
 
@@ -747,9 +758,14 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 				}
 			}
 
+			status := types.ToolResultStatusSuccess
+			if c.ToolResult.IsError {
+				status = types.ToolResultStatusError
+			}
+
 			content = append(content, &types.ContentBlockMemberToolResult{
 				Value: types.ToolResultBlock{
-					Status: types.ToolResultStatusSuccess,
+					Status: status,
 
 					ToolUseId: aws.String(c.ToolResult.ID),
 

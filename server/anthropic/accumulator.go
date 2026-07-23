@@ -1,6 +1,8 @@
 package anthropic
 
 import (
+	"fmt"
+
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -102,8 +104,16 @@ func NewStreamingAccumulator(messageID, model string, handler StreamEventHandler
 }
 
 func (s *StreamingAccumulator) startBlock(block *ContentBlock) (int, error) {
-	for len(s.openBlocks) > 0 {
-		if err := s.stopBlock(s.openBlocks[0]); err != nil {
+	// Anthropic-facing tool calls may arrive interleaved from another provider.
+	// Keep existing tool blocks open while another tool starts so later argument
+	// deltas remain enclosed by that block's start/stop events.
+	openBlocks := append([]int(nil), s.openBlocks...)
+	for _, open := range openBlocks {
+		if block.Type == "tool_use" && s.isToolBlock(open) {
+			continue
+		}
+
+		if err := s.stopBlock(open); err != nil {
 			return 0, err
 		}
 	}
@@ -119,6 +129,26 @@ func (s *StreamingAccumulator) startBlock(block *ContentBlock) (int, error) {
 		Index:        index,
 		ContentBlock: block,
 	})
+}
+
+func (s *StreamingAccumulator) isToolBlock(index int) bool {
+	for _, toolIndex := range s.toolIndexByID {
+		if toolIndex == index {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *StreamingAccumulator) isBlockOpen(index int) bool {
+	for _, open := range s.openBlocks {
+		if open == index {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *StreamingAccumulator) stopBlock(index int) error {
@@ -389,6 +419,8 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				}
 
 				s.toolIndexByID[id] = index
+			} else if !s.isBlockOpen(index) {
+				return fmt.Errorf("tool_use block %d received a delta after content_block_stop", index)
 			}
 
 			s.lastToolCallID = id

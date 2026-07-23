@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -164,5 +165,74 @@ func TestToCompleteOptions_ToolChoice(t *testing.T) {
 	}
 	if !options.ToolOptions.DisableParallelToolCalls {
 		t.Error("expected parallel tool calls disabled")
+	}
+}
+
+func TestValidateMessageRequest_MaxTokens(t *testing.T) {
+	zero := 0
+	negative := -1
+	positive := 32
+
+	tests := []struct {
+		name    string
+		req     MessageRequest
+		wantErr bool
+	}{
+		{name: "missing", req: MessageRequest{}, wantErr: true},
+		{name: "negative", req: MessageRequest{MaxTokens: &negative}, wantErr: true},
+		{name: "positive", req: MessageRequest{MaxTokens: &positive}},
+		{name: "zero prewarm", req: MessageRequest{MaxTokens: &zero}},
+		{name: "zero streaming", req: MessageRequest{MaxTokens: &zero, Stream: true}, wantErr: true},
+		{
+			name:    "zero thinking",
+			req:     MessageRequest{MaxTokens: &zero, Thinking: &ThinkingConfig{Type: "enabled", BudgetTokens: 1024}},
+			wantErr: true,
+		},
+		{
+			name:    "zero structured output",
+			req:     MessageRequest{MaxTokens: &zero, OutputConfig: &OutputConfig{Format: &OutputFormat{Type: "json_schema"}}},
+			wantErr: true,
+		},
+		{
+			name:    "zero forced tool",
+			req:     MessageRequest{MaxTokens: &zero, ToolChoice: &ToolChoice{Type: "any"}},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMessageRequest(tc.req)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestToCompleteOptions_MaxTokensZero(t *testing.T) {
+	zero := 0
+
+	options, err := toCompleteOptions(MessageRequest{MaxTokens: &zero})
+	if err != nil {
+		t.Fatalf("toCompleteOptions: %v", err)
+	}
+
+	if options.MaxTokens == nil || *options.MaxTokens != 0 {
+		t.Fatalf("max tokens: got %v, want pointer to 0", options.MaxTokens)
+	}
+}
+
+func TestMessageRequestDistinguishesMissingAndZeroMaxTokens(t *testing.T) {
+	var req MessageRequest
+	if err := json.Unmarshal([]byte(`{"max_tokens":0}`), &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if req.MaxTokens == nil || *req.MaxTokens != 0 {
+		t.Fatalf("max tokens: got %v, want pointer to 0", req.MaxTokens)
 	}
 }

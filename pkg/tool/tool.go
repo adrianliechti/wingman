@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -32,6 +33,9 @@ func NormalizeSchema(schema map[string]any) map[string]any {
 			"properties": map[string]any{},
 		}
 	}
+
+	// Copy so callers keep their original schema (e.g. for response echoes)
+	schema = maps.Clone(schema)
 
 	// Infer type from structure if missing
 	if schema["type"] == nil {

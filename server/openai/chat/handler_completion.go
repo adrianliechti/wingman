@@ -22,7 +22,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	completer, err := h.Completer(req.Model)
 
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, http.StatusNotFound, err)
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 
 	for completion, err := range completer.Complete(r.Context(), messages, options) {
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			writeError(w, http.StatusBadGateway, err)
 			return
 		}
 
@@ -274,6 +274,8 @@ func (h *Handler) handleChatCompletionStream(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	created := time.Now().Unix()
+
 	// Create streaming accumulator with event handler
 	accumulator := NewStreamingAccumulator(req.Model, func(event StreamEvent) error {
 		switch event.Type {
@@ -282,11 +284,11 @@ func (h *Handler) handleChatCompletionStream(w http.ResponseWriter, r *http.Requ
 				return nil
 			}
 
-			event.Chunk.Created = time.Now().Unix()
+			event.Chunk.Created = created
 			return writeEvent(w, event.Chunk)
 
 		case StreamEventChunk, StreamEventFinish:
-			event.Chunk.Created = time.Now().Unix()
+			event.Chunk.Created = created
 			return writeEvent(w, event.Chunk)
 
 		case StreamEventDone:
@@ -308,7 +310,7 @@ func (h *Handler) handleChatCompletionStream(w http.ResponseWriter, r *http.Requ
 	for c, err := range completer.Complete(r.Context(), messages, options) {
 		if err != nil {
 			if !headersSent {
-				writeError(w, http.StatusBadRequest, err)
+				writeError(w, http.StatusBadGateway, err)
 				return
 			}
 
