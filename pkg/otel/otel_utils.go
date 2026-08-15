@@ -10,6 +10,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/auth"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/request"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
@@ -106,6 +107,7 @@ func GenAISpanName(operation genaiconv.OperationNameAttr, model string) string {
 
 func EndUserAttrs(ctx context.Context) []KeyValue {
 	var attrs []KeyValue
+	metadata, _ := request.FromContext(ctx)
 
 	if user, ok := ctx.Value(auth.UserContextKey).(string); ok && user != "" {
 		attrs = append(attrs, attribute.String("user.id", user))
@@ -121,6 +123,38 @@ func EndUserAttrs(ctx context.Context) []KeyValue {
 
 	if peer, ok := ctx.Value(auth.PeerContextKey).(string); ok && peer != "" {
 		attrs = append(attrs, attribute.String("service.peer.name", peer))
+	}
+
+	if metadata.SessionID != "" {
+		attrs = append(attrs, attribute.String("session.id", metadata.SessionID))
+	}
+
+	if metadata.AgentID != "" {
+		attrs = append(attrs, semconv.GenAIAgentIDKey.String(metadata.AgentID))
+	}
+
+	if metadata.AgentName != "" {
+		attrs = append(attrs, semconv.GenAIAgentNameKey.String(metadata.AgentName))
+	}
+
+	if metadata.AgentKind != "" {
+		attrs = append(attrs, attribute.String("gen_ai.agent.kind", metadata.AgentKind))
+	}
+
+	if metadata.RequestKind != "" {
+		attrs = append(attrs, attribute.String("gen_ai.request.kind", metadata.RequestKind))
+	}
+
+	if metadata.ClientName != "" {
+		attrs = append(attrs, attribute.String("client.name", metadata.ClientName))
+	}
+
+	if metadata.ClientVersion != "" {
+		attrs = append(attrs, attribute.String("client.version", metadata.ClientVersion))
+	}
+
+	if metadata.Originator != "" {
+		attrs = append(attrs, attribute.String("client.originator", metadata.Originator))
 	}
 
 	return attrs

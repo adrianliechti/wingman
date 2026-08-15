@@ -2,6 +2,7 @@ package classifier
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"slices"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/request"
 )
 
 // mockCompleter records how many times it is invoked and returns either a fixed
@@ -126,6 +128,33 @@ func ambiguousMsg() ([]provider.Message, *provider.CompleteOptions) {
 func TestNewCompleterRequiresCandidate(t *testing.T) {
 	if _, err := NewCompleter(nil, Options{}); err == nil {
 		t.Fatal("expected error for empty candidates")
+	}
+}
+
+func TestNewCompleterValidatesCandidates(t *testing.T) {
+	mock := &mockCompleter{name: "mock"}
+
+	tests := []struct {
+		name       string
+		candidates []Candidate
+		options    Options
+	}{
+		{name: "nil completer", candidates: []Candidate{{Model: "a"}}},
+		{name: "duplicate model", candidates: []Candidate{{Completer: mock, Model: "a"}, {Completer: mock, Model: "a"}}},
+		{name: "negative cost", candidates: []Candidate{{Completer: mock, Model: "a", Cost: -1}}},
+		{name: "difficulty too high", candidates: []Candidate{{Completer: mock, Model: "a", MaxDifficulty: 5}}},
+		{name: "negative context", candidates: []Candidate{{Completer: mock, Model: "a", MaxContext: -1}}},
+		{name: "invalid default", candidates: []Candidate{{Completer: mock, Model: "a"}}, options: Options{DefaultIndex: 1}},
+		{name: "invalid margin", candidates: []Candidate{{Completer: mock, Model: "a"}}, options: Options{Margin: -1}},
+		{name: "negative first token timeout", candidates: []Candidate{{Completer: mock, Model: "a"}}, options: Options{FirstTokenTimeout: -1}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewCompleter(test.candidates, test.options); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }
 
@@ -407,6 +436,51 @@ func TestFallbackOnErrorBeforeOutput(t *testing.T) {
 	}
 }
 
+func TestRequestErrorDoesNotFallback(t *testing.T) {
+	badRequest := &provider.ProviderError{Code: 400, Message: "invalid request"}
+	cheap := &mockCompleter{name: "cheap", err: badRequest}
+	strong := &mockCompleter{name: "strong"}
+
+	c, err := NewCompleter([]Candidate{
+		{Completer: cheap, Model: "cheap", Cost: 1, MaxDifficulty: 2},
+		{Completer: strong, Model: "strong", Cost: 60, MaxDifficulty: 4},
+	}, Options{DefaultIndex: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, gotErr := drain(c.Complete(context.Background(), userMsg("hello"), nil))
+	if out != "" || !errors.Is(gotErr, badRequest) {
+		t.Fatalf("output=%q error=%v", out, gotErr)
+	}
+	if strong.calls != 0 {
+		t.Fatalf("request error must not fall back, strong calls=%d", strong.calls)
+	}
+}
+
+func TestFallbackTriesAllEligibleCandidates(t *testing.T) {
+	first := &mockCompleter{name: "first", err: context.DeadlineExceeded}
+	defaultCandidate := &mockCompleter{name: "default", err: context.DeadlineExceeded}
+	third := &mockCompleter{name: "third"}
+
+	c, err := NewCompleter([]Candidate{
+		{Completer: first, Model: "first", Cost: 1, MaxDifficulty: 2},
+		{Completer: defaultCandidate, Model: "default", Cost: 60, MaxDifficulty: 4},
+		{Completer: third, Model: "third", Cost: 20, MaxDifficulty: 3},
+	}, Options{DefaultIndex: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, gotErr := drain(c.Complete(context.Background(), userMsg("hello"), nil))
+	if gotErr != nil || out != "third" {
+		t.Fatalf("output=%q error=%v", out, gotErr)
+	}
+	if first.calls != 1 || defaultCandidate.calls != 1 || third.calls != 1 {
+		t.Fatalf("calls: first=%d default=%d third=%d", first.calls, defaultCandidate.calls, third.calls)
+	}
+}
+
 func TestFallbackAfterRoleOnlyChunk(t *testing.T) {
 	cheap := &mockCompleter{name: "cheap", err: context.DeadlineExceeded, prelude: true}
 	strong := &mockCompleter{name: "strong"}
@@ -562,7 +636,7 @@ func TestLongTrivialConversationStaysCheap(t *testing.T) {
 	}
 }
 
-func TestDecisionCacheDedupes(t *testing.T) {
+func TestSessionDecisionCacheDedupes(t *testing.T) {
 	cheap := &mockCompleter{name: "cheap"}
 	strong := &mockCompleter{name: "strong"}
 	judge := &mockCompleter{name: "judge", text: `{"model_index":1}`}
@@ -570,21 +644,72 @@ func TestDecisionCacheDedupes(t *testing.T) {
 	c, err := NewCompleter([]Candidate{
 		{Completer: cheap, Model: "cheap", Cost: 1, MaxDifficulty: 2},
 		{Completer: strong, Model: "strong", Cost: 60, MaxDifficulty: 4},
-	}, Options{Judge: judge})
+	}, Options{Judge: judge, SessionAffinity: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	messages, options := ambiguousMsg()
+	ctx := request.WithContext(context.Background(), request.Metadata{SessionID: "session-1"})
 
 	for range 3 {
-		if _, err := drain(c.Complete(context.Background(), messages, options)); err != nil {
+		if _, err := drain(c.Complete(ctx, messages, options)); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	if judge.calls != 1 {
 		t.Fatalf("expected judge to be consulted once across identical requests, got %d", judge.calls)
+	}
+}
+
+func TestUnidentifiedRequestsDoNotShareDecisions(t *testing.T) {
+	cheap := &mockCompleter{name: "cheap"}
+	strong := &mockCompleter{name: "strong"}
+	judge := &mockCompleter{name: "judge", text: `{"model_index":1}`}
+
+	c, err := NewCompleter([]Candidate{
+		{Completer: cheap, Model: "cheap", Cost: 1, MaxDifficulty: 2},
+		{Completer: strong, Model: "strong", Cost: 60, MaxDifficulty: 4},
+	}, Options{Judge: judge, SessionAffinity: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages, options := ambiguousMsg()
+	for range 2 {
+		if _, err := drain(c.Complete(context.Background(), messages, options)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if judge.calls != 2 {
+		t.Fatalf("unidentified requests shared a decision: judge calls=%d", judge.calls)
+	}
+}
+
+func TestMessageHashFallbackExplicitlySharesDecisions(t *testing.T) {
+	cheap := &mockCompleter{name: "cheap"}
+	strong := &mockCompleter{name: "strong"}
+	judge := &mockCompleter{name: "judge", text: `{"model_index":1}`}
+
+	c, err := NewCompleter([]Candidate{
+		{Completer: cheap, Model: "cheap", Cost: 1, MaxDifficulty: 2},
+		{Completer: strong, Model: "strong", Cost: 60, MaxDifficulty: 4},
+	}, Options{Judge: judge, MessageHashFallback: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	messages, options := ambiguousMsg()
+	for range 2 {
+		if _, err := drain(c.Complete(context.Background(), messages, options)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if judge.calls != 1 {
+		t.Fatalf("message hash fallback did not share the decision: judge calls=%d", judge.calls)
 	}
 }
 
@@ -596,7 +721,7 @@ func TestDecisionStableAcrossToolRoundTrips(t *testing.T) {
 	c, err := NewCompleter([]Candidate{
 		{Completer: cheap, Model: "cheap", Cost: 1, MaxDifficulty: 2},
 		{Completer: strong, Model: "strong", Cost: 60, MaxDifficulty: 4},
-	}, Options{Judge: judge})
+	}, Options{Judge: judge, SessionAffinity: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,15 +739,45 @@ func TestDecisionStableAcrossToolRoundTrips(t *testing.T) {
 		provider.ToolMessage("t1", "file contents"),
 	}
 
-	if _, err := drain(c.Complete(context.Background(), turn1, options)); err != nil {
+	ctx := request.WithContext(context.Background(), request.Metadata{SessionID: "session-1", TaskID: "task-1"})
+
+	if _, err := drain(c.Complete(ctx, turn1, options)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := drain(c.Complete(context.Background(), turn2, options)); err != nil {
+	if _, err := drain(c.Complete(ctx, turn2, options)); err != nil {
 		t.Fatal(err)
 	}
 
 	if judge.calls != 1 {
 		t.Fatalf("expected one judge call across a task's round-trips, got %d", judge.calls)
+	}
+}
+
+func TestUnidentifiedRequestsDoNotSharePartialFingerprints(t *testing.T) {
+	cheap := &mockCompleter{name: "cheap"}
+	strong := &mockCompleter{name: "strong"}
+
+	c, err := NewCompleter([]Candidate{
+		{Completer: cheap, Model: "cheap", Cost: 1, MaxDifficulty: 2},
+		{Completer: strong, Model: "strong", Cost: 60, MaxDifficulty: 4},
+	}, Options{SessionAffinity: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	easy := []provider.Message{provider.UserMessage("continue")}
+	hard := []provider.Message{
+		provider.UserMessage("debug the distributed race condition"),
+		provider.AssistantMessage("I will investigate the architecture"),
+		provider.UserMessage("continue"),
+	}
+	options := reasoning(provider.EffortMedium)
+
+	if out, _ := drain(c.Complete(context.Background(), easy, options)); out != "cheap" {
+		t.Fatalf("easy request: %q", out)
+	}
+	if out, _ := drain(c.Complete(context.Background(), hard, options)); out != "strong" {
+		t.Fatalf("hard request with same latest instruction reused stale decision: %q", out)
 	}
 }
 

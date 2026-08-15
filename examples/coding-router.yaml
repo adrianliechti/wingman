@@ -1,0 +1,124 @@
+# Coding-agent router with current OpenAI and Anthropic model families.
+# Model IDs verified against the vendor catalogs on 2026-08-15:
+# https://developers.openai.com/api/docs/models
+# https://platform.claude.com/docs/en/about-claude/models/overview
+#
+# Start Wingman with:
+#   go run . -config examples/coding-router.yaml
+#
+# Point Codex, Claude Code, OpenCode, or another OpenAI-compatible client at
+# Wingman and request either `coding` (task classifier) or `coding-stage`
+# (coding-loop stage policy). Supported native client headers are normalized
+# automatically; no extra Wingman headers are required.
+
+providers:
+  - type: openai
+    token: ${OPENAI_API_KEY}
+    # Let Wingman's pools fail over immediately instead of waiting for the
+    # provider SDK to retry one backend in place.
+    max_retries: 0
+    models:
+      - gpt-5.6-sol
+      - gpt-5.6-terra
+      - gpt-5.6-luna
+
+  - type: anthropic
+    token: ${ANTHROPIC_API_KEY}
+    max_retries: 0
+    models:
+      - claude-opus-5
+      - claude-sonnet-5
+      - claude-haiku-4-5
+
+routers:
+  # Each pool pairs roughly comparable models from independent providers.
+  # Disabling reasoning signatures keeps histories portable across vendors.
+  efficient-pool:
+    type: roundrobin
+    models:
+      - gpt-5.6-luna
+      - claude-haiku-4-5
+    reasoning_signatures: false
+    first_token_timeout: 30s
+    failure_threshold: 3
+    recovery_timeout: 30s
+
+  balanced-pool:
+    type: roundrobin
+    models:
+      - gpt-5.6-terra
+      - claude-sonnet-5
+    reasoning_signatures: false
+    first_token_timeout: 30s
+    failure_threshold: 3
+    recovery_timeout: 30s
+
+  frontier-pool:
+    type: roundrobin
+    models:
+      - gpt-5.6-sol
+      - claude-opus-5
+    reasoning_signatures: false
+    first_token_timeout: 45s
+    failure_threshold: 3
+    recovery_timeout: 30s
+
+  # General task router. The local classifier has no extra model call. Native
+  # Codex, Claude Code, and OpenCode session IDs make the decision sticky for
+  # that task; unidentified requests are classified independently.
+  coding:
+    type: classifier
+    default: frontier-pool
+    session_affinity: true
+    message_hash_fallback: false
+    reasoning_signatures: false
+    first_token_timeout: 45s
+
+    candidates:
+      # Cost is a relative tie-breaker, not the vendors' dollar price.
+      - model: efficient-pool
+        card: Fast, economical models for routine coding work
+        cost: 1
+        max_difficulty: 2
+        vision: true
+        # Claude Haiku is the limiting member of this pool.
+        max_context: 200000
+        examples:
+          - Rename a symbol and update its focused tests
+          - Explain a small function or configuration option
+          - Apply a localized, well-specified edit
+
+      - model: balanced-pool
+        card: Strong general models for multi-file implementation and debugging
+        cost: 3
+        max_difficulty: 3
+        vision: true
+        max_context: 1000000
+        examples:
+          - Implement a feature across several packages and test it
+          - Diagnose a non-obvious test failure
+          - Refactor a subsystem while preserving its public API
+
+      - model: frontier-pool
+        card: Frontier models for architecture, difficult reasoning, and recovery
+        cost: 5
+        max_difficulty: 4
+        vision: true
+        max_context: 1000000
+        examples:
+          - Diagnose a distributed concurrency failure with incomplete evidence
+          - Design and implement a large cross-cutting architecture change
+          - Recover a long-running coding task after repeated failed approaches
+
+  # Alternative entry point for long coding-agent loops. It starts capable,
+  # moves settled edit/test work to the efficient pool, and returns to the
+  # frontier pool on errors, exploration, spinning, or compaction.
+  coding-stage:
+    type: stage
+    capable: frontier-pool
+    efficient: efficient-pool
+    picker: capable_first
+    confidence_threshold: 0.5
+    recent_turn_window: 3
+    reasoning_signatures: false
+    first_token_timeout: 45s

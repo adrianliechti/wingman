@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/router/adaptive"
 	"github.com/adrianliechti/wingman/pkg/router/classifier"
 	"github.com/adrianliechti/wingman/pkg/router/roundrobin"
+	"github.com/adrianliechti/wingman/pkg/router/stage"
 )
 
 type routerConfig struct {
@@ -59,6 +60,31 @@ type routerConfig struct {
 	// "model" elsewhere). The classifier uses it as the optional LLM-as-judge
 	// tier; omit to keep it off (the default).
 	Completer string `yaml:"completer"`
+
+	// SessionAffinity reuses classifier decisions within an identified task.
+	// It defaults to true; requests without identity remain fully request-scoped.
+	SessionAffinity *bool `yaml:"session_affinity"`
+
+	// MessageHashFallback enables affinity by instruction text when the caller
+	// sends no session metadata. Disabled by default to prevent cross-session
+	// decision sharing.
+	MessageHashFallback bool `yaml:"message_hash_fallback"`
+
+	// Capable and Efficient are the two model ids used by type "stage".
+	Capable   string `yaml:"capable"`
+	Efficient string `yaml:"efficient"`
+
+	// Picker is the stage router's default tier when tool signals are
+	// inconclusive: "efficient_first" (default) or "capable_first".
+	Picker string `yaml:"picker"`
+
+	// ConfidenceThreshold controls how much corroboration stage signals need
+	// before overriding Picker's default. Defaults to 0.5.
+	ConfidenceThreshold *float64 `yaml:"confidence_threshold"`
+
+	// RecentTurnWindow is the number of trailing tool calls/results scored by
+	// the stage router. Defaults to 3.
+	RecentTurnWindow int `yaml:"recent_turn_window"`
 }
 
 // routerCandidateConfig describes one classifier candidate. Model is a completer
@@ -79,6 +105,11 @@ type routerCandidateConfig struct {
 type routerContext struct {
 	Completers []provider.Completer
 	Fallback   provider.Completer
+
+	Name         string
+	Kind         string
+	CandidateIDs []string
+	FallbackID   string
 }
 
 func (cfg *Config) registerRouters(f *configFile) error {
@@ -97,11 +128,11 @@ func (cfg *Config) registerRouters(f *configFile) error {
 			continue
 		}
 
-		if strings.ToLower(config.Type) == "classifier" {
+		if isDecisionRouter(config.Type) {
 			continue
 		}
 
-		context := routerContext{}
+		context := routerContext{Name: id, Kind: strings.ToLower(config.Type), FallbackID: config.Fallback}
 
 		for _, m := range config.Models {
 			completer, err := cfg.Completer(m)
@@ -111,6 +142,7 @@ func (cfg *Config) registerRouters(f *configFile) error {
 			}
 
 			context.Completers = append(context.Completers, completer)
+			context.CandidateIDs = append(context.CandidateIDs, m)
 		}
 
 		if config.Fallback != "" {
@@ -136,19 +168,26 @@ func (cfg *Config) registerRouters(f *configFile) error {
 		cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))
 	}
 
-	// Classifiers register last, so their candidates can reference sibling
-	// routers (e.g. an adaptive load-balancer as a candidate) regardless of
-	// document order.
+	// Decision routers register last, so their candidates can reference sibling
+	// load-balancing routers regardless of document order.
 	for _, node := range f.Routers.Content {
 		id := node.Value
 
 		config, ok := configs[node.Value]
 
-		if !ok || strings.ToLower(config.Type) != "classifier" {
+		if !ok || !isDecisionRouter(config.Type) {
 			continue
 		}
 
-		completer, err := cfg.createClassifier(config)
+		var completer provider.Completer
+		var err error
+
+		switch strings.ToLower(config.Type) {
+		case "classifier":
+			completer, err = cfg.createClassifier(id, config)
+		case "stage":
+			completer, err = cfg.createStage(id, config)
+		}
 
 		if err != nil {
 			return err
@@ -164,7 +203,16 @@ func (cfg *Config) registerRouters(f *configFile) error {
 	return nil
 }
 
-func (cfg *Config) createClassifier(config routerConfig) (provider.Completer, error) {
+func isDecisionRouter(routerType string) bool {
+	switch strings.ToLower(routerType) {
+	case "classifier", "stage":
+		return true
+	default:
+		return false
+	}
+}
+
+func (cfg *Config) createClassifier(name string, config routerConfig) (provider.Completer, error) {
 	if len(config.Candidates) == 0 {
 		return nil, errors.New("classifier router requires candidates")
 	}
@@ -210,8 +258,20 @@ func (cfg *Config) createClassifier(config routerConfig) (provider.Completer, er
 	}
 
 	options := classifier.Options{
-		Margin:       config.Margin,
-		DefaultIndex: defaultIndex,
+		Name:                name,
+		Margin:              config.Margin,
+		DefaultIndex:        defaultIndex,
+		SessionAffinity:     config.SessionAffinity == nil || *config.SessionAffinity,
+		MessageHashFallback: config.MessageHashFallback,
+		FirstTokenTimeout:   router.DefaultFirstTokenTimeout,
+	}
+
+	if config.FirstTokenTimeout != "" {
+		timeout, err := parseTimeout("first_token_timeout", config.FirstTokenTimeout)
+		if err != nil {
+			return nil, err
+		}
+		options.FirstTokenTimeout = timeout
 	}
 
 	if config.Embedder != "" {
@@ -237,6 +297,46 @@ func (cfg *Config) createClassifier(config routerConfig) (provider.Completer, er
 	return classifier.NewCompleter(candidates, options)
 }
 
+func (cfg *Config) createStage(name string, config routerConfig) (provider.Completer, error) {
+	if config.Capable == "" || config.Efficient == "" {
+		return nil, errors.New("stage router requires capable and efficient models")
+	}
+
+	capable, err := cfg.Completer(config.Capable)
+	if err != nil {
+		return nil, err
+	}
+	efficient, err := cfg.Completer(config.Efficient)
+	if err != nil {
+		return nil, err
+	}
+
+	threshold := 0.5
+	if config.ConfidenceThreshold != nil {
+		threshold = *config.ConfidenceThreshold
+	}
+	options := stage.Options{
+		Name:                name,
+		Picker:              stage.Picker(strings.ToLower(config.Picker)),
+		ConfidenceThreshold: threshold,
+		RecentWindow:        config.RecentTurnWindow,
+		FirstTokenTimeout:   router.DefaultFirstTokenTimeout,
+	}
+	if config.FirstTokenTimeout != "" {
+		timeout, err := parseTimeout("first_token_timeout", config.FirstTokenTimeout)
+		if err != nil {
+			return nil, err
+		}
+		options.FirstTokenTimeout = timeout
+	}
+
+	return stage.NewCompleter(
+		stage.Candidate{Model: config.Capable, Completer: capable},
+		stage.Candidate{Model: config.Efficient, Completer: efficient},
+		options,
+	)
+}
+
 func createRouter(cfg routerConfig, context routerContext) (provider.Completer, error) {
 	options, err := routerOptions(cfg, context)
 
@@ -257,7 +357,9 @@ func createRouter(cfg routerConfig, context routerContext) (provider.Completer, 
 }
 
 func routerOptions(cfg routerConfig, context routerContext) ([]router.Option, error) {
-	var options []router.Option
+	options := []router.Option{
+		router.WithRoutingMetadata(context.Name, context.Kind, context.CandidateIDs, context.FallbackID),
+	}
 
 	if context.Fallback != nil {
 		options = append(options, router.WithFallback(context.Fallback))

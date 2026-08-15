@@ -3,12 +3,14 @@ package router
 import (
 	"context"
 	"errors"
-	"fmt"
 	"iter"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/router/internal/executor"
+	"github.com/adrianliechti/wingman/pkg/router/internal/routingtelemetry"
 )
 
 // Strategy selects the next provider index from the given candidates.
@@ -29,6 +31,11 @@ type Completer struct {
 	failureThreshold  int
 	recoveryTimeout   time.Duration
 	firstTokenTimeout time.Duration
+
+	name         string
+	kind         string
+	candidateIDs []string
+	fallbackID   string
 }
 
 type Option func(*Completer)
@@ -63,6 +70,17 @@ func WithRecoveryTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithRoutingMetadata assigns stable, configured identifiers to routing
+// telemetry. IDs must correspond to the completers slice.
+func WithRoutingMetadata(name, kind string, candidateIDs []string, fallbackID string) Option {
+	return func(c *Completer) {
+		c.name = name
+		c.kind = kind
+		c.candidateIDs = append([]string(nil), candidateIDs...)
+		c.fallbackID = fallbackID
+	}
+}
+
 // NewCompleter creates a router that picks providers using the given strategy
 func NewCompleter(completers []provider.Completer, strategy Strategy, options ...Option) (*Completer, error) {
 	if len(completers) == 0 {
@@ -87,6 +105,23 @@ func NewCompleter(completers []provider.Completer, strategy Strategy, options ..
 	for _, option := range options {
 		option(c)
 	}
+	if c.strategy == nil {
+		return nil, errors.New("router strategy is required")
+	}
+	for _, completer := range c.completers {
+		if completer == nil {
+			return nil, errors.New("router completers must not be nil")
+		}
+	}
+	if len(c.candidateIDs) > 0 && len(c.candidateIDs) != len(c.completers) {
+		return nil, errors.New("router candidate ids must match completers")
+	}
+	if c.name == "" {
+		c.name = "router"
+	}
+	if c.kind == "" {
+		c.kind = "health"
+	}
 
 	return c, nil
 }
@@ -106,6 +141,9 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		tried := make(map[int]bool, len(c.completers))
 
 		var lastErr error
+		var previousID string
+		var previousFailure executor.FailureKind
+		decisionRecorded := false
 
 		for len(tried) < len(c.completers) {
 			if ctx.Err() != nil {
@@ -121,7 +159,27 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			tried[index] = true
 
-			done, err := c.attempt(ctx, index, probe, messages, options, yield)
+			candidateID := c.candidateID(index)
+			if !decisionRecorded {
+				routingtelemetry.RecordDecision(ctx, routingtelemetry.Decision{
+					Router:     c.name,
+					Kind:       c.kind,
+					Model:      candidateID,
+					Source:     "strategy",
+					Candidates: len(c.completers),
+				})
+				decisionRecorded = true
+			} else {
+				routingtelemetry.RecordFallback(ctx, routingtelemetry.Fallback{
+					Router: c.name,
+					Kind:   c.kind,
+					From:   previousID,
+					To:     candidateID,
+					Reason: string(previousFailure),
+				})
+			}
+
+			done, err, failure := c.attempt(ctx, index, probe, messages, options, yield)
 
 			if done {
 				return
@@ -130,10 +188,33 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			if err != nil {
 				lastErr = err
 			}
+			previousID = candidateID
+			previousFailure = failure
 		}
 
 		if c.fallback != nil {
-			for completion, err := range c.fallback.Complete(ctx, messages, options) {
+			fallbackID := c.fallbackID
+			if fallbackID == "" {
+				fallbackID = "fallback"
+			}
+			if !decisionRecorded {
+				routingtelemetry.RecordDecision(ctx, routingtelemetry.Decision{
+					Router: c.name, Kind: c.kind, Model: fallbackID, Source: "fallback", Candidates: 1,
+				})
+			} else if previousID != "" {
+				routingtelemetry.RecordFallback(ctx, routingtelemetry.Fallback{
+					Router: c.name, Kind: c.kind, From: previousID, To: fallbackID, Reason: string(previousFailure),
+				})
+			}
+
+			candidates := []executor.Candidate{{ID: fallbackID, Completer: c.fallback}}
+			hooks := executor.Hooks{Attempt: func(candidate executor.Candidate, result executor.Result) {
+				routingtelemetry.RecordAttempt(ctx, routingtelemetry.Attempt{
+					Router: c.name, Kind: c.kind, Model: candidate.ID, Failure: string(result.Failure), Delivered: result.Delivered, TTFT: result.TTFT,
+				})
+			}}
+
+			for completion, err := range executor.Complete(ctx, candidates, messages, options, c.firstTokenTimeout, hooks) {
 				if !yield(completion, err) {
 					return
 				}
@@ -192,129 +273,56 @@ func (c *Completer) acquire(tried map[int]bool) (index int, probe bool) {
 // caller gone, non-retryable error) and the router must not fail over.
 // Otherwise the returned error describes why the attempt failed before
 // producing output.
-func (c *Completer) attempt(ctx context.Context, index int, probe bool, messages []provider.Message, options *provider.CompleteOptions, yield func(*provider.Completion, error) bool) (bool, error) {
+func (c *Completer) attempt(ctx context.Context, index int, probe bool, messages []provider.Message, options *provider.CompleteOptions, yield func(*provider.Completion, error) bool) (bool, error, executor.FailureKind) {
 	stat := c.stats[index]
-
-	attemptCtx := ctx
-
-	var timer *time.Timer
-
-	if c.firstTokenTimeout > 0 {
-		var cancel context.CancelFunc
-		attemptCtx, cancel = context.WithCancel(ctx)
-		defer cancel()
-
-		timer = time.AfterFunc(c.firstTokenTimeout, cancel)
-		defer timer.Stop()
-	}
-
-	start := time.Now()
-
-	var ttft time.Duration
-	var delivered bool
-	var attemptErr, streamErr error
-
-	for completion, err := range c.completers[index].Complete(attemptCtx, messages, options) {
-		if err != nil {
-			// Before any output the error stays internal so the request can
-			// fail over; afterwards it must be passed through to the caller
-			if !delivered {
-				attemptErr = err
-				break
-			}
-
-			streamErr = err
-
-			if !yield(completion, err) {
-				break
-			}
-
-			continue
-		}
-
-		if delivered {
-			streamErr = nil
-		} else {
-			delivered = true
-			ttft = time.Since(start)
-
-			if timer != nil {
-				timer.Stop()
-			}
-		}
-
-		if !yield(completion, nil) {
-			break
-		}
-	}
+	result := executor.Attempt(ctx, c.completers[index], messages, options, c.firstTokenTimeout, yield)
+	routingtelemetry.RecordAttempt(ctx, routingtelemetry.Attempt{
+		Router:    c.name,
+		Kind:      c.kind,
+		Model:     c.candidateID(index),
+		Failure:   string(result.Failure),
+		Delivered: result.Delivered,
+		TTFT:      result.TTFT,
+	})
 
 	switch {
-	case delivered:
+	case result.Delivered && result.Failure == executor.FailureProvider:
 		// A stream that terminated with a provider error counts against
 		// health even though the partial output went to the caller
-		if streamErr != nil && ctx.Err() == nil && attemptCtx.Err() == nil {
-			stat.RecordFailure(c.failureThreshold, probe, streamErr)
-		} else {
-			stat.RecordSuccess(ttft, probe)
-		}
+		stat.RecordFailure(c.failureThreshold, probe, result.Err)
+		return true, nil, result.Failure
 
-		return true, nil
+	case result.Delivered && result.Failure == executor.FailureCaller:
+		stat.Release(probe)
+		return true, nil, result.Failure
 
-	case ctx.Err() != nil:
+	case result.Delivered:
+		stat.RecordSuccess(result.TTFT, probe)
+		return true, nil, result.Failure
+
+	case result.Failure == executor.FailureCaller:
 		// The caller went away - this says nothing about provider health
 		stat.Release(probe)
-		yield(nil, ctx.Err())
-		return true, nil
+		yield(nil, result.Err)
+		return true, nil, result.Failure
 
-	case attemptErr != nil:
-		// The first-token timer is the only other cancellation source
-		if attemptCtx.Err() != nil {
-			stat.RecordFailure(c.failureThreshold, probe, nil)
-			return false, &provider.ProviderError{
-				Code:    http.StatusGatewayTimeout,
-				Message: fmt.Sprintf("no response within %s", c.firstTokenTimeout),
-				Err:     attemptErr,
-			}
-		}
-
+	case result.Failure == executor.FailureRequest:
 		// Errors caused by the request itself (invalid request, context too
 		// long) would fail on every provider: surface them directly and
 		// leave the health alone
-		if isRequestError(attemptErr) {
-			stat.Release(probe)
-			yield(nil, attemptErr)
-			return true, nil
-		}
-
-		stat.RecordFailure(c.failureThreshold, probe, attemptErr)
-		return false, attemptErr
+		stat.Release(probe)
+		yield(nil, result.Err)
+		return true, nil, result.Failure
 
 	default:
-		stat.RecordFailure(c.failureThreshold, probe, nil)
-		return false, errors.New("provider returned no response")
+		stat.RecordFailure(c.failureThreshold, probe, result.Err)
+		return false, result.Err, result.Failure
 	}
 }
 
-// isRequestError reports whether the error reflects the request itself rather
-// than the provider, so failing over could not help. Auth (401/403), not
-// found (404), timeout (408) and rate limit (429) responses are excluded:
-// keys, deployments and quotas are per-provider configuration, so those must
-// fail over and count against the failing provider's health.
-func isRequestError(err error) bool {
-	code := provider.CodeFromError(err, 0)
-
-	if code < 400 || code >= 500 {
-		return false
+func (c *Completer) candidateID(index int) string {
+	if len(c.candidateIDs) == len(c.completers) && c.candidateIDs[index] != "" {
+		return c.candidateIDs[index]
 	}
-
-	switch code {
-	case http.StatusUnauthorized,
-		http.StatusForbidden,
-		http.StatusNotFound,
-		http.StatusRequestTimeout,
-		http.StatusTooManyRequests:
-		return false
-	}
-
-	return true
+	return "candidate:" + strconv.Itoa(index)
 }

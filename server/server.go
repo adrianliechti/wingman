@@ -72,6 +72,7 @@ func New(cfg *config.Config) (*Server, error) {
 		MaxAge: 300,
 	}))
 
+	mux.Use(handleRequestMetadata)
 	mux.Use(otelhttp.NewMiddleware("http"))
 	mux.Use(handleRouteTag)
 	mux.Use(s.handleAuth)

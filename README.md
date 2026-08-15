@@ -472,7 +472,7 @@ providers:
 
 ### Routers
 
-A router exposes several models under one id and distributes requests across them — useful for load balancing and failover across providers. Types: `roundrobin` (even rotation) and `adaptive` (prefers healthy/faster backends).
+A router exposes several models under one id. `roundrobin` and `adaptive` distribute equivalent models across providers; `classifier` and `stage` make opt-in, per-request model decisions for capability/cost routing.
 
 Routers protect backends with a circuit breaker and fail over transparently: if a provider errors or produces no output within `first_token_timeout` (default `2m`), the request is retried on the next healthy provider before any error reaches the client.
 
@@ -492,6 +492,8 @@ routers:
 
 > [!TIP]
 > Set `max_retries: 0` on models used as router members. Provider SDKs retry rate limits in place (honoring `Retry-After`, which can mean waiting 30s+ on the same backend) — disabling SDK retries lets the router fail over to another backend immediately.
+
+Classifier/stage configuration, coding-agent session headers, routing telemetry, and offline replay are documented in [Model routing](docs/routing.md).
 
 
 ### Web Access (Search · Scrape · Research)

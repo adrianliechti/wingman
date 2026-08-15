@@ -82,6 +82,22 @@ func TestNewCompleter(t *testing.T) {
 			t.Error("expected error for empty completers")
 		}
 	})
+
+	t.Run("requires a strategy", func(t *testing.T) {
+		_, err := NewCompleter([]provider.Completer{&mockCompleter{}}, nil)
+		if err == nil {
+			t.Fatal("expected error for nil strategy")
+		}
+	})
+
+	t.Run("validates telemetry candidate ids", func(t *testing.T) {
+		_, err := NewCompleter([]provider.Completer{&mockCompleter{}}, firstCandidate,
+			WithRoutingMetadata("test", "adaptive", []string{"a", "b"}, ""),
+		)
+		if err == nil {
+			t.Fatal("expected error for mismatched candidate ids")
+		}
+	})
 }
 
 func TestComplete(t *testing.T) {
@@ -509,4 +525,29 @@ func TestMidStreamFailure(t *testing.T) {
 			t.Error("expected interrupted stream to count as provider failure")
 		}
 	})
+}
+
+func TestRoleOnlyPreludeDoesNotPreventFailover(t *testing.T) {
+	broken := completerFunc(func(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+		return func(yield func(*provider.Completion, error) bool) {
+			if !yield(&provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant}}, nil) {
+				return
+			}
+			yield(nil, errors.New("stream interrupted before content"))
+		}
+	})
+	healthy := &mockCompleter{response: "ok"}
+
+	c, _ := NewCompleter([]provider.Completer{broken, healthy}, firstCandidate)
+	result, err := collect(t, c, context.Background())
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || result.Message.Text() != "ok" {
+		t.Fatalf("expected healthy fallback, got %v", result)
+	}
+	if rate := c.stats[0].Metrics().ErrorRate; rate <= 0 {
+		t.Fatal("expected pre-content stream failure to count against provider health")
+	}
 }

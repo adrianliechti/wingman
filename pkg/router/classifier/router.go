@@ -16,9 +16,14 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"math"
 	"slices"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/request"
+	"github.com/adrianliechti/wingman/pkg/router/internal/executor"
+	"github.com/adrianliechti/wingman/pkg/router/internal/routingtelemetry"
 )
 
 // Candidate is a routable backend plus the metadata the cascade scores it on.
@@ -42,6 +47,9 @@ type Candidate struct {
 // Options configures the optional cascade tiers. Each tier is disabled when its
 // dependency is nil.
 type Options struct {
+	// Name identifies this router in telemetry. It defaults to "classifier".
+	Name string
+
 	// Embedder enables Tier 2 (embedding similarity). Nil disables it.
 	Embedder provider.Embedder
 
@@ -56,6 +64,19 @@ type Options struct {
 
 	// DefaultIndex is the universal fail-safe candidate.
 	DefaultIndex int
+
+	// SessionAffinity reuses one decision for matching requests in the same
+	// session/task. It requires normalized request metadata in ctx.
+	SessionAffinity bool
+
+	// MessageHashFallback uses the latest user instruction as an affinity key
+	// when a request has no session metadata. It is opt-in because identical
+	// instructions from unrelated callers otherwise share decisions.
+	MessageHashFallback bool
+
+	// FirstTokenTimeout bounds the wait for meaningful content from each
+	// candidate. Zero disables the deadline.
+	FirstTokenTimeout time.Duration
 }
 
 const (
@@ -69,15 +90,18 @@ const (
 	ambiguityMargin = 0.4
 )
 
-// decision is a routing outcome: the picked candidate and the eligible
-// fallback to stream from when the pick fails before producing output.
+// decision is an ordered routing outcome. The classifier pick comes first,
+// followed by every other eligible fallback in preference order.
 type decision struct {
-	index    int
-	fallback int
+	candidates []int
+	source     string
+	score      float64
+	cached     bool
 }
 
 type Completer struct {
 	candidates []Candidate
+	name       string
 
 	defaultIndex int
 
@@ -85,6 +109,10 @@ type Completer struct {
 	margin   float64
 
 	judge provider.Completer
+
+	sessionAffinity     bool
+	messageHashFallback bool
+	firstTokenTimeout   time.Duration
 
 	decisionCache *lruCache
 
@@ -98,18 +126,48 @@ func NewCompleter(candidates []Candidate, opts Options) (*Completer, error) {
 		return nil, errors.New("classifier router requires at least one candidate")
 	}
 
+	seen := make(map[string]struct{}, len(candidates))
+
+	for _, candidate := range candidates {
+		switch {
+		case candidate.Completer == nil:
+			return nil, errors.New("classifier candidate requires a completer")
+		case candidate.Model == "":
+			return nil, errors.New("classifier candidate requires a model")
+		case math.IsNaN(candidate.Cost) || math.IsInf(candidate.Cost, 0) || candidate.Cost < 0:
+			return nil, errors.New("classifier candidate cost must be finite and non-negative: " + candidate.Model)
+		case candidate.MaxDifficulty < 0 || candidate.MaxDifficulty > maxLevel:
+			return nil, errors.New("classifier candidate max difficulty must be between 0 and 4: " + candidate.Model)
+		case candidate.MaxContext < 0:
+			return nil, errors.New("classifier candidate max context must not be negative: " + candidate.Model)
+		}
+
+		if _, ok := seen[candidate.Model]; ok {
+			return nil, errors.New("classifier candidate models must be unique: " + candidate.Model)
+		}
+
+		seen[candidate.Model] = struct{}{}
+	}
+
 	def := opts.DefaultIndex
 	if def < 0 || def >= len(candidates) {
-		def = 0
+		return nil, errors.New("classifier default index is out of range")
 	}
 
 	margin := opts.Margin
-	if margin <= 0 {
+	if margin == 0 {
 		margin = defaultMargin
+	}
+	if math.IsNaN(margin) || math.IsInf(margin, 0) || margin < 0 || margin > 2 {
+		return nil, errors.New("classifier margin must be finite and between 0 and 2")
+	}
+	if opts.FirstTokenTimeout < 0 {
+		return nil, errors.New("classifier first token timeout must not be negative")
 	}
 
 	c := &Completer{
 		candidates: candidates,
+		name:       opts.Name,
 
 		defaultIndex: def,
 
@@ -118,7 +176,14 @@ func NewCompleter(candidates []Candidate, opts Options) (*Completer, error) {
 
 		judge: opts.Judge,
 
+		sessionAffinity:     opts.SessionAffinity,
+		messageHashFallback: opts.MessageHashFallback,
+		firstTokenTimeout:   opts.FirstTokenTimeout,
+
 		decisionCache: newLRU(decisionCacheSize),
+	}
+	if c.name == "" {
+		c.name = "classifier"
 	}
 
 	if opts.Embedder != nil {
@@ -139,68 +204,104 @@ func NewCompleter(candidates []Candidate, opts Options) (*Completer, error) {
 
 func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	d := c.classify(ctx, messages, options)
+	candidates := make([]executor.Candidate, 0, len(d.candidates))
 
-	return func(yield func(*provider.Completion, error) bool) {
-		emitted := false
-
-		for completion, err := range c.candidates[d.index].Completer.Complete(ctx, messages, options) {
-			// A hard failure before any output is produced falls back once, so
-			// a single bad backend can't break the request. Once output has
-			// streamed, errors propagate normally.
-			if err != nil && !emitted && d.fallback != d.index {
-				for completion, err := range c.candidates[d.fallback].Completer.Complete(ctx, messages, options) {
-					if !yield(completion, err) {
-						return
-					}
-				}
-
-				return
-			}
-
-			// Only meaningful output counts as emitted: providers yield a
-			// role-only delta as the first stream chunk, and a stream that
-			// dies right after it should still fall back.
-			if completion != nil && completion.Message != nil && len(completion.Message.Content) > 0 {
-				emitted = true
-			}
-
-			if !yield(completion, err) {
-				return
-			}
-		}
-
-		// A stream that completed without any content is an empty answer —
-		// treat it like a failure and retry on the fallback.
-		if !emitted && d.fallback != d.index {
-			for completion, err := range c.candidates[d.fallback].Completer.Complete(ctx, messages, options) {
-				if !yield(completion, err) {
-					return
-				}
-			}
-		}
+	for _, index := range d.candidates {
+		candidate := c.candidates[index]
+		candidates = append(candidates, executor.Candidate{ID: candidate.Model, Completer: candidate.Completer})
 	}
+
+	routingtelemetry.RecordDecision(ctx, routingtelemetry.Decision{
+		Router:     c.name,
+		Kind:       "classifier",
+		Model:      candidates[0].ID,
+		Source:     d.source,
+		Cached:     d.cached,
+		Score:      d.score,
+		Candidates: len(candidates),
+	})
+
+	hooks := executor.Hooks{
+		Attempt: func(candidate executor.Candidate, result executor.Result) {
+			routingtelemetry.RecordAttempt(ctx, routingtelemetry.Attempt{
+				Router:    c.name,
+				Kind:      "classifier",
+				Model:     candidate.ID,
+				Failure:   string(result.Failure),
+				Delivered: result.Delivered,
+				TTFT:      result.TTFT,
+			})
+		},
+		Fallback: func(from, to executor.Candidate, result executor.Result) {
+			routingtelemetry.RecordFallback(ctx, routingtelemetry.Fallback{
+				Router: c.name,
+				Kind:   "classifier",
+				From:   from.ID,
+				To:     to.ID,
+				Reason: string(result.Failure),
+			})
+		},
+	}
+
+	return executor.Complete(ctx, candidates, messages, options, c.firstTokenTimeout, hooks)
 }
 
 // classify resolves the routing decision for a request, caching it so a task's
 // own tool round-trips don't re-run the cascade.
 func (c *Completer) classify(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) decision {
 	s := extractSignals(messages, options)
-	fp := fingerprint(s)
+	identity := c.affinityIdentity(ctx, s)
+	fp := fingerprint(s, identity)
 
 	// A cached decision must still satisfy the hard constraints: the
 	// fingerprint is keyed on the user instruction, but tool round-trips grow
 	// the context and can push it past a cached candidate's MaxContext.
-	if d, ok := c.decisionCache.get(fp); ok && isEligible(c.candidates[d.index], s) && isEligible(c.candidates[d.fallback], s) {
-		return d
+	if d, ok := c.decisionCache.get(fp); identity != "" && ok {
+		eligible := true
+		for _, index := range d.candidates {
+			if !isEligible(c.candidates[index], s) {
+				eligible = false
+				break
+			}
+		}
+
+		if eligible {
+			d.cached = true
+			return d
+		}
 	}
 
 	d := c.decide(ctx, s)
-	c.decisionCache.put(fp, d)
+	if identity != "" {
+		c.decisionCache.put(fp, d)
+	}
 
 	return d
 }
 
+func (c *Completer) affinityIdentity(ctx context.Context, s signals) string {
+	if c.sessionAffinity {
+		if metadata, ok := request.FromContext(ctx); ok {
+			identity := metadata.RoutingIdentity()
+			if identity != "" {
+				if metadata.TaskID != "" {
+					identity += ":task:" + metadata.TaskID
+				}
+				return identity
+			}
+		}
+	}
+
+	if c.messageHashFallback && s.queryText != "" {
+		return "message:" + s.queryText
+	}
+
+	return ""
+}
+
 func (c *Completer) decide(ctx context.Context, s signals) decision {
+	score := difficultyScore(s)
+
 	// Tier 1: hard-constraint prefilter.
 	eligible := make([]int, 0, len(c.candidates))
 
@@ -211,16 +312,14 @@ func (c *Completer) decide(ctx context.Context, s signals) decision {
 	}
 
 	if len(eligible) == 0 {
-		return decision{c.defaultIndex, c.defaultIndex}
+		return decision{candidates: []int{c.defaultIndex}, source: "default", score: score}
 	}
 
 	if len(eligible) == 1 {
-		return decision{eligible[0], eligible[0]}
+		return decision{candidates: []int{eligible[0]}, source: "constraint", score: score}
 	}
 
 	// Tier 1: difficulty estimate + cheapest-good-enough pick.
-	score := difficultyScore(s)
-
 	pick := c.cheapestClearing(eligible, roundLevel(score))
 
 	// Pick stability decides confidence: escalation buys nothing when the
@@ -230,7 +329,7 @@ func (c *Completer) decide(ctx context.Context, s signals) decision {
 		c.cheapestClearing(eligible, roundLevel(score+ambiguityMargin)) == pick
 
 	if confident || (c.embedder == nil && c.judge == nil) {
-		return c.resolve(eligible, pick)
+		return c.resolve(eligible, pick, "heuristic", score)
 	}
 
 	// Tier 2: embedding similarity. Only a resolved pick (best clears the
@@ -238,7 +337,7 @@ func (c *Completer) decide(ctx context.Context, s signals) decision {
 	// argmax is noise, not signal.
 	if c.embedder != nil {
 		if best, resolved := c.embedPick(ctx, s, eligible); resolved {
-			return c.resolve(eligible, best)
+			return c.resolve(eligible, best, "embedding", score)
 		}
 	}
 
@@ -246,44 +345,55 @@ func (c *Completer) decide(ctx context.Context, s signals) decision {
 	// task's tool round-trips don't re-issue this call.
 	if c.judge != nil {
 		if k := c.judgePick(ctx, s, eligible); k >= 0 {
-			return c.resolve(eligible, k)
+			return c.resolve(eligible, k, "judge", score)
 		}
 	}
 
-	return c.resolve(eligible, pick)
+	return c.resolve(eligible, pick, "heuristic", score)
 }
 
-// resolve pairs a pick with its fallback: the default candidate when it is
-// eligible and not already the pick, otherwise the most capable other eligible
-// candidate (ties broken by cost). With no alternative the pick backs itself.
-func (c *Completer) resolve(eligible []int, index int) decision {
+// resolve orders all eligible candidates. The selected model comes first, the
+// configured default next when available, then remaining candidates by
+// capability (and cost for ties). This retains the fail-safe preference while
+// allowing a tertiary provider to recover when two backends fail.
+func (c *Completer) resolve(eligible []int, index int, source string, score float64) decision {
+	ordered := make([]int, 0, len(eligible))
+	ordered = append(ordered, index)
+
 	if index != c.defaultIndex {
 		if slices.Contains(eligible, c.defaultIndex) {
-			return decision{index, c.defaultIndex}
+			ordered = append(ordered, c.defaultIndex)
 		}
 	}
 
-	fallback := index
-
+	remaining := make([]int, 0, len(eligible)-len(ordered))
 	for _, i := range eligible {
-		if i == index {
+		if slices.Contains(ordered, i) {
 			continue
 		}
-
-		if fallback == index {
-			fallback = i
-			continue
-		}
-
-		ci := c.candidates[i]
-		cf := c.candidates[fallback]
-
-		if ci.MaxDifficulty > cf.MaxDifficulty || (ci.MaxDifficulty == cf.MaxDifficulty && ci.Cost < cf.Cost) {
-			fallback = i
-		}
+		remaining = append(remaining, i)
 	}
 
-	return decision{index, fallback}
+	slices.SortStableFunc(remaining, func(a, b int) int {
+		ca := c.candidates[a]
+		cb := c.candidates[b]
+
+		switch {
+		case ca.MaxDifficulty > cb.MaxDifficulty:
+			return -1
+		case ca.MaxDifficulty < cb.MaxDifficulty:
+			return 1
+		case ca.Cost < cb.Cost:
+			return -1
+		case ca.Cost > cb.Cost:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	ordered = append(ordered, remaining...)
+	return decision{candidates: ordered, source: source, score: score}
 }
 
 // cheapestClearing returns the cheapest eligible candidate whose MaxDifficulty
