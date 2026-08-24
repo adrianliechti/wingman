@@ -11,6 +11,8 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor/kreuzberg"
 	"github.com/adrianliechti/wingman/pkg/extractor/mistral"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
+	"github.com/adrianliechti/wingman/pkg/extractor/ooxml"
+	"github.com/adrianliechti/wingman/pkg/extractor/pdf"
 	"github.com/adrianliechti/wingman/pkg/extractor/text"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -34,6 +36,10 @@ func (cfg *Config) Extractor(id string) (extractor.Provider, error) {
 		if c, ok := cfg.extractor[id]; ok {
 			return c, nil
 		}
+	}
+
+	if id == "" {
+		return defaultExtractor()
 	}
 
 	return nil, errors.New("extractor not found: " + id)
@@ -105,6 +111,9 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 
 func createExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
+	case "", "default":
+		return defaultExtractor()
+
 	case "llm":
 		return llmExtractor(cfg, context)
 
@@ -122,6 +131,12 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 
 	case "text":
 		return textExtractor(cfg)
+
+	case "pdf":
+		return pdfExtractor(cfg)
+
+	case "ooxml", "office":
+		return ooxmlExtractor(cfg)
 
 	case "custom", "wingman-extractor", "wingman-reader":
 		return customExtractor(cfg)
@@ -181,6 +196,36 @@ func mistralExtractor(cfg extractorConfig) (extractor.Provider, error) {
 
 func textExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	return text.New()
+}
+
+func pdfExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	return pdf.New()
+}
+
+func ooxmlExtractor(cfg extractorConfig) (extractor.Provider, error) {
+	return ooxml.New()
+}
+
+func defaultExtractor() (extractor.Provider, error) {
+	p, err := pdf.New()
+
+	if err != nil {
+		return nil, err
+	}
+
+	o, err := ooxml.New()
+
+	if err != nil {
+		return nil, err
+	}
+
+	t, err := text.New()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return multi.New(p, o, t), nil
 }
 
 func customExtractor(cfg extractorConfig) (extractor.Provider, error) {

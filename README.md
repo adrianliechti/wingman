@@ -37,6 +37,7 @@ The platform integrates with a wide range of LLM providers:
 ### Document Processing & RAG
 
 **Document Extractors:**
+- Built-in default extractor (PDF, Office documents, plain text)
 - Azure Document Intelligence
 - Docling for document conversion
 - Kreuzberg for document parsing
@@ -546,6 +547,19 @@ researchers:
 
 ### Document Extraction
 
+#### Default Extractor
+
+Built-in extraction without external services. Combines the PDF, OOXML and text
+extractors and picks the first one matching the input. Used automatically when
+no extractors are configured.
+
+```yaml
+extractors:
+  default:
+    type: default
+```
+
+
 #### Azure Document Intelligence
 
 ```yaml
@@ -609,6 +623,26 @@ extractors:
 extractors:
   text:
     type: text
+```
+
+
+#### PDF Extractor
+
+```yaml
+extractors:
+  pdf:
+    type: pdf
+```
+
+
+#### OOXML Extractor
+
+Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) to Markdown.
+
+```yaml
+extractors:
+  ooxml:
+    type: ooxml
 ```
 
 
