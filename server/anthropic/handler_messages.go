@@ -10,8 +10,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
-func ptr[T any](v T) *T { return &v }
-
 func thinkingEnabled(options *provider.CompleteOptions) bool {
 	reasoning := options.ReasoningOptions
 
@@ -261,7 +259,7 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 		Model:   completion.Model,
 		Content: []ContentBlock{},
 
-		StopReason: ptr(StopReasonEndTurn),
+		StopReason: new(StopReasonEndTurn),
 	}
 
 	if result.Model == "" {

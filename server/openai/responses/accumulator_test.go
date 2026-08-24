@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -265,12 +266,12 @@ func TestStreamingAccumulatorPassesFragmentsThrough(t *testing.T) {
 		t.Fatalf("arguments.done: got %q", doneArgs)
 	}
 
-	var rebuilt string
+	var rebuilt strings.Builder
 	for _, d := range deltas {
-		rebuilt += d
+		rebuilt.WriteString(d)
 	}
-	if rebuilt != doneArgs {
-		t.Fatalf("deltas rebuild %q, done says %q", rebuilt, doneArgs)
+	if rebuilt.String() != doneArgs {
+		t.Fatalf("deltas rebuild %q, done says %q", rebuilt.String(), doneArgs)
 	}
 }
 
@@ -309,12 +310,12 @@ func TestStreamingAccumulatorNormalizesEmptyArguments(t *testing.T) {
 		t.Fatalf("output_item.done: got %q, want {}", itemDoneArgs)
 	}
 
-	var rebuilt string
+	var rebuilt strings.Builder
 	for _, d := range deltas {
-		rebuilt += d
+		rebuilt.WriteString(d)
 	}
-	if rebuilt != "{}" {
-		t.Fatalf("deltas rebuild %q, want {}", rebuilt)
+	if rebuilt.String() != "{}" {
+		t.Fatalf("deltas rebuild %q, want {}", rebuilt.String())
 	}
 
 	result := acc.Result()

@@ -73,11 +73,7 @@ func (t *Transcriber) transcribe(ctx context.Context, input provider.File, optio
 	}
 
 	if options.Diarize || len(options.Speakers) > 0 {
-		maxSpeakers := len(options.Speakers)
-
-		if maxSpeakers < 2 {
-			maxSpeakers = 2
-		}
+		maxSpeakers := max(len(options.Speakers), 2)
 
 		definition.Diarization = &transcriptionDiarization{
 			Enabled:     true,

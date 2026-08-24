@@ -249,10 +249,7 @@ func ToAnthropicInput(action map[string]any) (map[string]any, bool) {
 			direction, amount = "right", scrollX
 		}
 
-		clicks := amount / scrollPixelsPerClick
-		if clicks < 1 {
-			clicks = 1
-		}
+		clicks := max(amount/scrollPixelsPerClick, 1)
 
 		return map[string]any{
 			"action":           "scroll",

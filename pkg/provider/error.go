@@ -78,10 +78,7 @@ func RetryAfterHeaderValue(d time.Duration) string {
 		return ""
 	}
 
-	secs := int(d.Seconds())
-	if secs < 1 {
-		secs = 1
-	}
+	secs := max(int(d.Seconds()), 1)
 
 	return fmt.Sprintf("%d", secs)
 }

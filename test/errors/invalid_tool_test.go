@@ -59,8 +59,10 @@ func postJSON(t *testing.T, url string, body any, headers map[string]string) (*h
 }
 
 // TestOpenAIResponses_RejectsProprietaryTool sends an OpenAI Responses
-// request with `{type: "web_search"}` and verifies the error body matches
-// the structure OpenAI returns for an unknown tool type:
+// request with `{type: "file_search"}` and verifies the error body matches
+// the structure OpenAI returns for an unknown tool type. (`web_search` is
+// deliberately accepted-and-omitted for Codex BYOK compatibility, so it
+// cannot serve as the rejected type here.)
 //
 //	{"error":{"type":"invalid_request_error","code":"invalid_value",
 //	          "param":"tools[0].type","message":"Invalid value: '...'..."}}
@@ -71,7 +73,7 @@ func TestOpenAIResponses_RejectsProprietaryTool(t *testing.T) {
 	body := map[string]any{
 		"model": "test-model",
 		"input": "hi",
-		"tools": []any{map[string]any{"type": "web_search"}},
+		"tools": []any{map[string]any{"type": "file_search"}},
 	}
 
 	resp, raw := postJSON(t, server.URL+"/v1/responses", body, nil)
@@ -101,8 +103,8 @@ func TestOpenAIResponses_RejectsProprietaryTool(t *testing.T) {
 	if parsed.Error.Param != "tools[0].type" {
 		t.Errorf("error.param = %q, want tools[0].type", parsed.Error.Param)
 	}
-	if !strings.Contains(parsed.Error.Message, "'web_search'") {
-		t.Errorf("error.message = %q, expected to contain 'web_search'", parsed.Error.Message)
+	if !strings.Contains(parsed.Error.Message, "'file_search'") {
+		t.Errorf("error.message = %q, expected to contain 'file_search'", parsed.Error.Message)
 	}
 	if !strings.Contains(parsed.Error.Message, "Supported values") {
 		t.Errorf("error.message = %q, expected to mention supported values", parsed.Error.Message)

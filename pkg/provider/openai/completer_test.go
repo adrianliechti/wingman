@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -89,7 +90,7 @@ func TestCompleterRelaysFragmentsVerbatim(t *testing.T) {
 		t.Fatalf("new completer: %v", err)
 	}
 
-	var fragments string
+	var fragments strings.Builder
 
 	acc := provider.CompletionAccumulator{}
 
@@ -101,7 +102,7 @@ func TestCompleterRelaysFragmentsVerbatim(t *testing.T) {
 		if completion.Message != nil {
 			for _, c := range completion.Message.Content {
 				if c.ToolCall != nil {
-					fragments += c.ToolCall.Arguments
+					fragments.WriteString(c.ToolCall.Arguments)
 				}
 			}
 		}
@@ -109,8 +110,8 @@ func TestCompleterRelaysFragmentsVerbatim(t *testing.T) {
 		acc.Add(*completion)
 	}
 
-	if fragments != `{"a":{"a":1}}` {
-		t.Errorf("emitted fragments rebuild %q, want verbatim relay", fragments)
+	if fragments.String() != `{"a":{"a":1}}` {
+		t.Errorf("emitted fragments rebuild %q, want verbatim relay", fragments.String())
 	}
 
 	calls := acc.Result().Message.ToolCalls()
@@ -301,5 +302,60 @@ func TestConvertMessages_ToolResultOnly(t *testing.T) {
 	}
 	if result[0]["role"] != "tool" {
 		t.Errorf("got %v", result[0])
+	}
+}
+
+// Some OpenAI-compatible upstreams (vLLM tool parsers, older OSS servers)
+// stream tool calls without ids — the call must survive with a synthesized ID
+// instead of being dropped by the accumulator.
+func TestCompleterSynthesizesMissingToolCallIDs(t *testing.T) {
+	chunks := []string{
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"type":"function","function":{"name":"get_weather","arguments":""}}]}}]}`,
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\"Bern\"}"}}]}}]}`,
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"type":"function","function":{"name":"get_time","arguments":"{}"}}]}}]}`,
+		`{"id":"chatcmpl-1","object":"chat.completion.chunk","model":"test","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		for _, chunk := range chunks {
+			w.Write([]byte("data: " + chunk + "\n\n"))
+		}
+
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	completer, err := NewCompleter(server.URL, "test")
+	if err != nil {
+		t.Fatalf("new completer: %v", err)
+	}
+
+	acc := provider.CompletionAccumulator{}
+
+	for completion, err := range completer.Complete(t.Context(), []provider.Message{provider.UserMessage("hi")}, nil) {
+		if err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+		acc.Add(*completion)
+	}
+
+	calls := acc.Result().Message.ToolCalls()
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d: %+v", len(calls), calls)
+	}
+
+	if calls[0].ID == "" || calls[1].ID == "" {
+		t.Fatalf("expected synthesized ids, got %q and %q", calls[0].ID, calls[1].ID)
+	}
+	if calls[0].ID == calls[1].ID {
+		t.Fatalf("expected distinct ids per index, both %q", calls[0].ID)
+	}
+	if calls[0].Name != "get_weather" || calls[0].Arguments != `{"city":"Bern"}` {
+		t.Errorf("call 0: got %+v", calls[0])
+	}
+	if calls[1].Name != "get_time" || calls[1].Arguments != `{}` {
+		t.Errorf("call 1: got %+v", calls[1])
 	}
 }

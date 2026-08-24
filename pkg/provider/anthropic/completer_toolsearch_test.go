@@ -6,8 +6,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
-func boolPtr(v bool) *bool { return &v }
-
 // TestConvertRequest_ToolSearchNative verifies a server-executed tool_search
 // maps to the native Anthropic tool search tool and deferred tools keep their
 // defer_loading flag.
@@ -17,7 +15,7 @@ func TestConvertRequest_ToolSearchNative(t *testing.T) {
 	options := &provider.CompleteOptions{
 		Tools: []provider.Tool{
 			{Kind: provider.ToolKindToolSearch, Name: "tool_search_tool_regex", Execution: "server"},
-			{Name: "get_weather", Parameters: map[string]any{"type": "object"}, Deferred: boolPtr(true)},
+			{Name: "get_weather", Parameters: map[string]any{"type": "object"}, Deferred: new(true)},
 		},
 	}
 
@@ -48,7 +46,7 @@ func TestConvertRequest_ToolSearchClientEmulated(t *testing.T) {
 	options := &provider.CompleteOptions{
 		Tools: []provider.Tool{
 			{Kind: provider.ToolKindToolSearch, Execution: "client", Description: "find tools"},
-			{Name: "get_weather", Parameters: map[string]any{"type": "object"}, Deferred: boolPtr(true)},
+			{Name: "get_weather", Parameters: map[string]any{"type": "object"}, Deferred: new(true)},
 		},
 	}
 

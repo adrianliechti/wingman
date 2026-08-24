@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -257,10 +258,8 @@ func (c *Completer) decide(ctx context.Context, s signals) decision {
 // candidate (ties broken by cost). With no alternative the pick backs itself.
 func (c *Completer) resolve(eligible []int, index int) decision {
 	if index != c.defaultIndex {
-		for _, i := range eligible {
-			if i == c.defaultIndex {
-				return decision{index, c.defaultIndex}
-			}
+		if slices.Contains(eligible, c.defaultIndex) {
+			return decision{index, c.defaultIndex}
 		}
 	}
 

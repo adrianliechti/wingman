@@ -347,11 +347,9 @@ func TestCircuitRecovery(t *testing.T) {
 
 		var wg sync.WaitGroup
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			collect(t, c, ctx)
-		}()
+		})
 
 		time.Sleep(10 * time.Millisecond)
 
@@ -377,11 +375,9 @@ func TestInflightTracking(t *testing.T) {
 
 		var wg sync.WaitGroup
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			collect(t, c, context.Background())
-		}()
+		})
 
 		time.Sleep(10 * time.Millisecond)
 

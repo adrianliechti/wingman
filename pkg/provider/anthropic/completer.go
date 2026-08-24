@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/toolid"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
@@ -464,6 +465,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				req.OutputConfig.Effort = effort
 			}
 		}
+
+		// Claude rejects a thinking-enabled request whose last assistant
+		// message has tool calls but no signed thinking block (e.g. after
+		// signatures were stripped for cross-provider portability).
+		if req.Thinking.OfAdaptive != nil && provider.LastAssistantToolCallIsUnsigned(input) {
+			req.Thinking = disabledThinking(c.model)
+		}
 	}
 
 	var system []anthropic.BetaTextBlockParam
@@ -576,7 +584,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						}
 
 						result := &anthropic.BetaToolResultBlockParam{
-							ToolUseID: c.ToolResult.ID,
+							ToolUseID: toolid.Sanitize(c.ToolResult.ID, 128),
 							Content: []anthropic.BetaToolResultBlockParamContentUnion{
 								{OfText: &anthropic.BetaTextBlockParam{Text: string(c.ToolResult.Payload)}},
 							},
@@ -641,7 +649,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					}
 
 					result := &anthropic.BetaToolResultBlockParam{
-						ToolUseID: c.ToolResult.ID,
+						ToolUseID: toolid.Sanitize(c.ToolResult.ID, 128),
 						Content:   parts,
 					}
 					if c.ToolResult.IsError {
@@ -709,7 +717,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
 						OfToolUse: &anthropic.BetaToolUseBlockParam{
-							ID:    c.ToolCall.ID,
+							ID:    toolid.Sanitize(c.ToolCall.ID, 128),
 							Name:  provider.FlattenToolName(*c.ToolCall),
 							Input: input,
 						},
@@ -921,7 +929,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		switch options.ToolOptions.Choice {
 		case provider.ToolChoiceNone:
 			req.ToolChoice = anthropic.BetaToolChoiceUnionParam{
-				OfNone: anthropic.Ptr(anthropic.NewBetaToolChoiceNoneParam()),
+				OfNone: new(anthropic.NewBetaToolChoiceNoneParam()),
 			}
 
 		case provider.ToolChoiceAuto:

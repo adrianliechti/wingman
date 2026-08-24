@@ -298,6 +298,7 @@ const (
 	InputItemTypeLocalShellCallOutput InputItemType = "local_shell_call_output"
 	InputItemTypeToolSearchCall       InputItemType = "tool_search_call"
 	InputItemTypeToolSearchOutput     InputItemType = "tool_search_output"
+	InputItemTypeCompactionTrigger    InputItemType = "compaction_trigger"
 )
 
 type ResponsesInput struct {
@@ -358,8 +359,6 @@ type InputItem struct {
 }
 
 // InputAdditionalTools makes tools available from this point in the input.
-// Codex Responses Lite sends this as the first input item instead of using the
-// request-level tools field.
 type InputAdditionalTools struct {
 	ID    string      `json:"id,omitempty"`
 	Role  MessageRole `json:"role"`
@@ -417,7 +416,7 @@ type InputApplyPatchCall struct {
 	ID        string              `json:"id,omitempty"`
 	CallID    string              `json:"call_id,omitempty"`
 	Status    string              `json:"status,omitempty"`
-	Operation ApplyPatchOperation `json:"operation,omitempty"`
+	Operation ApplyPatchOperation `json:"operation"`
 }
 
 // InputApplyPatchCallOutput represents the result of an apply_patch call
@@ -472,11 +471,12 @@ type InputToolSearchOutput struct {
 // input. Codex registers apply_patch as a custom tool, so its prior calls come
 // back as custom_tool_call items whose Input is the raw patch envelope.
 type InputCustomToolCall struct {
-	ID     string `json:"id,omitempty"`
-	CallID string `json:"call_id,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Input  string `json:"input,omitempty"`
-	Status string `json:"status,omitempty"`
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Input     string `json:"input,omitempty"`
+	Status    string `json:"status,omitempty"`
 }
 
 // InputCustomToolCallOutput represents the result of a custom tool call.
@@ -735,6 +735,9 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 			}
 			item.InputToolSearchOutput = &tso
 
+		case InputItemTypeCompactionTrigger:
+			// bare marker item (Codex remote compaction); carries no payload
+
 		default:
 			return fmt.Errorf("unknown input item type: %s", typeWrapper.Type)
 		}
@@ -872,7 +875,7 @@ type Response struct {
 
 	Output []ResponseOutput `json:"output"`
 
-	Error             *ResponseError `json:"error"`
+	Error             *ResponseError     `json:"error"`
 	IncompleteDetails *IncompleteDetails `json:"incomplete_details"`
 
 	Instructions       *string `json:"instructions"`
@@ -986,23 +989,7 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 		}
 	case ResponseOutputTypeFunctionCall:
 		if r.FunctionCallOutputItem != nil {
-			return json.Marshal(struct {
-				Type      ResponseOutputType `json:"type"`
-				ID        string             `json:"id"`
-				Status    string             `json:"status"`
-				Name      string             `json:"name"`
-				Namespace string             `json:"namespace,omitempty"`
-				CallID    string             `json:"call_id"`
-				Arguments string             `json:"arguments"`
-			}{
-				Type:      r.Type,
-				ID:        r.FunctionCallOutputItem.ID,
-				Status:    r.FunctionCallOutputItem.Status,
-				Name:      r.FunctionCallOutputItem.Name,
-				Namespace: r.FunctionCallOutputItem.Namespace,
-				CallID:    r.FunctionCallOutputItem.CallID,
-				Arguments: r.FunctionCallOutputItem.Arguments,
-			})
+			return json.Marshal(r.FunctionCallOutputItem)
 		}
 	case ResponseOutputTypeShellCall, ResponseOutputTypeLocalShellCall:
 		if r.ShellCallItem != nil {
@@ -1109,19 +1096,21 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 	case ResponseOutputTypeCustomToolCall:
 		if r.CustomToolCallItem != nil {
 			return json.Marshal(struct {
-				Type   ResponseOutputType `json:"type"`
-				ID     string             `json:"id"`
-				Status string             `json:"status"`
-				CallID string             `json:"call_id"`
-				Name   string             `json:"name"`
-				Input  string             `json:"input"`
+				Type      ResponseOutputType `json:"type"`
+				ID        string             `json:"id"`
+				Status    string             `json:"status"`
+				CallID    string             `json:"call_id"`
+				Name      string             `json:"name"`
+				Namespace string             `json:"namespace,omitempty"`
+				Input     string             `json:"input"`
 			}{
-				Type:   r.Type,
-				ID:     r.CustomToolCallItem.ID,
-				Status: r.CustomToolCallItem.Status,
-				CallID: r.CustomToolCallItem.CallID,
-				Name:   r.CustomToolCallItem.Name,
-				Input:  r.CustomToolCallItem.Input,
+				Type:      r.Type,
+				ID:        r.CustomToolCallItem.ID,
+				Status:    r.CustomToolCallItem.Status,
+				CallID:    r.CustomToolCallItem.CallID,
+				Name:      r.CustomToolCallItem.Name,
+				Namespace: r.CustomToolCallItem.Namespace,
+				Input:     r.CustomToolCallItem.Input,
 			})
 		}
 	case ResponseOutputTypeReasoning:
@@ -1209,18 +1198,19 @@ type ApplyPatchCallItem struct {
 type ApplyPatchOperation struct {
 	Type string `json:"type"` // "create_file", "update_file", "delete_file"
 	Path string `json:"path"`
-	Diff string `json:"diff"`
+	Diff string `json:"diff,omitempty"` // absent for delete_file
 }
 
 // CustomToolCallItem represents a custom (freeform grammar) tool call in the
 // output. Used for Codex's apply_patch, where Input is the raw patch envelope.
 type CustomToolCallItem struct {
-	ID     string `json:"id"`
-	Type   string `json:"type"` // custom_tool_call
-	CallID string `json:"call_id"`
-	Status string `json:"status"`
-	Name   string `json:"name"`
-	Input  string `json:"input"`
+	ID        string `json:"id"`
+	Type      string `json:"type"` // custom_tool_call
+	CallID    string `json:"call_id"`
+	Status    string `json:"status"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Input     string `json:"input"`
 }
 
 type OutputMessage struct {

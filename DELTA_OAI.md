@@ -94,7 +94,7 @@ Status terms:
 | Basic SSE text | Partial | The core lifecycle and current terminal/error shapes work; stream obfuscation remains unsupported. |
 | Structured text output | Supported/partial | `text.format` and verbosity map to provider options; exact enforcement remains backend-dependent. |
 | Images and files | Partial | URL/data forms work; `file_id`, detail, and cache breakpoints do not. |
-| Reasoning | Partial | Effort and summary work; context is only echoed, and mode is missing. |
+| Reasoning | Partial | Effort, summary, and context work; mode is missing. |
 | Function/custom tool calling | Supported/partial | Common client-executed tools work; choice enforcement and newer fields are incomplete. |
 | Codex tools | Partial | Apply-patch, computer, shell, local-shell, namespace, and tool-search paths exist. |
 | OpenAI-hosted tools | Missing | File search, web search, MCP, code interpreter, image generation, and programmatic tool calling are not executed. |
@@ -118,7 +118,7 @@ The current create schema has 31 top-level fields including `stream`.
 | `text` | Supported/partial | Text, JSON object/schema, and verbosity map; provider behavior can vary. |
 | `context_management` | Supported | Current `compaction` threshold maps to provider compaction. |
 | `include` | Partial | Only `reasoning.encrypted_content` has an effect. |
-| `reasoning` | Partial | `effort` and non-disabled `summary` map; `context` is not forwarded; `mode` is absent. |
+| `reasoning` | Partial | `effort`, non-disabled `summary`, and `context` map; `mode` is absent. |
 | `tools` | Partial | Eight client/Codex-oriented types map; hosted and newer types do not. |
 | `tool_choice` | Partial | String modes and function choices work in the common case; typed hosted choices are not enforced. |
 | `truncation` | Ignored | Accepted and echoed, but not applied to the provider/context. |
@@ -170,10 +170,11 @@ The current reasoning object includes:
 - deprecated `generate_summary`
 
 Wingman maps the effort values and reduces any non-empty/non-disabled summary
-value to a boolean `IncludeSummary`. It neither preserves the selected summary
-mode nor forwards `context`. It accepts and echoes arbitrary `context` values;
-the current test even uses the undocumented value `ephemeral`. `mode` and
-`generate_summary` are not represented.
+value to a boolean `IncludeSummary`. It does not preserve the selected summary
+mode. `context` is forwarded to the provider; the response reports the
+effective mode (omitted/`auto` resolve to `all_turns` for the gpt-5.6 family,
+`current_turn` for earlier models), while other explicit values are echoed
+verbatim. `mode` and `generate_summary` are not represented.
 
 ## Input compatibility
 
@@ -244,12 +245,10 @@ web-search-preview, and apply-patch.
 
 | Tool type | Wingman behavior |
 |---|---|
-| `function` | Supported; nameless definitions are silently dropped. |
-| `custom` | Supported; nameless definitions are silently dropped. |
 | `apply_patch` | Supported through the provider text-editor abstraction. |
 | `computer` | Supported through the provider computer abstraction. |
 | `shell`, `local_shell` | Supported through the provider shell abstraction. |
-| `namespace` | Supported for nested function/custom tools, with lossy nested validation. |
+| `namespace` | Supported for nested function/custom tools; `description` is not required (OpenAI rejects namespaces without one). |
 | `tool_search` | Supported through the provider abstraction. |
 | `web_search` | **Accepted and silently removed** before provider completion. |
 | `file_search`, `mcp`, `code_interpreter`, `programmatic_tool_calling`, `image_generation`, `computer_use_preview`, `web_search_preview` | Rejected as invalid tool types. |

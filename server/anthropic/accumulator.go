@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -142,13 +143,7 @@ func (s *StreamingAccumulator) isToolBlock(index int) bool {
 }
 
 func (s *StreamingAccumulator) isBlockOpen(index int) bool {
-	for _, open := range s.openBlocks {
-		if open == index {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(s.openBlocks, index)
 }
 
 func (s *StreamingAccumulator) stopBlock(index int) error {
@@ -296,7 +291,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		if s.ThinkingEnabled && content.Reasoning != nil && !content.Reasoning.Redacted && (content.Reasoning.Text != "" || content.Reasoning.Signature != "") {
+		if s.ThinkingEnabled && content.Reasoning != nil && !content.Reasoning.Redacted && (content.Reasoning.Text != "" || content.Reasoning.Summary != "" || content.Reasoning.Signature != "") {
 			reasoning := content.Reasoning
 
 			// A signature ends a thinking block; a new ID starts the next item
@@ -328,13 +323,18 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				s.thinkingID = reasoning.ID
 			}
 
-			if reasoning.Text != "" {
+			// OpenAI-backed reasoning arrives as Summary deltas with empty Text
+			if thinking := reasoning.Text; thinking != "" || reasoning.Summary != "" {
+				if thinking == "" {
+					thinking = reasoning.Summary
+				}
+
 				if err := s.emitEvent(StreamEvent{
 					Type:  StreamEventContentBlockDelta,
 					Index: s.thinkingIndex,
 					Delta: &Delta{
 						Type:     "thinking_delta",
-						Thinking: reasoning.Text,
+						Thinking: thinking,
 					},
 				}); err != nil {
 					return err
@@ -366,7 +366,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			if s.textIndex < 0 {
 				index, err := s.startBlock(&ContentBlock{
 					Type: "text",
-					Text: ptr(""),
+					Text: new(""),
 				})
 
 				if err != nil {
@@ -454,7 +454,7 @@ func (s *StreamingAccumulator) Complete() error {
 	if !s.hasContent {
 		if _, err := s.startBlock(&ContentBlock{
 			Type: "text",
-			Text: ptr(""),
+			Text: new(""),
 		}); err != nil {
 			return err
 		}

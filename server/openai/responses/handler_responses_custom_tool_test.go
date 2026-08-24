@@ -261,3 +261,123 @@ func TestFunctionToolStillUsesFunctionEvents(t *testing.T) {
 		t.Fatalf("function tool should not emit custom_tool_call_input events\n--- STREAM ---\n%s", stream)
 	}
 }
+
+// namespacedToolCallCompleter streams a single namespaced custom tool call.
+type namespacedToolCallCompleter struct {
+	call provider.ToolCall
+}
+
+func (c namespacedToolCallCompleter) Complete(_ context.Context, _ []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if !yield(&provider.Completion{
+			Message: &provider.Message{
+				Role:    provider.MessageRoleAssistant,
+				Content: []provider.Content{provider.ToolCallContent(c.call)},
+			},
+		}, nil) {
+			return
+		}
+
+		yield(&provider.Completion{Status: provider.CompletionStatusCompleted}, nil)
+	}
+}
+
+// TestNamespacedCustomToolCallCarriesNamespace verifies custom_tool_call items
+// keep the namespace field, and that a namespaced tool merely named
+// apply_patch is NOT re-encoded as a patch envelope.
+func TestNamespacedCustomToolCallCarriesNamespace(t *testing.T) {
+	cfg := &config.Config{Policy: noop.New()}
+	cfg.RegisterCompleter(customToolModel, namespacedToolCallCompleter{
+		call: provider.ToolCall{
+			ID:        "call_ns_custom_1",
+			Name:      "apply_patch",
+			Namespace: "mcp__db__",
+			Arguments: "SELECT 1",
+		},
+	})
+
+	body := []byte(`{
+		"model": "` + customToolModel + `",
+		"stream": true,
+		"tools": [{
+			"type": "namespace",
+			"name": "mcp__db__",
+			"description": "DB tools.",
+			"tools": [{"type":"custom","name":"apply_patch","format":{"type":"grammar","syntax":"lark","definition":"start: q"}}]
+		}],
+		"input": "query the db"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	New(cfg).handleResponses(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	stream := rec.Body.String()
+
+	mustContain := []string{
+		`"type":"custom_tool_call"`,
+		`"namespace":"mcp__db__"`,
+		`"input":"SELECT 1"`,
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(stream, want) {
+			t.Fatalf("missing %q in stream\n--- STREAM ---\n%s", want, stream)
+		}
+	}
+
+	if strings.Contains(stream, `*** Begin Patch`) {
+		t.Fatalf("namespaced apply_patch was re-encoded as a patch envelope\n--- STREAM ---\n%s", stream)
+	}
+}
+
+// optionsCapturingCompleter records the CompleteOptions it receives.
+type optionsCapturingCompleter struct {
+	got *provider.CompleteOptions
+}
+
+func (c *optionsCapturingCompleter) Complete(_ context.Context, _ []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		*c.got = *options
+
+		yield(&provider.Completion{
+			Status: provider.CompletionStatusCompleted,
+			Message: &provider.Message{
+				Role:    provider.MessageRoleAssistant,
+				Content: []provider.Content{provider.TextContent("ok")},
+			},
+		}, nil)
+	}
+}
+
+// TestCompactionTriggerInputItemAccepted verifies the Codex remote-compaction
+// marker item does not fail the request and maps to CompactionOptions.Trigger.
+func TestCompactionTriggerInputItemAccepted(t *testing.T) {
+	var got provider.CompleteOptions
+
+	cfg := &config.Config{Policy: noop.New()}
+	cfg.RegisterCompleter(customToolModel, &optionsCapturingCompleter{got: &got})
+
+	body := []byte(`{
+		"model": "` + customToolModel + `",
+		"input": [
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},
+			{"type":"compaction_trigger"}
+		]
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/responses", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	New(cfg).handleResponses(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if got.CompactionOptions == nil || !got.CompactionOptions.Trigger {
+		t.Fatalf("CompactionOptions = %+v, want Trigger=true", got.CompactionOptions)
+	}
+}

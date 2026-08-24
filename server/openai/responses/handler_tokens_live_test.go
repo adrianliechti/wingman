@@ -173,8 +173,8 @@ func openAIReference(t *testing.T, payload []byte) int {
 func testPNGResponses(t *testing.T, w, h int) string {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			c := color.RGBA{R: uint8(x * 255 / w), G: uint8(y * 255 / h), B: 180, A: 255}
 			if x%97 == 0 || y%71 == 0 {
 				c = color.RGBA{R: 40, G: 40, B: 40, A: 255}

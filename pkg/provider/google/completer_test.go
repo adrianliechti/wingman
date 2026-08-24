@@ -198,3 +198,39 @@ func TestToContent_EmptyFunctionCallArgs(t *testing.T) {
 		t.Errorf("args: got %q", calls[1].Arguments)
 	}
 }
+
+func TestApplyFinishReason(t *testing.T) {
+	tests := []struct {
+		name        string
+		reason      genai.FinishReason
+		sawToolCall bool
+
+		stopReason provider.StopReason
+		status     provider.CompletionStatus
+	}{
+		{name: "stop", reason: genai.FinishReasonStop, stopReason: provider.StopReasonEndTurn},
+		{name: "stop with tool call", reason: genai.FinishReasonStop, sawToolCall: true, stopReason: provider.StopReasonToolUse},
+		{name: "max tokens", reason: genai.FinishReasonMaxTokens, stopReason: provider.StopReasonMaxTokens, status: provider.CompletionStatusIncomplete},
+		{name: "safety", reason: genai.FinishReasonSafety, stopReason: provider.StopReasonRefusal, status: provider.CompletionStatusRefused},
+		{name: "recitation", reason: genai.FinishReasonRecitation, stopReason: provider.StopReasonRefusal, status: provider.CompletionStatusRefused},
+		{name: "malformed function call", reason: genai.FinishReasonMalformedFunctionCall, status: provider.CompletionStatusFailed},
+		{name: "mid-stream chunk", reason: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			delta := &provider.Completion{}
+			applyFinishReason(delta, tt.reason, tt.sawToolCall)
+
+			if delta.StopReason != tt.stopReason {
+				t.Errorf("StopReason = %q, want %q", delta.StopReason, tt.stopReason)
+			}
+			if delta.Status != tt.status {
+				t.Errorf("Status = %q, want %q", delta.Status, tt.status)
+			}
+			if tt.status == provider.CompletionStatusRefused && (delta.StopDetails == nil || delta.StopDetails.Category != string(tt.reason)) {
+				t.Errorf("StopDetails = %+v, want refusal with category %q", delta.StopDetails, tt.reason)
+			}
+		})
+	}
+}

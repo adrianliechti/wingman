@@ -95,7 +95,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			role := toMessageRole(m.Role)
 			if role == "" {
-				return nil, &shared.InvalidValueError{
+				return nil, &shared.Error{
 					Param:   fmt.Sprintf("input[%d].role", i),
 					Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'system', 'developer', 'user', 'assistant'.", m.Role),
 				}
@@ -259,9 +259,10 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			}
 
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
-				ID:    output.CallID,
-				Kind:  provider.ToolKindTextEditor,
-				Parts: parts,
+				ID:      output.CallID,
+				Kind:    provider.ToolKindTextEditor,
+				IsError: output.Status == "failed",
+				Parts:   parts,
 			}))
 
 		case InputItemTypeCustomToolCall:
@@ -277,9 +278,16 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			name := call.Name
 			args := call.Input
 
-			if call.Name == texteditor.NameApplyPatch {
+			// only the top-level Codex patch tool; a namespaced tool that
+			// happens to be called apply_patch is an ordinary custom tool
+			if call.Name == texteditor.NameApplyPatch && call.Namespace == "" {
 				kind = provider.ToolKindTextEditor
-				args = texteditor.ParseEnvelope(call.Input).Args()
+
+				// multi-file envelopes keep their raw form — only the freeform
+				// representation can express them
+				if ops := texteditor.ParseEnvelopeOperations(call.Input); len(ops) == 1 {
+					args = ops[0].Args()
+				}
 			}
 
 			kindByCallID[call.CallID] = kind
@@ -287,6 +295,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				ID:        call.CallID,
 				Kind:      kind,
 				Name:      name,
+				Namespace: call.Namespace,
 				Arguments: args,
 			}))
 
@@ -442,6 +451,9 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				Execution: output.Execution,
 				Payload:   []byte(output.Tools),
 			}))
+
+		case InputItemTypeCompactionTrigger:
+			// positional marker, surfaced via CompleteOptions.CompactionOptions
 		}
 	}
 
@@ -459,9 +471,9 @@ func requestTools(tools []Tool, items []InputItem) []Tool {
 			continue
 		}
 
-		// The provider abstraction has a request-wide tool list. Codex's
-		// Responses Lite request puts additional_tools first, so promoting its
-		// tools here preserves the effective availability for that request.
+		// The provider abstraction has a request-wide tool list. Promoting an
+		// additional_tools input item's tools preserves their effective
+		// availability for the request.
 		// Hosted tools such as web_search cannot run on BYOK providers like
 		// Azure, so omit those while retaining every portable tool Wingman can
 		// forward.
@@ -491,6 +503,25 @@ func supportedToolType(toolType ToolType) bool {
 	}
 }
 
+// Wire format verified against the OpenAI Responses API (2026-08): nameless
+// function/custom/namespace tools return 400 invalid_request_error with code
+// "missing_required_parameter" and these exact params and messages.
+func missingToolName(index int) error {
+	return &shared.Error{
+		Param:   fmt.Sprintf("tools[%d].name", index),
+		Message: fmt.Sprintf("Missing required parameter: 'tools[%d].name'.", index),
+		Code:    "missing_required_parameter",
+	}
+}
+
+func missingNamespaceToolName(index, inner int) error {
+	return &shared.Error{
+		Param:   fmt.Sprintf("tools[%d].tools[%d].name", index, inner),
+		Message: fmt.Sprintf("Missing required parameter: 'tools[%d].tools[%d].name'.", index, inner),
+		Code:    "missing_required_parameter",
+	}
+}
+
 func toTools(tools []Tool) ([]provider.Tool, error) {
 	var result []provider.Tool
 
@@ -498,7 +529,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 		switch t.Type {
 		case ToolTypeFunction:
 			if t.Name == "" {
-				continue
+				return nil, missingToolName(i)
 			}
 			result = append(result, provider.Tool{
 				Name:        t.Name,
@@ -516,7 +547,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 
 		case ToolTypeCustom:
 			if t.Name == "" {
-				continue
+				return nil, missingToolName(i)
 			}
 			kind := provider.ToolKindCustom
 			if t.Name == "apply_patch" {
@@ -528,7 +559,10 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 				Kind:        kind,
 				Deferred:    t.DeferLoading,
 			}
-			if kind == provider.ToolKindCustom && t.Format != nil {
+			// kept for apply_patch too: the format marks the freeform (Codex)
+			// declaration, which providers with a native custom tool pass
+			// through so multi-file envelopes survive verbatim
+			if t.Format != nil {
 				tool.Format = &provider.ToolFormat{
 					Type:       t.Format.Type,
 					Syntax:     t.Format.Syntax,
@@ -578,14 +612,14 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 
 		case ToolTypeNamespace:
 			if t.Name == "" {
-				continue
+				return nil, missingToolName(i)
 			}
 			var children []provider.Tool
-			for _, inner := range t.Tools {
+			for j, inner := range t.Tools {
 				switch inner.Type {
 				case ToolTypeFunction, "":
 					if inner.Name == "" {
-						continue
+						return nil, missingNamespaceToolName(i, j)
 					}
 					children = append(children, provider.Tool{
 						Name:        inner.Name,
@@ -596,7 +630,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 					})
 				case ToolTypeCustom:
 					if inner.Name == "" {
-						continue
+						return nil, missingNamespaceToolName(i, j)
 					}
 					custom := provider.Tool{
 						Name:        inner.Name,
@@ -631,7 +665,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 			continue
 
 		default:
-			return nil, &shared.InvalidValueError{
+			return nil, &shared.Error{
 				Param:   fmt.Sprintf("tools[%d].type", i),
 				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'function', 'custom', 'apply_patch', 'computer', 'shell', 'local_shell', 'namespace', 'tool_search'.", t.Type),
 			}
@@ -691,8 +725,14 @@ func outputKind(name string, tools []Tool) provider.ToolKind {
 	return provider.ToolKindFunction
 }
 
-// isApplyPatchToolCall returns true if the tool call is an apply_patch or text_editor call.
+// isApplyPatchToolCall returns true if the tool call is an apply_patch or
+// text_editor call. Namespaced calls are ordinary custom/function tools that
+// merely share the name.
 func isApplyPatchToolCall(call provider.ToolCall) bool {
+	if call.Namespace != "" {
+		return false
+	}
+
 	return call.Name == texteditor.NameApplyPatch || call.Name == texteditor.NameTextEditor
 }
 
@@ -708,11 +748,18 @@ func toolCallToApplyPatchCall(call provider.ToolCall, status string) *ApplyPatch
 
 	var op texteditor.Operation
 
-	if call.Name == texteditor.NameTextEditor {
+	switch {
+	case call.Name == texteditor.NameTextEditor:
 		// Cross-dialect fallback (e.g. mixed histories): convert text_editor
 		// commands to the closest apply_patch operation
 		op = texteditor.ParseInput(call.Arguments).Operation()
-	} else {
+
+	case texteditor.IsEnvelope(call.Arguments):
+		// Freeform envelope surfacing through a typed apply_patch client —
+		// single-op best effort; the typed item cannot express multiple files
+		op = texteditor.ParseEnvelope(call.Arguments)
+
+	default:
 		// Native OpenAI format: arguments are {type, path, diff}
 		op = texteditor.ParseOperation(call.Arguments)
 	}
@@ -731,24 +778,32 @@ func toolCallToApplyPatchCall(call provider.ToolCall, status string) *ApplyPatch
 // grammar requires; other tools pass their arguments through as raw input.
 func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomToolCallItem {
 	if isApplyPatchToolCall(call) {
-		op := toolCallToApplyPatchCall(call, status).Operation
+		input := call.Arguments
+
+		// already an envelope when the upstream ran the freeform tool natively
+		if !texteditor.IsEnvelope(input) {
+			op := toolCallToApplyPatchCall(call, status).Operation
+			input = texteditor.Operation{Type: op.Type, Path: op.Path, Diff: op.Diff}.Envelope()
+		}
+
 		return &CustomToolCallItem{
 			ID:     "ctc_" + call.ID,
 			Type:   "custom_tool_call",
 			CallID: call.ID,
 			Status: status,
 			Name:   texteditor.NameApplyPatch,
-			Input:  texteditor.Operation{Type: op.Type, Path: op.Path, Diff: op.Diff}.Envelope(),
+			Input:  input,
 		}
 	}
 
 	return &CustomToolCallItem{
-		ID:     "ctc_" + call.ID,
-		Type:   "custom_tool_call",
-		CallID: call.ID,
-		Status: status,
-		Name:   call.Name,
-		Input:  call.Arguments,
+		ID:        "ctc_" + call.ID,
+		Type:      "custom_tool_call",
+		CallID:    call.ID,
+		Status:    status,
+		Name:      call.Name,
+		Namespace: call.Namespace,
+		Input:     call.Arguments,
 	}
 }
 

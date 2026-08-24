@@ -138,3 +138,45 @@ func TestFunctionTool(t *testing.T) {
 		t.Fatal("text editor tool missing description or schema")
 	}
 }
+
+func TestParseEnvelopeOperationsMultiFile(t *testing.T) {
+	envelope := "*** Begin Patch\n" +
+		"*** Add File: a.go\n" +
+		"+package a\n" +
+		"*** Update File: b.go\n" +
+		"*** Move to: c.go\n" +
+		"@@\n" +
+		"-old\n" +
+		"+new\n" +
+		"*** Delete File: d.go\n" +
+		"*** End Patch\n"
+
+	ops := ParseEnvelopeOperations(envelope)
+
+	if len(ops) != 3 {
+		t.Fatalf("ops = %+v, want 3", ops)
+	}
+
+	if ops[0].Type != "create_file" || ops[0].Path != "a.go" || ops[0].Diff != "+package a\n" {
+		t.Errorf("ops[0] = %+v", ops[0])
+	}
+	if ops[1].Type != "update_file" || ops[1].Path != "b.go" || ops[1].Diff != "@@\n-old\n+new\n" {
+		t.Errorf("ops[1] = %+v", ops[1])
+	}
+	if ops[2].Type != "delete_file" || ops[2].Path != "d.go" || ops[2].Diff != "" {
+		t.Errorf("ops[2] = %+v", ops[2])
+	}
+
+	if first := ParseEnvelope(envelope); first.Path != "a.go" {
+		t.Errorf("ParseEnvelope first op = %+v", first)
+	}
+}
+
+func TestIsEnvelope(t *testing.T) {
+	if !IsEnvelope("*** Begin Patch\n*** Delete File: x\n*** End Patch\n") {
+		t.Error("envelope not detected")
+	}
+	if IsEnvelope(`{"type":"update_file","path":"x","diff":"@@\n"}`) {
+		t.Error("JSON args misdetected as envelope")
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/router"
 	"github.com/adrianliechti/wingman/pkg/router/adaptive"
 	"github.com/adrianliechti/wingman/pkg/router/classifier"
@@ -19,6 +20,11 @@ type routerConfig struct {
 
 	Models   []string `yaml:"models"`
 	Fallback string   `yaml:"fallback"`
+
+	// ReasoningSignatures set to false strips provider-bound reasoning and
+	// compaction signatures, keeping histories portable across the routed
+	// providers.
+	ReasoningSignatures *bool `yaml:"reasoning_signatures"`
 
 	// FirstTokenTimeout bounds the wait for the first response token before
 	// failing over to another provider (e.g. "30s"). Defaults to 2m
@@ -123,6 +129,10 @@ func (cfg *Config) registerRouters(f *configFile) error {
 			return err
 		}
 
+		if config.ReasoningSignatures != nil && !*config.ReasoningSignatures {
+			completer = signatures.FromCompleter(completer)
+		}
+
 		cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))
 	}
 
@@ -142,6 +152,10 @@ func (cfg *Config) registerRouters(f *configFile) error {
 
 		if err != nil {
 			return err
+		}
+
+		if config.ReasoningSignatures != nil && !*config.ReasoningSignatures {
+			completer = signatures.FromCompleter(completer)
 		}
 
 		cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))

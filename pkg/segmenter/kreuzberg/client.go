@@ -45,7 +45,7 @@ func (c *Client) Segment(ctx context.Context, input string, options *segmenter.S
 	}
 
 	if options.SegmentLength == nil {
-		options.SegmentLength = Ptr(2000)
+		options.SegmentLength = new(2000)
 	}
 
 	var b bytes.Buffer
@@ -116,8 +116,4 @@ func convertError(resp *http.Response) error {
 	}
 
 	return errors.New(string(data))
-}
-
-func Ptr[T any](v T) *T {
-	return &v
 }

@@ -8,15 +8,14 @@ COPY go.* ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o /server /src/cmd/server
-RUN CGO_ENABLED=0 go build -o /client /src/cmd/client
+RUN CGO_ENABLED=0 go build -o /server /src
 
 
 FROM alpine
 
 RUN apk add --no-cache tini ca-certificates mailcap
 
-COPY --from=build /server /client /
+COPY --from=build /server /
 
 EXPOSE 8080
 

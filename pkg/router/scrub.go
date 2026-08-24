@@ -2,7 +2,7 @@ package router
 
 import (
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/google"
+	"github.com/adrianliechti/wingman/pkg/provider/toolid"
 )
 
 func ScrubMessages(messages []provider.Message) []provider.Message {
@@ -35,13 +35,13 @@ func scrubContent(content []provider.Content) []provider.Content {
 
 		if c.ToolCall != nil {
 			call := *c.ToolCall
-			call.ID = google.StripToolIDSignature(call.ID)
+			call.ID = toolid.StripSignature(call.ID)
 			c.ToolCall = &call
 		}
 
 		if c.ToolResult != nil {
 			res := *c.ToolResult
-			res.ID = google.StripToolIDSignature(res.ID)
+			res.ID = toolid.StripSignature(res.ID)
 			c.ToolResult = &res
 		}
 

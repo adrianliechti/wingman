@@ -19,8 +19,9 @@ import (
 type toolSearchCompleter struct {
 	t *testing.T
 
-	gotTools    []provider.Tool
-	gotMessages []provider.Message
+	gotTools     []provider.Tool
+	gotMessages  []provider.Message
+	gotReasoning *provider.ReasoningOptions
 
 	reply provider.ToolCall
 }
@@ -29,6 +30,7 @@ func (c *toolSearchCompleter) Complete(_ context.Context, messages []provider.Me
 	return func(yield func(*provider.Completion, error) bool) {
 		if options != nil {
 			c.gotTools = options.Tools
+			c.gotReasoning = options.ReasoningOptions
 		}
 		c.gotMessages = messages
 
@@ -150,9 +152,8 @@ func TestToolSearchRequestAndResponse(t *testing.T) {
 	}
 }
 
-// TestAdditionalToolsInputReachesProvider covers Codex Responses Lite, which
-// puts its tool definitions in a leading additional_tools input item and omits
-// the request-level tools field.
+// TestAdditionalToolsInputReachesProvider covers tools supplied through a
+// leading additional_tools input item instead of the request-level tools field.
 func TestAdditionalToolsInputReachesProvider(t *testing.T) {
 	const modelID = "additional-tools-model"
 
@@ -167,6 +168,7 @@ func TestAdditionalToolsInputReachesProvider(t *testing.T) {
 	body := []byte(`{
 		"model": "` + modelID + `",
 		"stream": false,
+		"reasoning": {"context": "all_turns"},
 		"input": [
 			{
 				"type": "additional_tools",
@@ -207,6 +209,26 @@ func TestAdditionalToolsInputReachesProvider(t *testing.T) {
 	}
 	if len(completer.gotMessages) != 1 || completer.gotMessages[0].Role != provider.MessageRoleUser {
 		t.Fatalf("conversation input changed unexpectedly: %+v", completer.gotMessages)
+	}
+	if completer.gotReasoning == nil || completer.gotReasoning.Context != provider.ReasoningContextAllTurns {
+		t.Fatalf("reasoning context did not reach provider: %+v", completer.gotReasoning)
+	}
+
+	var resp struct {
+		Output []struct {
+			Type      string `json:"type"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"output"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v\n%s", err, rec.Body.String())
+	}
+	if len(resp.Output) != 1 || resp.Output[0].Type != "function_call" || resp.Output[0].Name != "get_customer" {
+		t.Fatalf("function call output mismatch: %+v", resp.Output)
+	}
+	if resp.Output[0].Arguments != `{"customer_id":"cus_123"}` {
+		t.Fatalf("function arguments = %q", resp.Output[0].Arguments)
 	}
 }
 

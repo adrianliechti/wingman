@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -402,5 +403,66 @@ func assertOnePatchWithDiff(t *testing.T, items []wireItem) {
 	}
 	if patches[0].operation.Diff == "" || patches[0].operation.Path == "" {
 		t.Fatalf("apply_patch operation missing diff/path: %+v", patches[0].operation)
+	}
+}
+
+const multiFileEnvelope = "*** Begin Patch\n" +
+	"*** Add File: a.go\n" +
+	"+package a\n" +
+	"*** Delete File: b.go\n" +
+	"*** End Patch\n"
+
+// Multi-file envelopes have no single {type, path, diff} form, so replayed
+// custom apply_patch calls keep their raw input; single-op envelopes still
+// normalize to operation arguments for cross-provider replay.
+func TestCustomApplyPatchReplayEnvelopes(t *testing.T) {
+	singleEnvelope := "*** Begin Patch\n*** Delete File: b.go\n*** End Patch\n"
+
+	var input ResponsesInput
+	if err := json.Unmarshal([]byte(`[
+		{"type":"custom_tool_call","call_id":"call_multi","name":"apply_patch","input":`+strconv.Quote(multiFileEnvelope)+`},
+		{"type":"custom_tool_call","call_id":"call_single","name":"apply_patch","input":`+strconv.Quote(singleEnvelope)+`}
+	]`), &input); err != nil {
+		t.Fatalf("unmarshal input: %v", err)
+	}
+
+	messages, err := toMessages(input.Items, "")
+	if err != nil {
+		t.Fatalf("toMessages: %v", err)
+	}
+
+	var calls []provider.ToolCall
+	for _, m := range messages {
+		calls = append(calls, m.ToolCalls()...)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("calls = %+v, want 2", calls)
+	}
+
+	if calls[0].Arguments != multiFileEnvelope {
+		t.Errorf("multi-file arguments = %q, want raw envelope", calls[0].Arguments)
+	}
+
+	var op map[string]any
+	if err := json.Unmarshal([]byte(calls[1].Arguments), &op); err != nil {
+		t.Fatalf("single-op arguments not JSON: %q", calls[1].Arguments)
+	}
+	if op["type"] != "delete_file" || op["path"] != "b.go" {
+		t.Errorf("single-op arguments = %+v", op)
+	}
+}
+
+// A raw envelope produced by the upstream freeform tool passes through the
+// custom_tool_call item verbatim instead of being re-encoded.
+func TestCustomToolCallEnvelopePassthrough(t *testing.T) {
+	item := toolCallToCustomToolCall(provider.ToolCall{
+		ID:        "call_multi",
+		Name:      "apply_patch",
+		Arguments: multiFileEnvelope,
+	}, "completed")
+
+	if item.Input != multiFileEnvelope {
+		t.Fatalf("input = %q, want verbatim envelope", item.Input)
 	}
 }

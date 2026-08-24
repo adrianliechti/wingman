@@ -204,12 +204,9 @@ func (s *state) runCalls(ctx context.Context, calls []provider.ToolCall) []provi
 
 	var wg sync.WaitGroup
 	for i, tc := range calls {
-		i, tc := i, tc
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			results[i] = s.runCall(ctx, tc)
-		}()
+		})
 	}
 	wg.Wait()
 

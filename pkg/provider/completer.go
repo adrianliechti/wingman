@@ -212,11 +212,20 @@ type OutputOptions struct {
 type ReasoningOptions struct {
 	Type ReasoningType
 
-	Effort Effort
+	Effort  Effort
+	Context ReasoningContext
 
 	IncludeSummary   bool
 	IncludeSignature bool
 }
+
+type ReasoningContext string
+
+const (
+	ReasoningContextAuto        ReasoningContext = "auto"
+	ReasoningContextCurrentTurn ReasoningContext = "current_turn"
+	ReasoningContextAllTurns    ReasoningContext = "all_turns"
+)
 
 type CompleteOptions struct {
 	Stop []string
@@ -346,5 +355,6 @@ type Compaction struct {
 }
 
 type CompactionOptions struct {
+	Trigger   bool
 	Threshold int
 }

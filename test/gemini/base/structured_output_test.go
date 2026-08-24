@@ -2,6 +2,7 @@ package base_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/gemini"
@@ -168,7 +169,7 @@ func requireValidBookJSON(t *testing.T, label string, body map[string]any) {
 func requireValidBookJSONFromSSE(t *testing.T, label string, events []*harness.SSEEvent) {
 	t.Helper()
 
-	var text string
+	var text strings.Builder
 	for _, e := range events {
 		if e.Data == nil {
 			continue
@@ -181,13 +182,13 @@ func requireValidBookJSONFromSSE(t *testing.T, label string, events []*harness.S
 			for _, p := range parts {
 				part, _ := p.(map[string]any)
 				if s, ok := part["text"].(string); ok {
-					text += s
+					text.WriteString(s)
 				}
 			}
 		}
 	}
 
-	if text == "" {
+	if text.String() == "" {
 		t.Fatalf("[%s] no text accumulated across SSE events", label)
 	}
 
@@ -196,8 +197,8 @@ func requireValidBookJSONFromSSE(t *testing.T, label string, events []*harness.S
 		Author string `json:"author"`
 		Year   int    `json:"year"`
 	}
-	if err := json.Unmarshal([]byte(text), &book); err != nil {
-		t.Fatalf("[%s] accumulated SSE text is not valid JSON: %v\ntext: %s", label, err, text)
+	if err := json.Unmarshal([]byte(text.String()), &book); err != nil {
+		t.Fatalf("[%s] accumulated SSE text is not valid JSON: %v\ntext: %s", label, err, text.String())
 	}
 	if book.Title == "" {
 		t.Errorf("[%s] book title is empty in SSE response", label)

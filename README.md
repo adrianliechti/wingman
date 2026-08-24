@@ -222,7 +222,7 @@ agents:
 Run the server (reads `.env` for the referenced secrets):
 
 ```shell
-task server        # or: go run cmd/server/main.go
+task server        # or: go run .
 ```
 
 Call it with any OpenAI-compatible client — agents appear as regular models:

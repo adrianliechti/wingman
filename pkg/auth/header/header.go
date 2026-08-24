@@ -79,7 +79,7 @@ func (p *Provider) Authenticate(ctx context.Context, r *http.Request) (context.C
 func parseGroups(value string) []string {
 	var groups []string
 
-	for _, g := range strings.Split(value, ",") {
+	for g := range strings.SplitSeq(value, ",") {
 		if g = strings.TrimSpace(g); g != "" {
 			groups = append(groups, g)
 		}

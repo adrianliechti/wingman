@@ -6,12 +6,10 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
-func intPtr(v int) *int { return &v }
-
 // TestToCompleteOptions_MaxTokensFallback verifies the deprecated max_tokens
 // parameter is honored when max_completion_tokens is absent.
 func TestToCompleteOptions_MaxTokensFallback(t *testing.T) {
-	options := toCompleteOptions(ChatCompletionRequest{MaxTokens: intPtr(512)}, nil)
+	options := toCompleteOptions(ChatCompletionRequest{MaxTokens: new(512)}, nil)
 
 	if options.MaxTokens == nil || *options.MaxTokens != 512 {
 		t.Fatalf("expected max tokens 512, got %v", options.MaxTokens)
@@ -20,8 +18,8 @@ func TestToCompleteOptions_MaxTokensFallback(t *testing.T) {
 
 func TestToCompleteOptions_MaxCompletionTokensPrecedence(t *testing.T) {
 	options := toCompleteOptions(ChatCompletionRequest{
-		MaxCompletionTokens: intPtr(1024),
-		MaxTokens:           intPtr(512),
+		MaxCompletionTokens: new(1024),
+		MaxTokens:           new(512),
 	}, nil)
 
 	if options.MaxTokens == nil || *options.MaxTokens != 1024 {

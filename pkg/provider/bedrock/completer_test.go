@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"encoding/base64"
+	"slices"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -64,7 +65,7 @@ func TestConvertConverseInputUsesForcedToolForSchema(t *testing.T) {
 func TestConverseAdditionalFields_SchemaDisablesThinking(t *testing.T) {
 	c := &Completer{Config: &Config{model: "eu.anthropic.claude-sonnet-5"}}
 
-	fields, thinking := c.converseAdditionalFields(&provider.CompleteOptions{
+	fields, thinking := c.converseAdditionalFields(nil, &provider.CompleteOptions{
 		Schema: &provider.Schema{Name: "classify", Properties: testSchema},
 	})
 
@@ -84,7 +85,7 @@ func TestConverseAdditionalFields_SchemaDisablesThinking(t *testing.T) {
 func TestConverseAdditionalFields_SchemaOmitsThinkingForOlderModels(t *testing.T) {
 	c := &Completer{Config: &Config{model: "eu.anthropic.claude-opus-4-8"}}
 
-	fields, _ := c.converseAdditionalFields(&provider.CompleteOptions{
+	fields, _ := c.converseAdditionalFields(nil, &provider.CompleteOptions{
 		Schema: &provider.Schema{Name: "classify", Properties: testSchema},
 	})
 
@@ -99,7 +100,7 @@ func TestConverseAdditionalFields_SchemaOmitsThinkingForOlderModels(t *testing.T
 func TestConverseAdditionalFields_DisabledThinkingCapsEffort(t *testing.T) {
 	c := &Completer{Config: &Config{model: "eu.anthropic.claude-opus-5"}}
 
-	fields, _ := c.converseAdditionalFields(&provider.CompleteOptions{
+	fields, _ := c.converseAdditionalFields(nil, &provider.CompleteOptions{
 		Schema:           &provider.Schema{Name: "classify", Properties: testSchema},
 		ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive, Effort: provider.EffortXHigh},
 	})
@@ -112,6 +113,100 @@ func TestConverseAdditionalFields_DisabledThinkingCapsEffort(t *testing.T) {
 	config, _ := fields["output_config"].(map[string]any)
 	if config["effort"] != "high" {
 		t.Errorf("effort: got %v, want high", config["effort"])
+	}
+}
+
+// TestConverseAdditionalFields_UnsignedToolHistoryDisablesThinking verifies
+// adaptive thinking is turned off when the last assistant message carries
+// tool calls without a signed thinking block (e.g. signatures stripped for
+// portability): Claude over Bedrock rejects such requests with "Expected
+// thinking or redacted_thinking, but found tool_use".
+func TestConverseAdditionalFields_UnsignedToolHistoryDisablesThinking(t *testing.T) {
+	c := &Completer{Config: &Config{model: "eu.anthropic.claude-sonnet-5"}}
+
+	options := &provider.CompleteOptions{
+		ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive},
+	}
+
+	stripped := []provider.Message{
+		provider.UserMessage("list files"),
+		{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ReasoningContent(provider.Reasoning{Text: "unsigned thought"}),
+				provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
+			},
+		},
+		{
+			Role: provider.MessageRoleUser,
+			Content: []provider.Content{
+				provider.ToolResultContent(provider.ToolResult{ID: "call_1", Parts: []provider.Part{{Text: "main.go"}}}),
+			},
+		},
+	}
+
+	fields, thinking := c.converseAdditionalFields(stripped, options)
+
+	if thinking {
+		t.Error("expected thinking not enabled")
+	}
+	got, _ := fields["thinking"].(map[string]any)
+	if got["type"] != "disabled" {
+		t.Fatalf("thinking: got %v, want disabled", fields["thinking"])
+	}
+
+	signed := append([]provider.Message{}, stripped...)
+	signed[1] = provider.Message{
+		Role: provider.MessageRoleAssistant,
+		Content: []provider.Content{
+			provider.ReasoningContent(provider.Reasoning{Text: "thought", Signature: "SIG"}),
+			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
+		},
+	}
+
+	fields, thinking = c.converseAdditionalFields(signed, options)
+
+	if !thinking {
+		t.Error("expected thinking enabled for signed history")
+	}
+	got, _ = fields["thinking"].(map[string]any)
+	if got["type"] != "adaptive" {
+		t.Fatalf("signed history thinking: got %v, want adaptive", fields["thinking"])
+	}
+}
+
+// TestConvertAssistantContent_GroupsBlocks verifies assistant blocks are
+// grouped reasoning -> text -> toolUse regardless of input order: Bedrock
+// rejects turns where a text block separates toolUse from its toolResult.
+func TestConvertAssistantContent_GroupsBlocks(t *testing.T) {
+	content, err := convertAssistantContent(provider.Message{
+		Role: provider.MessageRoleAssistant,
+		Content: []provider.Content{
+			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "step_one", Arguments: "{}"}),
+			provider.TextContent("halfway update"),
+			provider.ReasoningContent(provider.Reasoning{Text: "thought", Signature: "SIG"}),
+			provider.ToolCallContent(provider.ToolCall{ID: "call_2", Name: "step_two", Arguments: "{}"}),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var kinds []string
+	for _, block := range content {
+		switch block.(type) {
+		case *types.ContentBlockMemberReasoningContent:
+			kinds = append(kinds, "reasoning")
+		case *types.ContentBlockMemberText:
+			kinds = append(kinds, "text")
+		case *types.ContentBlockMemberToolUse:
+			kinds = append(kinds, "tool_use")
+		}
+	}
+
+	want := []string{"reasoning", "text", "tool_use", "tool_use"}
+	if !slices.Equal(kinds, want) {
+		t.Fatalf("block order: got %v, want %v", kinds, want)
 	}
 }
 
@@ -269,7 +364,7 @@ func TestConvert_CachePointPlacementForClaude(t *testing.T) {
 		t.Errorf("expected trailing cachePoint on last user message, got %T", last[len(last)-1])
 	}
 
-	tc := c.convertToolConfig([]provider.Tool{{Name: "get_weather", Description: "x", Parameters: testSchema}}, nil)
+	tc, _ := c.convertToolConfig([]provider.Tool{{Name: "get_weather", Description: "x", Parameters: testSchema}}, nil)
 	if tc == nil || len(tc.Tools) == 0 {
 		t.Fatal("expected tool config")
 	}
@@ -301,7 +396,7 @@ func TestConvert_NoCachePointForNonClaude(t *testing.T) {
 		}
 	}
 
-	if tc := c.convertToolConfig([]provider.Tool{{Name: "get_weather", Description: "x", Parameters: testSchema}}, nil); tc != nil {
+	if tc, _ := c.convertToolConfig([]provider.Tool{{Name: "get_weather", Description: "x", Parameters: testSchema}}, nil); tc != nil {
 		for _, tl := range tc.Tools {
 			if _, ok := tl.(*types.ToolMemberCachePoint); ok {
 				t.Error("non-Claude model must not get a tool cachePoint")

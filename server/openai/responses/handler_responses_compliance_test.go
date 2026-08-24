@@ -57,12 +57,17 @@ func TestReasoningOutputInResponseCompletedShape(t *testing.T) {
 }
 
 // reasoning.context is part of the OpenAI Responses reference response
-// shape and defaults to "current_turn" when the client omits it.
+// shape. When the client omits it (or asks for "auto"), the response reports
+// the effective mode: "all_turns" for the gpt-5.6 family, "current_turn" for
+// earlier models.
 func TestResponseDefaultsFillsReasoningContext(t *testing.T) {
+	auto := "auto"
+
 	cases := []struct {
-		name string
-		req  ResponsesRequest
-		want string
+		name  string
+		model string
+		req   ResponsesRequest
+		want  string
 	}{
 		{
 			name: "no reasoning provided",
@@ -76,11 +81,31 @@ func TestResponseDefaultsFillsReasoningContext(t *testing.T) {
 			},
 			want: "current_turn",
 		},
+		{
+			name:  "gpt-5.6 defaults to all_turns",
+			model: "gpt-5.6",
+			req:   ResponsesRequest{},
+			want:  "all_turns",
+		},
+		{
+			name:  "auto resolves to the effective mode",
+			model: "gpt-5.6-codex",
+			req: ResponsesRequest{
+				Reasoning: &ReasoningConfig{Context: &auto},
+			},
+			want: "all_turns",
+		},
+		{
+			name:  "earlier models default to current_turn",
+			model: "gpt-5.4",
+			req:   ResponsesRequest{},
+			want:  "current_turn",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := &Response{}
+			resp := &Response{Model: tc.model}
 			responseDefaults(resp, tc.req)
 			if resp.Reasoning == nil || resp.Reasoning.Context == nil {
 				t.Fatalf("expected reasoning.context to be set, got %+v", resp.Reasoning)

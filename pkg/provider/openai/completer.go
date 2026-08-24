@@ -11,6 +11,8 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 
+	"github.com/google/uuid"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 )
@@ -86,6 +88,13 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 					if c.ID != "" {
 						toolCallIDs[index] = c.ID
+					}
+
+					// Some OpenAI-compatible upstreams stream tool calls without
+					// ids; the accumulator drops ID-less fragments, so synthesize
+					// one per index.
+					if toolCallIDs[index] == "" {
+						toolCallIDs[index] = "call_" + uuid.NewString()
 					}
 
 					call := provider.UnflattenToolCall(toolAliases, provider.ToolCall{
@@ -429,7 +438,7 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 		}
 
 		if t.Kind != provider.ToolKindFunction {
-			continue
+			return nil, provider.UnsupportedToolError(t)
 		}
 
 		if t.Name == "" {
@@ -514,6 +523,7 @@ func toUsage(metadata openai.CompletionUsage) *provider.Usage {
 
 		ReasoningTokens: int(metadata.CompletionTokensDetails.ReasoningTokens),
 
-		CacheReadInputTokens: int(metadata.PromptTokensDetails.CachedTokens),
+		CacheReadInputTokens:     int(metadata.PromptTokensDetails.CachedTokens),
+		CacheCreationInputTokens: int(metadata.PromptTokensDetails.CacheWriteTokens),
 	}
 }

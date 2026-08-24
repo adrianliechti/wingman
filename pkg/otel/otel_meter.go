@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ func setupMeter(ctx context.Context, resource *sdkresource.Resource) error {
 	// (cumulative) for backends like Prometheus.
 	if endpoint := os.Getenv("INSIGHTS_ENDPOINT"); endpoint != "" {
 		insights, err := otlpmetrichttp.New(ctx,
-			otlpmetrichttp.WithEndpointURL(endpoint),
+			otlpmetrichttp.WithEndpointURL(endpointWithDefaultPath(endpoint, "/v1/metrics")),
 			otlpmetrichttp.WithTemporalitySelector(deltaTemporality),
 		)
 		if err == nil {
@@ -55,6 +56,15 @@ func setupMeter(ctx context.Context, resource *sdkresource.Resource) error {
 	otel.SetMeterProvider(provider)
 
 	return nil
+}
+
+func endpointWithDefaultPath(endpoint, defaultPath string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Path != "" {
+		return endpoint
+	}
+
+	return u.JoinPath(defaultPath).String()
 }
 
 // deltaTemporality is OTel's standard delta preference: delta for monotonic

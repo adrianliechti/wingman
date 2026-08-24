@@ -363,15 +363,7 @@ func difficultyScore(s signals) float64 {
 }
 
 func roundLevel(score float64) int {
-	level := int(score + 0.5)
-
-	if level < 0 {
-		level = 0
-	}
-
-	if level > maxLevel {
-		level = maxLevel
-	}
+	level := min(max(int(score+0.5), 0), maxLevel)
 
 	return level
 }

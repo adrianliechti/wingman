@@ -95,10 +95,11 @@ func TestCustomFreeformGrammarToolPassesThroughToProvider(t *testing.T) {
 	}
 }
 
-// TestApplyPatchCustomToolDoesNotCarryFormat asserts that apply_patch
-// registered as custom dispatches as text_editor and Format is not propagated
-// (the format is structurally implicit for text editor builtins).
-func TestApplyPatchCustomToolDoesNotCarryFormat(t *testing.T) {
+// TestApplyPatchCustomToolCarriesFormat asserts that apply_patch registered
+// as custom dispatches as text_editor and keeps its Format — the marker that
+// lets providers with a native custom tool pass the freeform declaration
+// through so multi-file envelopes survive verbatim.
+func TestApplyPatchCustomToolCarriesFormat(t *testing.T) {
 	completer := &capturingCompleter{}
 	cfg := &config.Config{Policy: noop.New()}
 	cfg.RegisterCompleter(grammarModel, completer)
@@ -123,7 +124,7 @@ func TestApplyPatchCustomToolDoesNotCarryFormat(t *testing.T) {
 	if tool.Kind != provider.ToolKindTextEditor {
 		t.Fatalf("expected apply_patch custom → ToolKindTextEditor, got %q", tool.Kind)
 	}
-	if tool.Format != nil {
-		t.Fatalf("expected Format to be nil for apply_patch text-editor path, got %+v", tool.Format)
+	if tool.Format == nil || tool.Format.Type != "grammar" {
+		t.Fatalf("expected grammar Format to survive for the freeform apply_patch declaration, got %+v", tool.Format)
 	}
 }

@@ -45,10 +45,10 @@ func ParseSSE(r io.Reader) ([]*SSEEvent, error) {
 			continue
 		}
 
-		if strings.HasPrefix(line, "event: ") {
-			currentEvent = strings.TrimPrefix(line, "event: ")
-		} else if strings.HasPrefix(line, "data: ") {
-			dataLines = append(dataLines, strings.TrimPrefix(line, "data: "))
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			currentEvent = after
+		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
+			dataLines = append(dataLines, after)
 		}
 	}
 

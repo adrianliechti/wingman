@@ -73,7 +73,7 @@ func TestWriteSpeechStream(t *testing.T) {
 	var audio []byte
 	var done bool
 
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		data, ok := strings.CutPrefix(line, "data: ")
 
 		if !ok || data == "[DONE]" {

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/toolid"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
@@ -114,7 +115,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			InferenceConfig: config,
 		}
 
-		if fields, thinking := c.converseAdditionalFields(options); len(fields) > 0 {
+		if fields, thinking := c.converseAdditionalFields(messages, options); len(fields) > 0 {
 			if thinking {
 				config.Temperature = nil
 			}
@@ -514,7 +515,7 @@ func convertError(err error) error {
 // converseAdditionalFields builds the Anthropic request fields Converse has
 // no native mapping for. The second result reports whether adaptive thinking
 // is enabled — temperature must be cleared in that case.
-func (c *Completer) converseAdditionalFields(options *provider.CompleteOptions) (map[string]any, bool) {
+func (c *Completer) converseAdditionalFields(messages []provider.Message, options *provider.CompleteOptions) (map[string]any, bool) {
 	if matchesModel(c.model, LegacyModels) {
 		return nil, false
 	}
@@ -528,6 +529,14 @@ func (c *Completer) converseAdditionalFields(options *provider.CompleteOptions) 
 
 	enable := !forced && reasoning != nil && reasoning.Type == provider.ReasoningTypeAdaptive
 	disable := forced || (reasoning != nil && reasoning.Type == provider.ReasoningTypeDisabled)
+
+	// Claude rejects a thinking-enabled request whose last assistant
+	// message has tool calls but no signed thinking block (e.g. after
+	// signatures were stripped for cross-provider portability).
+	if enable && provider.LastAssistantToolCallIsUnsigned(messages) {
+		enable = false
+		disable = true
+	}
 
 	fields := map[string]any{}
 
@@ -574,7 +583,11 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		toolOptions = nil
 	}
 
-	config := c.convertToolConfig(provider.FlattenTools(options.Tools), toolOptions)
+	config, err := c.convertToolConfig(provider.FlattenTools(options.Tools), toolOptions)
+
+	if err != nil {
+		return nil, err
+	}
 
 	// Schema mode: expose the schema as a tool and force its use. Anthropic
 	// models reject native Converse structured output (output_config.format),
@@ -786,7 +799,7 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 				Value: types.ToolResultBlock{
 					Status: status,
 
-					ToolUseId: aws.String(c.ToolResult.ID),
+					ToolUseId: aws.String(toolid.Sanitize(c.ToolResult.ID, 64)),
 
 					Content: blocks,
 				},
@@ -797,12 +810,15 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 	return content, nil
 }
 
+// Bedrock rejects assistant turns where a text block sits between a toolUse
+// block and its toolResult, so blocks are grouped reasoning -> text -> toolUse
+// (stable within each group).
 func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
-	var content []types.ContentBlock
+	var reasoning, texts, calls []types.ContentBlock
 
 	for _, c := range m.Content {
 		if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
-			content = append(content, &types.ContentBlockMemberText{Value: text})
+			texts = append(texts, &types.ContentBlockMemberText{Value: text})
 		}
 
 		if c.Reasoning != nil && c.Reasoning.Signature != "" {
@@ -813,13 +829,13 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 					return nil, err
 				}
 
-				content = append(content, &types.ContentBlockMemberReasoningContent{
+				reasoning = append(reasoning, &types.ContentBlockMemberReasoningContent{
 					Value: &types.ReasoningContentBlockMemberRedactedContent{
 						Value: data,
 					},
 				})
 			} else {
-				content = append(content, &types.ContentBlockMemberReasoningContent{
+				reasoning = append(reasoning, &types.ContentBlockMemberReasoningContent{
 					Value: &types.ReasoningContentBlockMemberReasoningText{
 						Value: types.ReasoningTextBlock{
 							Text:      aws.String(c.Reasoning.Text),
@@ -837,9 +853,9 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 				data = map[string]any{}
 			}
 
-			content = append(content, &types.ContentBlockMemberToolUse{
+			calls = append(calls, &types.ContentBlockMemberToolUse{
 				Value: types.ToolUseBlock{
-					ToolUseId: aws.String(c.ToolCall.ID),
+					ToolUseId: aws.String(toolid.Sanitize(c.ToolCall.ID, 64)),
 
 					Name:  aws.String(provider.FlattenToolName(*c.ToolCall)),
 					Input: document.NewLazyDocument(data),
@@ -848,12 +864,17 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 		}
 	}
 
+	content := make([]types.ContentBlock, 0, len(reasoning)+len(texts)+len(calls))
+	content = append(content, reasoning...)
+	content = append(content, texts...)
+	content = append(content, calls...)
+
 	return content, nil
 }
 
-func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.ToolOptions) *types.ToolConfiguration {
+func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.ToolOptions) (*types.ToolConfiguration, error) {
 	if len(tools) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	result := &types.ToolConfiguration{}
@@ -872,7 +893,7 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 		}
 
 		if t.Kind != provider.ToolKindFunction {
-			continue
+			return nil, provider.UnsupportedToolError(t)
 		}
 
 		tool := types.ToolSpecification{
@@ -915,7 +936,7 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 	if options != nil {
 		switch options.Choice {
 		case provider.ToolChoiceNone:
-			return nil
+			return nil, nil
 
 		case provider.ToolChoiceAuto:
 			result.ToolChoice = &types.ToolChoiceMemberAuto{
@@ -937,7 +958,7 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 func inputHasToolBlocks(messages []provider.Message) bool {

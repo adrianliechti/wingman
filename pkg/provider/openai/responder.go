@@ -125,7 +125,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 				case responses.ResponseCustomToolCall:
 					itemToCallID[item.ID] = item.CallID
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name}), "") {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name, Namespace: item.Namespace}), "") {
 						return
 					}
 
@@ -313,7 +313,7 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		options = &optsCopy
 	}
 
-	input, err := r.convertResponsesInput(messages)
+	input, err := r.convertResponsesInput(messages, r.isOpenAI() && freeformPatchTool(options.Tools))
 
 	if err != nil {
 		return nil, err
@@ -346,6 +346,10 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 
 	if options.ReasoningOptions != nil && !isLegacyModel(r.model) {
 		reasoning := options.ReasoningOptions
+
+		if reasoning.Context != "" {
+			req.Reasoning.Context = shared.ReasoningContext(reasoning.Context)
+		}
 
 		if reasoning.IncludeSignature {
 			req.Include = append(req.Include, responses.ResponseIncludableReasoningEncryptedContent)
@@ -393,6 +397,13 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 				CompactThreshold: openai.Int(int64(options.CompactionOptions.Threshold)),
 			},
 		}
+	}
+
+	if options.CompactionOptions != nil && options.CompactionOptions.Trigger {
+		trigger := responses.NewResponseInputItemCompactionTriggerParam()
+		req.Input.OfInputItemList = append(req.Input.OfInputItemList, responses.ResponseInputItemUnionParam{
+			OfCompactionTrigger: &trigger,
+		})
 	}
 
 	if options.OutputOptions != nil {
@@ -450,7 +461,20 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	return req, nil
 }
 
-func (r *Responder) convertResponsesInput(messages []provider.Message) (responses.ResponseNewParamsInputUnion, error) {
+// freeformPatchTool reports whether apply_patch was declared in its freeform
+// (grammar) form. Calls and results then replay as custom_tool_call items so
+// multi-file envelopes survive verbatim.
+func freeformPatchTool(tools []provider.Tool) bool {
+	for _, t := range tools {
+		if t.Kind == provider.ToolKindTextEditor && t.Name != texteditor.NameTextEditor && t.Format != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *Responder) convertResponsesInput(messages []provider.Message, freeformPatch bool) (responses.ResponseNewParamsInputUnion, error) {
 	var result []responses.ResponseInputItemUnionParam
 
 	for _, m := range messages {
@@ -497,8 +521,8 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 				if c.File != nil {
 					url := "data:" + c.File.ContentType + ";base64," + base64.StdEncoding.EncodeToString(c.File.Content)
 
-					switch c.File.ContentType {
-					case "image/png", "image/jpeg", "image/webp", "image/gif":
+					switch {
+					case isImage(c.File.ContentType):
 						message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
 							OfInputImage: &responses.ResponseInputImageParam{
 								ImageURL: openai.String(url),
@@ -537,9 +561,23 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 							continue
 						}
 
+						if freeformPatch {
+							// pairs with the custom_tool_call replay above
+							result = append(result, responses.ResponseInputItemUnionParam{
+								OfCustomToolCallOutput: &responses.ResponseCustomToolCallOutputParam{
+									CallID: c.ToolResult.ID,
+									Output: customToolResultOutputUnion(c.ToolResult),
+								},
+							})
+							continue
+						}
+
 						output := &responses.ResponseInputItemApplyPatchCallOutputParam{
 							CallID: c.ToolResult.ID,
 							Status: "completed",
+						}
+						if c.ToolResult.IsError {
+							output.Status = "failed"
 						}
 
 						var texts []string
@@ -632,8 +670,18 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 			}
 
 		case provider.MessageRoleAssistant:
-			calls := []responses.ResponseInputItemUnionParam{}
 			message := &responses.ResponseOutputMessageParam{}
+
+			// The Responses API pairs each reasoning item with the item that
+			// immediately follows it, so items must replay in encounter order.
+			flushMessage := func() {
+				if len(message.Content) > 0 {
+					result = append(result, responses.ResponseInputItemUnionParam{
+						OfOutputMessage: message,
+					})
+					message = &responses.ResponseOutputMessageParam{}
+				}
+			}
 
 			for _, c := range m.Content {
 				if c.Text != "" {
@@ -675,6 +723,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						reasoning.Summary = []responses.ResponseReasoningItemSummaryParam{}
 					}
 
+					flushMessage()
 					result = append(result, responses.ResponseInputItemUnionParam{
 						OfReasoning: reasoning,
 					})
@@ -689,38 +738,74 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						compaction.ID = openai.String(c.Compaction.ID)
 					}
 
+					flushMessage()
 					result = append(result, responses.ResponseInputItemUnionParam{
 						OfCompaction: compaction,
 					})
 				}
 
 				if c.ToolCall != nil {
+					flushMessage()
+
 					switch c.ToolCall.Kind {
 					case provider.ToolKindTextEditor:
 						if c.ToolCall.Name == texteditor.NameTextEditor || !r.isOpenAI() {
+							args := c.ToolCall.Arguments
+
+							// the emulated function dialect is single-op;
+							// envelopes degrade to their first operation
+							if texteditor.IsEnvelope(args) {
+								args = texteditor.ParseEnvelope(args).Args()
+							}
+
 							// emulated function tool — replay as function_call
-							calls = append(calls, responses.ResponseInputItemUnionParam{
+							result = append(result, responses.ResponseInputItemUnionParam{
 								OfFunctionCall: &responses.ResponseFunctionToolCallParam{
 									CallID:    c.ToolCall.ID,
 									Name:      c.ToolCall.Name,
-									Arguments: c.ToolCall.Arguments,
+									Arguments: args,
 								},
 							})
 							continue
 						}
 
-						calls = append(calls, responses.ResponseInputItemUnionParam{
+						if freeformPatch {
+							input := c.ToolCall.Arguments
+
+							if !texteditor.IsEnvelope(input) {
+								input = texteditor.ParseOperation(input).Envelope()
+							}
+
+							result = append(result, responses.ResponseInputItemUnionParam{
+								OfCustomToolCall: &responses.ResponseCustomToolCallParam{
+									CallID: c.ToolCall.ID,
+									Name:   texteditor.NameApplyPatch,
+									Input:  input,
+								},
+							})
+							continue
+						}
+
+						operation := texteditor.ParseOperation(c.ToolCall.Arguments)
+
+						// the typed item cannot express multiple files —
+						// envelopes degrade to their first operation
+						if texteditor.IsEnvelope(c.ToolCall.Arguments) {
+							operation = texteditor.ParseEnvelope(c.ToolCall.Arguments)
+						}
+
+						result = append(result, responses.ResponseInputItemUnionParam{
 							OfApplyPatchCall: &responses.ResponseInputItemApplyPatchCallParam{
 								CallID:    c.ToolCall.ID,
 								Status:    "completed",
-								Operation: applyPatchOperationUnion(texteditor.ParseOperation(c.ToolCall.Arguments)),
+								Operation: applyPatchOperationUnion(operation),
 							},
 						})
 
 					case provider.ToolKindComputer:
 						if !r.isOpenAI() {
 							// emulated function tool — replay as function_call
-							calls = append(calls, responses.ResponseInputItemUnionParam{
+							result = append(result, responses.ResponseInputItemUnionParam{
 								OfFunctionCall: &responses.ResponseFunctionToolCallParam{
 									CallID:    c.ToolCall.ID,
 									Name:      c.ToolCall.Name,
@@ -731,16 +816,16 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						}
 
 						item := computerCallParam(*c.ToolCall)
-						calls = append(calls, responses.ResponseInputItemUnionParam{
+						result = append(result, responses.ResponseInputItemUnionParam{
 							OfComputerCall: &item,
 						})
 
 					case provider.ToolKindShell:
 						if item, ok := shellCallParam(*c.ToolCall, r.isOpenAI()); ok {
-							calls = append(calls, item)
+							result = append(result, item)
 						} else {
 							// emulated function tool — replay as function_call
-							calls = append(calls, responses.ResponseInputItemUnionParam{
+							result = append(result, responses.ResponseInputItemUnionParam{
 								OfFunctionCall: &responses.ResponseFunctionToolCallParam{
 									CallID:    c.ToolCall.ID,
 									Name:      c.ToolCall.Name,
@@ -750,12 +835,16 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						}
 
 					case provider.ToolKindCustom:
-						calls = append(calls, responses.ResponseInputItemUnionParam{
-							OfCustomToolCall: &responses.ResponseCustomToolCallParam{
-								CallID: c.ToolCall.ID,
-								Name:   c.ToolCall.Name,
-								Input:  c.ToolCall.Arguments,
-							},
+						custom := &responses.ResponseCustomToolCallParam{
+							CallID: c.ToolCall.ID,
+							Name:   c.ToolCall.Name,
+							Input:  c.ToolCall.Arguments,
+						}
+						if c.ToolCall.Namespace != "" {
+							custom.Namespace = openai.String(c.ToolCall.Namespace)
+						}
+						result = append(result, responses.ResponseInputItemUnionParam{
+							OfCustomToolCall: custom,
 						})
 
 					case provider.ToolKindToolSearch:
@@ -776,7 +865,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 								ts.Arguments = c.ToolCall.Arguments
 							}
 						}
-						calls = append(calls, responses.ResponseInputItemUnionParam{
+						result = append(result, responses.ResponseInputItemUnionParam{
 							OfToolSearchCall: ts,
 						})
 
@@ -789,28 +878,29 @@ func (r *Responder) convertResponsesInput(messages []provider.Message) (response
 						if c.ToolCall.Namespace != "" {
 							fc.Namespace = openai.String(c.ToolCall.Namespace)
 						}
-						calls = append(calls, responses.ResponseInputItemUnionParam{
+						result = append(result, responses.ResponseInputItemUnionParam{
 							OfFunctionCall: fc,
 						})
 					}
 				}
 			}
 
-			if len(message.Content) > 0 {
-				result = append(result, responses.ResponseInputItemUnionParam{
-					OfOutputMessage: message,
-				})
-			}
-
-			if len(calls) > 0 {
-				result = append(result, calls...)
-			}
+			flushMessage()
 		}
 	}
 
 	return responses.ResponseNewParamsInputUnion{
 		OfInputItemList: result,
 	}, nil
+}
+
+func isImage(contentType string) bool {
+	switch contentType {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+		return true
+	}
+
+	return false
 }
 
 // toolResultOutputUnion maps provider.ToolResult.Parts to the OpenAI Responses
@@ -843,8 +933,8 @@ func toolResultOutputUnion(r *provider.ToolResult) responses.ResponseInputItemFu
 		if p.File != nil {
 			url := "data:" + p.File.ContentType + ";base64," + base64.StdEncoding.EncodeToString(p.File.Content)
 
-			switch p.File.ContentType {
-			case "image/png", "image/jpeg", "image/webp", "image/gif":
+			switch {
+			case isImage(p.File.ContentType):
 				items = append(items, responses.ResponseFunctionCallOutputItemUnionParam{
 					OfInputImage: &responses.ResponseInputImageContentParam{
 						ImageURL: openai.String(url),
@@ -899,8 +989,8 @@ func customToolResultOutputUnion(r *provider.ToolResult) responses.ResponseCusto
 		if p.File != nil {
 			url := "data:" + p.File.ContentType + ";base64," + base64.StdEncoding.EncodeToString(p.File.Content)
 
-			switch p.File.ContentType {
-			case "image/png", "image/jpeg", "image/webp", "image/gif":
+			switch {
+			case isImage(p.File.ContentType):
 				items = append(items, responses.ResponseCustomToolCallOutputOutputOutputContentListItemUnionParam{
 					OfInputImage: &responses.ResponseInputImageParam{
 						ImageURL: openai.String(url),
@@ -934,6 +1024,15 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 	for _, t := range tools {
 		if t.Kind == provider.ToolKindTextEditor {
 			if t.Name != texteditor.NameTextEditor && r.isOpenAI() {
+				// freeform (Codex) declaration — pass the grammar tool through
+				// verbatim so multi-file envelopes survive end-to-end
+				if t.Format != nil {
+					result = append(result, responses.ToolUnionParam{
+						OfCustom: customToolParam(t),
+					})
+					continue
+				}
+
 				result = append(result, responses.ToolUnionParam{
 					OfApplyPatch: &responses.ApplyPatchToolParam{},
 				})
@@ -1001,8 +1100,20 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 				Name:        t.Name,
 				Description: t.Description,
 			}
+
+			// the upstream API requires a non-empty namespace description
+			if ns.Description == "" {
+				ns.Description = "Tools in the " + t.Name + " namespace."
+			}
+
 			for _, inner := range t.Tools {
-				if inner.Kind == provider.ToolKindCustom || inner.Name == "" {
+				if inner.Name == "" {
+					continue
+				}
+				if inner.Kind == provider.ToolKindCustom {
+					ns.Tools = append(ns.Tools, responses.NamespaceToolToolUnionParam{
+						OfCustom: customToolParam(inner),
+					})
 					continue
 				}
 				fn := responses.NamespaceToolToolFunctionParam{
@@ -1035,24 +1146,8 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 		}
 
 		if t.Kind == provider.ToolKindCustom {
-			custom := &responses.CustomToolParam{
-				Name: t.Name,
-			}
-
-			if t.Description != "" {
-				custom.Description = openai.String(t.Description)
-			}
-
-			if t.Format != nil && t.Format.Type == "grammar" && t.Format.Definition != "" {
-				custom.Format = shared.CustomToolInputFormatParamOfGrammar(t.Format.Definition, t.Format.Syntax)
-			}
-
-			if t.Deferred != nil && *t.Deferred {
-				custom.DeferLoading = openai.Bool(true)
-			}
-
 			result = append(result, responses.ToolUnionParam{
-				OfCustom: custom,
+				OfCustom: customToolParam(t),
 			})
 			continue
 		}
@@ -1081,6 +1176,26 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 	}
 
 	return result, nil
+}
+
+func customToolParam(t provider.Tool) *responses.CustomToolParam {
+	custom := &responses.CustomToolParam{
+		Name: t.Name,
+	}
+
+	if t.Description != "" {
+		custom.Description = openai.String(t.Description)
+	}
+
+	if t.Format != nil && t.Format.Type == "grammar" && t.Format.Definition != "" {
+		custom.Format = shared.CustomToolInputFormatParamOfGrammar(t.Format.Definition, t.Format.Syntax)
+	}
+
+	if t.Deferred != nil && *t.Deferred {
+		custom.DeferLoading = openai.Bool(true)
+	}
+
+	return custom
 }
 
 func applyPatchOperationUnion(op texteditor.Operation) responses.ResponseInputItemApplyPatchCallOperationUnionParam {

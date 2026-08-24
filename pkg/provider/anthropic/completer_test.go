@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -319,6 +320,151 @@ func TestConvertRequest_ForcedToolDisablesThinkingAndCapsEffort(t *testing.T) {
 	config, _ := body["output_config"].(map[string]any)
 	if config["effort"] != "high" {
 		t.Errorf("effort: got %v, want high", config["effort"])
+	}
+}
+
+// TestConvertRequest_UnsignedToolHistoryDisablesThinking verifies adaptive
+// thinking is turned off when the last assistant message carries tool calls
+// without a signed thinking block (e.g. signatures stripped for portability):
+// Claude rejects such requests with "Expected thinking or redacted_thinking,
+// but found tool_use".
+func TestConvertRequest_UnsignedToolHistoryDisablesThinking(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-opus-5")
+
+	options := &provider.CompleteOptions{
+		ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive},
+	}
+
+	stripped := []provider.Message{
+		provider.UserMessage("list files"),
+		{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ReasoningContent(provider.Reasoning{Text: "unsigned thought"}),
+				provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
+			},
+		},
+		{
+			Role: provider.MessageRoleUser,
+			Content: []provider.Content{
+				provider.ToolResultContent(provider.ToolResult{ID: "call_1", Parts: []provider.Part{{Text: "main.go"}}}),
+			},
+		},
+	}
+
+	body := requestBody(t, completer, stripped, options)
+
+	thinking, _ := body["thinking"].(map[string]any)
+	if thinking["type"] != "disabled" {
+		t.Fatalf("thinking: got %v, want disabled", body["thinking"])
+	}
+
+	signed := append([]provider.Message{}, stripped...)
+	signed[1] = provider.Message{
+		Role: provider.MessageRoleAssistant,
+		Content: []provider.Content{
+			provider.ReasoningContent(provider.Reasoning{Text: "thought", Signature: "SIG"}),
+			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
+		},
+	}
+
+	body = requestBody(t, completer, signed, options)
+
+	thinking, _ = body["thinking"].(map[string]any)
+	if thinking["type"] != "adaptive" {
+		t.Fatalf("signed history thinking: got %v, want adaptive", body["thinking"])
+	}
+
+	noTools := []provider.Message{
+		provider.UserMessage("hi"),
+		{
+			Role:    provider.MessageRoleAssistant,
+			Content: []provider.Content{provider.TextContent("hello")},
+		},
+		provider.UserMessage("continue"),
+	}
+
+	body = requestBody(t, completer, noTools, options)
+
+	thinking, _ = body["thinking"].(map[string]any)
+	if thinking["type"] != "adaptive" {
+		t.Fatalf("text-only history thinking: got %v, want adaptive", body["thinking"])
+	}
+}
+
+// TestConvertRequest_ToolIDsSanitized verifies foreign tool ids — Gemini
+// signature composites ("id::name::sig") or cross-provider shapes like
+// "functions.Bash:0" — are normalized to Anthropic's ^[a-zA-Z0-9_-]+$ rule,
+// consistently on tool_use and tool_result.
+func TestConvertRequest_ToolIDsSanitized(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-test")
+	longID := strings.Repeat("x", 129)
+
+	messages := []provider.Message{
+		provider.UserMessage("go"),
+		{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ToolCallContent(provider.ToolCall{ID: "call_1::get_weather::c2ln", Name: "get_weather", Arguments: "{}"}),
+				provider.ToolCallContent(provider.ToolCall{ID: "functions.Bash:0", Name: "bash", Arguments: "{}"}),
+				provider.ToolCallContent(provider.ToolCall{ID: longID, Name: "long", Arguments: "{}"}),
+			},
+		},
+		{
+			Role: provider.MessageRoleUser,
+			Content: []provider.Content{
+				provider.ToolResultContent(provider.ToolResult{ID: "call_1::get_weather::c2ln", Parts: []provider.Part{{Text: "sunny"}}}),
+				provider.ToolResultContent(provider.ToolResult{ID: "functions.Bash:0", Parts: []provider.Part{{Text: "ok"}}}),
+				provider.ToolResultContent(provider.ToolResult{ID: longID, Parts: []provider.Part{{Text: "ok"}}}),
+			},
+		},
+	}
+
+	body := requestBody(t, completer, messages, nil)
+
+	var useIDs, resultIDs []string
+	for _, msg := range body["messages"].([]any) {
+		for _, block := range msg.(map[string]any)["content"].([]any) {
+			b := block.(map[string]any)
+			switch b["type"] {
+			case "tool_use":
+				useIDs = append(useIDs, b["id"].(string))
+			case "tool_result":
+				resultIDs = append(resultIDs, b["tool_use_id"].(string))
+			}
+		}
+	}
+
+	want := []string{"call_1", "functions_Bash_0", strings.Repeat("x", 128)}
+	if !slices.Equal(useIDs, want) {
+		t.Fatalf("tool_use ids: got %v, want %v", useIDs, want)
+	}
+	if !slices.Equal(resultIDs, want) {
+		t.Fatalf("tool_result ids: got %v, want %v", resultIDs, want)
+	}
+}
+
+// TestConvertRequest_AssistantTrailingWhitespaceTrimmed pins that assistant
+// text is right-trimmed on replay: Anthropic rejects a final assistant
+// message (prefill) whose text ends with trailing whitespace.
+func TestConvertRequest_AssistantTrailingWhitespaceTrimmed(t *testing.T) {
+	completer, _ := NewCompleter("http://localhost", "claude-test")
+
+	messages := []provider.Message{
+		provider.UserMessage("write a poem"),
+		{
+			Role:    provider.MessageRoleAssistant,
+			Content: []provider.Content{provider.TextContent("Roses are red,\n")},
+		},
+	}
+
+	body := requestBody(t, completer, messages, nil)
+
+	msgs := body["messages"].([]any)
+	last := msgs[len(msgs)-1].(map[string]any)["content"].([]any)
+	final := last[len(last)-1].(map[string]any)
+	if final["text"] != "Roses are red," {
+		t.Errorf("prefill text: got %q", final["text"])
 	}
 }
 

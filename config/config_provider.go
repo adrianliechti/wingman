@@ -6,7 +6,8 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	reranker "github.com/adrianliechti/wingman/pkg/provider/adapter/reranker"
+	"github.com/adrianliechti/wingman/pkg/provider/adapter/reranker"
+	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 
 	"go.yaml.in/yaml/v4"
 )
@@ -89,6 +90,10 @@ func (cfg *Config) registerProviders(f *configFile) error {
 
 				if err != nil {
 					return err
+				}
+
+				if p.ReasoningSignatures != nil && !*p.ReasoningSignatures {
+					completer = signatures.FromCompleter(completer)
 				}
 
 				if _, ok := completer.(otel.Completer); !ok {
@@ -190,7 +195,8 @@ type providerConfig struct {
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	MaxRetries *int `yaml:"max_retries"`
+	MaxRetries          *int  `yaml:"max_retries"`
+	ReasoningSignatures *bool `yaml:"reasoning_signatures"`
 
 	Models yaml.Node `yaml:"models"`
 }

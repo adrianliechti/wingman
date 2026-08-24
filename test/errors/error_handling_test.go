@@ -733,10 +733,10 @@ func readSSEEvents(body io.Reader) []map[string]string {
 			continue
 		}
 
-		if strings.HasPrefix(line, "event: ") {
-			current["event"] = strings.TrimPrefix(line, "event: ")
-		} else if strings.HasPrefix(line, "data: ") {
-			current["data"] = strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			current["event"] = after
+		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
+			current["data"] = after
 		}
 	}
 

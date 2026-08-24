@@ -203,7 +203,7 @@ func addedDiff(content string) string {
 
 	var b strings.Builder
 
-	for _, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(content, "\n"), "\n") {
 		b.WriteString("+" + line + "\n")
 	}
 
@@ -214,11 +214,11 @@ func replaceDiff(oldText, newText string) string {
 	var b strings.Builder
 	b.WriteString("@@\n")
 
-	for _, line := range strings.Split(strings.TrimRight(oldText, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(oldText, "\n"), "\n") {
 		b.WriteString("-" + line + "\n")
 	}
 
-	for _, line := range strings.Split(strings.TrimRight(newText, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(newText, "\n"), "\n") {
 		b.WriteString("+" + line + "\n")
 	}
 
@@ -251,27 +251,67 @@ func (op Operation) Envelope() string {
 	return b.String()
 }
 
+// IsEnvelope reports whether the input is a raw patch envelope rather than
+// the {type, path, diff} JSON arguments form.
+func IsEnvelope(input string) bool {
+	return strings.HasPrefix(strings.TrimLeft(input, " \t\r\n"), "*** Begin Patch")
+}
+
 // ParseEnvelope is the inverse of Envelope: it extracts the operation type,
-// path, and diff body from a raw patch envelope produced by Codex.
+// path, and diff body from a raw patch envelope produced by Codex. Multi-file
+// envelopes degrade to their first operation; use ParseEnvelopeOperations to
+// keep all of them.
 func ParseEnvelope(input string) Operation {
-	var op Operation
+	ops := ParseEnvelopeOperations(input)
+
+	if len(ops) == 0 {
+		return Operation{}
+	}
+
+	return ops[0]
+}
+
+// ParseEnvelopeOperations extracts every file operation from a raw patch
+// envelope. The grammar allows multiple Add/Update/Delete hunks per patch;
+// body lines belong to the most recent file header. A "*** Move to:" line has
+// no {type, path, diff} equivalent and is dropped.
+func ParseEnvelopeOperations(input string) []Operation {
+	var ops []Operation
 	var body []string
 
-	for _, line := range strings.Split(input, "\n") {
+	flush := func() {
+		if len(ops) == 0 {
+			if len(body) == 0 {
+				return
+			}
+			// headerless body — preserve it as a bare update diff
+			ops = append(ops, Operation{})
+		}
+
+		diff := strings.TrimRight(strings.Join(body, "\n"), "\n")
+		if diff != "" {
+			diff += "\n"
+		}
+
+		ops[len(ops)-1].Diff = diff
+		body = nil
+	}
+
+	for line := range strings.SplitSeq(input, "\n") {
 		switch {
 		case strings.HasPrefix(line, "*** Begin Patch"):
 			continue
 		case strings.HasPrefix(line, "*** End Patch"):
 			continue
 		case strings.HasPrefix(line, "*** Add File: "):
-			op.Type = "create_file"
-			op.Path = strings.TrimPrefix(line, "*** Add File: ")
+			flush()
+			ops = append(ops, Operation{Type: "create_file", Path: strings.TrimPrefix(line, "*** Add File: ")})
 		case strings.HasPrefix(line, "*** Update File: "):
-			op.Type = "update_file"
-			op.Path = strings.TrimPrefix(line, "*** Update File: ")
+			flush()
+			ops = append(ops, Operation{Type: "update_file", Path: strings.TrimPrefix(line, "*** Update File: ")})
 		case strings.HasPrefix(line, "*** Delete File: "):
-			op.Type = "delete_file"
-			op.Path = strings.TrimPrefix(line, "*** Delete File: ")
+			flush()
+			ops = append(ops, Operation{Type: "delete_file", Path: strings.TrimPrefix(line, "*** Delete File: ")})
 		case strings.HasPrefix(line, "*** Move to: "):
 			continue
 		default:
@@ -279,11 +319,8 @@ func ParseEnvelope(input string) Operation {
 		}
 	}
 
-	op.Diff = strings.TrimRight(strings.Join(body, "\n"), "\n")
-	if op.Diff != "" {
-		op.Diff += "\n"
-	}
-	return op
+	flush()
+	return ops
 }
 
 // FunctionTool renders a text-editor tool as a plain function tool in the same

@@ -72,10 +72,7 @@ func ClaudeImage(model string, w, h int) int {
 	n := patches(fw, fh)
 	if n > maxTokens {
 		scale := math.Sqrt(float64(maxTokens) / float64(n))
-		n = patches(fw*scale, fh*scale)
-		if n > maxTokens {
-			n = maxTokens
-		}
+		n = min(patches(fw*scale, fh*scale), maxTokens)
 	}
 	return n
 }
@@ -120,10 +117,7 @@ func OpenAIImage(model string, w, h int, detailLow bool) int {
 	}
 
 	if spec.patchMult > 0 {
-		patches := int(math.Ceil(float64(w)/32) * math.Ceil(float64(h)/32))
-		if patches > 1536 {
-			patches = 1536
-		}
+		patches := min(int(math.Ceil(float64(w)/32)*math.Ceil(float64(h)/32)), 1536)
 		return int(float64(patches)*spec.patchMult + 0.5)
 	}
 

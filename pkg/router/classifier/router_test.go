@@ -3,6 +3,7 @@ package classifier
 import (
 	"context"
 	"iter"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -86,13 +87,7 @@ func (m *mockEmbedder) embedded(text string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for _, t := range m.texts {
-		if t == text {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(m.texts, text)
 }
 
 func drain(seq iter.Seq2[*provider.Completion, error]) (string, error) {
@@ -582,7 +577,7 @@ func TestDecisionCacheDedupes(t *testing.T) {
 
 	messages, options := ambiguousMsg()
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := drain(c.Complete(context.Background(), messages, options)); err != nil {
 			t.Fatal(err)
 		}

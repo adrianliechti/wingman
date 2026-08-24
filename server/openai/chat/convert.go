@@ -64,7 +64,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 		role := toMessageRole(m.Role)
 
 		if role == "" {
-			return nil, &shared.InvalidValueError{
+			return nil, &shared.Error{
 				Param:   fmt.Sprintf("messages[%d].role", i),
 				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'system', 'developer', 'user', 'tool', 'assistant'.", m.Role),
 			}
@@ -198,14 +198,19 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 
 	for i, t := range tools {
 		if t.Type != ToolTypeFunction {
-			return nil, &shared.InvalidValueError{
+			return nil, &shared.Error{
 				Param:   fmt.Sprintf("tools[%d].type", i),
 				Message: fmt.Sprintf("Invalid value: '%s'. Supported values are: 'function'.", t.Type),
 			}
 		}
 
+		// Wire format verified against the OpenAI Chat Completions API (2026-08)
 		if t.ToolFunction == nil {
-			continue
+			return nil, &shared.Error{
+				Param:   fmt.Sprintf("tools[%d].function", i),
+				Message: fmt.Sprintf("Missing required parameter: 'tools[%d].function'.", i),
+				Code:    "missing_required_parameter",
+			}
 		}
 
 		result = append(result, provider.Tool{

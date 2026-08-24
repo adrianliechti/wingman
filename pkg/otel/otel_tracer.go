@@ -37,7 +37,7 @@ func setupTracer(ctx context.Context, resource *sdkresource.Resource) error {
 	}
 
 	if endpoint := os.Getenv("INSIGHTS_ENDPOINT"); endpoint != "" {
-		tracesURL := strings.Replace(endpoint, "/v1/metrics", "/v1/traces", 1)
+		tracesURL := endpointWithDefaultPath(endpoint, "/v1/traces")
 		if insights, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(tracesURL)); err == nil {
 			options = append(options, sdktrace.WithBatcher(insights, sdktrace.WithBatchTimeout(time.Second)))
 		}

@@ -61,7 +61,7 @@ func valueAspect(r *http.Request) provider.AspectRatio {
 }
 
 func acceptFormat(r *http.Request) provider.ImageFormat {
-	for _, value := range strings.Split(r.Header.Get("Accept"), ",") {
+	for value := range strings.SplitSeq(r.Header.Get("Accept"), ",") {
 		media := strings.TrimSpace(value)
 
 		if i := strings.IndexByte(media, ';'); i >= 0 {

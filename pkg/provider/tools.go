@@ -1,5 +1,26 @@
 package provider
 
+import (
+	"fmt"
+	"net/http"
+)
+
+// UnsupportedToolError reports a tool kind the targeted provider cannot host
+// or emulate — silently dropping it would leave the model unable to call a
+// tool the client believes exists.
+func UnsupportedToolError(t Tool) error {
+	name := t.Name
+
+	if name == "" {
+		name = string(t.Kind)
+	}
+
+	return &ProviderError{
+		Code:    http.StatusBadRequest,
+		Message: fmt.Sprintf("Tool '%s' of type '%s' is not supported by this provider.", name, t.Kind),
+	}
+}
+
 func FlattenTools(tools []Tool) []Tool {
 	if !hasNested(tools) {
 		return tools

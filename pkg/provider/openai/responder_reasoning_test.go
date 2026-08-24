@@ -19,7 +19,8 @@ func TestConvertResponsesRequest_ReasoningMax(t *testing.T) {
 
 	req, err := responder.convertResponsesRequest([]provider.Message{provider.UserMessage("hi")}, &provider.CompleteOptions{
 		ReasoningOptions: &provider.ReasoningOptions{
-			Effort: provider.EffortMax,
+			Effort:  provider.EffortMax,
+			Context: provider.ReasoningContextAllTurns,
 		},
 	})
 	if err != nil {
@@ -40,6 +41,9 @@ func TestConvertResponsesRequest_ReasoningMax(t *testing.T) {
 
 	if m.Reasoning["effort"] != "max" {
 		t.Errorf("effort = %v, want max", m.Reasoning["effort"])
+	}
+	if m.Reasoning["context"] != "all_turns" {
+		t.Errorf("context = %v, want all_turns", m.Reasoning["context"])
 	}
 }
 

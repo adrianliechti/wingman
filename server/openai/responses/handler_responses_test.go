@@ -208,6 +208,31 @@ func TestApplyPatchCallOutputAcceptsArray(t *testing.T) {
 	}
 }
 
+func TestApplyPatchCallOutputPreservesFailure(t *testing.T) {
+	payload := `[{"type":"apply_patch_call_output","call_id":"c2","status":"failed","output":"file not found"}]`
+
+	var input ResponsesInput
+	if err := json.Unmarshal([]byte(payload), &input); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	messages, err := toMessages(input.Items, "")
+	if err != nil {
+		t.Fatalf("toMessages: %v", err)
+	}
+	if len(messages) != 1 || len(messages[0].Content) != 1 {
+		t.Fatalf("expected one tool result, got %+v", messages)
+	}
+
+	result := messages[0].Content[0].ToolResult
+	if result == nil || !result.IsError {
+		t.Fatalf("expected failed tool result, got %+v", result)
+	}
+	if len(result.Parts) != 1 || result.Parts[0].Text != "file not found" {
+		t.Fatalf("unexpected failure output: %+v", result.Parts)
+	}
+}
+
 func TestResponseOutputsPreservesCompactionOrder(t *testing.T) {
 	outputs := responseOutputs(&provider.Message{
 		Content: []provider.Content{

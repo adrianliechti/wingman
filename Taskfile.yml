@@ -14,12 +14,8 @@ tasks:
     dotenv: ['.env' ]
     
     cmds:
-      - go run cmd/server/main.go
+      - go run . --port 4242
 
-  client:
-    cmds:
-      - go run cmd/client/main.go
-  
   run:
     cmds:
       - docker compose up --remove-orphans --force-recreate

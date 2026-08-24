@@ -15,7 +15,7 @@ func TestConvertToolConfig_Strict(t *testing.T) {
 
 	strict := true
 
-	tc := c.convertToolConfig([]provider.Tool{
+	tc, _ := c.convertToolConfig([]provider.Tool{
 		{Name: "create_file", Strict: &strict, Parameters: testSchema},
 		{Name: "get_weather", Parameters: testSchema},
 	}, nil)
@@ -43,7 +43,7 @@ func TestConvertToolConfig_StrictFalse(t *testing.T) {
 
 	strict := false
 
-	tc := c.convertToolConfig([]provider.Tool{
+	tc, _ := c.convertToolConfig([]provider.Tool{
 		{Name: "search_agent", Strict: &strict, Parameters: testSchema},
 	}, nil)
 
@@ -65,7 +65,7 @@ func TestConvertToolConfig_StrictUnsupportedModel(t *testing.T) {
 
 	strict := true
 
-	tc := c.convertToolConfig([]provider.Tool{
+	tc, _ := c.convertToolConfig([]provider.Tool{
 		{Name: "list_files", Strict: &strict, Parameters: testSchema},
 	}, nil)
 

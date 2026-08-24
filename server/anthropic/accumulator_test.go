@@ -338,3 +338,53 @@ func TestStreamingAccumulatorEmitsThinkingUsage(t *testing.T) {
 		t.Fatalf("expected message_delta thinking tokens 12, got %d", delta.OutputTokensDetails.ThinkingTokens)
 	}
 }
+
+func TestStreamingAccumulatorSummaryReasoning(t *testing.T) {
+	var events []StreamEvent
+	acc := NewStreamingAccumulator("msg_123", "gpt-test", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+	acc.ThinkingEnabled = true
+
+	add := func(content provider.Content) {
+		t.Helper()
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{content}}}); err != nil {
+			t.Fatalf("add completion: %v", err)
+		}
+	}
+
+	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "summarized "}))
+	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "thought"}))
+	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Signature: "ENC"}))
+	add(provider.TextContent("hello"))
+
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete stream: %v", err)
+	}
+
+	thinking := map[int]string{}
+	signatures := map[int]string{}
+
+	for _, event := range events {
+		if event.Type != StreamEventContentBlockDelta {
+			continue
+		}
+		switch event.Delta.Type {
+		case "thinking_delta":
+			thinking[event.Index] += event.Delta.Thinking
+		case "signature_delta":
+			signatures[event.Index] += event.Delta.Signature
+		}
+	}
+
+	if len(thinking) != 1 {
+		t.Fatalf("expected 1 thinking block, got %v", thinking)
+	}
+	if thinking[0] != "summarized thought" {
+		t.Errorf("thinking: got %q, want %q", thinking[0], "summarized thought")
+	}
+	if len(signatures) != 1 || signatures[0] == "" {
+		t.Errorf("expected signature_delta on the summary block, got %v", signatures)
+	}
+}
