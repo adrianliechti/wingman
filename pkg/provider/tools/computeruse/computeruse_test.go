@@ -152,3 +152,96 @@ func TestFunctionTool(t *testing.T) {
 		t.Fatal("dialect schemas should differ")
 	}
 }
+
+// schemaEnum pulls the enum of a top-level string property out of an emulated
+// tool schema.
+func schemaEnum(t *testing.T, params map[string]any, property string) []string {
+	t.Helper()
+
+	props, _ := params["properties"].(map[string]any)
+	field, _ := props[property].(map[string]any)
+	values, _ := field["enum"].([]string)
+
+	if len(values) == 0 {
+		t.Fatalf("no enum on property %q", property)
+	}
+
+	return values
+}
+
+func requireCovers(t *testing.T, got []string, want []string, label string) {
+	t.Helper()
+
+	have := map[string]bool{}
+	for _, v := range got {
+		have[v] = true
+	}
+
+	var missing []string
+	for _, v := range want {
+		if !have[v] {
+			missing = append(missing, v)
+		}
+	}
+
+	if len(missing) > 0 {
+		t.Errorf("%s is missing %v (have %v)", label, missing, got)
+	}
+
+	allowed := map[string]bool{}
+	for _, v := range want {
+		allowed[v] = true
+	}
+
+	var extra []string
+	for _, v := range got {
+		if !allowed[v] {
+			extra = append(extra, v)
+		}
+	}
+
+	if len(extra) > 0 {
+		t.Errorf("%s advertises %v, which the native tool does not accept", label, extra)
+	}
+}
+
+// The emulation keeps the client's dialect, so its schema has to advertise the
+// same actions the native Anthropic computer toolset accepts — a narrower enum
+// silently removes capability the client believes it registered.
+// Source: computer_toolset_20260801 (docs, 2026-08-19).
+func TestFunctionToolAnthropicCoversNativeActions(t *testing.T) {
+	tool := FunctionTool(provider.Tool{Kind: provider.ToolKindComputer, Name: Name, Dialect: DialectAnthropic})
+
+	requireCovers(t, schemaEnum(t, tool.Parameters, "action"), []string{
+		"screenshot", "zoom", "left_click", "right_click", "middle_click",
+		"double_click", "triple_click", "left_click_drag", "mouse_move",
+		"left_mouse_down", "left_mouse_up", "cursor_position", "scroll",
+		"type", "key", "hold_key", "wait",
+	}, "anthropic action enum")
+
+	props, _ := tool.Parameters["properties"].(map[string]any)
+
+	for _, param := range []string{"coordinate", "start_coordinate", "text", "region", "repeat", "scroll_direction", "scroll_amount", "duration"} {
+		if _, ok := props[param]; !ok {
+			t.Errorf("anthropic schema is missing the %q parameter", param)
+		}
+	}
+}
+
+// Source: ResponseComputerToolCallAction union, openai-go v3.
+func TestFunctionToolOpenAICoversNativeActions(t *testing.T) {
+	tool := FunctionTool(provider.Tool{Kind: provider.ToolKindComputer, Name: Name, Dialect: DialectOpenAI})
+
+	props, _ := tool.Parameters["properties"].(map[string]any)
+	actions, _ := props["actions"].(map[string]any)
+	items, _ := actions["items"].(map[string]any)
+
+	requireCovers(t, schemaEnum(t, items, "type"), []string{
+		"screenshot", "click", "double_click", "move", "drag",
+		"keypress", "type", "scroll", "wait",
+	}, "openai action enum")
+
+	requireCovers(t, schemaEnum(t, items, "button"), []string{
+		"left", "right", "wheel", "back", "forward",
+	}, "openai button enum")
+}

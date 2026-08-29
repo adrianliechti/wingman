@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"iter"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 
@@ -58,6 +61,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		toolAliases := provider.ToolAliases(options.Tools)
 		toolCallIDs := map[int64]string{}
 
+		// Emulated custom tools stream JSON-wrapped arguments. Their fragments
+		// cannot be unwrapped one at a time, so buffer them per tool-call index
+		// and emit the freeform text when the choice finishes.
+		customArgs := map[int64]*strings.Builder{}
+
 		for stream.Next() {
 			chunk := stream.Current()
 
@@ -104,7 +112,40 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						Arguments: c.Function.Arguments,
 					})
 
+					if _, tracked := customArgs[index]; !tracked && custom.IsEmulated(options.Tools, c.Function.Name) {
+						customArgs[index] = &strings.Builder{}
+					}
+
+					if buffer, ok := customArgs[index]; ok {
+						call.Kind = provider.ToolKindCustom
+						buffer.WriteString(c.Function.Arguments)
+
+						// the name still has to reach the client; the freeform
+						// input follows once the choice finishes
+						call.Arguments = ""
+					}
+
 					delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(call))
+				}
+
+				// Chat Completions has no per-block stop event — the finish
+				// reason is the only signal that arguments are complete.
+				if choice.FinishReason != "" {
+					for _, index := range slices.Sorted(maps.Keys(customArgs)) {
+						input, ok := custom.UnwrapPartial(customArgs[index].String())
+
+						delete(customArgs, index)
+
+						if !ok {
+							continue
+						}
+
+						delta.Message.Content = append(delta.Message.Content, provider.ToolCallContent(provider.ToolCall{
+							ID:        toolCallIDs[index],
+							Kind:      provider.ToolKindCustom,
+							Arguments: input,
+						}))
+					}
 				}
 
 				delta.Status = toCompletionStatus(choice.FinishReason)
@@ -357,13 +398,21 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 				}
 
 				if c.ToolCall != nil {
+					arguments := c.ToolCall.Arguments
+
+					if c.ToolCall.Kind == provider.ToolKindCustom && !custom.IsWrapped(arguments) {
+						// freeform input from the client — re-encode it the way
+						// the emulated tool was declared
+						arguments = custom.Wrap(arguments)
+					}
+
 					call := openai.ChatCompletionMessageToolCallUnionParam{
 						OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
 							ID: c.ToolCall.ID,
 
 							Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
 								Name:      provider.FlattenToolName(*c.ToolCall),
-								Arguments: c.ToolCall.Arguments,
+								Arguments: arguments,
 							},
 						},
 					}
@@ -435,6 +484,12 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 
 		if t.Kind == provider.ToolKindShell {
 			t = shell.FunctionTool(t)
+		}
+
+		if t.Kind == provider.ToolKindCustom {
+			// Chat Completions has no freeform tool type — carry the text in a
+			// single string parameter and unwrap it at the stream boundary
+			t = custom.FunctionTool(t)
 		}
 
 		if t.Kind != provider.ToolKindFunction {

@@ -182,7 +182,7 @@ func TestToContent_EmptyFunctionCallArgs(t *testing.T) {
 
 	var calls []provider.ToolCall
 
-	for _, c := range toContent(content, nil) {
+	for _, c := range toContent(content, nil, nil) {
 		if c.ToolCall != nil {
 			calls = append(calls, *c.ToolCall)
 		}

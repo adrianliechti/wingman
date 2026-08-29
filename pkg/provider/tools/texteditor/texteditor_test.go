@@ -180,3 +180,77 @@ func TestIsEnvelope(t *testing.T) {
 		t.Error("JSON args misdetected as envelope")
 	}
 }
+
+func editorSchemaEnum(t *testing.T, params map[string]any, property string) []string {
+	t.Helper()
+
+	props, _ := params["properties"].(map[string]any)
+	field, _ := props[property].(map[string]any)
+	values, _ := field["enum"].([]string)
+
+	if len(values) == 0 {
+		t.Fatalf("no enum on property %q", property)
+	}
+
+	return values
+}
+
+func requireSameSet(t *testing.T, got, want []string, label string) {
+	t.Helper()
+
+	have := map[string]bool{}
+	for _, v := range got {
+		have[v] = true
+	}
+
+	for _, v := range want {
+		if !have[v] {
+			t.Errorf("%s is missing %q (have %v)", label, v, got)
+		}
+
+		delete(have, v)
+	}
+
+	for v := range have {
+		t.Errorf("%s advertises %q, which the native tool does not accept", label, v)
+	}
+}
+
+// text_editor_20250728 accepts view, create, str_replace and insert.
+// undo_edit was removed after text_editor_20250429 and must not reappear here.
+func TestFunctionToolCoversNativeEditorCommands(t *testing.T) {
+	tool := FunctionTool(provider.Tool{Kind: provider.ToolKindTextEditor, Name: NameTextEditor})
+
+	requireSameSet(t, editorSchemaEnum(t, tool.Parameters, "command"),
+		[]string{"view", "create", "str_replace", "insert"}, "text editor command enum")
+
+	props, _ := tool.Parameters["properties"].(map[string]any)
+
+	for _, param := range []string{"path", "view_range", "file_text", "old_str", "new_str", "insert_line", "insert_text"} {
+		if _, ok := props[param]; !ok {
+			t.Errorf("text editor schema is missing the %q parameter", param)
+		}
+	}
+}
+
+// The apply_patch operation union is create_file, update_file and delete_file.
+// diff is required on the first two and absent on delete_file, which a single
+// flat schema can only express by leaving diff optional.
+func TestFunctionToolCoversNativeApplyPatchOperations(t *testing.T) {
+	tool := FunctionTool(provider.Tool{Kind: provider.ToolKindTextEditor, Name: NameApplyPatch})
+
+	requireSameSet(t, editorSchemaEnum(t, tool.Parameters, "type"),
+		[]string{"create_file", "update_file", "delete_file"}, "apply_patch type enum")
+
+	required, _ := tool.Parameters["required"].([]string)
+
+	for _, name := range required {
+		if name == "diff" {
+			t.Error("diff must stay optional — delete_file carries no diff")
+		}
+	}
+
+	if len(required) != 2 || required[0] != "type" || required[1] != "path" {
+		t.Errorf("expected type and path to be required, got %v", required)
+	}
+}

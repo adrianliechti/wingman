@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/toolid"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
@@ -61,6 +64,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		stream := c.messages.NewStreaming(ctx, *req)
 
 		toolArgsSeen := map[int64]bool{}
+
+		// Emulated custom tools stream JSON-wrapped arguments. Their fragments
+		// cannot be unwrapped one at a time, so buffer them per block and emit
+		// the freeform text once the block closes.
+		customArgs := map[int64]*strings.Builder{}
 
 		for stream.Next() {
 			event := stream.Current()
@@ -118,6 +126,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				break
 
 			case anthropic.BetaRawContentBlockStartEvent:
+				startIndex := event.Index
+
 				switch event := event.ContentBlock.AsAny().(type) {
 				case anthropic.BetaThinkingBlock:
 					delta := &provider.Completion{
@@ -212,6 +222,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						ID:   event.ID,
 						Name: event.Name,
 					})
+
+					if custom.IsEmulated(options.Tools, event.Name) {
+						call.Kind = provider.ToolKindCustom
+						customArgs[startIndex] = &strings.Builder{}
+					}
 
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -339,6 +354,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						break
 					}
 
+					if buffer, ok := customArgs[blockIndex]; ok {
+						buffer.WriteString(event.PartialJSON)
+						break
+					}
+
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -367,7 +387,38 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case anthropic.BetaRawContentBlockStopEvent:
-				break
+				buffer, ok := customArgs[event.Index]
+
+				if !ok {
+					break
+				}
+
+				delete(customArgs, event.Index)
+
+				if int(event.Index) >= len(message.Content) {
+					break
+				}
+
+				delta := &provider.Completion{
+					ID:    message.ID,
+					Model: c.model,
+
+					Message: &provider.Message{
+						Role: provider.MessageRoleAssistant,
+
+						Content: []provider.Content{
+							provider.ToolCallContent(provider.ToolCall{
+								ID:        message.Content[event.Index].ID,
+								Kind:      provider.ToolKindCustom,
+								Arguments: custom.Unwrap(buffer.String()),
+							}),
+						},
+					},
+				}
+
+				if !yield(delta, nil) {
+					return
+				}
 
 			case anthropic.BetaRawMessageStopEvent:
 				delta := &provider.Completion{
@@ -420,6 +471,50 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+			}
+		}
+
+		for _, blockIndex := range slices.Sorted(maps.Keys(customArgs)) {
+			buffer := customArgs[blockIndex]
+			if int(blockIndex) >= len(message.Content) {
+				continue
+			}
+
+			block := message.Content[blockIndex]
+
+			// Only a tool_use block carries a call id; anything else would
+			// yield a tool call with an empty id.
+			if block.Type != "tool_use" {
+				continue
+			}
+
+			// The wrapper is unfinished here, so Unwrap would hand the raw
+			// `{"input":"...` back as if it were freeform text.
+			input, ok := custom.UnwrapPartial(buffer.String())
+
+			if !ok {
+				continue
+			}
+
+			delta := &provider.Completion{
+				ID:    message.ID,
+				Model: c.model,
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+
+					Content: []provider.Content{
+						provider.ToolCallContent(provider.ToolCall{
+							ID:        block.ID,
+							Kind:      provider.ToolKindCustom,
+							Arguments: input,
+						}),
+					},
+				},
+			}
+
+			if !yield(delta, nil) {
+				return
 			}
 		}
 
@@ -709,9 +804,17 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						continue
 					}
 
+					arguments := c.ToolCall.Arguments
+
+					if c.ToolCall.Kind == provider.ToolKindCustom && !custom.IsWrapped(arguments) {
+						// freeform input from the client — re-encode it the way
+						// the emulated tool was declared, or the replay drops it
+						arguments = custom.Wrap(arguments)
+					}
+
 					var input map[string]any
 
-					if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &input); err != nil || input == nil {
+					if err := json.Unmarshal([]byte(arguments), &input); err != nil || input == nil {
 						input = map[string]any{}
 					}
 
@@ -829,6 +932,12 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 			// OpenAI shell dialect — emulate as a function tool
 			t = shell.FunctionTool(t)
+		}
+
+		if t.Kind == provider.ToolKindCustom {
+			// the Messages API has no freeform tool type — carry the text in a
+			// single string parameter and unwrap it at the stream boundary
+			t = custom.FunctionTool(t)
 		}
 
 		if t.Name == "" {

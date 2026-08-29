@@ -554,7 +554,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 							// emulated function tool — replay as function_call_output
 							result = append(result, responses.ResponseInputItemUnionParam{
 								OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-									CallID: c.ToolResult.ID,
+									CallID: openai.String(c.ToolResult.ID),
 									Output: toolResultOutputUnion(c.ToolResult),
 								},
 							})
@@ -600,7 +600,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 							// emulated function tool — replay as function_call_output
 							result = append(result, responses.ResponseInputItemUnionParam{
 								OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-									CallID: c.ToolResult.ID,
+									CallID: openai.String(c.ToolResult.ID),
 									Output: toolResultOutputUnion(c.ToolResult),
 								},
 							})
@@ -618,7 +618,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 							// emulated function tool — replay as function_call_output
 							result = append(result, responses.ResponseInputItemUnionParam{
 								OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-									CallID: c.ToolResult.ID,
+									CallID: openai.String(c.ToolResult.ID),
 									Output: toolResultOutputUnion(c.ToolResult),
 								},
 							})
@@ -655,7 +655,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 					default:
 						result = append(result, responses.ResponseInputItemUnionParam{
 							OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
-								CallID: c.ToolResult.ID,
+								CallID: openai.String(c.ToolResult.ID),
 								Output: toolResultOutputUnion(c.ToolResult),
 							},
 						})

@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/toolid"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 )
@@ -89,7 +90,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			if len(resp.Candidates) > 0 {
 				candidate := resp.Candidates[0]
 
-				delta.Message.Content = toContent(candidate.Content, toolAliases)
+				delta.Message.Content = toContent(candidate.Content, toolAliases, options.Tools)
 
 				for _, c := range delta.Message.Content {
 					if c.ToolCall != nil {
@@ -351,8 +352,16 @@ func convertContent(message provider.Message, toolCallNames map[string]string) (
 			}
 
 			if c.ToolCall != nil {
+				arguments := c.ToolCall.Arguments
+
+				if c.ToolCall.Kind == provider.ToolKindCustom && !custom.IsWrapped(arguments) {
+					// freeform input from the client — re-encode it the way the
+					// emulated tool was declared
+					arguments = custom.Wrap(arguments)
+				}
+
 				var data map[string]any
-				if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil || data == nil {
+				if err := json.Unmarshal([]byte(arguments), &data); err != nil || data == nil {
 					data = map[string]any{}
 				}
 
@@ -441,6 +450,12 @@ func convertTools(tools []provider.Tool) ([]*genai.Tool, error) {
 			t = shell.FunctionTool(t)
 		}
 
+		if t.Kind == provider.ToolKindCustom {
+			// Gemini has no freeform tool type — carry the text in a single
+			// string parameter and unwrap it on the way back
+			t = custom.FunctionTool(t)
+		}
+
 		if t.Kind != provider.ToolKindFunction {
 			return nil, provider.UnsupportedToolError(t)
 		}
@@ -466,7 +481,7 @@ func convertTools(tools []provider.Tool) ([]*genai.Tool, error) {
 	}, nil
 }
 
-func toContent(content *genai.Content, toolAliases map[string]provider.Tool) []provider.Content {
+func toContent(content *genai.Content, toolAliases map[string]provider.Tool, tools []provider.Tool) []provider.Content {
 	var parts []provider.Content
 
 	for _, p := range content.Parts {
@@ -526,6 +541,13 @@ func toContent(content *genai.Content, toolAliases map[string]provider.Tool) []p
 				Name:      p.FunctionCall.Name,
 				Arguments: args,
 			})
+
+			// Gemini delivers complete arguments, so the emulated wrapper can be
+			// unwrapped in place — no buffering needed
+			if custom.IsEmulated(tools, p.FunctionCall.Name) {
+				call.Kind = provider.ToolKindCustom
+				call.Arguments = custom.Unwrap(call.Arguments)
+			}
 
 			parts = append(parts, provider.ToolCallContent(call))
 		}

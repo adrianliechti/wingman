@@ -80,3 +80,68 @@ func TestFunctionTool(t *testing.T) {
 		}
 	}
 }
+
+func schemaProperties(t *testing.T, params map[string]any) map[string]any {
+	t.Helper()
+
+	props, _ := params["properties"].(map[string]any)
+
+	if len(props) == 0 {
+		t.Fatal("schema has no properties")
+	}
+
+	return props
+}
+
+func requireProperties(t *testing.T, params map[string]any, want ...string) {
+	t.Helper()
+
+	props := schemaProperties(t, params)
+
+	for _, name := range want {
+		if _, ok := props[name]; !ok {
+			t.Errorf("schema is missing the %q property (have %v)", name, keysOf(props))
+		}
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// The emulated schema has to advertise every field of the native action, or
+// the model cannot express something the client's tool supports.
+// Sources: ResponseInputItemShellCallAction and
+// ResponseInputItemLocalShellCallAction (exec), openai-go v3.
+func TestFunctionToolCoversNativeShellAction(t *testing.T) {
+	tool := FunctionTool(provider.Tool{Kind: provider.ToolKindShell, Name: NameShell})
+
+	requireProperties(t, tool.Parameters, "commands", "timeout_ms", "max_output_length")
+
+	required, _ := tool.Parameters["required"].([]string)
+
+	if len(required) != 1 || required[0] != "commands" {
+		t.Errorf("expected only commands to be required, got %v", required)
+	}
+}
+
+func TestFunctionToolCoversNativeLocalShellAction(t *testing.T) {
+	tool := FunctionTool(provider.Tool{Kind: provider.ToolKindShell, Name: NameLocalShell})
+
+	requireProperties(t, tool.Parameters, "command", "timeout_ms", "working_directory", "env", "user")
+}
+
+// Anthropic's bash tool takes command and restart only.
+func TestFunctionToolCoversNativeBashAction(t *testing.T) {
+	tool := FunctionTool(provider.Tool{Kind: provider.ToolKindShell, Name: NameBash})
+
+	requireProperties(t, tool.Parameters, "command", "restart")
+
+	if props := schemaProperties(t, tool.Parameters); len(props) != 2 {
+		t.Errorf("bash schema should carry exactly command and restart, got %v", keysOf(props))
+	}
+}

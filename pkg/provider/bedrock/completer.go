@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/toolid"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 
@@ -136,6 +139,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		toolCallIDs := map[int32]string{}
 		toolArgsSeen := map[int32]bool{}
 
+		// Emulated custom tools stream JSON-wrapped arguments. Their fragments
+		// cannot be unwrapped one at a time, so buffer them per block and emit
+		// the freeform text once the block closes.
+		customArgs := map[int32]*strings.Builder{}
+
 		for event := range resp.GetStream().Events() {
 			switch v := event.(type) {
 			case *types.ConverseStreamOutputMemberMessageStart:
@@ -167,6 +175,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						ID:   aws.ToString(b.Value.ToolUseId),
 						Name: aws.ToString(b.Value.Name),
 					})
+
+					if custom.IsEmulated(options.Tools, aws.ToString(b.Value.Name)) {
+						call.Kind = provider.ToolKindCustom
+						customArgs[aws.ToInt32(v.Value.ContentBlockIndex)] = &strings.Builder{}
+					}
 
 					delta := &provider.Completion{
 						ID:    id,
@@ -278,6 +291,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						toolArgsSeen[aws.ToInt32(v.Value.ContentBlockIndex)] = true
 					}
 
+					if buffer, ok := customArgs[aws.ToInt32(v.Value.ContentBlockIndex)]; ok {
+						buffer.WriteString(aws.ToString(b.Value.Input))
+						continue
+					}
+
 					delta := &provider.Completion{
 						ID:    id,
 						Model: c.model,
@@ -313,6 +331,33 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				// Tool use blocks without input deltas would otherwise
 				// accumulate empty arguments downstream — normalize to "{}"
 				blockIndex := aws.ToInt32(v.Value.ContentBlockIndex)
+
+				if buffer, ok := customArgs[blockIndex]; ok {
+					delete(customArgs, blockIndex)
+
+					delta := &provider.Completion{
+						ID:    id,
+						Model: c.model,
+
+						Message: &provider.Message{
+							Role: provider.MessageRoleAssistant,
+
+							Content: []provider.Content{
+								provider.ToolCallContent(provider.ToolCall{
+									ID:        toolCallIDs[blockIndex],
+									Kind:      provider.ToolKindCustom,
+									Arguments: custom.Unwrap(buffer.String()),
+								}),
+							},
+						},
+					}
+
+					if !yield(delta, nil) {
+						return
+					}
+
+					continue
+				}
 
 				if callID, ok := toolCallIDs[blockIndex]; ok && !toolArgsSeen[blockIndex] && options.Schema == nil {
 					delta := &provider.Completion{
@@ -397,6 +442,38 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 			default:
 				// Unknown event type, skip silently
+			}
+		}
+
+		for _, blockIndex := range slices.Sorted(maps.Keys(customArgs)) {
+			buffer := customArgs[blockIndex]
+			// The wrapper is unfinished here, so Unwrap would hand the raw
+			// `{"input":"...` back as if it were freeform text.
+			input, ok := custom.UnwrapPartial(buffer.String())
+
+			if !ok {
+				continue
+			}
+
+			delta := &provider.Completion{
+				ID:    id,
+				Model: c.model,
+
+				Message: &provider.Message{
+					Role: provider.MessageRoleAssistant,
+
+					Content: []provider.Content{
+						provider.ToolCallContent(provider.ToolCall{
+							ID:        toolCallIDs[blockIndex],
+							Kind:      provider.ToolKindCustom,
+							Arguments: input,
+						}),
+					},
+				},
+			}
+
+			if !yield(delta, nil) {
+				return
 			}
 		}
 
@@ -847,9 +924,17 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 		}
 
 		if c.ToolCall != nil {
+			arguments := c.ToolCall.Arguments
+
+			if c.ToolCall.Kind == provider.ToolKindCustom && !custom.IsWrapped(arguments) {
+				// freeform input from the client — re-encode it the way the
+				// emulated tool was declared, or the replay would drop it
+				arguments = custom.Wrap(arguments)
+			}
+
 			var data map[string]any
 
-			if err := json.Unmarshal([]byte(c.ToolCall.Arguments), &data); err != nil || data == nil {
+			if err := json.Unmarshal([]byte(arguments), &data); err != nil || data == nil {
 				data = map[string]any{}
 			}
 
@@ -890,6 +975,12 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 
 		if t.Kind == provider.ToolKindShell {
 			t = shell.FunctionTool(t)
+		}
+
+		if t.Kind == provider.ToolKindCustom {
+			// Converse only accepts JSON schemas — carry the freeform text in a
+			// single string parameter and unwrap it at the stream boundary
+			t = custom.FunctionTool(t)
 		}
 
 		if t.Kind != provider.ToolKindFunction {

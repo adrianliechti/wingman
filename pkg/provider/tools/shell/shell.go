@@ -213,6 +213,10 @@ func FunctionTool(t provider.Tool) provider.Tool {
 						"type":        "integer",
 						"description": "Maximum wall-clock time in milliseconds.",
 					},
+					"max_output_length": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of UTF-8 characters to capture from combined stdout and stderr.",
+					},
 				},
 				"required": []string{"commands"},
 			},
@@ -237,6 +241,15 @@ func FunctionTool(t provider.Tool) provider.Tool {
 					"working_directory": map[string]any{
 						"type":        "string",
 						"description": "Directory to run the command in.",
+					},
+					"env": map[string]any{
+						"type":                 "object",
+						"additionalProperties": map[string]any{"type": "string"},
+						"description":          "Environment variables to set for the command.",
+					},
+					"user": map[string]any{
+						"type":        "string",
+						"description": "User to run the command as.",
 					},
 				},
 				"required": []string{"command"},

@@ -30,12 +30,13 @@ import (
 // stream shape wingman has to reassemble.
 
 // Verbatim copy of the production create_file tool
-// (wingman-chat src/shared/lib/file-tools.ts) — keep in sync. strict is
-// ignored by bedrock but guarantees schema-valid JSON on real OpenAI models.
+// (wingman-chat src/shared/lib/file-tools.ts) — keep in sync. The web client
+// intentionally sends this schema-guided (strict=false), so this probe must do
+// the same: strict mode materially changes how Claude authors tool arguments.
 var writeFileTool = map[string]any{
 	"type":        "function",
 	"name":        "create_file",
-	"strict":      true,
+	"strict":      false,
 	"description": "Create a new file or update an existing file with the specified path and content. Recognized structured formats are saved first, then validated; validation errors are reported so you can continue editing and retry.",
 	"parameters": map[string]any{
 		"type": "object",
@@ -52,6 +53,65 @@ var writeFileTool = map[string]any{
 		"required":             []string{"path", "content"},
 		"additionalProperties": false,
 	},
+}
+
+// Verbatim schema and strictness from wingman-chat's
+// PYTHON_EXECUTION_PARAMETERS. The production handler accepts either path or
+// inline code, so neither selector is schema-required; this is precisely the
+// loose shape involved when the browser reports that no code was received.
+var executePythonTool = map[string]any{
+	"type":   "function",
+	"name":   "execute_python_code",
+	"strict": false,
+	"description": "Execute Python code when the task requires computation, programmatic file processing, " +
+		"transformation, batch work, or file generation. Pass the full script body in code, or path to run an existing .py artifact.",
+	"parameters": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Path to an existing Python artifact (for example, /analysis.py). Omit when using inline code. Ignored when code is non-empty.",
+			},
+			"code": map[string]any{
+				"type":        "string",
+				"description": "Inline Python code to execute. Omit when running an existing script via path.",
+			},
+		},
+		"required":             []string{},
+		"additionalProperties": false,
+	},
+}
+
+const parallelPayloadPrompt = `Emit exactly two independent function calls in this single assistant response, with no prose before, between, or after them. Do not wait for either tool result.
+
+1. Call create_file exactly once with path "/parallel/generated_report.py" and content containing a complete, syntactically valid Python program of at least 1,200 characters. It must start with the comment "# PARALLEL_FILE_SENTINEL", use dataclasses, json, regexes, f-strings, nested dictionaries, Unicode text, and a Windows path, then print a JSON report from main().
+2. Call execute_python_code exactly once with inline code of at least 800 characters. The code must start with the comment "# PARALLEL_CODE_SENTINEL", independently construct and print a JSON summary using nested quotes, regexes, Unicode, and backslashes. Omit path.
+
+The two calls are independent and must both be emitted now. Never call any tool whose name starts with unused_fixture_.`
+
+// Keep a realistically broad toolbox around the two production-shaped tools.
+// The decoys isolate whether argument state changes merely because many tools
+// are advertised, without copying unrelated web-client implementation details
+// into this protocol test.
+func parallelPayloadTools() []any {
+	tools := []any{writeFileTool, executePythonTool}
+	for i := 1; i <= 12; i++ {
+		tools = append(tools, map[string]any{
+			"type":        "function",
+			"name":        fmt.Sprintf("unused_fixture_%02d", i),
+			"strict":      false,
+			"description": "Compatibility fixture only. Do not call this tool.",
+			"parameters": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string"},
+				},
+				"required":             []string{},
+				"additionalProperties": false,
+			},
+		})
+	}
+	return tools
 }
 
 // The prompt demands docstrings, f-strings, quotes, unicode, embedded
@@ -164,6 +224,329 @@ func TestWriteFileComplexPythonSSE(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestWriteFileTruncationSSE deterministically reproduces the browser symptom:
+// a long create_file call reaches max_output_tokens after the function item has
+// started but before its JSON arguments are complete. The Responses contract
+// marks both the item and response incomplete and deliberately omits
+// function_call_arguments.done. A client must not parse or execute this item.
+func TestWriteFileTruncationSSE(t *testing.T) {
+	h := openai.New(t)
+	h.Client.Timeout = 5 * time.Minute
+	ctx := context.Background()
+
+	for _, model := range writeFileModels() {
+		t.Run(model, func(t *testing.T) {
+			h.SkipUnlessConfigured(t, model)
+
+			events, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", responses.WithModel(map[string]any{
+				"stream":            true,
+				"max_output_tokens": 900,
+				"input":             writeFilePrompt,
+				"tools":             []any{writeFileTool},
+			}, model))
+			if err != nil {
+				t.Fatalf("wingman SSE request failed: %v", err)
+			}
+
+			requireTruncatedFunctionCall(t, events, "create_file")
+		})
+	}
+}
+
+func requireTruncatedFunctionCall(t *testing.T, events []*harness.SSEEvent, wantName string) {
+	t.Helper()
+
+	var deltas strings.Builder
+	var itemDoneArgs string
+	var callStarted, argsDone, itemDone, responseIncomplete, responseCompleted bool
+
+	for _, event := range events {
+		if event.Data == nil {
+			continue
+		}
+
+		switch event.Data["type"] {
+		case "response.output_item.added":
+			item, _ := event.Data["item"].(map[string]any)
+			if item["type"] == "function_call" && item["name"] == wantName {
+				callStarted = true
+			}
+
+		case "response.function_call_arguments.delta":
+			delta, _ := event.Data["delta"].(string)
+			deltas.WriteString(delta)
+
+		case "response.function_call_arguments.done":
+			argsDone = true
+
+		case "response.output_item.done":
+			item, _ := event.Data["item"].(map[string]any)
+			if item["type"] != "function_call" || item["name"] != wantName {
+				continue
+			}
+			itemDone = true
+			if status, _ := item["status"].(string); status != "incomplete" {
+				t.Errorf("truncated function item status = %q, want incomplete", status)
+			}
+			itemDoneArgs, _ = item["arguments"].(string)
+
+		case "response.incomplete":
+			responseIncomplete = true
+			response, _ := event.Data["response"].(map[string]any)
+			if status, _ := response["status"].(string); status != "incomplete" {
+				t.Errorf("terminal response status = %q, want incomplete", status)
+			}
+			details, _ := response["incomplete_details"].(map[string]any)
+			if reason, _ := details["reason"].(string); reason != "max_output_tokens" {
+				t.Errorf("incomplete reason = %q, want max_output_tokens", reason)
+			}
+
+		case "response.completed":
+			responseCompleted = true
+		}
+	}
+
+	if !callStarted {
+		t.Fatal("token cap was reached before create_file started; raise max_output_tokens enough to exercise partial arguments")
+	}
+	if deltas.Len() == 0 {
+		t.Fatal("create_file started but streamed no argument bytes")
+	}
+	if argsDone {
+		t.Error("truncated arguments incorrectly emitted function_call_arguments.done")
+	}
+	if !itemDone {
+		t.Fatal("truncated function call has no output_item.done")
+	}
+	if itemDoneArgs != deltas.String() {
+		t.Fatalf("incomplete output_item.done did not preserve partial deltas: item len=%d, deltas len=%d", len(itemDoneArgs), deltas.Len())
+	}
+	if !responseIncomplete {
+		t.Fatal("stream has no response.incomplete terminal event")
+	}
+	if responseCompleted {
+		t.Error("stream emitted response.completed after response.incomplete")
+	}
+
+	var parsed map[string]any
+	if json.Unmarshal([]byte(deltas.String()), &parsed) == nil {
+		if content, ok := parsed["content"].(string); ok && content != "" {
+			t.Fatalf("900-token fixture unexpectedly completed content (%d chars); lower max_output_tokens to retain the truncation repro", len(content))
+		}
+	}
+}
+
+// TestParallelLargePayloadToolsSSE exercises the two browser tools that have
+// reported empty payloads in the same response. It also advertises enough
+// decoy tools to catch indexing/state bugs that only appear with a broad
+// toolbox. Every call is cross-checked at all three wire representations:
+// argument deltas, arguments.done, and output_item.done.
+func TestParallelLargePayloadToolsSSE(t *testing.T) {
+	h := openai.New(t)
+	h.Client.Timeout = 5 * time.Minute
+	ctx := context.Background()
+
+	for _, model := range writeFileModels() {
+		t.Run(model, func(t *testing.T) {
+			h.SkipUnlessConfigured(t, model)
+
+			events, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", responses.WithModel(map[string]any{
+				"stream":              true,
+				"parallel_tool_calls": true,
+				"input":               parallelPayloadPrompt,
+				"tools":               parallelPayloadTools(),
+			}, model))
+			if err != nil {
+				t.Fatalf("wingman SSE request failed: %v", err)
+			}
+
+			calls := extractFunctionCallStreams(t, events)
+			if len(calls) != 2 {
+				names := make([]string, len(calls))
+				for i, call := range calls {
+					names[i] = call.name
+				}
+				t.Fatalf("expected exactly two parallel function calls, got %d: %v", len(calls), names)
+			}
+
+			seen := map[string]bool{}
+			for _, call := range calls {
+				seen[call.name] = true
+				switch call.name {
+				case "create_file":
+					var args struct {
+						Path    string `json:"path"`
+						Content string `json:"content"`
+					}
+					if err := json.Unmarshal([]byte(call.arguments()), &args); err != nil {
+						t.Fatalf("create_file arguments are invalid JSON: %v\n%s", err, argsTail(call.arguments()))
+					}
+					if args.Path != "/parallel/generated_report.py" {
+						t.Errorf("create_file path = %q", args.Path)
+					}
+					if len(args.Content) < 500 || !strings.Contains(args.Content, "PARALLEL_FILE_SENTINEL") {
+						t.Fatalf("create_file content is missing/short (%d chars): %q", len(args.Content), argsTail(args.Content))
+					}
+
+				case "execute_python_code":
+					var args struct {
+						Path string `json:"path"`
+						Code string `json:"code"`
+					}
+					if err := json.Unmarshal([]byte(call.arguments()), &args); err != nil {
+						t.Fatalf("execute_python_code arguments are invalid JSON: %v\n%s", err, argsTail(call.arguments()))
+					}
+					if args.Path != "" {
+						t.Errorf("execute_python_code unexpectedly set path = %q", args.Path)
+					}
+					if len(args.Code) < 300 || !strings.Contains(args.Code, "PARALLEL_CODE_SENTINEL") {
+						t.Fatalf("execute_python_code code is missing/short (%d chars): %q", len(args.Code), argsTail(args.Code))
+					}
+
+				default:
+					t.Fatalf("model called unexpected tool %q", call.name)
+				}
+			}
+
+			if !seen["create_file"] || !seen["execute_python_code"] {
+				t.Fatalf("missing required calls: seen=%v", seen)
+			}
+		})
+	}
+}
+
+type streamedFunctionCall struct {
+	itemID      string
+	name        string
+	outputIndex int
+	deltas      strings.Builder
+	done        string
+	doneSeen    bool
+	itemDone    string
+	itemSeen    bool
+}
+
+func (c *streamedFunctionCall) arguments() string {
+	return c.deltas.String()
+}
+
+// extractFunctionCallStreams mirrors the web client's output-index tracking,
+// while keying the integrity checks by item_id. A duplicate output index or an
+// authoritative terminal item that erases good deltas is reported directly.
+func extractFunctionCallStreams(t *testing.T, events []*harness.SSEEvent) []*streamedFunctionCall {
+	t.Helper()
+
+	byID := map[string]*streamedFunctionCall{}
+	byOutputIndex := map[int]string{}
+	var order []*streamedFunctionCall
+	completed := false
+
+	indexOf := func(data map[string]any) int {
+		value, ok := data["output_index"].(float64)
+		if !ok {
+			t.Fatalf("event %q has no numeric output_index", data["type"])
+		}
+		return int(value)
+	}
+	get := func(id string, outputIndex int) *streamedFunctionCall {
+		if id == "" {
+			t.Fatal("function-call event has an empty item_id")
+		}
+		if call := byID[id]; call != nil {
+			if call.outputIndex != outputIndex {
+				t.Fatalf("item %s moved from output_index %d to %d", id, call.outputIndex, outputIndex)
+			}
+			return call
+		}
+		if previous, exists := byOutputIndex[outputIndex]; exists && previous != id {
+			t.Fatalf("output_index %d reused by function calls %s and %s", outputIndex, previous, id)
+		}
+		call := &streamedFunctionCall{itemID: id, outputIndex: outputIndex}
+		byID[id] = call
+		byOutputIndex[outputIndex] = id
+		order = append(order, call)
+		return call
+	}
+
+	for _, event := range events {
+		if event.Data == nil {
+			continue
+		}
+
+		switch event.Data["type"] {
+		case "response.output_item.added":
+			item, _ := event.Data["item"].(map[string]any)
+			if item["type"] != "function_call" {
+				continue
+			}
+			id, _ := item["id"].(string)
+			call := get(id, indexOf(event.Data))
+			call.name, _ = item["name"].(string)
+
+		case "response.function_call_arguments.delta":
+			id, _ := event.Data["item_id"].(string)
+			call := get(id, indexOf(event.Data))
+			delta, _ := event.Data["delta"].(string)
+			call.deltas.WriteString(delta)
+
+		case "response.function_call_arguments.done":
+			id, _ := event.Data["item_id"].(string)
+			call := get(id, indexOf(event.Data))
+			call.done, _ = event.Data["arguments"].(string)
+			call.doneSeen = true
+			if call.name == "" {
+				call.name, _ = event.Data["name"].(string)
+			}
+
+		case "response.output_item.done":
+			item, _ := event.Data["item"].(map[string]any)
+			if item["type"] != "function_call" {
+				continue
+			}
+			id, _ := item["id"].(string)
+			call := get(id, indexOf(event.Data))
+			call.itemDone, _ = item["arguments"].(string)
+			call.itemSeen = true
+			if call.name == "" {
+				call.name, _ = item["name"].(string)
+			}
+
+		case "response.completed":
+			completed = true
+
+		case "response.incomplete":
+			t.Fatal("response became incomplete while emitting parallel tool arguments")
+
+		case "response.failed", "error":
+			raw, _ := json.Marshal(event.Data)
+			t.Fatalf("response stream failed: %s", raw)
+		}
+	}
+
+	if !completed {
+		t.Fatal("stream ended without response.completed")
+	}
+	for _, call := range order {
+		args := call.arguments()
+		if args == "" {
+			t.Fatalf("%s (%s) streamed no arguments", call.name, call.itemID)
+		}
+		if !call.doneSeen {
+			t.Fatalf("%s (%s) has no function_call_arguments.done", call.name, call.itemID)
+		}
+		if call.done != args {
+			t.Fatalf("%s arguments.done differs from deltas: done len=%d, deltas len=%d", call.name, len(call.done), len(args))
+		}
+		if !call.itemSeen {
+			t.Fatalf("%s (%s) has no output_item.done", call.name, call.itemID)
+		}
+		if call.itemDone != args {
+			t.Fatalf("%s output_item.done differs from deltas: item len=%d, deltas len=%d", call.name, len(call.itemDone), len(args))
+		}
+	}
+	return order
 }
 
 func requireCompletedStatus(t *testing.T, body map[string]any) {

@@ -325,8 +325,10 @@ func anthropicSchema() map[string]any {
 			"action": map[string]any{
 				"type": "string",
 				"enum": []string{
-					"screenshot", "left_click", "right_click", "middle_click", "double_click",
-					"mouse_move", "left_click_drag", "key", "type", "scroll", "wait",
+					"screenshot", "zoom", "left_click", "right_click", "middle_click",
+					"double_click", "triple_click", "left_click_drag", "mouse_move",
+					"left_mouse_down", "left_mouse_up", "cursor_position", "scroll",
+					"type", "key", "hold_key", "wait",
 				},
 				"description": "The action to perform.",
 			},
@@ -341,8 +343,19 @@ func anthropicSchema() map[string]any {
 				"description": "[x, y] starting coordinate for left_click_drag.",
 			},
 			"text": map[string]any{
-				"type":        "string",
-				"description": "Text to type, or the key combination to press for key (e.g. \"ctrl+s\", \"Return\").",
+				"type": "string",
+				"description": "Text to type for type; the key or combination to press for key and hold_key " +
+					"(e.g. \"ctrl+s\", \"Return\"); or the modifier keys to hold during a click or scroll " +
+					"(\"shift\", \"ctrl\", \"alt\", \"super\", joined with \"+\").",
+			},
+			"region": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "integer"},
+				"description": "[x0, y0, x1, y1] region to capture at full resolution for zoom.",
+			},
+			"repeat": map[string]any{
+				"type":        "integer",
+				"description": "How many times to repeat the key press (1-100).",
 			},
 			"scroll_direction": map[string]any{
 				"type": "string",
@@ -354,7 +367,7 @@ func anthropicSchema() map[string]any {
 			},
 			"duration": map[string]any{
 				"type":        "integer",
-				"description": "Seconds to wait for the wait action.",
+				"description": "Seconds to hold for hold_key, or to pause for wait (up to 300).",
 			},
 		},
 		"required": []string{"action"},
@@ -385,7 +398,7 @@ func openaiSchema() map[string]any {
 						"y": map[string]any{"type": "integer"},
 						"button": map[string]any{
 							"type": "string",
-							"enum": []string{"left", "right", "wheel"},
+							"enum": []string{"left", "right", "wheel", "back", "forward"},
 						},
 						"keys": map[string]any{
 							"type":        "array",
