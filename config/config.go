@@ -32,6 +32,7 @@ type Config struct {
 	embedder    map[string]provider.Embedder
 	renderer    map[string]provider.Renderer
 	reranker    map[string]provider.Reranker
+	realtime    map[string]provider.Realtime
 	synthesizer map[string]provider.Synthesizer
 	transcriber map[string]provider.Transcriber
 

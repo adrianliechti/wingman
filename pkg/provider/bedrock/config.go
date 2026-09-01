@@ -9,6 +9,8 @@ type Config struct {
 	model string
 
 	client *http.Client
+	region string
+	voice  string
 }
 
 type Option func(*Config)
@@ -16,6 +18,18 @@ type Option func(*Config)
 func WithClient(client *http.Client) Option {
 	return func(c *Config) {
 		c.client = client
+	}
+}
+
+func WithRegion(region string) Option {
+	return func(c *Config) {
+		c.region = region
+	}
+}
+
+func WithVoice(voice string) Option {
+	return func(c *Config) {
+		c.voice = voice
 	}
 }
 

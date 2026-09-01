@@ -134,6 +134,15 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					firstReranker = reranker
 				}
 
+			case ModelTypeRealtime:
+				realtime, err := createRealtime(p, context)
+
+				if err != nil {
+					return err
+				}
+
+				cfg.RegisterRealtime(id, realtime)
+
 			case ModelTypeRenderer:
 				renderer, err := createRenderer(p, context)
 
