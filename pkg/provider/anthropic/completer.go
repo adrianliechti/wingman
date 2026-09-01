@@ -1051,6 +1051,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			req.ToolChoice = anthropic.BetaToolChoiceUnionParam{OfAuto: p}
 
 		case provider.ToolChoiceAny:
+			// Fable/Mythos 5.1 reject forced tool use. Omitting tool_choice
+			// retains the API default (auto), while leaving every supplied tool
+			// available for the model to choose.
+			if matchesModel(c.model, NoForcedToolChoiceModels) {
+				break
+			}
+
 			forcesTool = true
 
 			if len(options.ToolOptions.Allowed) == 1 {

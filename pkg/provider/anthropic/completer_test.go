@@ -323,6 +323,46 @@ func TestConvertRequest_ForcedToolDisablesThinkingAndCapsEffort(t *testing.T) {
 	}
 }
 
+// TestConvertRequest_UnsupportedForcedToolChoiceFallsBackToAuto verifies
+// Fable/Mythos 5.1 do not receive the forced tool choices their API rejects.
+// The tool definitions remain in the request, so the model may still select
+// one automatically.
+func TestConvertRequest_UnsupportedForcedToolChoiceFallsBackToAuto(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		model   string
+		allowed []string
+	}{
+		{name: "any", model: "claude-fable-5-1"},
+		{name: "named tool", model: "claude-mythos-5-1", allowed: []string{"get_weather"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			completer, _ := NewCompleter("http://localhost", tc.model)
+
+			body := requestBody(t, completer, []provider.Message{provider.UserMessage("hi")}, &provider.CompleteOptions{
+				ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive},
+				Tools: []provider.Tool{{
+					Name:       "get_weather",
+					Parameters: map[string]any{"type": "object"},
+				}},
+				ToolOptions: &provider.ToolOptions{Choice: provider.ToolChoiceAny, Allowed: tc.allowed},
+			})
+
+			if _, present := body["tool_choice"]; present {
+				t.Errorf("tool_choice: got %v, want omitted", body["tool_choice"])
+			}
+
+			if _, present := body["thinking"]; !present {
+				t.Error("thinking was disabled along with the ignored forced tool choice")
+			}
+
+			if tools := body["tools"].([]any); len(tools) != 1 {
+				t.Errorf("tools: got %d, want 1", len(tools))
+			}
+		})
+	}
+}
+
 // TestConvertRequest_UnsignedToolHistoryDisablesThinking verifies adaptive
 // thinking is turned off when the last assistant message carries tool calls
 // without a signed thinking block (e.g. signatures stripped for portability):

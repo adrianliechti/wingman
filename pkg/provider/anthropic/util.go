@@ -128,6 +128,14 @@ var NoSamplingModels = []string{
 	"sonnet-5",
 }
 
+// NoForcedToolChoiceModels reject `tool_choice: {type: "any"}` and named
+// `tool_choice: {type: "tool"}`. Leave the choice unset so their normal
+// automatic tool selection can still use the supplied tool definitions.
+var NoForcedToolChoiceModels = []string{
+	"fable-5-1",
+	"mythos-5-1",
+}
+
 // DisabledThinkingEffortCapModels accept `thinking: {type: "disabled"}` only
 // at effort "high" or below — pairing it with "xhigh" or "max" returns a 400.
 var DisabledThinkingEffortCapModels = []string{
