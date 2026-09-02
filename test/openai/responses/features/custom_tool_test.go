@@ -17,7 +17,7 @@ import (
 // (pkg/provider/tools/custom), so these tests cover both paths across the
 // three emulating backends and the native one:
 //
-//	TEST_CUSTOM_TOOL_MODELS=bedrock-sonnet-4-6,claude-sonnet-4-6,gpt-5.4,gemini-3.5-flash \
+//	TEST_CUSTOM_TOOL_MODELS=bedrock-sonnet-4-6,claude-sonnet-4-6,gpt-5.4,gemini-3.8-flash \
 //	  go test ./test/openai/responses/features -run TestCustomTool -v
 //
 // The payload deliberately carries the escape-heavy content that breaks
@@ -36,7 +36,7 @@ func customToolModels() []string {
 		return names
 	}
 
-	return []string{"bedrock-sonnet-4-6", "claude-sonnet-4-6", "gpt-5.4", "gemini-3.5-flash"}
+	return []string{"bedrock-sonnet-4-6", "claude-sonnet-4-6", "gpt-5.4", "gemini-3.8-flash"}
 }
 
 const runPythonDescription = "Run a Python script. This is a FREEFORM tool: send the raw source code, " +

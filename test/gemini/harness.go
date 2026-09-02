@@ -41,7 +41,7 @@ func New(t *testing.T) *Harness {
 		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: env("WINGMAN_BASE_URL", DefaultWingmanURL), APIKey: env("WINGMAN_API_KEY", "test-key")},
 		Gemini:         harness.Endpoint{Name: "gemini", BaseURL: env("GEMINI_BASE_URL", DefaultGeminiURL), APIKey: key},
 		Client:         harness.NewClient(),
-		ReferenceModel: env("TEST_GEMINI_REFERENCE_MODEL", "gemini-3.5-flash"),
+		ReferenceModel: env("TEST_GEMINI_REFERENCE_MODEL", "gemini-3.8-flash"),
 	}
 }
 
@@ -78,7 +78,7 @@ func ModelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"gemini-3.5-flash", "claude-sonnet-4-6", "gpt-5.4"}
+	names := []string{"gemini-3.8-flash", "claude-sonnet-4-6", "gpt-5.4"}
 	if v := os.Getenv("TEST_GEMINI_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {
