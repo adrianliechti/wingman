@@ -70,7 +70,7 @@ func (p *proxy) dial(r *http.Request) (*websocket.Conn, *http.Response, error) {
 		}
 	}
 
-	return (&websocket.Dialer{}).Dial(u.String(), headers)
+	return (&websocket.Dialer{}).DialContext(r.Context(), u.String(), headers)
 }
 
 func (p *proxy) serve(w http.ResponseWriter, r *http.Request) {
@@ -83,13 +83,15 @@ func (p *proxy) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer downstream.Close()
+	downstream.SetReadLimit(32 << 20)
 
 	upstream, resp, err := p.dial(r)
 	if err != nil {
 		log.Printf("Failed to connect to realtime upstream: %v", err)
 
-		if resp != nil {
-			data, _ := io.ReadAll(resp.Body)
+		if resp != nil && resp.Body != nil {
+			data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+			_ = resp.Body.Close()
 			log.Print(string(data))
 		}
 
@@ -98,6 +100,7 @@ func (p *proxy) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer upstream.Close()
+	upstream.SetReadLimit(32 << 20)
 
 	go copyWebSocket(ctx, cancel, downstream, upstream, "client")
 	go copyWebSocket(ctx, cancel, upstream, downstream, "upstream")

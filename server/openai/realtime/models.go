@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -23,10 +24,11 @@ type clientEvent struct {
 
 	Audio string `json:"audio"`
 
-	ItemID       string `json:"item_id"`
-	ResponseID   string `json:"response_id"`
-	ContentIndex int    `json:"content_index"`
-	AudioEndMS   int    `json:"audio_end_ms"`
+	ItemID         string `json:"item_id"`
+	PreviousItemID string `json:"previous_item_id"`
+	ResponseID     string `json:"response_id"`
+	ContentIndex   int    `json:"content_index"`
+	AudioEndMS     int    `json:"audio_end_ms"`
 }
 
 type conversationItem struct {
@@ -90,6 +92,8 @@ func (item conversationItem) message() (provider.Message, error) {
 			if part.Transcript != "" {
 				content = append(content, provider.TextContent(part.Transcript))
 			}
+		default:
+			return provider.Message{}, fmt.Errorf("unsupported conversation content type %q", part.Type)
 		}
 	}
 
@@ -197,6 +201,20 @@ func (c *sessionConfig) apply(data json.RawMessage) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("invalid session: %w", err)
 	}
+	if err := validateObjectFields("session", fields,
+		"type", "instructions", "voice", "input_audio_format", "output_audio_format",
+		"input_audio_transcription", "turn_detection", "audio", "output_modalities", "modalities",
+		"max_output_tokens", "max_response_output_tokens", "temperature", "top_p", "tools",
+		"tool_choice", "truncation",
+	); err != nil {
+		return err
+	}
+	if raw, ok := fields["type"]; ok {
+		var sessionType string
+		if err := json.Unmarshal(raw, &sessionType); err != nil || sessionType != "realtime" {
+			return errors.New("session.type must be \"realtime\"")
+		}
+	}
 
 	if raw, ok := fields["instructions"]; ok {
 		if err := json.Unmarshal(raw, &updated.Instructions); err != nil {
@@ -303,7 +321,11 @@ func (c *sessionConfig) apply(data json.RawMessage) error {
 	}
 
 	if raw, ok := fields["tool_choice"]; ok {
-		updated.ToolChoice = parseToolChoice(raw)
+		toolChoice, err := parseToolChoice(raw)
+		if err != nil {
+			return err
+		}
+		updated.ToolChoice = toolChoice
 	}
 
 	if raw, ok := fields["truncation"]; ok {
@@ -340,11 +362,23 @@ func applyAudioConfig(config *sessionConfig, data json.RawMessage) error {
 	if err := json.Unmarshal(data, &audio); err != nil {
 		return errors.New("session.audio must be an object")
 	}
+	if audio == nil {
+		return errors.New("session.audio must be an object")
+	}
+	if err := validateObjectFields("session.audio", audio, "input", "output"); err != nil {
+		return err
+	}
 
 	if raw, ok := audio["input"]; ok {
 		var input map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &input); err != nil {
 			return errors.New("session.audio.input must be an object")
+		}
+		if input == nil {
+			return errors.New("session.audio.input must be an object")
+		}
+		if err := validateObjectFields("session.audio.input", input, "format", "transcription", "turn_detection", "noise_reduction"); err != nil {
+			return err
 		}
 
 		if value, ok := input["format"]; ok {
@@ -384,6 +418,12 @@ func applyAudioConfig(config *sessionConfig, data json.RawMessage) error {
 		var output map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &output); err != nil {
 			return errors.New("session.audio.output must be an object")
+		}
+		if output == nil {
+			return errors.New("session.audio.output must be an object")
+		}
+		if err := validateObjectFields("session.audio.output", output, "format", "voice"); err != nil {
+			return err
 		}
 
 		if value, ok := output["format"]; ok {
@@ -426,6 +466,13 @@ func parseTranscription(data json.RawMessage) (*provider.RealtimeTranscription, 
 	if string(data) == "null" {
 		return nil, nil
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, errors.New("must be an object or null")
+	}
+	if err := validateObjectFields("session audio transcription", fields, "model", "language", "prompt"); err != nil {
+		return nil, err
+	}
 	var value struct {
 		Model    string `json:"model"`
 		Language string `json:"language"`
@@ -443,6 +490,16 @@ func parseTranscription(data json.RawMessage) (*provider.RealtimeTranscription, 
 func parseTurnDetection(data json.RawMessage) (*provider.RealtimeTurnDetection, error) {
 	if string(data) == "null" {
 		return nil, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, errors.New("must be an object or null")
+	}
+	if err := validateObjectFields("turn detection", fields,
+		"type", "eagerness", "threshold", "prefix_padding_ms", "silence_duration_ms",
+		"idle_timeout_ms", "create_response", "interrupt_response",
+	); err != nil {
+		return nil, err
 	}
 	var value struct {
 		Type              string   `json:"type"`
@@ -462,6 +519,28 @@ func parseTurnDetection(data json.RawMessage) (*provider.RealtimeTurnDetection, 
 	}
 	if value.Type != string(provider.RealtimeTurnDetectionServer) && value.Type != string(provider.RealtimeTurnDetectionSemantic) {
 		return nil, fmt.Errorf("unsupported type %q", value.Type)
+	}
+	if value.Threshold != nil && (*value.Threshold < 0 || *value.Threshold > 1) {
+		return nil, errors.New("threshold must be between 0 and 1")
+	}
+	if value.PrefixPaddingMS < 0 || value.SilenceDurationMS < 0 || value.IdleTimeoutMS < 0 {
+		return nil, errors.New("turn detection durations must not be negative")
+	}
+	if value.IdleTimeoutMS > 0 && (value.IdleTimeoutMS < 5000 || value.IdleTimeoutMS > 30000) {
+		return nil, errors.New("idle_timeout_ms must be between 5000 and 30000")
+	}
+	if value.Type == string(provider.RealtimeTurnDetectionServer) && value.Eagerness != "" {
+		return nil, errors.New("eagerness is only supported for semantic_vad")
+	}
+	if value.Type == string(provider.RealtimeTurnDetectionSemantic) {
+		if value.Threshold != nil || value.PrefixPaddingMS != 0 || value.SilenceDurationMS != 0 || value.IdleTimeoutMS != 0 {
+			return nil, errors.New("threshold and duration fields are only supported for server_vad")
+		}
+		switch value.Eagerness {
+		case "", "auto", "low", "medium", "high":
+		default:
+			return nil, fmt.Errorf("unsupported semantic_vad eagerness %q", value.Eagerness)
+		}
 	}
 	result := &provider.RealtimeTurnDetection{
 		Type:              provider.RealtimeTurnDetectionType(value.Type),
@@ -486,6 +565,13 @@ func parseNoiseReduction(data json.RawMessage) (provider.RealtimeNoiseReduction,
 	if string(data) == "null" {
 		return "", nil
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return "", errors.New("must be an object or null")
+	}
+	if err := validateObjectFields("noise reduction", fields, "type"); err != nil {
+		return "", err
+	}
 	var value struct {
 		Type string `json:"type"`
 	}
@@ -503,10 +589,30 @@ func parseNoiseReduction(data json.RawMessage) (provider.RealtimeNoiseReduction,
 func parseTruncation(data json.RawMessage) (*provider.RealtimeTruncation, error) {
 	var mode string
 	if json.Unmarshal(data, &mode) == nil {
-		if mode != "disabled" {
+		switch mode {
+		case "auto":
+			return nil, nil
+		case "disabled":
+			return &provider.RealtimeTruncation{Disabled: true}, nil
+		default:
 			return nil, fmt.Errorf("unsupported mode %q", mode)
 		}
-		return &provider.RealtimeTruncation{Disabled: true}, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, errors.New("must be an object or \"auto\" or \"disabled\"")
+	}
+	if err := validateObjectFields("truncation", fields, "type", "retention_ratio", "token_limits"); err != nil {
+		return nil, err
+	}
+	if raw, ok := fields["token_limits"]; ok {
+		var tokenLimits map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &tokenLimits); err != nil {
+			return nil, errors.New("truncation.token_limits must be an object")
+		}
+		if err := validateObjectFields("truncation.token_limits", tokenLimits, "post_instructions"); err != nil {
+			return nil, err
+		}
 	}
 	var value struct {
 		Type           string   `json:"type"`
@@ -521,9 +627,46 @@ func parseTruncation(data json.RawMessage) (*provider.RealtimeTruncation, error)
 	if value.Type != "retention_ratio" {
 		return nil, fmt.Errorf("unsupported type %q", value.Type)
 	}
+	if value.RetentionRatio == nil || *value.RetentionRatio < 0 || *value.RetentionRatio > 1 {
+		return nil, errors.New("retention_ratio must be between 0 and 1")
+	}
+	if value.TokenLimits.PostInstructions != nil && *value.TokenLimits.PostInstructions < 0 {
+		return nil, errors.New("token_limits.post_instructions must not be negative")
+	}
 	return &provider.RealtimeTruncation{
 		RetentionRatio: value.RetentionRatio, PostInstructionTokens: value.TokenLimits.PostInstructions,
 	}, nil
+}
+
+func parseMetadata(data json.RawMessage) (map[string]string, error) {
+	if string(data) == "null" {
+		return nil, nil
+	}
+	var metadata map[string]string
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return nil, errors.New("response.metadata must be an object with string values or null")
+	}
+	if len(metadata) > 16 {
+		return nil, errors.New("response.metadata must contain at most 16 entries")
+	}
+	for key, value := range metadata {
+		if utf8.RuneCountInString(key) > 64 {
+			return nil, fmt.Errorf("response.metadata key %q exceeds 64 characters", key)
+		}
+		if utf8.RuneCountInString(value) > 512 {
+			return nil, fmt.Errorf("response.metadata value for %q exceeds 512 characters", key)
+		}
+	}
+	return metadata, nil
+}
+
+func validateObjectFields(context string, fields map[string]json.RawMessage, allowed ...string) error {
+	for name := range fields {
+		if !slices.Contains(allowed, name) {
+			return fmt.Errorf("%s field %q is not supported", context, name)
+		}
+	}
+	return nil
 }
 
 func parseAudioFormat(data json.RawMessage, current provider.RealtimeAudioFormat) (provider.RealtimeAudioFormat, error) {
@@ -531,16 +674,21 @@ func parseAudioFormat(data json.RawMessage, current provider.RealtimeAudioFormat
 	if json.Unmarshal(data, &legacy) == nil {
 		switch legacy {
 		case "pcm16", "audio/pcm":
-			current.Encoding = provider.RealtimeAudioPCM
+			return openAIAudioFormat(provider.RealtimeAudioPCM), nil
 		case "g711_ulaw", "audio/pcmu":
-			current.Encoding = provider.RealtimeAudioPCMU
+			return openAIAudioFormat(provider.RealtimeAudioPCMU), nil
 		case "g711_alaw", "audio/pcma":
-			current.Encoding = provider.RealtimeAudioPCMA
+			return openAIAudioFormat(provider.RealtimeAudioPCMA), nil
 		default:
 			return current, fmt.Errorf("unsupported format %q", legacy)
 		}
-
-		return current, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return current, errors.New("must be a format string or object")
+	}
+	if err := validateObjectFields("audio format", fields, "type", "rate"); err != nil {
+		return current, err
 	}
 
 	var object struct {
@@ -553,11 +701,11 @@ func parseAudioFormat(data json.RawMessage, current provider.RealtimeAudioFormat
 
 	switch object.Type {
 	case "audio/pcm":
-		current.Encoding = provider.RealtimeAudioPCM
+		current = openAIAudioFormat(provider.RealtimeAudioPCM)
 	case "audio/pcmu":
-		current.Encoding = provider.RealtimeAudioPCMU
+		current = openAIAudioFormat(provider.RealtimeAudioPCMU)
 	case "audio/pcma":
-		current.Encoding = provider.RealtimeAudioPCMA
+		current = openAIAudioFormat(provider.RealtimeAudioPCMA)
 	default:
 		return current, fmt.Errorf("unsupported format %q", object.Type)
 	}
@@ -569,18 +717,33 @@ func parseAudioFormat(data json.RawMessage, current provider.RealtimeAudioFormat
 	return current, nil
 }
 
+func openAIAudioFormat(encoding provider.RealtimeAudioEncoding) provider.RealtimeAudioFormat {
+	format := provider.RealtimeAudioFormat{
+		Encoding: encoding,
+		Channels: 1,
+	}
+	if encoding == provider.RealtimeAudioPCM {
+		format.SampleRate = 24000
+		format.SampleSize = 16
+	} else {
+		format.SampleRate = 8000
+		format.SampleSize = 8
+	}
+	return format
+}
+
 func validateAudioFormat(name string, format provider.RealtimeAudioFormat) error {
-	if format.SampleSize != 16 || format.Channels != 1 {
-		return fmt.Errorf("session %s audio must be mono 16-bit", name)
+	if format.Channels != 1 {
+		return fmt.Errorf("session %s audio must be mono", name)
 	}
 	switch format.Encoding {
 	case provider.RealtimeAudioPCM:
-		if format.SampleRate <= 0 {
-			return fmt.Errorf("session %s PCM audio requires a sample rate", name)
+		if format.SampleRate != 24000 || format.SampleSize != 16 {
+			return fmt.Errorf("session %s PCM audio must be 16-bit at 24000 Hz", name)
 		}
 	case provider.RealtimeAudioPCMU, provider.RealtimeAudioPCMA:
-		if format.SampleRate != 8000 {
-			return fmt.Errorf("session %s G.711 audio must use 8000 Hz", name)
+		if format.SampleRate != 8000 || format.SampleSize != 8 {
+			return fmt.Errorf("session %s G.711 audio must be 8-bit at 8000 Hz", name)
 		}
 	default:
 		return fmt.Errorf("session %s audio encoding %q is unsupported", name, format.Encoding)
@@ -592,8 +755,8 @@ func validateAudioFormat(name string, format provider.RealtimeAudioFormat) error
 func parseMaxTokens(data json.RawMessage) (*int, error) {
 	var value int
 	if json.Unmarshal(data, &value) == nil {
-		if value <= 0 {
-			return nil, errors.New("session max output tokens must be positive")
+		if value < 1 || value > 4096 {
+			return nil, errors.New("session max output tokens must be between 1 and 4096")
 		}
 		return &value, nil
 	}
@@ -607,6 +770,18 @@ func parseMaxTokens(data json.RawMessage) (*int, error) {
 }
 
 func parseTools(data json.RawMessage) ([]provider.Tool, error) {
+	var fields []map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, errors.New("session.tools must be an array")
+	}
+	if fields == nil {
+		return nil, errors.New("session.tools must be an array")
+	}
+	for _, tool := range fields {
+		if err := validateObjectFields("realtime tool", tool, "type", "name", "description", "parameters"); err != nil {
+			return nil, err
+		}
+	}
 	var values []struct {
 		Type        string         `json:"type"`
 		Name        string         `json:"name"`
@@ -639,20 +814,22 @@ func parseTools(data json.RawMessage) ([]provider.Tool, error) {
 	return tools, nil
 }
 
-func parseToolChoice(data json.RawMessage) provider.ToolChoice {
+func parseToolChoice(data json.RawMessage) (provider.ToolChoice, error) {
 	var choice string
 	if json.Unmarshal(data, &choice) != nil {
-		return provider.ToolChoiceAny
+		return "", errors.New("session.tool_choice must be a string; named function choices are not supported")
 	}
 
 	switch choice {
 	case "none":
-		return provider.ToolChoiceNone
+		return provider.ToolChoiceNone, nil
 	case "required", "any":
-		return provider.ToolChoiceAny
-	default:
-		return provider.ToolChoiceAuto
+		return provider.ToolChoiceAny, nil
+	case "auto":
+		return provider.ToolChoiceAuto, nil
 	}
+
+	return "", fmt.Errorf("session.tool_choice %q is unsupported", choice)
 }
 
 func modalityStrings(values []provider.RealtimeModality) []string {

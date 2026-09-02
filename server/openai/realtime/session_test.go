@@ -42,12 +42,18 @@ func TestWingmanChatRealtimeNormalAndMixedInputContract(t *testing.T) {
 	assertSessionUpdate(t, updated)
 
 	writeWireEvent(t, conn, map[string]any{
-		"type": "conversation.item.create",
+		"type":             "conversation.item.create",
+		"previous_item_id": "item_before_text",
 		"item": map[string]any{
 			"type": "message", "role": "user",
 			"content": []map[string]any{{"type": "input_text", "text": "Say hello."}},
 		},
 	})
+	createdItem := readWireEvent(t, conn)
+	assertEventType(t, createdItem, "conversation.item.created")
+	if got := createdItem["previous_item_id"]; got != "item_before_text" {
+		t.Errorf("previous_item_id = %v, want item_before_text", got)
+	}
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.added")
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.done")
 
@@ -162,6 +168,7 @@ func TestWingmanChatRealtimeToolsAndMultipleOutputItems(t *testing.T) {
 			"content": []map[string]any{{"type": "input_text", "text": "Weather in New York and Zurich?"}},
 		},
 	})
+	assertEventType(t, readWireEvent(t, conn), "conversation.item.created")
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.added")
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.done")
 	writeWireEvent(t, conn, map[string]any{"type": "response.create"})
@@ -202,6 +209,7 @@ func TestWingmanChatRealtimeToolsAndMultipleOutputItems(t *testing.T) {
 			"item": map[string]any{"type": "function_call_output", "call_id": result.id, "output": result.output},
 		})
 		waitSignal(t, upstream.session.toolResultSent, "tool result")
+		assertEventType(t, readWireEvent(t, conn), "conversation.item.created")
 		assertEventType(t, readWireEvent(t, conn), "conversation.item.added")
 		assertEventType(t, readWireEvent(t, conn), "conversation.item.done")
 	}
@@ -296,6 +304,171 @@ func TestRealtimeProviderContentFilterErrorContract(t *testing.T) {
 	}
 }
 
+func TestRealtimeProviderDiagnosticErrorIsNotExposed(t *testing.T) {
+	upstream := newFakeRealtime()
+	conn := openTestRealtime(t, upstream)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+
+	writeWireEvent(t, conn, map[string]any{
+		"type":  "input_audio_buffer.append",
+		"audio": base64.StdEncoding.EncodeToString([]byte{0, 0}),
+	})
+	waitSignal(t, upstream.session.audioSent, "provider connection")
+	upstream.session.emit(provider.RealtimeEvent{
+		Type: provider.RealtimeEventError,
+		Err:  errors.New("ValidationException: RequestId=secret-upstream-id"),
+	})
+
+	event := readWireEvent(t, conn)
+	assertEventType(t, event, "error")
+	apiError := event["error"].(map[string]any)
+	message, _ := apiError["message"].(string)
+	if message != "The realtime provider reported an error" {
+		t.Errorf("error.message = %q, want generic provider error", message)
+	}
+	if strings.Contains(message, "RequestId") || strings.Contains(message, "ValidationException") {
+		t.Errorf("error.message leaks upstream diagnostics: %q", message)
+	}
+}
+
+func TestRealtimeFailedResponseAndMetadataContract(t *testing.T) {
+	upstream := newFakeRealtime()
+	conn := openTestRealtime(t, upstream)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+
+	writeWireEvent(t, conn, map[string]any{
+		"type":  "input_audio_buffer.append",
+		"audio": base64.StdEncoding.EncodeToString([]byte{0, 0}),
+	})
+	waitSignal(t, upstream.session.audioSent, "provider connection")
+	writeWireEvent(t, conn, map[string]any{
+		"type": "response.create",
+		"response": map[string]any{
+			"metadata": map[string]any{"request": "weather"},
+		},
+	})
+	waitSignal(t, upstream.session.responded, "response.create")
+	upstream.session.emit(
+		provider.RealtimeEvent{Type: provider.RealtimeEventResponseStarted, ResponseID: "resp_failed"},
+		provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: "resp_failed", StopReason: "failed"},
+	)
+
+	trace := readThrough(t, conn, "response.done")
+	for _, eventType := range []string{"response.created", "response.done"} {
+		response := findEvent(t, trace, eventType)["response"].(map[string]any)
+		metadata := response["metadata"].(map[string]any)
+		if got := metadata["request"]; got != "weather" {
+			t.Errorf("%s metadata.request = %v, want weather", eventType, got)
+		}
+	}
+
+	response := findEvent(t, trace, "response.done")["response"].(map[string]any)
+	if got := response["status"]; got != "failed" {
+		t.Errorf("response status = %v, want failed", got)
+	}
+	details := response["status_details"].(map[string]any)
+	if got := details["type"]; got != "failed" {
+		t.Errorf("status_details.type = %v, want failed", got)
+	}
+}
+
+func TestRealtimeAudioFormatParsing(t *testing.T) {
+	current := provider.RealtimeAudioFormat{
+		Encoding: provider.RealtimeAudioPCM, SampleRate: 16000, SampleSize: 16, Channels: 1,
+	}
+	tests := []struct {
+		name string
+		raw  string
+		want provider.RealtimeAudioFormat
+	}{
+		{"PCM object", `{"type":"audio/pcm","rate":24000}`, provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1}},
+		{"PCM legacy", `"pcm16"`, provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1}},
+		{"PCMU object", `{"type":"audio/pcmu"}`, provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCMU, SampleRate: 8000, SampleSize: 8, Channels: 1}},
+		{"PCMA legacy", `"g711_alaw"`, provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCMA, SampleRate: 8000, SampleSize: 8, Channels: 1}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseAudioFormat(json.RawMessage(test.raw), current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("format = %#v, want %#v", got, test.want)
+			}
+			if err := validateAudioFormat("input", got); err != nil {
+				t.Fatalf("canonical format rejected: %v", err)
+			}
+		})
+	}
+
+	invalid, err := parseAudioFormat(json.RawMessage(`{"type":"audio/pcm","rate":16000}`), current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAudioFormat("input", invalid); err == nil {
+		t.Fatal("16000 Hz PCM was accepted")
+	}
+}
+
+func TestRealtimeToolChoiceParsing(t *testing.T) {
+	tests := []struct {
+		raw     string
+		want    provider.ToolChoice
+		wantErr bool
+	}{
+		{`"auto"`, provider.ToolChoiceAuto, false},
+		{`"none"`, provider.ToolChoiceNone, false},
+		{`"required"`, provider.ToolChoiceAny, false},
+		{`"sometimes"`, "", true},
+		{`{"type":"function","name":"weather"}`, "", true},
+	}
+	for _, test := range tests {
+		got, err := parseToolChoice(json.RawMessage(test.raw))
+		if (err != nil) != test.wantErr {
+			t.Errorf("parseToolChoice(%s) error = %v, wantErr %v", test.raw, err, test.wantErr)
+		}
+		if got != test.want {
+			t.Errorf("parseToolChoice(%s) = %q, want %q", test.raw, got, test.want)
+		}
+	}
+}
+
+func TestRealtimeTruncationAndMetadataParsing(t *testing.T) {
+	truncation, err := parseTruncation(json.RawMessage(`"auto"`))
+	if err != nil || truncation != nil {
+		t.Fatalf("auto truncation = %#v, %v; want nil, nil", truncation, err)
+	}
+	if _, err := parseTruncation(json.RawMessage(`{"type":"retention_ratio","retention_ratio":1.1}`)); err == nil {
+		t.Fatal("out-of-range retention ratio was accepted")
+	}
+
+	metadata, err := parseMetadata(json.RawMessage(`{"request":"weather"}`))
+	if err != nil || metadata["request"] != "weather" {
+		t.Fatalf("metadata = %#v, %v", metadata, err)
+	}
+	if _, err := parseMetadata(json.RawMessage(`{"request":42}`)); err == nil {
+		t.Fatal("non-string metadata value was accepted")
+	}
+	if _, err := parseMetadata(json.RawMessage(`{"request":"` + strings.Repeat("x", 513) + `"}`)); err == nil {
+		t.Fatal("oversized metadata value was accepted")
+	}
+}
+
+func TestRealtimeSessionRejectsIgnoredFields(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"realtime","parallel_tool_calls":true}`,
+		`{"type":"realtime","audio":{"output":{"speed":1.25}}}`,
+		`{"type":"realtime","audio":{"input":{"transcription":{"model":"gpt-live-transcribe","keywords":["Wingman"]}}}}`,
+	} {
+		config := newSessionConfig(newFakeRealtime().Defaults())
+		if err := config.apply(json.RawMessage(raw)); err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("session %s error = %v, want explicit unsupported-field error", raw, err)
+		}
+	}
+}
+
 func TestProviderBargeInNormalizesOpenAIInputActivity(t *testing.T) {
 	upstream := newFakeRealtime()
 	upstream.capabilities = provider.RealtimeCapabilities{Interruption: true}
@@ -318,6 +491,7 @@ func TestProviderBargeInNormalizesOpenAIInputActivity(t *testing.T) {
 		provider.RealtimeEvent{Type: provider.RealtimeEventAudioDelta, ResponseID: "resp_barge", ContentID: "assistant_barge", ItemID: "assistant_item", Audio: []byte{1, 2}},
 	)
 	assertEventType(t, readWireEvent(t, conn), "response.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.item.created")
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.added")
 	assertEventType(t, readWireEvent(t, conn), "response.output_item.added")
 	assertEventType(t, readWireEvent(t, conn), "response.content_part.added")
@@ -337,9 +511,11 @@ func TestProviderBargeInNormalizesOpenAIInputActivity(t *testing.T) {
 	})
 	stopped := readWireEvent(t, conn)
 	committed := readWireEvent(t, conn)
+	created := readWireEvent(t, conn)
 	added := readWireEvent(t, conn)
 	assertEventType(t, stopped, "input_audio_buffer.speech_stopped")
 	assertEventType(t, committed, "input_audio_buffer.committed")
+	assertEventType(t, created, "conversation.item.created")
 	assertEventType(t, added, "conversation.item.added")
 	for _, event := range []map[string]any{stopped, committed} {
 		if event["item_id"] != startedItemID {

@@ -119,6 +119,9 @@ func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 	conn, response, err := r.dial(ctx, target, nil)
 	if err != nil {
 		if response != nil {
+			if response.Body != nil {
+				_ = response.Body.Close()
+			}
 			return nil, fmt.Errorf("gemini live: websocket handshake returned %s: %w", response.Status, err)
 		}
 		return nil, fmt.Errorf("gemini live: %w", err)
@@ -293,6 +296,9 @@ func validateGeminiRealtimeOptions(options provider.RealtimeOptions) error {
 	}
 	if options.TurnDetection != nil && !options.TurnDetection.CreateResponse {
 		return errors.New("gemini live: automatic activity detection cannot disable automatic response creation")
+	}
+	if options.ToolChoice == provider.ToolChoiceAny {
+		return errors.New("gemini live: required tool choice is not supported by the Live API")
 	}
 	return nil
 }
@@ -536,7 +542,6 @@ func (s *geminiRealtimeSession) endManualActivity(ctx context.Context) error {
 func (s *geminiRealtimeSession) SendToolResult(ctx context.Context, id, output string) error {
 	s.stateMu.Lock()
 	name := s.toolNames[id]
-	delete(s.toolNames, id)
 	s.stateMu.Unlock()
 	if id == "" || name == "" {
 		return errors.New("gemini live: unknown tool call id")
@@ -545,9 +550,15 @@ func (s *geminiRealtimeSession) SendToolResult(ctx context.Context, id, output s
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		result = output
 	}
-	return s.send(ctx, map[string]any{"toolResponse": map[string]any{"functionResponses": []map[string]any{{
+	if err := s.send(ctx, map[string]any{"toolResponse": map[string]any{"functionResponses": []map[string]any{{
 		"id": id, "name": name, "response": map[string]any{"result": result},
-	}}}})
+	}}}}); err != nil {
+		return err
+	}
+	s.stateMu.Lock()
+	delete(s.toolNames, id)
+	s.stateMu.Unlock()
+	return nil
 }
 
 func (s *geminiRealtimeSession) TruncateOutput(context.Context, string, time.Duration) error {
@@ -588,6 +599,9 @@ func (s *geminiRealtimeSession) send(ctx context.Context, event any) error {
 	defer s.sendMu.Unlock()
 	if s.closed.Load() {
 		return errors.New("gemini live: session is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = s.conn.SetWriteDeadline(deadline)

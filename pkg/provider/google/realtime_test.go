@@ -121,6 +121,18 @@ func TestGeminiRejectsTurnDetectionWithoutAutomaticResponse(t *testing.T) {
 	}
 }
 
+func TestGeminiRejectsRequiredToolChoice(t *testing.T) {
+	realtime, err := NewRealtime("", "gemini-3.1-flash-live-preview", WithToken("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := realtime.Defaults()
+	options.ToolChoice = provider.ToolChoiceAny
+	if err := validateGeminiRealtimeOptions(options); err == nil || !strings.Contains(err.Error(), "required tool choice") {
+		t.Fatalf("validate error = %v, want unsupported required tool choice", err)
+	}
+}
+
 func TestGeminiLiveTranscriptionDefaultsAndValidation(t *testing.T) {
 	realtime, err := NewRealtime("", "gemini-3.5-transcribe-live", WithToken("test"))
 	if err != nil {

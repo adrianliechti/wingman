@@ -331,7 +331,7 @@ func (s *realtimeSession) start(ctx context.Context) error {
 			continue
 		}
 
-		if err := s.sendTextBlock(ctx, message, true); err != nil {
+		if err := s.sendTextBlock(ctx, message, false); err != nil {
 			return err
 		}
 	}
@@ -762,6 +762,8 @@ type novaOutputTracker struct {
 	speculativeTexts int
 	finalTexts       int
 	interrupted      bool
+	usage            provider.RealtimeUsage
+	pendingUsage     provider.RealtimeUsage
 }
 
 func (t *novaOutputTracker) normalize(event provider.RealtimeEvent) []provider.RealtimeEvent {
@@ -799,10 +801,24 @@ func (t *novaOutputTracker) normalize(event provider.RealtimeEvent) []provider.R
 		}
 		return append(result, event)
 
-	case provider.RealtimeEventAudioDelta, provider.RealtimeEventToolCall, provider.RealtimeEventUsage:
+	case provider.RealtimeEventAudioDelta, provider.RealtimeEventToolCall:
 		result := t.ensureTurn()
 		event.ResponseID = t.responseID
 		return append(result, event)
+
+	case provider.RealtimeEventUsage:
+		if event.Usage == nil {
+			return nil
+		}
+		if !t.active {
+			addRealtimeUsage(&t.pendingUsage, event.Usage)
+			return nil
+		}
+		addRealtimeUsage(&t.usage, event.Usage)
+		usage := t.usage
+		event.ResponseID = t.responseID
+		event.Usage = &usage
+		return []provider.RealtimeEvent{event}
 
 	case provider.RealtimeEventInterrupted:
 		result := t.ensureTurn()
@@ -865,11 +881,20 @@ func (t *novaOutputTracker) ensureTurn() []provider.RealtimeEvent {
 	t.speculativeTexts = 0
 	t.finalTexts = 0
 	t.interrupted = false
+	t.usage = t.pendingUsage
+	t.pendingUsage = provider.RealtimeUsage{}
 
-	return []provider.RealtimeEvent{{
+	result := []provider.RealtimeEvent{{
 		Type:       provider.RealtimeEventResponseStarted,
 		ResponseID: t.responseID,
 	}}
+	if t.usage != (provider.RealtimeUsage{}) {
+		usage := t.usage
+		result = append(result, provider.RealtimeEvent{
+			Type: provider.RealtimeEventUsage, ResponseID: t.responseID, Usage: &usage,
+		})
+	}
+	return result
 }
 
 func (t *novaOutputTracker) resetTurn() {
@@ -879,6 +904,16 @@ func (t *novaOutputTracker) resetTurn() {
 	t.speculativeTexts = 0
 	t.finalTexts = 0
 	t.interrupted = false
+	t.usage = provider.RealtimeUsage{}
+}
+
+func addRealtimeUsage(total *provider.RealtimeUsage, delta *provider.RealtimeUsage) {
+	total.InputTokens += delta.InputTokens
+	total.OutputTokens += delta.OutputTokens
+	total.InputTextTokens += delta.InputTextTokens
+	total.InputAudioTokens += delta.InputAudioTokens
+	total.OutputTextTokens += delta.OutputTextTokens
+	total.OutputAudioTokens += delta.OutputAudioTokens
 }
 
 func isNovaInterrupted(reason string) bool {
@@ -956,6 +991,10 @@ type novaUsageEvent struct {
 	TotalOutputTokens int    `json:"totalOutputTokens"`
 
 	Details struct {
+		Delta struct {
+			Input  novaTokenDetails `json:"input"`
+			Output novaTokenDetails `json:"output"`
+		} `json:"delta"`
 		Total struct {
 			Input  novaTokenDetails `json:"input"`
 			Output novaTokenDetails `json:"output"`
@@ -1076,14 +1115,14 @@ func parseRealtimeEvent(data []byte) (provider.RealtimeEvent, bool, error) {
 			Type:       provider.RealtimeEventUsage,
 			ResponseID: value.CompletionID,
 			Usage: &provider.RealtimeUsage{
-				InputTokens:  value.TotalInputTokens,
-				OutputTokens: value.TotalOutputTokens,
+				InputTokens:  value.Details.Delta.Input.TextTokens + value.Details.Delta.Input.SpeechTokens,
+				OutputTokens: value.Details.Delta.Output.TextTokens + value.Details.Delta.Output.SpeechTokens,
 
-				InputTextTokens:  value.Details.Total.Input.TextTokens,
-				InputAudioTokens: value.Details.Total.Input.SpeechTokens,
+				InputTextTokens:  value.Details.Delta.Input.TextTokens,
+				InputAudioTokens: value.Details.Delta.Input.SpeechTokens,
 
-				OutputTextTokens:  value.Details.Total.Output.TextTokens,
-				OutputAudioTokens: value.Details.Total.Output.SpeechTokens,
+				OutputTextTokens:  value.Details.Delta.Output.TextTokens,
+				OutputAudioTokens: value.Details.Delta.Output.SpeechTokens,
 			},
 		}, true, nil
 	}

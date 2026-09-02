@@ -120,6 +120,9 @@ func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 	conn, response, err := r.dial(ctx, target, headers)
 	if err != nil {
 		if response != nil {
+			if response.Body != nil {
+				_ = response.Body.Close()
+			}
 			return nil, fmt.Errorf("openai realtime: websocket handshake returned %s: %w", response.Status, err)
 		}
 		return nil, fmt.Errorf("openai realtime: %w", err)
@@ -133,7 +136,6 @@ func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 		conn:        conn,
 		events:      make(chan provider.RealtimeEvent, 128),
 		ready:       make(chan error, 1),
-		options:     resolved,
 		contents:    make(map[string]provider.RealtimeContentType),
 		transcripts: make(map[string]bool),
 	}
@@ -261,17 +263,17 @@ func validateOpenAIRealtimeOptions(options provider.RealtimeOptions) error {
 	for name, format := range map[string]provider.RealtimeAudioFormat{
 		"input": options.InputAudio, "output": options.OutputAudio,
 	} {
-		if format.SampleSize != 16 || format.Channels != 1 {
-			return fmt.Errorf("openai realtime: %s audio must be mono 16-bit", name)
+		if format.Channels != 1 {
+			return fmt.Errorf("openai realtime: %s audio must be mono", name)
 		}
 		switch format.Encoding {
 		case provider.RealtimeAudioPCM:
-			if format.SampleRate != 24000 {
-				return fmt.Errorf("openai realtime: %s PCM audio must use 24000 Hz", name)
+			if format.SampleRate != 24000 || format.SampleSize != 16 {
+				return fmt.Errorf("openai realtime: %s PCM audio must be 16-bit at 24000 Hz", name)
 			}
 		case provider.RealtimeAudioPCMU, provider.RealtimeAudioPCMA:
-			if format.SampleRate != 8000 {
-				return fmt.Errorf("openai realtime: %s G.711 audio must use 8000 Hz", name)
+			if format.SampleRate != 8000 || format.SampleSize != 8 {
+				return fmt.Errorf("openai realtime: %s G.711 audio must be 8-bit at 8000 Hz", name)
 			}
 		default:
 			return fmt.Errorf("openai realtime: unsupported %s audio encoding %q", name, format.Encoding)
@@ -293,14 +295,11 @@ type openAIRealtimeSession struct {
 	ready  chan error
 
 	sendMu    sync.Mutex
-	stateMu   sync.Mutex
 	closeOnce sync.Once
 	closed    atomic.Bool
 
-	options        provider.RealtimeOptions
-	contents       map[string]provider.RealtimeContentType
-	transcripts    map[string]bool
-	activeResponse string
+	contents    map[string]provider.RealtimeContentType
+	transcripts map[string]bool
 }
 
 var _ provider.RealtimeSession = (*openAIRealtimeSession)(nil)
@@ -312,10 +311,6 @@ func (s *openAIRealtimeSession) Update(ctx context.Context, options *provider.Re
 	if err := validateOpenAIRealtimeOptions(*options); err != nil {
 		return err
 	}
-
-	s.stateMu.Lock()
-	s.options = *options
-	s.stateMu.Unlock()
 
 	return s.send(ctx, map[string]any{
 		"type":     "session.update",
@@ -549,6 +544,9 @@ func (s *openAIRealtimeSession) send(ctx context.Context, event any) error {
 	if s.closed.Load() {
 		return errors.New("openai realtime: session is closed")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = s.conn.SetWriteDeadline(deadline)
 		defer s.conn.SetWriteDeadline(time.Time{})
@@ -578,13 +576,28 @@ func (s *openAIRealtimeSession) receive() {
 			Type string `json:"type"`
 		}
 		if err := json.Unmarshal(data, &header); err != nil {
-			s.emit(provider.RealtimeEvent{Type: provider.RealtimeEventError, Err: fmt.Errorf("openai realtime: decode event: %w", err)})
+			decodeErr := fmt.Errorf("openai realtime: decode event: %w", err)
+			if !ready {
+				s.signalReady(decodeErr)
+				return
+			}
+			s.emit(provider.RealtimeEvent{Type: provider.RealtimeEventError, Err: decodeErr})
 			continue
 		}
 		if header.Type == "session.created" && !ready {
 			ready = true
 			s.signalReady(nil)
 			continue
+		}
+		if header.Type == "error" && !ready {
+			var value openAIRealtimeEvent
+			_ = json.Unmarshal(data, &value)
+			message := value.Error.Message
+			if message == "" {
+				message = "the provider rejected the realtime session"
+			}
+			s.signalReady(fmt.Errorf("openai realtime: session setup failed: %s", message))
+			return
 		}
 
 		for _, event := range s.translate(data) {
@@ -678,7 +691,6 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 	contentID := fmt.Sprintf("%s:%d", value.ItemID, value.ContentIndex)
 	switch value.Type {
 	case "response.created":
-		s.activeResponse = value.Response.ID
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventResponseStarted, ResponseID: value.Response.ID}}
 
 	case "response.content_part.added":
@@ -701,7 +713,9 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventAudioDelta, ResponseID: value.ResponseID, ContentID: contentID, ItemID: value.ItemID, Audio: audio}}
 
 	case "response.content_part.done":
-		return []provider.RealtimeEvent{{Type: provider.RealtimeEventContentDone, ResponseID: value.ResponseID, ContentID: contentID, ItemID: value.ItemID, ContentType: s.contents[contentID]}}
+		contentType := s.contents[contentID]
+		delete(s.contents, contentID)
+		return []provider.RealtimeEvent{{Type: provider.RealtimeEventContentDone, ResponseID: value.ResponseID, ContentID: contentID, ItemID: value.ItemID, ContentType: contentType}}
 
 	case "response.function_call_arguments.done":
 		id := value.ItemID
@@ -764,10 +778,10 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 			events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventInterrupted, ResponseID: value.Response.ID})
 		}
 		events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: value.Response.ID, StopReason: stopReason})
-		s.activeResponse = ""
 		return events
 
 	case "conversation.item.input_audio_transcription.failed":
+		delete(s.transcripts, contentID)
 		message := value.Error.Message
 		if message == "" {
 			message = value.Type

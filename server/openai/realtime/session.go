@@ -19,11 +19,6 @@ import (
 
 const maxAudioEventSize = 15 << 20
 
-type queuedMessage struct {
-	item    conversationItem
-	message provider.Message
-}
-
 type openAISession struct {
 	conn         *websocket.Conn
 	provider     provider.Realtime
@@ -39,7 +34,7 @@ type openAISession struct {
 	upstreamEvents <-chan provider.RealtimeEvent
 	providerFailed bool
 
-	queued []queuedMessage
+	queued []provider.Message
 
 	manualAudio bytes.Buffer
 
@@ -50,6 +45,7 @@ type openAISession struct {
 	inputCommitted     bool
 
 	nextOutputModalities   []string
+	nextResponseMetadata   map[string]string
 	activeOutputModalities []string
 
 	response *responseState
@@ -189,7 +185,7 @@ func (s *openAISession) handleClientEvent(ctx context.Context, data []byte) erro
 		}
 
 	case "conversation.item.create":
-		err = s.createConversationItem(ctx, event.Item)
+		err = s.createConversationItem(ctx, event.Item, event.PreviousItemID)
 
 	case "conversation.item.truncate":
 		if s.upstream != nil {
@@ -211,6 +207,8 @@ func (s *openAISession) handleClientEvent(ctx context.Context, data []byte) erro
 	case "response.cancel":
 		if s.upstream == nil {
 			err = errors.New("there is no active response to cancel")
+		} else if event.ResponseID != "" && s.response != nil && event.ResponseID != s.response.id {
+			err = fmt.Errorf("response %q is not active", event.ResponseID)
 		} else {
 			err = s.upstream.Interrupt(ctx)
 		}
@@ -257,7 +255,7 @@ func (s *openAISession) appendAudio(ctx context.Context, encoded string) error {
 		return errors.New("audio is required")
 	}
 
-	if len(encoded) > maxAudioEventSize*2 {
+	if len(encoded) > base64.StdEncoding.EncodedLen(maxAudioEventSize) {
 		return errors.New("audio event exceeds the 15 MiB limit")
 	}
 
@@ -274,7 +272,7 @@ func (s *openAISession) appendAudio(ctx context.Context, encoded string) error {
 		return err
 	}
 
-	if err := s.ensureProvider(ctx, s.queuedMessages()); err != nil {
+	if err := s.ensureProvider(ctx, s.queued); err != nil {
 		return err
 	}
 	s.queued = nil
@@ -295,7 +293,7 @@ func (s *openAISession) commitAudio(ctx context.Context) error {
 	}
 
 	if s.upstream == nil {
-		if err := s.ensureProvider(ctx, s.queuedMessages()); err != nil {
+		if err := s.ensureProvider(ctx, s.queued); err != nil {
 			return err
 		}
 		s.queued = nil
@@ -366,7 +364,7 @@ func (s *openAISession) clearAudio(ctx context.Context) error {
 	return nil
 }
 
-func (s *openAISession) createConversationItem(ctx context.Context, data json.RawMessage) error {
+func (s *openAISession) createConversationItem(ctx context.Context, data json.RawMessage, previousItemID string) error {
 	var item conversationItem
 	if err := json.Unmarshal(data, &item); err != nil {
 		return errors.New("conversation item is invalid")
@@ -375,23 +373,38 @@ func (s *openAISession) createConversationItem(ctx context.Context, data json.Ra
 
 	switch item.Type {
 	case "function_call_output":
+		if item.CallID == "" {
+			return errors.New("function call output requires call_id")
+		}
 		if s.upstream == nil {
 			return errors.New("function output received before a realtime provider session exists")
 		}
 		if err := s.upstream.SendToolResult(ctx, item.CallID, item.Output); err != nil {
 			return err
 		}
-		return s.writeConversationItem(item)
+		return s.writeConversationItem(item, previousItemID)
 
 	case "message":
 		audio := item.audio()
 		if audio != "" {
+			if item.Role != "user" {
+				return errors.New("only user messages can contain input audio")
+			}
+			if len(item.Content) != 1 || item.Content[0].Type != "input_audio" {
+				return errors.New("conversation input audio cannot be mixed with other content")
+			}
+			if len(audio) > base64.StdEncoding.EncodedLen(maxAudioEventSize) {
+				return errors.New("conversation input audio exceeds the 15 MiB limit")
+			}
 			decoded, err := base64.StdEncoding.DecodeString(audio)
 			if err != nil {
 				return errors.New("conversation input audio must be base64 encoded")
 			}
+			if len(decoded) > maxAudioEventSize {
+				return errors.New("conversation input audio exceeds the 15 MiB limit")
+			}
 
-			if err := s.ensureProvider(ctx, s.queuedMessages()); err != nil {
+			if err := s.ensureProvider(ctx, s.queued); err != nil {
 				return err
 			}
 			s.queued = nil
@@ -403,7 +416,7 @@ func (s *openAISession) createConversationItem(ctx context.Context, data json.Ra
 				return err
 			}
 
-			return s.writeConversationItem(item)
+			return s.writeConversationItem(item, previousItemID)
 		}
 
 		message, err := item.message()
@@ -415,14 +428,14 @@ func (s *openAISession) createConversationItem(ctx context.Context, data json.Ra
 		}
 
 		if s.upstream == nil {
-			s.queued = append(s.queued, queuedMessage{item: item, message: message})
-			return s.writeConversationItem(item)
+			s.queued = append(s.queued, message)
+			return s.writeConversationItem(item, previousItemID)
 		}
 
 		if err := s.upstream.SendMessage(ctx, message); err != nil {
 			return err
 		}
-		return s.writeConversationItem(item)
+		return s.writeConversationItem(item, previousItemID)
 
 	default:
 		return fmt.Errorf("conversation item type %q is unsupported", item.Type)
@@ -430,6 +443,8 @@ func (s *openAISession) createConversationItem(ctx context.Context, data json.Ra
 }
 
 func (s *openAISession) createResponse(ctx context.Context, data json.RawMessage) error {
+	var nextOutputModalities []string
+	var nextResponseMetadata map[string]string
 	if len(data) > 0 && string(data) != "null" && string(data) != "{}" {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(data, &fields); err != nil {
@@ -438,47 +453,52 @@ func (s *openAISession) createResponse(ctx context.Context, data json.RawMessage
 
 		if raw, ok := fields["output_modalities"]; ok {
 			var modalities []string
-			if err := json.Unmarshal(raw, &modalities); err != nil || len(modalities) == 0 {
-				return errors.New("response.output_modalities must be a non-empty array")
+			if err := json.Unmarshal(raw, &modalities); err != nil || len(modalities) != 1 {
+				return errors.New("response.output_modalities must contain exactly one modality")
 			}
 			for _, modality := range modalities {
 				if modality != "audio" && modality != "text" {
 					return fmt.Errorf("unsupported response output modality %q", modality)
 				}
 			}
-			s.nextOutputModalities = modalities
+			nextOutputModalities = modalities
+		}
+
+		if raw, ok := fields["metadata"]; ok {
+			metadata, err := parseMetadata(raw)
+			if err != nil {
+				return err
+			}
+			nextResponseMetadata = metadata
 		}
 
 		for name := range fields {
 			if name != "output_modalities" && name != "metadata" {
-				return fmt.Errorf("response override %q is not supported by Nova Sonic", name)
+				return fmt.Errorf("response override %q is not supported", name)
 			}
 		}
 	}
+	s.nextOutputModalities = nextOutputModalities
+	s.nextResponseMetadata = nextResponseMetadata
 
 	if s.upstream == nil {
 		history := s.queued
-		var current *queuedMessage
+		var current *provider.Message
 		if len(history) > 0 {
 			last := history[len(history)-1]
-			if last.message.Role == provider.MessageRoleUser {
+			if last.Role == provider.MessageRoleUser {
 				current = &last
 				history = history[:len(history)-1]
 			}
 		}
 
-		messages := make([]provider.Message, 0, len(history))
-		for _, queued := range history {
-			messages = append(messages, queued.message)
-		}
-
-		if err := s.ensureProvider(ctx, messages); err != nil {
+		if err := s.ensureProvider(ctx, history); err != nil {
 			return err
 		}
 		s.queued = nil
 
 		if current != nil {
-			if err := s.upstream.SendMessage(ctx, current.message); err != nil {
+			if err := s.upstream.SendMessage(ctx, *current); err != nil {
 				return err
 			}
 		}
@@ -506,28 +526,35 @@ func (s *openAISession) ensureProvider(ctx context.Context, history []provider.M
 	return nil
 }
 
-func (s *openAISession) queuedMessages() []provider.Message {
-	messages := make([]provider.Message, 0, len(s.queued))
-	for _, queued := range s.queued {
-		messages = append(messages, queued.message)
-	}
-
-	return messages
-}
-
-func (s *openAISession) writeConversationItem(item conversationItem) error {
-	if err := s.write(map[string]any{
-		"type":             "conversation.item.added",
-		"previous_item_id": nil,
-		"item":             item,
-	}); err != nil {
+func (s *openAISession) writeConversationItem(item conversationItem, previousItemID string) error {
+	if err := s.writeConversationItemStarted(item, previousItemID); err != nil {
 		return err
 	}
 
 	return s.write(map[string]any{
-		"type": "conversation.item.done",
-		"item": item,
+		"type":             "conversation.item.done",
+		"previous_item_id": nullableString(previousItemID),
+		"item":             item,
 	})
+}
+
+func (s *openAISession) writeConversationItemStarted(item any, previousItemID string) error {
+	previous := nullableString(previousItemID)
+	if err := s.write(map[string]any{
+		"type":             "conversation.item.created",
+		"previous_item_id": previous,
+		"item":             item,
+	}); err != nil {
+		return err
+	}
+	if err := s.write(map[string]any{
+		"type":             "conversation.item.added",
+		"previous_item_id": previous,
+		"item":             item,
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *openAISession) audioMilliseconds(size int64) int64 {

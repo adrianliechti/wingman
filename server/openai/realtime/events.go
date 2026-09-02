@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"maps"
 	"slices"
 	"strings"
 
@@ -49,6 +50,7 @@ type toolState struct {
 type responseState struct {
 	id         string
 	modalities []string
+	metadata   map[string]string
 	output     []map[string]any
 
 	assistant *assistantState
@@ -194,11 +196,12 @@ func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error 
 
 	case provider.RealtimeEventError:
 		message := "The realtime provider reported an error"
+		diagnostic := message
 		if event.Err != nil {
-			message = event.Err.Error()
+			diagnostic = event.Err.Error()
 		}
 		s.providerFailed = true
-		log.Printf("Realtime provider %q error: %s", s.model, message)
+		log.Printf("Realtime provider %q error: %s", s.model, diagnostic)
 
 		errorType := "invalid_request_error"
 		code := "provider_error"
@@ -240,8 +243,10 @@ func (s *openAISession) startResponse(id string) error {
 	}
 	s.activeOutputModalities = nil
 	s.response = &responseState{
-		id: id, modalities: modalities, tools: make(map[string]*toolState),
+		id: id, modalities: modalities, metadata: maps.Clone(s.nextResponseMetadata),
+		tools: make(map[string]*toolState),
 	}
+	s.nextResponseMetadata = nil
 	return s.write(map[string]any{
 		"type": "response.created", "response": s.responseObject("in_progress", nil),
 	})
@@ -294,9 +299,7 @@ func (s *openAISession) startContent(event provider.RealtimeEvent) error {
 			s.inputCommitted = true
 		}
 		item := inputAudioItem(itemID, "in_progress", "")
-		return s.write(map[string]any{
-			"type": "conversation.item.added", "previous_item_id": nil, "item": item,
-		})
+		return s.writeConversationItemStarted(item, "")
 
 	case provider.MessageRoleAssistant:
 		if event.ContentType == provider.RealtimeContentTool {
@@ -336,9 +339,7 @@ func (s *openAISession) ensureAssistant(event provider.RealtimeEvent) (*assistan
 	assistant.item["content"] = []map[string]any{}
 	s.response.assistant = assistant
 
-	if err := s.write(map[string]any{
-		"type": "conversation.item.added", "previous_item_id": nil, "item": assistant.item,
-	}); err != nil {
+	if err := s.writeConversationItemStarted(assistant.item, ""); err != nil {
 		return nil, err
 	}
 	if err := s.write(map[string]any{
@@ -466,7 +467,7 @@ func (s *openAISession) writeToolCall(event provider.RealtimeEvent) error {
 	}
 	s.response.tools[contentID] = tool
 
-	if err := s.write(map[string]any{"type": "conversation.item.added", "previous_item_id": nil, "item": item}); err != nil {
+	if err := s.writeConversationItemStarted(item, ""); err != nil {
 		return err
 	}
 	if err := s.write(map[string]any{
@@ -553,7 +554,7 @@ func (s *openAISession) finishResponse(event provider.RealtimeEvent) error {
 	var statusDetails any
 	if s.response.interrupted {
 		status = "cancelled"
-		statusDetails = map[string]any{"type": "cancelled", "reason": "turn_detected"}
+		statusDetails = map[string]any{"type": "cancelled", "reason": cancellationReason(event.StopReason)}
 	} else if isIncomplete(event.StopReason) {
 		status = "incomplete"
 		reason := "content_filter"
@@ -561,6 +562,12 @@ func (s *openAISession) finishResponse(event provider.RealtimeEvent) error {
 			reason = "max_output_tokens"
 		}
 		statusDetails = map[string]any{"type": "incomplete", "reason": reason}
+	} else if isFailed(event.StopReason) {
+		status = "failed"
+		statusDetails = map[string]any{
+			"type":  "failed",
+			"error": map[string]any{"type": "server_error", "code": "provider_error"},
+		}
 	}
 
 	response := s.responseObject(status, statusDetails)
@@ -646,16 +653,18 @@ func (s *openAISession) responseObject(status string, statusDetails any) map[str
 	output := []map[string]any{}
 	modalities := slices.Clone(s.config.OutputModalities)
 	var usage any
+	var metadata any
 	if s.response != nil {
 		output = slices.Clone(s.response.output)
 		modalities = slices.Clone(s.response.modalities)
 		usage = usageObject(s.response.usage)
+		metadata = maps.Clone(s.response.metadata)
 	}
 	return map[string]any{
 		"id": s.response.id, "object": "realtime.response", "status": status,
 		"status_details": statusDetails, "output": output,
 		"conversation_id": s.conversationID, "output_modalities": modalities,
-		"max_output_tokens": maxTokens, "metadata": nil, "usage": usage,
+		"max_output_tokens": maxTokens, "metadata": metadata, "usage": usage,
 		"audio": map[string]any{"output": map[string]any{
 			"format": audioFormatObject(s.config.OutputAudio), "voice": s.config.Voice,
 		}},
@@ -709,7 +718,20 @@ func isInterrupted(reason string) bool {
 	return strings.Contains(reason, "interrupt") || strings.Contains(reason, "cancel")
 }
 
+func cancellationReason(reason string) string {
+	reason = strings.ToLower(reason)
+	if strings.Contains(reason, "client") || strings.Contains(reason, "cancel") {
+		return "client_cancelled"
+	}
+	return "turn_detected"
+}
+
 func isIncomplete(reason string) bool {
 	reason = strings.ToLower(reason)
 	return strings.Contains(reason, "token") || strings.Contains(reason, "filter") || strings.Contains(reason, "guardrail")
+}
+
+func isFailed(reason string) bool {
+	reason = strings.ToLower(reason)
+	return strings.Contains(reason, "fail") || strings.Contains(reason, "error")
 }

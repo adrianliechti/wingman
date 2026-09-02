@@ -47,6 +47,7 @@ func (h *Handler) handleRealtime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(32 << 20)
 
 	session := newOpenAISession(conn, realtime, model)
 	if err := session.run(r.Context()); err != nil && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {

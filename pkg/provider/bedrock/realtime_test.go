@@ -175,8 +175,8 @@ func TestNova2StartEventSequenceAndToolSchema(t *testing.T) {
 
 	for _, index := range []int{5, 8} {
 		historyStart := eventPayload(t, stream.inputs[index], "contentStart")
-		if interactive, _ := historyStart["interactive"].(bool); !interactive {
-			t.Errorf("history contentStart[%d] interactive = false", index)
+		if interactive, _ := historyStart["interactive"].(bool); interactive {
+			t.Errorf("history contentStart[%d] interactive = true", index)
 		}
 	}
 
@@ -285,6 +285,24 @@ func TestParseNova2OutputEvents(t *testing.T) {
 			data: map[string]any{"completionEnd": map[string]any{"completionId": "completion", "stopReason": "END_TURN"}},
 			want: provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: "completion", StopReason: "END_TURN"},
 		},
+		{
+			name: "usage delta",
+			data: map[string]any{"usageEvent": map[string]any{
+				"completionId": "completion", "totalInputTokens": 101, "totalOutputTokens": 52,
+				"details": map[string]any{"delta": map[string]any{
+					"input":  map[string]any{"speechTokens": 3, "textTokens": 2},
+					"output": map[string]any{"speechTokens": 7, "textTokens": 5},
+				}},
+			}},
+			want: provider.RealtimeEvent{
+				Type: provider.RealtimeEventUsage, ResponseID: "completion",
+				Usage: &provider.RealtimeUsage{
+					InputTokens: 5, OutputTokens: 12,
+					InputTextTokens: 2, InputAudioTokens: 3,
+					OutputTextTokens: 5, OutputAudioTokens: 7,
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -304,6 +322,42 @@ func TestParseNova2OutputEvents(t *testing.T) {
 				t.Fatalf("event = %#v, want %#v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestNovaOutputTrackerUsesPerTurnUsageDeltas(t *testing.T) {
+	tracker := novaOutputTracker{}
+	if got := tracker.normalize(provider.RealtimeEvent{
+		Type:  provider.RealtimeEventUsage,
+		Usage: &provider.RealtimeUsage{InputTokens: 4, InputTextTokens: 4},
+	}); len(got) != 0 {
+		t.Fatalf("pre-turn usage emitted events: %#v", got)
+	}
+
+	started := tracker.normalize(provider.RealtimeEvent{
+		Type: provider.RealtimeEventContentStarted, ContentID: "assistant",
+		ContentType: provider.RealtimeContentAudio, Role: provider.MessageRoleAssistant,
+	})
+	if got := eventTypes(started); !reflect.DeepEqual(got, []provider.RealtimeEventType{
+		provider.RealtimeEventResponseStarted,
+		provider.RealtimeEventUsage,
+		provider.RealtimeEventContentStarted,
+	}) {
+		t.Fatalf("turn start types = %v", got)
+	}
+	if usage := started[1].Usage; usage == nil || usage.InputTokens != 4 {
+		t.Fatalf("initial usage = %#v", usage)
+	}
+
+	updated := tracker.normalize(provider.RealtimeEvent{
+		Type:  provider.RealtimeEventUsage,
+		Usage: &provider.RealtimeUsage{OutputTokens: 3, OutputAudioTokens: 3},
+	})
+	if len(updated) != 1 || updated[0].Usage == nil {
+		t.Fatalf("updated usage events = %#v", updated)
+	}
+	if got := *updated[0].Usage; got.InputTokens != 4 || got.OutputTokens != 3 || got.OutputAudioTokens != 3 {
+		t.Fatalf("accumulated usage = %#v", got)
 	}
 }
 
