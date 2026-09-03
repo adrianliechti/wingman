@@ -111,6 +111,7 @@ type Tool struct {
 
 	Strict     *bool          `json:"strict,omitempty"`
 	Parameters map[string]any `json:"parameters,omitempty"`
+	Async      *bool          `json:"async,omitempty"`
 
 	// For namespace tools (groups of function/custom tools).
 	Tools []Tool `json:"tools,omitempty"`
@@ -298,6 +299,7 @@ const (
 	InputItemTypeLocalShellCallOutput InputItemType = "local_shell_call_output"
 	InputItemTypeToolSearchCall       InputItemType = "tool_search_call"
 	InputItemTypeToolSearchOutput     InputItemType = "tool_search_output"
+	InputItemTypeConfigurationUpdate  InputItemType = "configuration_update"
 	InputItemTypeCompactionTrigger    InputItemType = "compaction_trigger"
 )
 
@@ -320,6 +322,9 @@ type InputItem struct {
 
 	// For compaction type
 	*InputCompaction
+
+	// For configuration_update type
+	*InputConfigurationUpdate
 
 	// For function_call type
 	*InputFunctionCall
@@ -477,6 +482,7 @@ type InputCustomToolCall struct {
 	Namespace string `json:"namespace,omitempty"`
 	Input     string `json:"input,omitempty"`
 	Status    string `json:"status,omitempty"`
+	Async     bool   `json:"async,omitempty"`
 }
 
 // InputCustomToolCallOutput represents the result of a custom tool call.
@@ -523,6 +529,16 @@ type InputCompaction struct {
 	EncryptedContent string `json:"encrypted_content,omitempty"`
 }
 
+// InputConfigurationUpdate changes reasoning effort at this exact point in a
+// GPT-6 Astra conversation.
+type InputConfigurationUpdate struct {
+	Reasoning ConfigurationUpdateReasoning `json:"reasoning"`
+}
+
+type ConfigurationUpdateReasoning struct {
+	Effort ReasoningEffort `json:"effort"`
+}
+
 // ReasoningSummaryPart represents a part of the reasoning summary
 type ReasoningSummaryPart struct {
 	Type string `json:"type,omitempty"` // "summary_text"
@@ -537,6 +553,7 @@ type InputFunctionCall struct {
 	Namespace string `json:"namespace,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
 	Status    string `json:"status,omitempty"` // "in_progress", "completed"
+	Async     bool   `json:"async,omitempty"`
 }
 
 // InputFunctionCallOutput represents a function call output in the input
@@ -651,6 +668,13 @@ func (ri *ResponsesInput) UnmarshalJSON(data []byte) error {
 			}
 			item.InputCompaction = &compaction
 
+		case InputItemTypeConfigurationUpdate:
+			var update InputConfigurationUpdate
+			if err := json.Unmarshal(raw, &update); err != nil {
+				return err
+			}
+			item.InputConfigurationUpdate = &update
+
 		case InputItemTypeFunctionCall:
 			var fc InputFunctionCall
 			if err := json.Unmarshal(raw, &fc); err != nil {
@@ -759,6 +783,8 @@ var (
 
 type InputMessage struct {
 	Role MessageRole `json:"role,omitempty"`
+	// Phase is valid on assistant history messages and must be replayed.
+	Phase string `json:"phase,omitempty"`
 
 	Content []InputContent `json:"content,omitempty"`
 }
@@ -780,12 +806,14 @@ func (im *InputMessage) UnmarshalJSON(data []byte) error {
 	}
 
 	var textInput struct {
-		Role MessageRole `json:"role"`
-		Text string      `json:"text"`
+		Role  MessageRole `json:"role"`
+		Phase string      `json:"phase"`
+		Text  string      `json:"text"`
 	}
 
 	if err := json.Unmarshal(data, &textInput); err == nil && textInput.Role != "" && textInput.Text != "" {
 		im.Role = textInput.Role
+		im.Phase = textInput.Phase
 
 		im.Content = []InputContent{
 			{
@@ -799,11 +827,13 @@ func (im *InputMessage) UnmarshalJSON(data []byte) error {
 
 	var messageInput struct {
 		Role    MessageRole `json:"role"`
+		Phase   string      `json:"phase"`
 		Content any         `json:"content"`
 	}
 
 	if err := json.Unmarshal(data, &messageInput); err == nil {
 		im.Role = messageInput.Role
+		im.Phase = messageInput.Phase
 
 		switch content := messageInput.Content.(type) {
 		case string:
@@ -1103,6 +1133,7 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Name      string             `json:"name"`
 				Namespace string             `json:"namespace,omitempty"`
 				Input     string             `json:"input"`
+				Async     bool               `json:"async,omitempty"`
 			}{
 				Type:      r.Type,
 				ID:        r.CustomToolCallItem.ID,
@@ -1111,6 +1142,7 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 				Name:      r.CustomToolCallItem.Name,
 				Namespace: r.CustomToolCallItem.Namespace,
 				Input:     r.CustomToolCallItem.Input,
+				Async:     r.CustomToolCallItem.Async,
 			})
 		}
 	case ResponseOutputTypeReasoning:
@@ -1211,6 +1243,7 @@ type CustomToolCallItem struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
 	Input     string `json:"input"`
+	Async     bool   `json:"async,omitempty"`
 }
 
 type OutputMessage struct {
@@ -1377,6 +1410,7 @@ type FunctionCallOutputItem struct {
 	Namespace string `json:"namespace,omitempty"`
 	CallID    string `json:"call_id"`
 	Arguments string `json:"arguments"`
+	Async     bool   `json:"async,omitempty"`
 }
 
 // FunctionCallOutputItemAddedEvent is emitted when a function call output item is added

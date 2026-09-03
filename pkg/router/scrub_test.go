@@ -9,7 +9,8 @@ import (
 func TestScrubMessages(t *testing.T) {
 	messages := []provider.Message{
 		{
-			Role: provider.MessageRoleAssistant,
+			Role:  provider.MessageRoleAssistant,
+			Phase: provider.MessagePhaseCommentary,
 			Content: []provider.Content{
 				provider.ReasoningContent(provider.Reasoning{Text: "thinking", Signature: "SIG"}),
 				provider.CompactionContent(provider.Compaction{Signature: "SIG"}),
@@ -26,6 +27,10 @@ func TestScrubMessages(t *testing.T) {
 
 	if result[0].Content[0].Text != "answer" {
 		t.Errorf("expected text content to survive, got %+v", result[0].Content[0])
+	}
+
+	if result[0].Phase != provider.MessagePhaseCommentary {
+		t.Errorf("expected message phase to survive, got %q", result[0].Phase)
 	}
 }
 

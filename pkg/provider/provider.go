@@ -25,6 +25,7 @@ type Tool struct {
 
 	Strict   *bool
 	Deferred *bool
+	Async    *bool
 
 	Execution  string
 	Parameters map[string]any

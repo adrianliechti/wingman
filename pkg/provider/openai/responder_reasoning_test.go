@@ -2,12 +2,183 @@ package openai
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/openai/openai-go/v3/responses"
 )
+
+func TestGPT6AstraNormalizesUnsupportedReasoningEfforts(t *testing.T) {
+	tests := []struct {
+		name      string
+		reasoning provider.ReasoningOptions
+	}{
+		{name: "none", reasoning: provider.ReasoningOptions{Type: provider.ReasoningTypeDisabled}},
+		{name: "minimal", reasoning: provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive, Effort: provider.EffortMinimal}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			temperature := float32(0.7)
+			options := &provider.CompleteOptions{ReasoningOptions: &tt.reasoning, Temperature: &temperature}
+
+			responder, err := NewResponder("", "gpt-6-astra")
+			if err != nil {
+				t.Fatalf("new responder: %v", err)
+			}
+			responsesRequest, err := responder.convertResponsesRequest([]provider.Message{provider.UserMessage("hi")}, options)
+			if err != nil {
+				t.Fatalf("convert Responses request: %v", err)
+			}
+			assertAstraRequestCompatibility(t, responsesRequest)
+
+			completer, err := NewCompleter("", "gpt-6-astra")
+			if err != nil {
+				t.Fatalf("new completer: %v", err)
+			}
+			chatRequest, err := completer.convertCompletionRequest([]provider.Message{provider.UserMessage("hi")}, options)
+			if err != nil {
+				t.Fatalf("convert Chat request: %v", err)
+			}
+			assertAstraRequestCompatibility(t, chatRequest)
+		})
+	}
+}
+
+func assertAstraRequestCompatibility(t *testing.T, request any) {
+	t.Helper()
+
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+
+	var effort any
+	if reasoning, ok := payload["reasoning"].(map[string]any); ok {
+		effort = reasoning["effort"]
+	} else {
+		effort = payload["reasoning_effort"]
+	}
+	if effort != "low" {
+		t.Fatalf("reasoning effort = %v, want low; request=%s", effort, data)
+	}
+	if _, ok := payload["temperature"]; ok {
+		t.Fatalf("Astra request unexpectedly includes temperature: %s", data)
+	}
+}
+
+func TestGPT6AstraResponsesFeaturesRoundTrip(t *testing.T) {
+	async := true
+	responder, err := NewResponder("", "gpt-6-astra")
+	if err != nil {
+		t.Fatalf("new responder: %v", err)
+	}
+
+	messages := []provider.Message{
+		provider.UserMessage("start"),
+		{
+			Role:    provider.MessageRoleAssistant,
+			Phase:   provider.MessagePhaseCommentary,
+			Content: []provider.Content{provider.TextContent("working")},
+		},
+		{
+			Content: []provider.Content{provider.CompactionTriggerContent()},
+		},
+		{
+			Content: []provider.Content{provider.ConfigurationUpdateContent(provider.ConfigurationUpdate{
+				ReasoningEffort: provider.EffortHigh,
+			})},
+		},
+		{
+			Role: provider.MessageRoleAssistant,
+			Content: []provider.Content{
+				provider.ToolCallContent(provider.ToolCall{ID: "call_fn", Async: true, Name: "lookup", Arguments: `{}`}),
+				provider.ToolCallContent(provider.ToolCall{ID: "call_custom", Async: true, Kind: provider.ToolKindCustom, Name: "query", Arguments: "select 1"}),
+			},
+		},
+	}
+
+	req, err := responder.convertResponsesRequest(messages, &provider.CompleteOptions{Tools: []provider.Tool{
+		{Name: "lookup", Async: &async, Parameters: map[string]any{"type": "object"}},
+		{Name: "query", Kind: provider.ToolKindCustom, Async: &async},
+	}})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var payload struct {
+		Truncation string           `json:"truncation"`
+		Input      []map[string]any `json:"input"`
+		Tools      []map[string]any `json:"tools"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if payload.Truncation != "disabled" {
+		t.Fatalf("truncation = %q, want disabled", payload.Truncation)
+	}
+	if len(payload.Input) != 6 {
+		t.Fatalf("input item count = %d, want 6: %s", len(payload.Input), data)
+	}
+	if payload.Input[1]["phase"] != "commentary" {
+		t.Fatalf("assistant phase lost: %v", payload.Input[1])
+	}
+	if payload.Input[2]["type"] != "compaction_trigger" {
+		t.Fatalf("compaction trigger moved: %v", payload.Input[2])
+	}
+	update, ok := payload.Input[3]["reasoning"].(map[string]any)
+	if payload.Input[3]["type"] != "configuration_update" || !ok || update["effort"] != "high" {
+		t.Fatalf("configuration update lost: %v", payload.Input[3])
+	}
+	for _, i := range []int{4, 5} {
+		if payload.Input[i]["async"] != true {
+			t.Fatalf("async call lost at input[%d]: %v", i, payload.Input[i])
+		}
+	}
+	for i, tool := range payload.Tools {
+		if tool["async"] != true {
+			t.Fatalf("async tool lost at tools[%d]: %v", i, tool)
+		}
+	}
+}
+
+func TestConfigurationUpdateRejectsAutomaticCompaction(t *testing.T) {
+	responder, err := NewResponder("", "gpt-6-astra")
+	if err != nil {
+		t.Fatalf("new responder: %v", err)
+	}
+
+	_, err = responder.convertResponsesRequest([]provider.Message{{
+		Content: []provider.Content{provider.ConfigurationUpdateContent(provider.ConfigurationUpdate{ReasoningEffort: provider.EffortHigh})},
+	}}, &provider.CompleteOptions{CompactionOptions: &provider.CompactionOptions{Threshold: 10_000}})
+
+	var providerErr *provider.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Code != 400 {
+		t.Fatalf("error = %v, want ProviderError 400", err)
+	}
+}
+
+func TestResponseToolCallAsyncReadsUnknownSDKField(t *testing.T) {
+	if !responseToolCallAsync(`{"type":"function_call","async":true}`) {
+		t.Fatal("expected async=true")
+	}
+	if responseToolCallAsync(`{"type":"function_call"}`) {
+		t.Fatal("expected missing async to be false")
+	}
+}
 
 // TestConvertResponsesRequest_ReasoningMax verifies effort "max" (GPT-5.6+,
 // no SDK constant yet) passes through verbatim.

@@ -115,6 +115,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				if len(content) > 0 {
 					result = append(result, provider.Message{
 						Role:    provider.MessageRoleAssistant,
+						Phase:   provider.MessagePhase(m.Phase),
 						Content: content,
 					})
 				}
@@ -188,6 +189,22 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				})
 			}
 
+		case InputItemTypeConfigurationUpdate:
+			if item.InputConfigurationUpdate == nil {
+				continue
+			}
+
+			flushCalls()
+			flushResults()
+
+			result = append(result, provider.Message{
+				Content: []provider.Content{
+					provider.ConfigurationUpdateContent(provider.ConfigurationUpdate{
+						ReasoningEffort: provider.Effort(item.InputConfigurationUpdate.Reasoning.Effort),
+					}),
+				},
+			})
+
 		case InputItemTypeFunctionCall:
 			if item.InputFunctionCall == nil {
 				continue
@@ -199,6 +216,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
 				ID:        call.CallID,
+				Async:     call.Async,
 				Name:      call.Name,
 				Namespace: call.Namespace,
 				Arguments: call.Arguments,
@@ -293,6 +311,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			kindByCallID[call.CallID] = kind
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
 				ID:        call.CallID,
+				Async:     call.Async,
 				Kind:      kind,
 				Name:      name,
 				Namespace: call.Namespace,
@@ -453,7 +472,12 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			}))
 
 		case InputItemTypeCompactionTrigger:
-			// positional marker, surfaced via CompleteOptions.CompactionOptions
+			flushCalls()
+			flushResults()
+
+			result = append(result, provider.Message{
+				Content: []provider.Content{provider.CompactionTriggerContent()},
+			})
 		}
 	}
 
@@ -536,6 +560,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 				Description: t.Description,
 				Strict:      t.Strict,
 				Deferred:    t.DeferLoading,
+				Async:       t.Async,
 				Parameters:  tool.NormalizeSchema(t.Parameters),
 			})
 
@@ -558,6 +583,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 				Description: t.Description,
 				Kind:        kind,
 				Deferred:    t.DeferLoading,
+				Async:       t.Async,
 			}
 			// kept for apply_patch too: the format marks the freeform (Codex)
 			// declaration, which providers with a native custom tool pass
@@ -626,6 +652,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 						Description: inner.Description,
 						Strict:      inner.Strict,
 						Deferred:    inner.DeferLoading,
+						Async:       inner.Async,
 						Parameters:  tool.NormalizeSchema(inner.Parameters),
 					})
 				case ToolTypeCustom:
@@ -637,6 +664,7 @@ func toTools(tools []Tool) ([]provider.Tool, error) {
 						Description: inner.Description,
 						Kind:        provider.ToolKindCustom,
 						Deferred:    inner.DeferLoading,
+						Async:       inner.Async,
 					}
 					if inner.Format != nil {
 						custom.Format = &provider.ToolFormat{
@@ -788,6 +816,7 @@ func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomTool
 
 		return &CustomToolCallItem{
 			ID:     "ctc_" + call.ID,
+			Async:  call.Async,
 			Type:   "custom_tool_call",
 			CallID: call.ID,
 			Status: status,
@@ -798,6 +827,7 @@ func toolCallToCustomToolCall(call provider.ToolCall, status string) *CustomTool
 
 	return &CustomToolCallItem{
 		ID:        "ctc_" + call.ID,
+		Async:     call.Async,
 		Type:      "custom_tool_call",
 		CallID:    call.ID,
 		Status:    status,

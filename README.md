@@ -165,6 +165,7 @@ providers:
   - type: openai
     token: ${OPENAI_API_KEY}
     models:
+      - gpt-6-astra
       - gpt-5.4
       - gpt-5.4-mini
       - text-embedding-3-large
@@ -260,6 +261,7 @@ providers:
     token: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
     models:
+      - gpt-6-astra
       - gpt-4o
       - gpt-4o-mini
       - text-embedding-3-small

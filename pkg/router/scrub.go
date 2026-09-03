@@ -18,6 +18,7 @@ func ScrubMessages(messages []provider.Message) []provider.Message {
 
 		result = append(result, provider.Message{
 			Role:    m.Role,
+			Phase:   m.Phase,
 			Content: content,
 		})
 	}

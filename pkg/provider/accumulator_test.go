@@ -40,6 +40,29 @@ func TestCompletionAccumulatorConcatsToolCallFragments(t *testing.T) {
 	}
 }
 
+func TestCompletionAccumulatorPreservesPhaseAndAsyncToolCall(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	acc.Add(Completion{Message: &Message{
+		Role:  MessageRoleAssistant,
+		Phase: MessagePhaseCommentary,
+		Content: []Content{ToolCallContent(ToolCall{
+			ID:    "call_async",
+			Async: true,
+			Name:  "lookup",
+		})},
+	}})
+
+	result := acc.Result()
+	if result.Message.Phase != MessagePhaseCommentary {
+		t.Fatalf("phase = %q, want commentary", result.Message.Phase)
+	}
+	calls := result.Message.ToolCalls()
+	if len(calls) != 1 || !calls[0].Async {
+		t.Fatalf("async tool call lost: %+v", calls)
+	}
+}
+
 // The pipeline is fragments-only: the accumulator must append verbatim, even
 // when a fragment coincidentally restates the accumulated prefix (adapters
 // normalize snapshot backends before chunks get here). Guessing at this layer

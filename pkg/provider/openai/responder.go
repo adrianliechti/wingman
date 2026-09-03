@@ -77,6 +77,20 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			}, nil)
 		}
 
+		emitPhase := func(phase responses.ResponseOutputMessagePhase) bool {
+			if phase == "" {
+				return true
+			}
+			return yield(&provider.Completion{
+				ID:    responseID,
+				Model: responseModel,
+				Message: &provider.Message{
+					Role:  provider.MessageRoleAssistant,
+					Phase: provider.MessagePhase(phase),
+				},
+			}, nil)
+		}
+
 		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage) bool {
 			return yield(&provider.Completion{
 				ID:     responseID,
@@ -117,15 +131,20 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseInProgressEvent:
 			case responses.ResponseOutputItemAddedEvent:
 				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseOutputMessage:
+					if !emitPhase(item.Phase) {
+						return
+					}
+
 				case responses.ResponseFunctionToolCall:
 					itemToCallID[item.ID] = item.CallID
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Name: item.Name, Namespace: item.Namespace}), "") {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Async: responseToolCallAsync(item.RawJSON()), Name: item.Name, Namespace: item.Namespace}), "") {
 						return
 					}
 
 				case responses.ResponseCustomToolCall:
 					itemToCallID[item.ID] = item.CallID
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name, Namespace: item.Namespace}), "") {
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Async: responseToolCallAsync(item.RawJSON()), Kind: provider.ToolKindCustom, Name: item.Name, Namespace: item.Namespace}), "") {
 						return
 					}
 
@@ -199,6 +218,21 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseContentPartDoneEvent:
 			case responses.ResponseOutputItemDoneEvent:
 				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseOutputMessage:
+					if !emitPhase(item.Phase) {
+						return
+					}
+
+				case responses.ResponseFunctionToolCall:
+					if responseToolCallAsync(item.RawJSON()) && !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Async: true}), "") {
+						return
+					}
+
+				case responses.ResponseCustomToolCall:
+					if responseToolCallAsync(item.RawJSON()) && !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Async: true}), "") {
+						return
+					}
+
 				case responses.ResponseApplyPatchToolCall:
 					args, _ := json.Marshal(map[string]any{
 						"type": item.Operation.Type,
@@ -306,11 +340,28 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 	}
 }
 
+func responseToolCallAsync(raw string) bool {
+	var item struct {
+		Async bool `json:"async"`
+	}
+	_ = json.Unmarshal([]byte(raw), &item)
+	return item.Async
+}
+
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {
 	if !isLegacyModel(r.model) && options.Temperature != nil {
 		optsCopy := *options
 		optsCopy.Temperature = nil
 		options = &optsCopy
+	}
+
+	hasConfigurationUpdate := containsConfigurationUpdate(messages)
+	if hasConfigurationUpdate && options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 {
+		return nil, &provider.ProviderError{
+			Code:    400,
+			Type:    "invalid_request_error",
+			Message: "configuration_update cannot be combined with automatic compaction",
+		}
 	}
 
 	input, err := r.convertResponsesInput(messages, r.isOpenAI() && freeformPatchTool(options.Tools))
@@ -334,6 +385,9 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		Tools: tools,
 
 		Truncation: responses.ResponseNewParamsTruncationAuto,
+	}
+	if hasConfigurationUpdate {
+		req.Truncation = responses.ResponseNewParamsTruncationDisabled
 	}
 
 	if options.ToolOptions != nil {
@@ -359,34 +413,8 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 			req.Reasoning.Summary = responses.ReasoningSummaryAuto
 		}
 
-		switch reasoning.Effort {
-		case provider.EffortMinimal:
-			req.Reasoning.Effort = responses.ReasoningEffortMinimal
-
-		case provider.EffortLow:
-			req.Reasoning.Effort = responses.ReasoningEffortLow
-
-		case provider.EffortMedium:
-			req.Reasoning.Effort = responses.ReasoningEffortMedium
-
-		case provider.EffortHigh:
-			req.Reasoning.Effort = responses.ReasoningEffortHigh
-
-		case provider.EffortXHigh:
-			req.Reasoning.Effort = responses.ReasoningEffortXhigh
-
-		case provider.EffortMax:
-			// GPT-5.6+; no SDK constant yet
-			req.Reasoning.Effort = responses.ReasoningEffort("max")
-
-		default:
-			if reasoning.Type == provider.ReasoningTypeAdaptive {
-				req.Reasoning.Effort = responses.ReasoningEffortMedium
-			}
-		}
-
-		if reasoning.Type == provider.ReasoningTypeDisabled {
-			req.Reasoning.Effort = responses.ReasoningEffortNone
+		if effort := normalizedReasoningEffort(r.model, reasoning); effort != "" {
+			req.Reasoning.Effort = responses.ReasoningEffort(effort)
 		}
 	}
 
@@ -399,7 +427,7 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		}
 	}
 
-	if options.CompactionOptions != nil && options.CompactionOptions.Trigger {
+	if options.CompactionOptions != nil && options.CompactionOptions.Trigger && !containsCompactionTrigger(messages) {
 		trigger := responses.NewResponseInputItemCompactionTriggerParam()
 		req.Input.OfInputItemList = append(req.Input.OfInputItemList, responses.ResponseInputItemUnionParam{
 			OfCompactionTrigger: &trigger,
@@ -474,10 +502,64 @@ func freeformPatchTool(tools []provider.Tool) bool {
 	return false
 }
 
+func containsConfigurationUpdate(messages []provider.Message) bool {
+	for _, message := range messages {
+		for _, content := range message.Content {
+			if content.ConfigurationUpdate != nil {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func containsCompactionTrigger(messages []provider.Message) bool {
+	for _, message := range messages {
+		for _, content := range message.Content {
+			if content.CompactionTrigger {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (r *Responder) convertResponsesInput(messages []provider.Message, freeformPatch bool) (responses.ResponseNewParamsInputUnion, error) {
 	var result []responses.ResponseInputItemUnionParam
 
 	for _, m := range messages {
+		var controlItems []responses.ResponseInputItemUnionParam
+		for _, content := range m.Content {
+			if content.CompactionTrigger {
+				trigger := responses.NewResponseInputItemCompactionTriggerParam()
+				controlItems = append(controlItems, responses.ResponseInputItemUnionParam{
+					OfCompactionTrigger: &trigger,
+				})
+			}
+
+			if content.ConfigurationUpdate == nil {
+				continue
+			}
+			data, err := json.Marshal(map[string]any{
+				"type": "configuration_update",
+				"reasoning": map[string]any{
+					"effort": content.ConfigurationUpdate.ReasoningEffort,
+				},
+			})
+			if err != nil {
+				return responses.ResponseNewParamsInputUnion{}, err
+			}
+
+			controlItems = append(controlItems,
+				param.Override[responses.ResponseInputItemUnionParam](json.RawMessage(data)))
+		}
+		if len(controlItems) > 0 {
+			result = append(result, controlItems...)
+			continue
+		}
+
 		switch m.Role {
 		case provider.MessageRoleSystem:
 			message := &responses.ResponseInputItemMessageParam{
@@ -670,7 +752,12 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 			}
 
 		case provider.MessageRoleAssistant:
-			message := &responses.ResponseOutputMessageParam{}
+			newMessage := func() *responses.ResponseOutputMessageParam {
+				return &responses.ResponseOutputMessageParam{
+					Phase: responses.ResponseOutputMessagePhase(m.Phase),
+				}
+			}
+			message := newMessage()
 
 			// The Responses API pairs each reasoning item with the item that
 			// immediately follows it, so items must replay in encounter order.
@@ -679,7 +766,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 					result = append(result, responses.ResponseInputItemUnionParam{
 						OfOutputMessage: message,
 					})
-					message = &responses.ResponseOutputMessageParam{}
+					message = newMessage()
 				}
 			}
 
@@ -760,11 +847,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 
 							// emulated function tool — replay as function_call
 							result = append(result, responses.ResponseInputItemUnionParam{
-								OfFunctionCall: &responses.ResponseFunctionToolCallParam{
-									CallID:    c.ToolCall.ID,
-									Name:      c.ToolCall.Name,
-									Arguments: args,
-								},
+								OfFunctionCall: responseFunctionCallParam(*c.ToolCall, c.ToolCall.Name, args),
 							})
 							continue
 						}
@@ -777,11 +860,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 							}
 
 							result = append(result, responses.ResponseInputItemUnionParam{
-								OfCustomToolCall: &responses.ResponseCustomToolCallParam{
-									CallID: c.ToolCall.ID,
-									Name:   texteditor.NameApplyPatch,
-									Input:  input,
-								},
+								OfCustomToolCall: responseCustomToolCallParam(*c.ToolCall, texteditor.NameApplyPatch, input),
 							})
 							continue
 						}
@@ -806,11 +885,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 						if !r.isOpenAI() {
 							// emulated function tool — replay as function_call
 							result = append(result, responses.ResponseInputItemUnionParam{
-								OfFunctionCall: &responses.ResponseFunctionToolCallParam{
-									CallID:    c.ToolCall.ID,
-									Name:      c.ToolCall.Name,
-									Arguments: c.ToolCall.Arguments,
-								},
+								OfFunctionCall: responseFunctionCallParam(*c.ToolCall, c.ToolCall.Name, c.ToolCall.Arguments),
 							})
 							continue
 						}
@@ -826,23 +901,12 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 						} else {
 							// emulated function tool — replay as function_call
 							result = append(result, responses.ResponseInputItemUnionParam{
-								OfFunctionCall: &responses.ResponseFunctionToolCallParam{
-									CallID:    c.ToolCall.ID,
-									Name:      c.ToolCall.Name,
-									Arguments: c.ToolCall.Arguments,
-								},
+								OfFunctionCall: responseFunctionCallParam(*c.ToolCall, c.ToolCall.Name, c.ToolCall.Arguments),
 							})
 						}
 
 					case provider.ToolKindCustom:
-						custom := &responses.ResponseCustomToolCallParam{
-							CallID: c.ToolCall.ID,
-							Name:   c.ToolCall.Name,
-							Input:  c.ToolCall.Arguments,
-						}
-						if c.ToolCall.Namespace != "" {
-							custom.Namespace = openai.String(c.ToolCall.Namespace)
-						}
+						custom := responseCustomToolCallParam(*c.ToolCall, c.ToolCall.Name, c.ToolCall.Arguments)
 						result = append(result, responses.ResponseInputItemUnionParam{
 							OfCustomToolCall: custom,
 						})
@@ -870,14 +934,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 						})
 
 					default:
-						fc := &responses.ResponseFunctionToolCallParam{
-							CallID:    c.ToolCall.ID,
-							Name:      c.ToolCall.Name,
-							Arguments: c.ToolCall.Arguments,
-						}
-						if c.ToolCall.Namespace != "" {
-							fc.Namespace = openai.String(c.ToolCall.Namespace)
-						}
+						fc := responseFunctionCallParam(*c.ToolCall, c.ToolCall.Name, c.ToolCall.Arguments)
 						result = append(result, responses.ResponseInputItemUnionParam{
 							OfFunctionCall: fc,
 						})
@@ -892,6 +949,36 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 	return responses.ResponseNewParamsInputUnion{
 		OfInputItemList: result,
 	}, nil
+}
+
+func responseFunctionCallParam(call provider.ToolCall, name, arguments string) *responses.ResponseFunctionToolCallParam {
+	item := &responses.ResponseFunctionToolCallParam{
+		CallID:    call.ID,
+		Name:      name,
+		Arguments: arguments,
+	}
+	if call.Namespace != "" {
+		item.Namespace = openai.String(call.Namespace)
+	}
+	if call.Async {
+		item.SetExtraFields(map[string]any{"async": true})
+	}
+	return item
+}
+
+func responseCustomToolCallParam(call provider.ToolCall, name, input string) *responses.ResponseCustomToolCallParam {
+	item := &responses.ResponseCustomToolCallParam{
+		CallID: call.ID,
+		Name:   name,
+		Input:  input,
+	}
+	if call.Namespace != "" {
+		item.Namespace = openai.String(call.Namespace)
+	}
+	if call.Async {
+		item.SetExtraFields(map[string]any{"async": true})
+	}
+	return item
 }
 
 func isImage(contentType string) bool {
@@ -1129,6 +1216,9 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 				if inner.Deferred != nil && *inner.Deferred {
 					fn.DeferLoading = openai.Bool(true)
 				}
+				if inner.Async != nil {
+					fn.SetExtraFields(map[string]any{"async": *inner.Async})
+				}
 				ns.Tools = append(ns.Tools, responses.NamespaceToolToolUnionParam{
 					OfFunction: &fn,
 				})
@@ -1169,6 +1259,9 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 		if t.Deferred != nil && *t.Deferred {
 			function.DeferLoading = openai.Bool(true)
 		}
+		if t.Async != nil {
+			function.SetExtraFields(map[string]any{"async": *t.Async})
+		}
 
 		result = append(result, responses.ToolUnionParam{
 			OfFunction: function,
@@ -1193,6 +1286,9 @@ func customToolParam(t provider.Tool) *responses.CustomToolParam {
 
 	if t.Deferred != nil && *t.Deferred {
 		custom.DeferLoading = openai.Bool(true)
+	}
+	if t.Async != nil {
+		custom.SetExtraFields(map[string]any{"async": *t.Async})
 	}
 
 	return custom

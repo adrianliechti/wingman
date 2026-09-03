@@ -12,6 +12,7 @@ type Completer interface {
 
 type Message struct {
 	Role MessageRole
+	Phase MessagePhase
 
 	Content []Content
 }
@@ -155,6 +156,16 @@ func CompactionContent(val Compaction) Content {
 	}
 }
 
+func CompactionTriggerContent() Content {
+	return Content{CompactionTrigger: true}
+}
+
+func ConfigurationUpdateContent(val ConfigurationUpdate) Content {
+	return Content{
+		ConfigurationUpdate: &val,
+	}
+}
+
 type Content struct {
 	Text    string
 	Refusal string
@@ -163,6 +174,9 @@ type Content struct {
 
 	Reasoning  *Reasoning
 	Compaction *Compaction
+
+	CompactionTrigger   bool
+	ConfigurationUpdate *ConfigurationUpdate
 
 	ToolCall   *ToolCall
 	ToolResult *ToolResult
@@ -176,8 +190,16 @@ const (
 	MessageRoleAssistant MessageRole = "assistant"
 )
 
+type MessagePhase string
+
+const (
+	MessagePhaseCommentary  MessagePhase = "commentary"
+	MessagePhaseFinalAnswer MessagePhase = "final_answer"
+)
+
 type ToolCall struct {
 	ID string
+	Async bool
 
 	Kind ToolKind
 
@@ -352,6 +374,10 @@ type Compaction struct {
 	Content string
 
 	Signature string
+}
+
+type ConfigurationUpdate struct {
+	ReasoningEffort Effort
 }
 
 type CompactionOptions struct {
