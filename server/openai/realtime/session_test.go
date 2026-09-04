@@ -107,14 +107,14 @@ func TestWingmanChatRealtimeNormalAndMixedInputContract(t *testing.T) {
 		provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ContentID: "input_voice", ItemID: "item_voice", Text: "Hi"},
 		provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ContentID: "input_voice", ItemID: "item_voice", ContentType: provider.RealtimeContentText},
 	)
-	inputTrace := readThrough(t, conn, "conversation.item.done")
+	inputTrace := readThrough(t, conn, "conversation.item.input_audio_transcription.completed")
 	assertSubsequence(t, inputTrace,
 		"input_audio_buffer.speech_stopped",
 		"input_audio_buffer.committed",
 		"conversation.item.added",
+		"conversation.item.done",
 		"conversation.item.input_audio_transcription.delta",
 		"conversation.item.input_audio_transcription.completed",
-		"conversation.item.done",
 	)
 	transcript := findEvent(t, inputTrace, "conversation.item.input_audio_transcription.completed")
 	if got, _ := transcript["transcript"].(string); got != "Hi" {

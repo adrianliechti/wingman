@@ -12,14 +12,11 @@ import (
 
 type Handler struct {
 	*config.Config
-
-	proxy *proxy
 }
 
 func New(cfg *config.Config) *Handler {
 	return &Handler{
 		Config: cfg,
-		proxy:  newProxy(),
 	}
 }
 
@@ -32,11 +29,6 @@ func (h *Handler) handleRealtime(w http.ResponseWriter, r *http.Request) {
 	realtime, err := h.Realtime(model)
 
 	if err != nil {
-		if h.proxy != nil {
-			h.proxy.serve(w, r)
-			return
-		}
-
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}

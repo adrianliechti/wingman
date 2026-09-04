@@ -150,10 +150,13 @@ func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error 
 		s.pendingInputItemID = itemID
 		s.inputCommitted = true
 		s.turnAudioBytes = 0
-		return s.write(map[string]any{
+		if err := s.write(map[string]any{
 			"type": "input_audio_buffer.committed", "item_id": itemID,
 			"previous_item_id": nullableString(event.PreviousItemID),
-		})
+		}); err != nil {
+			return err
+		}
+		return s.writeConversationItem(inputAudioItem(itemID, "completed", ""), event.PreviousItemID)
 
 	case provider.RealtimeEventInputCleared:
 		s.manualAudio.Reset()
@@ -182,6 +185,21 @@ func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error 
 				"type": "transcription_error", "code": "transcription_failed",
 				"message": message, "param": nil,
 			},
+		})
+
+	case provider.RealtimeEventInputTimeoutTriggered:
+		return s.write(map[string]any{
+			"type": "input_audio_buffer.timeout_triggered", "item_id": event.ItemID,
+			"audio_start_ms": event.AudioStart.Milliseconds(),
+			"audio_end_ms":   event.AudioEnd.Milliseconds(),
+		})
+
+	case provider.RealtimeEventInputTranscriptionSegment:
+		return s.write(map[string]any{
+			"type":    "conversation.item.input_audio_transcription.segment",
+			"item_id": event.ItemID, "content_index": event.ContentIndex,
+			"text": event.Text, "id": event.SegmentID, "speaker": event.Speaker,
+			"start": event.SegmentStart, "end": event.SegmentEnd,
 		})
 
 	case provider.RealtimeEventRateLimits:
@@ -298,8 +316,8 @@ func (s *openAISession) startContent(event provider.RealtimeEvent) error {
 			s.speechActive = false
 			s.inputCommitted = true
 		}
-		item := inputAudioItem(itemID, "in_progress", "")
-		return s.writeConversationItemStarted(item, "")
+		item := inputAudioItem(itemID, "completed", "")
+		return s.writeConversationItem(item, "")
 
 	case provider.MessageRoleAssistant:
 		if event.ContentType == provider.RealtimeContentTool {
@@ -503,7 +521,7 @@ func (s *openAISession) writeToolCall(event provider.RealtimeEvent) error {
 	}); err != nil {
 		return err
 	}
-	return s.write(map[string]any{"type": "conversation.item.done", "previous_item_id": nil, "item": item})
+	return s.writeConversationItemDone(item, "")
 }
 
 func (s *openAISession) finishContent(event provider.RealtimeEvent) error {
@@ -515,7 +533,6 @@ func (s *openAISession) finishContent(event provider.RealtimeEvent) error {
 
 	if state.role == provider.MessageRoleUser {
 		transcript := state.text.String()
-		item := inputAudioItem(state.itemID, "completed", transcript)
 		if s.config.Transcription != nil {
 			if err := s.write(map[string]any{
 				"type":    "conversation.item.input_audio_transcription.completed",
@@ -528,7 +545,7 @@ func (s *openAISession) finishContent(event provider.RealtimeEvent) error {
 		s.pendingInputItemID = ""
 		s.inputCommitted = false
 		s.speechActive = false
-		return s.write(map[string]any{"type": "conversation.item.done", "previous_item_id": nil, "item": item})
+		return nil
 	}
 
 	if state.role == provider.MessageRoleAssistant && state.stage == provider.RealtimeGenerationFinal && state.text.Len() > 0 && s.response != nil && s.response.assistant != nil {
@@ -642,7 +659,7 @@ func (s *openAISession) finishAssistant() error {
 		return err
 	}
 	assistant.itemDone = true
-	return s.write(map[string]any{"type": "conversation.item.done", "previous_item_id": nil, "item": assistant.item})
+	return s.writeConversationItemDone(assistant.item, "")
 }
 
 func (s *openAISession) responseObject(status string, statusDetails any) map[string]any {

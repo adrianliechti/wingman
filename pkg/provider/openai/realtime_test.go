@@ -49,3 +49,45 @@ func TestOpenAIRealtimeAudioFormatObject(t *testing.T) {
 		t.Fatalf("PCMU format includes unsupported rate: %#v", g711)
 	}
 }
+
+func TestOpenAIRealtimeSessionObjectForcesTracingOff(t *testing.T) {
+	object := openAISessionObject((&Realtime{}).Defaults())
+	tracing, ok := object["tracing"]
+	if !ok {
+		t.Fatal("session object does not set tracing")
+	}
+	if tracing != nil {
+		t.Fatalf("session tracing = %#v, want null", tracing)
+	}
+}
+
+func TestTranslateCurrentInputEvents(t *testing.T) {
+	session := &openAIRealtimeSession{
+		contents:    make(map[string]provider.RealtimeContentType),
+		transcripts: make(map[string]bool),
+	}
+
+	timeout := session.translate([]byte(`{
+		"type":"input_audio_buffer.timeout_triggered",
+		"item_id":"item_timeout","audio_start_ms":13216,"audio_end_ms":19232
+	}`))
+	if len(timeout) != 1 || timeout[0].Type != provider.RealtimeEventInputTimeoutTriggered {
+		t.Fatalf("timeout events = %#v", timeout)
+	}
+	if timeout[0].ItemID != "item_timeout" || timeout[0].AudioStart.Milliseconds() != 13216 || timeout[0].AudioEnd.Milliseconds() != 19232 {
+		t.Fatalf("timeout event = %#v", timeout[0])
+	}
+
+	segment := session.translate([]byte(`{
+		"type":"conversation.item.input_audio_transcription.segment",
+		"item_id":"msg_011","content_index":2,"text":"hello","id":"seg_0001",
+		"speaker":"spk_1","start":0.1,"end":0.4
+	}`))
+	if len(segment) != 1 || segment[0].Type != provider.RealtimeEventInputTranscriptionSegment {
+		t.Fatalf("segment events = %#v", segment)
+	}
+	got := segment[0]
+	if got.ItemID != "msg_011" || got.ContentIndex != 2 || got.Text != "hello" || got.SegmentID != "seg_0001" || got.Speaker != "spk_1" || got.SegmentStart != 0.1 || got.SegmentEnd != 0.4 {
+		t.Fatalf("segment event = %#v", got)
+	}
+}

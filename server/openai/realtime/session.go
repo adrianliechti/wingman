@@ -50,6 +50,10 @@ type openAISession struct {
 
 	response *responseState
 	contents map[string]*contentState
+
+	itemStarted  map[string]bool
+	itemDone     map[string]bool
+	itemPrevious map[string]string
 }
 
 func newOpenAISession(conn *websocket.Conn, realtime provider.Realtime, model string) *openAISession {
@@ -64,7 +68,10 @@ func newOpenAISession(conn *websocket.Conn, realtime provider.Realtime, model st
 
 		config: newSessionConfig(realtime.Defaults()),
 
-		contents: make(map[string]*contentState),
+		contents:     make(map[string]*contentState),
+		itemStarted:  make(map[string]bool),
+		itemDone:     make(map[string]bool),
+		itemPrevious: make(map[string]string),
 	}
 }
 
@@ -339,6 +346,9 @@ func (s *openAISession) commitAudio(ctx context.Context) error {
 		}); err != nil {
 			return err
 		}
+		if err := s.writeConversationItem(inputAudioItem(s.pendingInputItemID, "completed", ""), ""); err != nil {
+			return err
+		}
 	}
 
 	s.inputCommitted = true
@@ -526,11 +536,24 @@ func (s *openAISession) ensureProvider(ctx context.Context, history []provider.M
 	return nil
 }
 
-func (s *openAISession) writeConversationItem(item conversationItem, previousItemID string) error {
+func (s *openAISession) writeConversationItem(item any, previousItemID string) error {
 	if err := s.writeConversationItemStarted(item, previousItemID); err != nil {
 		return err
 	}
+	return s.writeConversationItemDone(item, previousItemID)
+}
 
+func (s *openAISession) writeConversationItemDone(item any, previousItemID string) error {
+	itemID := realtimeItemID(item)
+	if itemID != "" && s.itemDone[itemID] {
+		return nil
+	}
+	if itemID != "" {
+		s.itemDone[itemID] = true
+		if previous, ok := s.itemPrevious[itemID]; ok {
+			previousItemID = previous
+		}
+	}
 	return s.write(map[string]any{
 		"type":             "conversation.item.done",
 		"previous_item_id": nullableString(previousItemID),
@@ -539,6 +562,14 @@ func (s *openAISession) writeConversationItem(item conversationItem, previousIte
 }
 
 func (s *openAISession) writeConversationItemStarted(item any, previousItemID string) error {
+	itemID := realtimeItemID(item)
+	if itemID != "" && s.itemStarted[itemID] {
+		return nil
+	}
+	if itemID != "" {
+		s.itemStarted[itemID] = true
+		s.itemPrevious[itemID] = previousItemID
+	}
 	previous := nullableString(previousItemID)
 	if err := s.write(map[string]any{
 		"type":             "conversation.item.created",
@@ -555,6 +586,21 @@ func (s *openAISession) writeConversationItemStarted(item any, previousItemID st
 		return err
 	}
 	return nil
+}
+
+func realtimeItemID(item any) string {
+	switch value := item.(type) {
+	case conversationItem:
+		return value.ID
+	case *conversationItem:
+		if value != nil {
+			return value.ID
+		}
+	case map[string]any:
+		id, _ := value["id"].(string)
+		return id
+	}
+	return ""
 }
 
 func (s *openAISession) audioMilliseconds(size int64) int64 {

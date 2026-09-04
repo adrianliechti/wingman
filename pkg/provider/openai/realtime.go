@@ -390,6 +390,7 @@ func openAISessionObject(options provider.RealtimeOptions) map[string]any {
 
 	result := map[string]any{
 		"type":              "realtime",
+		"tracing":           nil,
 		"output_modalities": modalities,
 		"instructions":      options.Instructions,
 		"max_output_tokens": maxTokens,
@@ -621,16 +622,21 @@ func (s *openAIRealtimeSession) emit(event provider.RealtimeEvent) {
 }
 
 type openAIRealtimeEvent struct {
-	Type           string `json:"type"`
-	EventID        string `json:"event_id"`
-	ItemID         string `json:"item_id"`
-	PreviousItemID string `json:"previous_item_id"`
-	ResponseID     string `json:"response_id"`
-	ContentIndex   int    `json:"content_index"`
-	AudioStartMS   int64  `json:"audio_start_ms"`
-	AudioEndMS     int64  `json:"audio_end_ms"`
-	Delta          string `json:"delta"`
-	Transcript     string `json:"transcript"`
+	Type           string  `json:"type"`
+	EventID        string  `json:"event_id"`
+	ID             string  `json:"id"`
+	ItemID         string  `json:"item_id"`
+	PreviousItemID string  `json:"previous_item_id"`
+	ResponseID     string  `json:"response_id"`
+	ContentIndex   int     `json:"content_index"`
+	AudioStartMS   int64   `json:"audio_start_ms"`
+	AudioEndMS     int64   `json:"audio_end_ms"`
+	Delta          string  `json:"delta"`
+	Text           string  `json:"text"`
+	Transcript     string  `json:"transcript"`
+	Speaker        string  `json:"speaker"`
+	Start          float64 `json:"start"`
+	End            float64 `json:"end"`
 	Response       struct {
 		ID            string `json:"id"`
 		Status        string `json:"status"`
@@ -757,6 +763,19 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventInputCommitted, ItemID: value.ItemID, PreviousItemID: value.PreviousItemID}}
 	case "input_audio_buffer.cleared":
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventInputCleared}}
+	case "input_audio_buffer.timeout_triggered":
+		return []provider.RealtimeEvent{{
+			Type: provider.RealtimeEventInputTimeoutTriggered, ItemID: value.ItemID,
+			AudioStart: time.Duration(value.AudioStartMS) * time.Millisecond,
+			AudioEnd:   time.Duration(value.AudioEndMS) * time.Millisecond,
+		}}
+	case "conversation.item.input_audio_transcription.segment":
+		return []provider.RealtimeEvent{{
+			Type:   provider.RealtimeEventInputTranscriptionSegment,
+			ItemID: value.ItemID, ContentIndex: value.ContentIndex,
+			Text: value.Text, SegmentID: value.ID, Speaker: value.Speaker,
+			SegmentStart: value.Start, SegmentEnd: value.End,
+		}}
 
 	case "rate_limits.updated":
 		limits := make([]provider.RealtimeRateLimit, 0, len(value.RateLimits))

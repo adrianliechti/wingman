@@ -205,9 +205,12 @@ func (c *sessionConfig) apply(data json.RawMessage) error {
 		"type", "instructions", "voice", "input_audio_format", "output_audio_format",
 		"input_audio_transcription", "turn_detection", "audio", "output_modalities", "modalities",
 		"max_output_tokens", "max_response_output_tokens", "temperature", "top_p", "tools",
-		"tool_choice", "truncation",
+		"tool_choice", "truncation", "tracing",
 	); err != nil {
 		return err
+	}
+	if raw, ok := fields["tracing"]; ok && strings.TrimSpace(string(raw)) != "null" {
+		return errors.New("session.tracing must be null because no-store mode is enforced")
 	}
 	if raw, ok := fields["type"]; ok {
 		var sessionType string
@@ -988,6 +991,7 @@ func (c sessionConfig) object(id, model string) map[string]any {
 		"max_output_tokens": maxTokens,
 		"tools":             tools,
 		"tool_choice":       toolChoiceObject(c.ToolChoice),
+		"tracing":           nil,
 		"audio": map[string]any{
 			"input": map[string]any{
 				"format":          audioFormatObject(c.InputAudio),

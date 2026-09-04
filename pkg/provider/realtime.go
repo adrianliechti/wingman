@@ -162,6 +162,8 @@ const (
 	// text would corrupt the final transcript.
 	RealtimeEventInputTranscriptionPreview RealtimeEventType = "input_transcription_preview"
 	RealtimeEventInputTranscriptionFailed  RealtimeEventType = "input_transcription_failed"
+	RealtimeEventInputTranscriptionSegment RealtimeEventType = "input_transcription_segment"
+	RealtimeEventInputTimeoutTriggered     RealtimeEventType = "input_timeout_triggered"
 	RealtimeEventRateLimits                RealtimeEventType = "rate_limits"
 	RealtimeEventError                     RealtimeEventType = "error"
 )
@@ -202,6 +204,12 @@ type RealtimeEvent struct {
 
 	AudioStart time.Duration
 	AudioEnd   time.Duration
+
+	ContentIndex int
+	SegmentID    string
+	Speaker      string
+	SegmentStart float64
+	SegmentEnd   float64
 
 	StopReason string
 
