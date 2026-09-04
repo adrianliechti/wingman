@@ -79,6 +79,7 @@ type StreamEvent struct {
 	Arguments         string
 	OutputIndex       int
 	MessagePhase      provider.MessagePhase
+	MessageIndex      int
 
 	// Incomplete marks a tool call that was finalized without complete
 	// arguments (e.g. truncated by max_tokens or a cancelled stream).
@@ -135,22 +136,13 @@ type StreamingAccumulator struct {
 	SuppressReasoning bool
 
 	// Completion metadata (captured from chunks)
-	id     string
-	model  string
-	status provider.CompletionStatus
-	usage  *provider.Usage
-	phase  provider.MessagePhase
-
-	// Track state for event emission
-	started            bool
-	hasOutputItem      bool // True if we emitted output_item.added for message
-	hasContentPart     bool // True if we emitted content_part.added (output_text)
-	hasRefusalPart     bool // True if we emitted content_part.added (refusal)
-	messageClosed      bool // True if we emitted output_item.done for message
-	messageOutputIndex int  // Output index for the message item
-	textWithheld       bool // True if text arrived after tool calls and flushes last
-	streamedText       strings.Builder
-	streamedRefusal    strings.Builder
+	id       string
+	model    string
+	status   provider.CompletionStatus
+	usage    *provider.Usage
+	started  bool
+	message  *streamMessage
+	messages []*streamMessage
 
 	// Tool call state — single source of truth
 	toolCalls       []accumulatedToolCall
@@ -183,6 +175,18 @@ type StreamingAccumulator struct {
 	contentOrder []streamContentRef
 }
 
+type streamMessage struct {
+	phase              provider.MessagePhase
+	hasOutputItem      bool
+	hasContentPart     bool
+	hasRefusalPart     bool
+	messageClosed      bool
+	messageOutputIndex int
+	textWithheld       bool
+	streamedText       strings.Builder
+	streamedRefusal    strings.Builder
+}
+
 type streamContentKind int
 
 const (
@@ -198,10 +202,8 @@ type streamContentRef struct {
 
 // NewStreamingAccumulator creates a new StreamingAccumulator with an event handler
 func NewStreamingAccumulator(handler StreamEventHandler) *StreamingAccumulator {
-	return &StreamingAccumulator{
-		handler:      handler,
-		toolCallByID: make(map[string]int),
-	}
+	message := &streamMessage{}
+	return &StreamingAccumulator{handler: handler, toolCallByID: make(map[string]int), message: message, messages: []*streamMessage{message}}
 }
 
 func mergeUsage(dst **provider.Usage, src *provider.Usage) {
@@ -250,7 +252,7 @@ func (s *StreamingAccumulator) start() error {
 }
 
 func (s *StreamingAccumulator) ensureMessageItem() error {
-	if s.hasOutputItem {
+	if s.message.hasOutputItem {
 		return nil
 	}
 
@@ -258,39 +260,39 @@ func (s *StreamingAccumulator) ensureMessageItem() error {
 		return err
 	}
 
-	s.hasOutputItem = true
-	s.messageOutputIndex = s.reserveOutputIndex()
+	s.message.hasOutputItem = true
+	s.message.messageOutputIndex = s.reserveOutputIndex()
 
 	return s.emitEvent(StreamEvent{
 		Type:         StreamEventOutputItemAdded,
-		OutputIndex:  s.messageOutputIndex,
-		MessagePhase: s.phase,
+		OutputIndex:  s.message.messageOutputIndex,
+		MessagePhase: s.message.phase,
 	})
 }
 
 func (s *StreamingAccumulator) ensureMessageContentPart() error {
-	if s.hasContentPart {
+	if s.message.hasContentPart {
 		return nil
 	}
 
-	s.hasContentPart = true
+	s.message.hasContentPart = true
 
 	return s.emitEvent(StreamEvent{
 		Type:        StreamEventContentPartAdded,
-		OutputIndex: s.messageOutputIndex,
+		OutputIndex: s.message.messageOutputIndex,
 	})
 }
 
 func (s *StreamingAccumulator) ensureMessageRefusalPart() error {
-	if s.hasRefusalPart {
+	if s.message.hasRefusalPart {
 		return nil
 	}
 
-	s.hasRefusalPart = true
+	s.message.hasRefusalPart = true
 
 	return s.emitEvent(StreamEvent{
 		Type:         StreamEventRefusalContentPartAdded,
-		OutputIndex:  s.messageOutputIndex,
+		OutputIndex:  s.message.messageOutputIndex,
 		ContentIndex: s.refusalContentIndex(),
 	})
 }
@@ -298,7 +300,7 @@ func (s *StreamingAccumulator) ensureMessageRefusalPart() error {
 // refusalContentIndex places the refusal part after the text part when the
 // message carries both.
 func (s *StreamingAccumulator) refusalContentIndex() int {
-	if s.hasContentPart || s.streamedText.Len() > 0 {
+	if s.message.hasContentPart || s.message.streamedText.Len() > 0 {
 		return 1
 	}
 
@@ -613,23 +615,23 @@ func (s *StreamingAccumulator) closeReasoning() error {
 
 // closeMessage emits done events for the message item if it was in progress.
 func (s *StreamingAccumulator) closeMessage() error {
-	if !s.hasOutputItem || s.messageClosed {
+	if !s.message.hasOutputItem || s.message.messageClosed {
 		return nil
 	}
 
-	if s.streamedText.Len() == 0 && s.streamedRefusal.Len() == 0 {
+	if s.message.streamedText.Len() == 0 && s.message.streamedRefusal.Len() == 0 {
 		return nil
 	}
 
-	s.messageClosed = true
-	text := s.streamedText.String()
-	refusal := s.streamedRefusal.String()
+	s.message.messageClosed = true
+	text := s.message.streamedText.String()
+	refusal := s.message.streamedRefusal.String()
 
-	if s.streamedText.Len() > 0 {
+	if s.message.streamedText.Len() > 0 {
 		if err := s.emitEvent(StreamEvent{
 			Type:        StreamEventTextDone,
 			Text:        text,
-			OutputIndex: s.messageOutputIndex,
+			OutputIndex: s.message.messageOutputIndex,
 		}); err != nil {
 			return err
 		}
@@ -637,17 +639,17 @@ func (s *StreamingAccumulator) closeMessage() error {
 		if err := s.emitEvent(StreamEvent{
 			Type:        StreamEventContentPartDone,
 			Text:        text,
-			OutputIndex: s.messageOutputIndex,
+			OutputIndex: s.message.messageOutputIndex,
 		}); err != nil {
 			return err
 		}
 	}
 
-	if s.streamedRefusal.Len() > 0 {
+	if s.message.streamedRefusal.Len() > 0 {
 		if err := s.emitEvent(StreamEvent{
 			Type:         StreamEventRefusalDone,
 			RefusalText:  refusal,
-			OutputIndex:  s.messageOutputIndex,
+			OutputIndex:  s.message.messageOutputIndex,
 			ContentIndex: s.refusalContentIndex(),
 		}); err != nil {
 			return err
@@ -656,7 +658,7 @@ func (s *StreamingAccumulator) closeMessage() error {
 		if err := s.emitEvent(StreamEvent{
 			Type:         StreamEventRefusalContentPartDone,
 			RefusalText:  refusal,
-			OutputIndex:  s.messageOutputIndex,
+			OutputIndex:  s.message.messageOutputIndex,
 			ContentIndex: s.refusalContentIndex(),
 		}); err != nil {
 			return err
@@ -667,9 +669,9 @@ func (s *StreamingAccumulator) closeMessage() error {
 		Type:         StreamEventOutputItemDone,
 		Text:         text,
 		RefusalText:  refusal,
-		OutputIndex:  s.messageOutputIndex,
+		OutputIndex:  s.message.messageOutputIndex,
 		Incomplete:   s.status == provider.CompletionStatusIncomplete,
-		MessagePhase: s.phase,
+		MessagePhase: s.message.phase,
 	})
 }
 
@@ -740,7 +742,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		return nil
 	}
 	if c.Message.Phase != "" {
-		s.phase = c.Message.Phase
+		if err := s.beginMessage(c.Message.Phase); err != nil {
+			return err
+		}
 	}
 
 	for _, content := range c.Message.Content {
@@ -869,14 +873,20 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				return err
 			}
 
-			if s.streamedRefusal.Len() == 0 {
-				s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentRefusal})
+			if s.message.phase != "" && s.message.streamedText.Len() > 0 {
+				if err := s.nextMessage(s.message.phase); err != nil {
+					return err
+				}
 			}
 
-			s.streamedRefusal.WriteString(content.Refusal)
+			if s.message.streamedRefusal.Len() == 0 {
+				s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentRefusal, index: len(s.messages) - 1})
+			}
 
-			if len(s.toolCalls) > 0 && !s.hasOutputItem {
-				s.textWithheld = true
+			s.message.streamedRefusal.WriteString(content.Refusal)
+
+			if len(s.toolCalls) > 0 && !s.message.hasOutputItem {
+				s.message.textWithheld = true
 			}
 
 			if len(s.toolCalls) == 0 {
@@ -894,7 +904,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				if err := s.emitEvent(StreamEvent{
 					Type:         StreamEventRefusalDelta,
 					Delta:        content.Refusal,
-					OutputIndex:  s.messageOutputIndex,
+					OutputIndex:  s.message.messageOutputIndex,
 					ContentIndex: s.refusalContentIndex(),
 				}); err != nil {
 					return err
@@ -911,14 +921,20 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				return err
 			}
 
-			if s.streamedText.Len() == 0 {
-				s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentText})
+			if s.message.phase != "" && s.message.streamedRefusal.Len() > 0 {
+				if err := s.nextMessage(s.message.phase); err != nil {
+					return err
+				}
 			}
 
-			s.streamedText.WriteString(content.Text)
+			if s.message.streamedText.Len() == 0 {
+				s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentText, index: len(s.messages) - 1})
+			}
 
-			if len(s.toolCalls) > 0 && !s.hasOutputItem {
-				s.textWithheld = true
+			s.message.streamedText.WriteString(content.Text)
+
+			if len(s.toolCalls) > 0 && !s.message.hasOutputItem {
+				s.message.textWithheld = true
 			}
 
 			if len(s.toolCalls) == 0 {
@@ -936,7 +952,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				if err := s.emitEvent(StreamEvent{
 					Type:        StreamEventTextDelta,
 					Delta:       content.Text,
-					OutputIndex: s.messageOutputIndex,
+					OutputIndex: s.message.messageOutputIndex,
 				}); err != nil {
 					return err
 				}
@@ -1025,8 +1041,51 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
-	result := s.Result()
-	text := s.streamedText.String()
+	if err := s.flushMessage(); err != nil {
+		return err
+	}
+
+	terminalType := StreamEventResponseCompleted
+	if s.status == provider.CompletionStatusIncomplete {
+		terminalType = StreamEventResponseIncomplete
+	}
+
+	return s.emitEvent(StreamEvent{
+		Type:       terminalType,
+		Completion: s.Result(),
+	})
+}
+
+// beginMessage handles a phase announcement: a message item starts. The
+// current message is complete once it holds text or a refusal, so it is
+// closed and a new one opened even when the phase repeats — OpenAI emits
+// several commentary messages around hosted tool calls in one response.
+func (s *StreamingAccumulator) beginMessage(phase provider.MessagePhase) error {
+	if s.message.streamedText.Len() > 0 || s.message.streamedRefusal.Len() > 0 {
+		return s.nextMessage(phase)
+	}
+
+	s.message.phase = phase
+
+	return nil
+}
+
+// nextMessage closes the current message item and starts a new one. A phased
+// message holds text or a refusal, never both — a refusal is its own item —
+// so the text and refusal branches also call it when the kinds would mix.
+func (s *StreamingAccumulator) nextMessage(phase provider.MessagePhase) error {
+	if err := s.flushMessage(); err != nil {
+		return err
+	}
+
+	s.message = &streamMessage{phase: phase}
+	s.messages = append(s.messages, s.message)
+
+	return nil
+}
+
+func (s *StreamingAccumulator) flushMessage() error {
+	text := s.message.streamedText.String()
 
 	if err := s.closeReasoning(); err != nil {
 		return err
@@ -1042,50 +1101,50 @@ func (s *StreamingAccumulator) Complete() error {
 		}
 	}
 
-	if (s.streamedText.Len() > 0 || s.streamedRefusal.Len() > 0) && !s.hasOutputItem {
-		s.hasOutputItem = true
-		s.messageOutputIndex = s.reserveOutputIndex()
+	if (s.message.streamedText.Len() > 0 || s.message.streamedRefusal.Len() > 0) && !s.message.hasOutputItem {
+		s.message.hasOutputItem = true
+		s.message.messageOutputIndex = s.reserveOutputIndex()
 
 		if err := s.emitEvent(StreamEvent{
 			Type:         StreamEventOutputItemAdded,
-			OutputIndex:  s.messageOutputIndex,
-			MessagePhase: s.phase,
+			OutputIndex:  s.message.messageOutputIndex,
+			MessagePhase: s.message.phase,
 		}); err != nil {
 			return err
 		}
 
-		if s.streamedText.Len() > 0 {
+		if s.message.streamedText.Len() > 0 {
 			if err := s.emitEvent(StreamEvent{
 				Type:        StreamEventContentPartAdded,
-				OutputIndex: s.messageOutputIndex,
+				OutputIndex: s.message.messageOutputIndex,
 			}); err != nil {
 				return err
 			}
-			s.hasContentPart = true
+			s.message.hasContentPart = true
 
 			if err := s.emitEvent(StreamEvent{
 				Type:        StreamEventTextDelta,
 				Delta:       text,
-				OutputIndex: s.messageOutputIndex,
+				OutputIndex: s.message.messageOutputIndex,
 			}); err != nil {
 				return err
 			}
 		}
 
-		if s.streamedRefusal.Len() > 0 {
+		if s.message.streamedRefusal.Len() > 0 {
 			if err := s.emitEvent(StreamEvent{
 				Type:         StreamEventRefusalContentPartAdded,
-				OutputIndex:  s.messageOutputIndex,
+				OutputIndex:  s.message.messageOutputIndex,
 				ContentIndex: s.refusalContentIndex(),
 			}); err != nil {
 				return err
 			}
-			s.hasRefusalPart = true
+			s.message.hasRefusalPart = true
 
 			if err := s.emitEvent(StreamEvent{
 				Type:         StreamEventRefusalDelta,
-				Delta:        s.streamedRefusal.String(),
-				OutputIndex:  s.messageOutputIndex,
+				Delta:        s.message.streamedRefusal.String(),
+				OutputIndex:  s.message.messageOutputIndex,
 				ContentIndex: s.refusalContentIndex(),
 			}); err != nil {
 				return err
@@ -1097,15 +1156,7 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
-	terminalType := StreamEventResponseCompleted
-	if s.status == provider.CompletionStatusIncomplete {
-		terminalType = StreamEventResponseIncomplete
-	}
-
-	return s.emitEvent(StreamEvent{
-		Type:       terminalType,
-		Completion: result,
-	})
+	return nil
 }
 
 func (s *StreamingAccumulator) Error(err error) error {
@@ -1150,18 +1201,18 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 		case streamContentCompaction:
 			content = append(content, provider.CompactionContent(s.compactions[ref.index]))
 
-		case streamContentText:
-			if s.textWithheld {
-				withheld = append(withheld, provider.TextContent(s.streamedText.String()))
+		case streamContentText, streamContentRefusal:
+			m := s.messages[ref.index]
+			part := provider.Content{Phase: m.phase}
+			if ref.kind == streamContentText {
+				part.Text = m.streamedText.String()
 			} else {
-				content = append(content, provider.TextContent(s.streamedText.String()))
+				part.Refusal = m.streamedRefusal.String()
 			}
-
-		case streamContentRefusal:
-			if s.textWithheld {
-				withheld = append(withheld, provider.RefusalContent(s.streamedRefusal.String()))
+			if m.textWithheld {
+				withheld = append(withheld, part)
 			} else {
-				content = append(content, provider.RefusalContent(s.streamedRefusal.String()))
+				content = append(content, part)
 			}
 		}
 	}
@@ -1198,13 +1249,14 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
-			Phase:   s.phase,
+			Phase:   s.message.phase,
 			Content: content,
 		},
 	}
 }
 
 func (s *StreamingAccumulator) emitEvent(event StreamEvent) error {
+	event.MessageIndex = len(s.messages) - 1
 	if s.handler != nil {
 		return s.handler(event)
 	}

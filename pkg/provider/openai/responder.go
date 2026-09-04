@@ -218,11 +218,6 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseContentPartDoneEvent:
 			case responses.ResponseOutputItemDoneEvent:
 				switch item := event.Item.AsAny().(type) {
-				case responses.ResponseOutputMessage:
-					if !emitPhase(item.Phase) {
-						return
-					}
-
 				case responses.ResponseFunctionToolCall:
 					if responseToolCallAsync(item.RawJSON()) && !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Async: true}), "") {
 						return
@@ -527,6 +522,12 @@ func containsCompactionTrigger(messages []provider.Message) bool {
 }
 
 func (r *Responder) convertResponsesInput(messages []provider.Message, freeformPatch bool) (responses.ResponseNewParamsInputUnion, error) {
+	var separated []provider.Message
+	for _, message := range messages {
+		separated = append(separated, message.SplitMessages()...)
+	}
+	messages = separated
+
 	var result []responses.ResponseInputItemUnionParam
 
 	for _, m := range messages {

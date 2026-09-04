@@ -85,7 +85,7 @@ func ModelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"claude-sonnet-4-6", "bedrock-sonnet-4-6", "gpt-5.4", "gemini-3.5-flash"}
+	names := []string{"claude-sonnet-4-6", "bedrock-sonnet-4-6", "gpt-5.4", "gemini-3.8-flash"}
 	if v := os.Getenv("TEST_ANTHROPIC_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {

@@ -547,3 +547,69 @@ func TestStreamingAccumulatorDoesNotCloseIncompleteToolCall(t *testing.T) {
 		t.Fatalf("c1 received delta after arguments.done: %+v", events)
 	}
 }
+
+func TestStreamingAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
+	var events []StreamEvent
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		events = append(events, e)
+		return nil
+	})
+
+	announce := func(phase provider.MessagePhase) {
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Phase: phase}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add := func(c provider.Content) {
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{c}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	announce(provider.MessagePhaseCommentary)
+	add(provider.TextContent("Searching Zurich."))
+	add(provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "search", Arguments: "{}"}))
+	announce(provider.MessagePhaseCommentary)
+	add(provider.TextContent("Searching Geneva."))
+	announce(provider.MessagePhaseFinalAnswer)
+	add(provider.TextContent("Zurich: 452,421"))
+
+	if err := acc.Complete(); err != nil {
+		t.Fatal(err)
+	}
+
+	streamed := map[int]string{}
+	var items []string
+	var phases []provider.MessagePhase
+
+	for _, e := range events {
+		switch e.Type {
+		case StreamEventTextDelta:
+			streamed[e.MessageIndex] += e.Delta
+		case StreamEventOutputItemAdded:
+			items = append(items, "message")
+			phases = append(phases, e.MessagePhase)
+		case StreamEventFunctionCallAdded:
+			items = append(items, "function_call")
+		}
+	}
+
+	if got, want := strings.Join(items, ","), "message,function_call,message,message"; got != want {
+		t.Fatalf("item order = %s, want %s", got, want)
+	}
+
+	if len(phases) != 3 || phases[0] != provider.MessagePhaseCommentary || phases[1] != provider.MessagePhaseCommentary || phases[2] != provider.MessagePhaseFinalAnswer {
+		t.Fatalf("phases = %v", phases)
+	}
+
+	parts := acc.Result().Message.SplitMessages()
+	if len(parts) != 3 {
+		t.Fatalf("snapshot has %d messages, want 3", len(parts))
+	}
+
+	for i, part := range parts {
+		if streamed[i] != part.Text() {
+			t.Fatalf("message %d streamed %q but snapshot says %q", i, streamed[i], part.Text())
+		}
+	}
+}

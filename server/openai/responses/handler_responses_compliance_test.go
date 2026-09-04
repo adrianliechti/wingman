@@ -22,7 +22,7 @@ func TestReasoningOutputInResponseCompletedShape(t *testing.T) {
 				Signature: "ENC_1",
 			}),
 		},
-	}, "msg_1", "completed", responseOutputOptions{IncludeReasoning: true})
+	}, new(messageIDs), "completed", responseOutputOptions{IncludeReasoning: true})
 
 	if len(outputs) != 1 {
 		t.Fatalf("expected 1 output, got %d", len(outputs))

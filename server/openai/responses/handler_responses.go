@@ -491,11 +491,41 @@ func streamMessagePhase(phase provider.MessagePhase) string {
 	return string(provider.MessagePhaseFinalAnswer)
 }
 
-func responseOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
-	if message == nil {
-		return []ResponseOutput{}
+// messageIDs hands out one id per message item, as OpenAI does. Streamed
+// events and the final snapshot address items by index, so both see the same
+// ids.
+type messageIDs []string
+
+func (m *messageIDs) get(index int) string {
+	for len(*m) <= index {
+		*m = append(*m, "msg_"+uuid.NewString())
 	}
 
+	return (*m)[index]
+}
+
+func responseOutputs(message *provider.Message, ids *messageIDs, status string, opts responseOutputOptions) []ResponseOutput {
+	output := []ResponseOutput{}
+
+	if message == nil {
+		return output
+	}
+
+	parts := message.SplitMessages()
+
+	for i, part := range parts {
+		partStatus := "completed"
+		if i == len(parts)-1 {
+			partStatus = status
+		}
+
+		output = append(output, messageOutputs(&part, ids.get(i), partStatus, opts)...)
+	}
+
+	return output
+}
+
+func messageOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
 	output := []ResponseOutput{}
 	phase := messagePhase(message)
 	text := message.Text()
@@ -695,7 +725,8 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	createdAt := time.Now().Unix()
 
 	responseID := "resp_" + uuid.NewString()
-	messageID := "msg_" + uuid.NewString()
+
+	var ids messageIDs
 
 	seqNum := 0
 
@@ -748,7 +779,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				SequenceNumber: nextSeq(),
 				OutputIndex:    event.OutputIndex,
 				Item: &OutputItem{
-					ID:      messageID,
+					ID:      ids.get(event.MessageIndex),
 					Type:    "message",
 					Status:  "in_progress",
 					Content: []OutputContent{},
@@ -761,7 +792,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.content_part.added", ContentPartAddedEvent{
 				Type:           "response.content_part.added",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   0,
 				Part: &OutputContent{
@@ -776,7 +807,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.output_text.delta", OutputTextDeltaEvent{
 				Type:           "response.output_text.delta",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   0,
 				Delta:          event.Delta,
@@ -787,7 +818,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.output_text.done", OutputTextDoneEvent{
 				Type:           "response.output_text.done",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   0,
 				Text:           event.Text,
@@ -798,7 +829,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.content_part.done", ContentPartDoneEvent{
 				Type:           "response.content_part.done",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   0,
 				Part: &OutputContent{
@@ -813,7 +844,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.content_part.added", RefusalContentPartAddedEvent{
 				Type:           "response.content_part.added",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   event.ContentIndex,
 				Part: &RefusalContentPart{
@@ -826,7 +857,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.refusal.delta", RefusalDeltaEvent{
 				Type:           "response.refusal.delta",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   event.ContentIndex,
 				Delta:          event.Delta,
@@ -836,7 +867,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.refusal.done", RefusalDoneEvent{
 				Type:           "response.refusal.done",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   event.ContentIndex,
 				Refusal:        event.RefusalText,
@@ -846,7 +877,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			return writeEvent(w, "response.content_part.done", RefusalContentPartDoneEvent{
 				Type:           "response.content_part.done",
 				SequenceNumber: nextSeq(),
-				ItemID:         messageID,
+				ItemID:         ids.get(event.MessageIndex),
 				OutputIndex:    event.OutputIndex,
 				ContentIndex:   event.ContentIndex,
 				Part: &RefusalContentPart{
@@ -1305,7 +1336,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				SequenceNumber: nextSeq(),
 				OutputIndex:    event.OutputIndex,
 				Item: &OutputItem{
-					ID:      messageID,
+					ID:      ids.get(event.MessageIndex),
 					Type:    "message",
 					Status:  itemStatus(event.Incomplete),
 					Content: content,
@@ -1322,7 +1353,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				CompletedAt: &now,
 				Status:      "completed",
 				Model:       responseModel(event.Completion, req.Model),
-				Output:      responseOutputs(event.Completion.Message, messageID, "completed", outputOpts),
+				Output:      responseOutputs(event.Completion.Message, &ids, "completed", outputOpts),
 				Usage:       responseUsage(event.Completion.Usage),
 			}
 			responseDefaults(response, req)
@@ -1339,7 +1370,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				CreatedAt: createdAt,
 				Status:    "incomplete",
 				Model:     responseModel(event.Completion, req.Model),
-				Output:    responseOutputs(event.Completion.Message, messageID, "incomplete", outputOpts),
+				Output:    responseOutputs(event.Completion.Message, &ids, "incomplete", outputOpts),
 				Usage:     responseUsage(event.Completion.Usage),
 			}
 			responseDefaults(response, req)
@@ -1452,7 +1483,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		CreatedAt: now,
 		Status:    responseStatus(completion.Status),
 		Model:     responseModel(completion, req.Model),
-		Output: responseOutputs(completion.Message, "msg_"+uuid.NewString(), responseStatus(completion.Status), responseOutputOptions{
+		Output: responseOutputs(completion.Message, new(messageIDs), responseStatus(completion.Status), responseOutputOptions{
 			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 			IncludeReasoning: reasoningRequested(req),
 			Tools:            req.Tools,

@@ -53,6 +53,7 @@ const (
 	ModelTypeEmbedder    ModelType = "embedder"
 	ModelTypeRenderer    ModelType = "renderer"
 	ModelTypeReranker    ModelType = "reranker"
+	ModelTypeRealtime    ModelType = "realtime"
 	ModelTypeSynthesizer ModelType = "synthesizer"
 	ModelTypeTranscriber ModelType = "transcriber"
 )
@@ -81,6 +82,14 @@ type modelContext struct {
 }
 
 func DetectModelType(id string) ModelType {
+	realtime := []string{
+		"realtime",
+		"sonic",
+		"live-preview",
+		"native-audio",
+		"transcribe-live",
+	}
+
 	completers := []string{
 		"aya",
 		"claude",
@@ -150,6 +159,12 @@ func DetectModelType(id string) ModelType {
 		"voxtral",
 		"whisper",
 		"stt",
+	}
+
+	for _, val := range realtime {
+		if strings.Contains(strings.ToLower(id), strings.ToLower(val)) {
+			return ModelTypeRealtime
+		}
 	}
 
 	for _, val := range synthesizers {

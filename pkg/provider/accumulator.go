@@ -14,8 +14,7 @@ type CompletionAccumulator struct {
 	role  MessageRole
 	phase MessagePhase
 
-	content strings.Builder
-	refusal strings.Builder
+	messages []*accumulatedMessage
 
 	reasonings  []Reasoning
 	compactions []Compaction
@@ -26,6 +25,12 @@ type CompletionAccumulator struct {
 	usage *Usage
 
 	contentOrder []accumulatedContentRef
+}
+
+type accumulatedMessage struct {
+	phase   MessagePhase
+	text    strings.Builder
+	refusal strings.Builder
 }
 
 // NormalizeToolCallArguments returns well-formed arguments for a finalized
@@ -86,23 +91,28 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		}
 		if c.Message.Phase != "" {
 			a.phase = c.Message.Phase
+			a.beginMessage()
 		}
 
 		for _, c := range c.Message.Content {
 			if c.Text != "" {
-				if a.content.Len() == 0 {
-					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentText})
+				message := a.currentMessage(accumulatedContentText)
+
+				if message.text.Len() == 0 {
+					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentText, index: len(a.messages) - 1})
 				}
 
-				a.content.WriteString(c.Text)
+				message.text.WriteString(c.Text)
 			}
 
 			if c.Refusal != "" {
-				if a.refusal.Len() == 0 {
-					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentRefusal})
+				message := a.currentMessage(accumulatedContentRefusal)
+
+				if message.refusal.Len() == 0 {
+					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentRefusal, index: len(a.messages) - 1})
 				}
 
-				a.refusal.WriteString(c.Refusal)
+				message.refusal.WriteString(c.Refusal)
 			}
 
 			if c.Reasoning != nil {
@@ -140,6 +150,33 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			a.usage.CacheCreationInputTokens = c.Usage.CacheCreationInputTokens
 		}
 	}
+}
+
+func (a *CompletionAccumulator) beginMessage() {
+	if n := len(a.messages); n == 0 || a.messages[n-1].text.Len() > 0 || a.messages[n-1].refusal.Len() > 0 {
+		a.messages = append(a.messages, &accumulatedMessage{})
+	}
+
+	a.messages[len(a.messages)-1].phase = a.phase
+}
+
+func (a *CompletionAccumulator) currentMessage(kind accumulatedContentKind) *accumulatedMessage {
+	if len(a.messages) == 0 {
+		a.messages = append(a.messages, &accumulatedMessage{phase: a.phase})
+	}
+
+	message := a.messages[len(a.messages)-1]
+
+	if message.phase != "" {
+		mixed := (kind == accumulatedContentText && message.refusal.Len() > 0) || (kind == accumulatedContentRefusal && message.text.Len() > 0)
+
+		if mixed {
+			message = &accumulatedMessage{phase: message.phase}
+			a.messages = append(a.messages, message)
+		}
+	}
+
+	return message
 }
 
 // Distinct IDs are kept as separate entries; without an ID, deltas merge into
@@ -283,10 +320,12 @@ func (a *CompletionAccumulator) Result() *Completion {
 			content = append(content, CompactionContent(a.compactions[ref.index]))
 
 		case accumulatedContentText:
-			content = append(content, TextContent(a.content.String()))
+			m := a.messages[ref.index]
+			content = append(content, Content{Text: m.text.String(), Phase: m.phase})
 
 		case accumulatedContentRefusal:
-			content = append(content, RefusalContent(a.refusal.String()))
+			m := a.messages[ref.index]
+			content = append(content, Content{Refusal: m.refusal.String(), Phase: m.phase})
 
 		case accumulatedContentToolCall:
 			call := a.toolCalls[ref.index]

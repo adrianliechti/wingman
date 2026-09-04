@@ -11,7 +11,7 @@ type Completer interface {
 }
 
 type Message struct {
-	Role MessageRole
+	Role  MessageRole
 	Phase MessagePhase
 
 	Content []Content
@@ -167,6 +167,11 @@ func ConfigurationUpdateContent(val ConfigurationUpdate) Content {
 }
 
 type Content struct {
+	// Phase marks a text or refusal part as the content of one message item in
+	// an accumulated result; every phased part is its own item. Parts without
+	// a phase inherit the enclosing message.
+	Phase MessagePhase
+
 	Text    string
 	Refusal string
 
@@ -198,7 +203,7 @@ const (
 )
 
 type ToolCall struct {
-	ID string
+	ID    string
 	Async bool
 
 	Kind ToolKind
@@ -383,4 +388,38 @@ type ConfigurationUpdate struct {
 type CompactionOptions struct {
 	Trigger   bool
 	Threshold int
+}
+
+// SplitMessages restores the message items of an accumulated assistant
+// response. A phased text or refusal part starts a new item when the current
+// one already holds text or a refusal; reasoning and tool calls stay with the
+// item they were streamed with. Messages without phased parts come back as is.
+func (m Message) SplitMessages() []Message {
+	var messages []Message
+
+	current := Message{Role: m.Role, Phase: m.Phase}
+	filled := false
+
+	for _, content := range m.Content {
+		part := content.Text != "" || content.Refusal != ""
+
+		if part && content.Phase != "" {
+			if filled {
+				messages = append(messages, current)
+				current = Message{Role: m.Role}
+				filled = false
+			}
+
+			current.Phase = content.Phase
+		}
+
+		current.Content = append(current.Content, content)
+		filled = filled || part
+	}
+
+	if len(current.Content) > 0 || len(messages) == 0 {
+		messages = append(messages, current)
+	}
+
+	return messages
 }

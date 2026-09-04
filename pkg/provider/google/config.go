@@ -13,7 +13,8 @@ type Config struct {
 	token string
 	model string
 
-	client *http.Client
+	client          *http.Client
+	affectiveDialog bool
 }
 
 type Option func(*Config)
@@ -27,6 +28,14 @@ func WithClient(client *http.Client) Option {
 func WithToken(token string) Option {
 	return func(c *Config) {
 		c.token = token
+	}
+}
+
+// WithAffectiveDialog enables Gemini's native tone and emotion adaptation.
+// Realtime validates model support before opening a connection.
+func WithAffectiveDialog(enabled bool) Option {
+	return func(c *Config) {
+		c.affectiveDialog = enabled
 	}
 }
 

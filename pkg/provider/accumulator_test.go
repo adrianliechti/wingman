@@ -340,3 +340,69 @@ func TestCompletionAccumulatorMergesCompactionChunks(t *testing.T) {
 		t.Errorf("signature: got %q, want ENC", contents[0].Compaction.Signature)
 	}
 }
+
+func TestCompletionAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
+	acc := CompletionAccumulator{}
+
+	announce := func(phase MessagePhase) {
+		acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Phase: phase}})
+	}
+	add := func(c Content) {
+		acc.Add(Completion{Message: &Message{Content: []Content{c}}})
+	}
+
+	announce(MessagePhaseCommentary)
+	add(TextContent("Searching Zurich."))
+	add(ToolCallContent(ToolCall{ID: "call_1", Name: "search", Arguments: "{}"}))
+	announce(MessagePhaseCommentary)
+	add(TextContent("Searching Geneva."))
+	announce(MessagePhaseFinalAnswer)
+	add(TextContent("Zurich: 452,421"))
+
+	result := acc.Result()
+	if result.Message.Phase != MessagePhaseFinalAnswer {
+		t.Fatalf("message phase = %q, want the last item's phase", result.Message.Phase)
+	}
+
+	messages := result.Message.SplitMessages()
+
+	want := []struct {
+		phase MessagePhase
+		text  string
+		calls int
+	}{
+		{MessagePhaseCommentary, "Searching Zurich.", 1},
+		{MessagePhaseCommentary, "Searching Geneva.", 0},
+		{MessagePhaseFinalAnswer, "Zurich: 452,421", 0},
+	}
+
+	if len(messages) != len(want) {
+		t.Fatalf("got %d messages, want %d: %+v", len(messages), len(want), result.Message.Content)
+	}
+
+	for i, w := range want {
+		m := messages[i]
+		if m.Phase != w.phase || m.Text() != w.text || len(m.ToolCalls()) != w.calls {
+			t.Fatalf("message %d = phase %q text %q calls %d, want %+v", i, m.Phase, m.Text(), len(m.ToolCalls()), w)
+		}
+	}
+}
+
+func TestCompletionAccumulatorPhasedRefusalIsOwnItem(t *testing.T) {
+	phased := CompletionAccumulator{}
+	phased.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Phase: MessagePhaseFinalAnswer}})
+	phased.Add(Completion{Message: &Message{Content: []Content{TextContent("partial")}}})
+	phased.Add(Completion{Message: &Message{Content: []Content{RefusalContent("cannot continue")}}})
+
+	if got := phased.Result().Message.SplitMessages(); len(got) != 2 || got[0].Text() != "partial" || got[1].Refusal() != "cannot continue" || got[1].Phase != MessagePhaseFinalAnswer {
+		t.Fatalf("phased text and refusal not split into items: %+v", got)
+	}
+
+	plain := CompletionAccumulator{}
+	plain.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{TextContent("partial")}}})
+	plain.Add(Completion{Message: &Message{Content: []Content{RefusalContent("cannot continue")}}})
+
+	if got := plain.Result().Message.SplitMessages(); len(got) != 1 || got[0].Text() != "partial" || got[0].Refusal() != "cannot continue" {
+		t.Fatalf("unphased message split unexpectedly: %+v", got)
+	}
+}

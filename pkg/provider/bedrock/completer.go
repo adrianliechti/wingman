@@ -491,9 +491,14 @@ func convertError(err error) error {
 		return nil
 	}
 
-	wrap := func(statusCode int, msg string) error {
+	wrap := func(statusCode int, msg string, errorType ...string) error {
+		var typeName string
+		if len(errorType) > 0 {
+			typeName = errorType[0]
+		}
 		return &provider.ProviderError{
 			Code:    statusCode,
+			Type:    typeName,
 			Message: msg,
 			Err:     err,
 		}
@@ -511,7 +516,12 @@ func convertError(err error) error {
 
 	var validation *types.ValidationException
 	if errors.As(err, &validation) {
-		return wrap(400, fmt.Sprintf("bedrock validation: %s", aws.ToString(validation.Message)))
+		message := aws.ToString(validation.Message)
+		errorType := ""
+		if isBedrockContentFilterMessage(message) {
+			errorType = "content_filter"
+		}
+		return wrap(400, fmt.Sprintf("bedrock validation: %s", message), errorType)
 	}
 
 	var accessDenied *types.AccessDeniedException
@@ -587,6 +597,12 @@ func convertError(err error) error {
 	}
 
 	return err
+}
+
+func isBedrockContentFilterMessage(message string) bool {
+	message = strings.ToLower(message)
+	return strings.Contains(message, "content filter") &&
+		(strings.Contains(message, "blocked") || strings.Contains(message, "filtered"))
 }
 
 // converseAdditionalFields builds the Anthropic request fields Converse has

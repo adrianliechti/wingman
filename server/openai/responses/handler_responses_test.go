@@ -128,7 +128,7 @@ func TestResponseOutputsPreservePhaseAndAsync(t *testing.T) {
 			provider.TextContent("working"),
 			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Async: true, Name: "lookup", Arguments: `{}`}),
 		},
-	}, "msg_1", "completed", responseOutputOptions{})
+	}, new(messageIDs), "completed", responseOutputOptions{})
 
 	if len(outputs) != 2 || outputs[0].OutputMessage == nil || outputs[0].OutputMessage.Phase != "commentary" {
 		t.Fatalf("phase lost: %+v", outputs)
@@ -154,7 +154,7 @@ func TestResponseOutputsReasoningKeepsEmptySummaryArray(t *testing.T) {
 				Signature: "ENC_1",
 			}),
 		},
-	}, "msg_1", "completed", responseOutputOptions{IncludeReasoning: true})
+	}, new(messageIDs), "completed", responseOutputOptions{IncludeReasoning: true})
 
 	if len(outputs) != 1 {
 		t.Fatalf("expected 1 output, got %d", len(outputs))
@@ -348,7 +348,7 @@ func TestResponseOutputsPreservesCompactionOrder(t *testing.T) {
 			provider.TextContent("4"),
 			provider.CompactionContent(provider.Compaction{ID: "cmp_2", Signature: "ENC_2"}),
 		},
-	}, "msg_1", "completed", responseOutputOptions{})
+	}, new(messageIDs), "completed", responseOutputOptions{})
 
 	if len(outputs) != 3 {
 		t.Fatalf("expected 3 outputs, got %d", len(outputs))

@@ -41,7 +41,7 @@ func New(cfg *config.Config) *Handler {
 		responses:  responses.New(cfg),
 		embeddings: embeddings.New(cfg),
 
-		realtime: realtime.New(),
+		realtime: realtime.New(cfg),
 	}
 }
 
@@ -55,7 +55,5 @@ func (h *Handler) Attach(r chi.Router) {
 	h.responses.Attach(r)
 	h.embeddings.Attach(r)
 
-	if h.realtime != nil {
-		h.realtime.Attach(r)
-	}
+	h.realtime.Attach(r)
 }
