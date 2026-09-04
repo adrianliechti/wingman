@@ -38,6 +38,114 @@ func TestReasoningRequestedByEncryptedContentInclude(t *testing.T) {
 	}
 }
 
+func TestAstraRequestNormalizesNoneAndMinimalToLow(t *testing.T) {
+	for _, requested := range []ReasoningEffort{ReasoningEffortNone, ReasoningEffortMinimal} {
+		t.Run(string(requested), func(t *testing.T) {
+			req := ResponsesRequest{
+				Model:     "gpt-6-astra",
+				Reasoning: &ReasoningConfig{Effort: &requested},
+			}
+
+			normalizeAstraRequest(&req)
+			if req.Reasoning == nil || req.Reasoning.Effort == nil || *req.Reasoning.Effort != ReasoningEffortLow {
+				t.Fatalf("effort = %+v, want low", req.Reasoning)
+			}
+		})
+	}
+}
+
+func TestAstraInputPreservesPhaseAsyncAndConfigurationUpdate(t *testing.T) {
+	payload := `[
+		{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"working"}]},
+		{"type":"compaction_trigger"},
+		{"type":"configuration_update","reasoning":{"effort":"high"}},
+		{"type":"function_call","call_id":"call_fn","name":"lookup","arguments":"{}","async":true},
+		{"type":"custom_tool_call","call_id":"call_custom","name":"query","input":"select 1","async":true}
+	]`
+
+	var input ResponsesInput
+	if err := json.Unmarshal([]byte(payload), &input); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(input.Items) != 5 || input.Items[2].InputConfigurationUpdate == nil {
+		t.Fatalf("configuration_update not decoded: %+v", input.Items)
+	}
+
+	messages, err := toMessages(input.Items, "")
+	if err != nil {
+		t.Fatalf("toMessages: %v", err)
+	}
+	if len(messages) != 4 {
+		t.Fatalf("message count = %d, want 4: %+v", len(messages), messages)
+	}
+	if messages[0].Phase != provider.MessagePhaseCommentary {
+		t.Fatalf("phase = %q, want commentary", messages[0].Phase)
+	}
+	if !messages[1].Content[0].CompactionTrigger {
+		t.Fatalf("compaction trigger lost: %+v", messages[1])
+	}
+	update := messages[2].Content[0].ConfigurationUpdate
+	if update == nil || update.ReasoningEffort != provider.EffortHigh {
+		t.Fatalf("configuration update lost: %+v", messages[2])
+	}
+	calls := messages[3].ToolCalls()
+	if len(calls) != 2 || !calls[0].Async || !calls[1].Async {
+		t.Fatalf("async tool calls lost: %+v", calls)
+	}
+}
+
+func TestConfigurationUpdateValidation(t *testing.T) {
+	update := InputItem{
+		Type: InputItemTypeConfigurationUpdate,
+		InputConfigurationUpdate: &InputConfigurationUpdate{
+			Reasoning: ConfigurationUpdateReasoning{Effort: ReasoningEffortHigh},
+		},
+	}
+
+	if err := validateConfigurationUpdates(ResponsesRequest{Input: ResponsesInput{Items: []InputItem{update}}}); err != nil {
+		t.Fatalf("valid update rejected: %v", err)
+	}
+	if err := validateConfigurationUpdates(ResponsesRequest{Truncation: "auto", Input: ResponsesInput{Items: []InputItem{update}}}); err == nil {
+		t.Fatal("expected automatic truncation conflict")
+	}
+	if err := validateConfigurationUpdates(ResponsesRequest{Input: ResponsesInput{Items: []InputItem{update, update}}}); err == nil {
+		t.Fatal("expected adjacent update conflict")
+	}
+	threshold := int64(1000)
+	if err := validateConfigurationUpdates(ResponsesRequest{
+		Input:             ResponsesInput{Items: []InputItem{update}},
+		ContextManagement: []ContextManagementConfig{{Type: "compaction", CompactThreshold: &threshold}},
+	}); err == nil {
+		t.Fatal("expected automatic compaction conflict")
+	}
+}
+
+func TestResponseOutputsPreservePhaseAndAsync(t *testing.T) {
+	outputs := responseOutputs(&provider.Message{
+		Role:  provider.MessageRoleAssistant,
+		Phase: provider.MessagePhaseCommentary,
+		Content: []provider.Content{
+			provider.TextContent("working"),
+			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Async: true, Name: "lookup", Arguments: `{}`}),
+		},
+	}, "msg_1", "completed", responseOutputOptions{})
+
+	if len(outputs) != 2 || outputs[0].OutputMessage == nil || outputs[0].OutputMessage.Phase != "commentary" {
+		t.Fatalf("phase lost: %+v", outputs)
+	}
+	data, err := json.Marshal(outputs[1])
+	if err != nil {
+		t.Fatalf("marshal tool output: %v", err)
+	}
+	var call map[string]any
+	if err := json.Unmarshal(data, &call); err != nil {
+		t.Fatalf("unmarshal tool output: %v", err)
+	}
+	if call["async"] != true {
+		t.Fatalf("async lost: %s", data)
+	}
+}
+
 func TestResponseOutputsReasoningKeepsEmptySummaryArray(t *testing.T) {
 	outputs := responseOutputs(&provider.Message{
 		Content: []provider.Content{

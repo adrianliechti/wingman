@@ -75,8 +75,10 @@ type StreamEvent struct {
 	ToolCallName      string
 	ToolCallNamespace string
 	ToolCallExecution string
+	ToolCallAsync     bool
 	Arguments         string
 	OutputIndex       int
+	MessagePhase      provider.MessagePhase
 
 	// Incomplete marks a tool call that was finalized without complete
 	// arguments (e.g. truncated by max_tokens or a cancelled stream).
@@ -113,6 +115,7 @@ type accumulatedToolCall struct {
 	Name        string
 	Namespace   string
 	Execution   string
+	Async       bool
 	Arguments   string
 	OutputIndex int
 	Started     bool
@@ -136,6 +139,7 @@ type StreamingAccumulator struct {
 	model  string
 	status provider.CompletionStatus
 	usage  *provider.Usage
+	phase  provider.MessagePhase
 
 	// Track state for event emission
 	started            bool
@@ -258,8 +262,9 @@ func (s *StreamingAccumulator) ensureMessageItem() error {
 	s.messageOutputIndex = s.reserveOutputIndex()
 
 	return s.emitEvent(StreamEvent{
-		Type:        StreamEventOutputItemAdded,
-		OutputIndex: s.messageOutputIndex,
+		Type:         StreamEventOutputItemAdded,
+		OutputIndex:  s.messageOutputIndex,
+		MessagePhase: s.phase,
 	})
 }
 
@@ -349,6 +354,9 @@ func (s *StreamingAccumulator) ensureToolCallStarted(callID string, toolCall pro
 	if toolCall.Execution != "" {
 		tc.Execution = toolCall.Execution
 	}
+	if toolCall.Async {
+		tc.Async = true
+	}
 
 	return s.emitEvent(StreamEvent{
 		Type:              StreamEventFunctionCallAdded,
@@ -356,6 +364,7 @@ func (s *StreamingAccumulator) ensureToolCallStarted(callID string, toolCall pro
 		ToolCallName:      tc.Name,
 		ToolCallNamespace: tc.Namespace,
 		ToolCallExecution: tc.Execution,
+		ToolCallAsync:     tc.Async,
 		OutputIndex:       outputIndex,
 	})
 }
@@ -403,6 +412,7 @@ func (s *StreamingAccumulator) closeToolCall(callID string) error {
 			ToolCallName:      tc.Name,
 			ToolCallNamespace: tc.Namespace,
 			ToolCallExecution: tc.Execution,
+			ToolCallAsync:     tc.Async,
 			Arguments:         tc.Arguments,
 			OutputIndex:       tc.OutputIndex,
 		}); err != nil {
@@ -416,6 +426,7 @@ func (s *StreamingAccumulator) closeToolCall(callID string) error {
 		ToolCallName:      tc.Name,
 		ToolCallNamespace: tc.Namespace,
 		ToolCallExecution: tc.Execution,
+		ToolCallAsync:     tc.Async,
 		Arguments:         tc.Arguments,
 		OutputIndex:       tc.OutputIndex,
 		Incomplete:        incomplete,
@@ -653,11 +664,12 @@ func (s *StreamingAccumulator) closeMessage() error {
 	}
 
 	return s.emitEvent(StreamEvent{
-		Type:        StreamEventOutputItemDone,
-		Text:        text,
-		RefusalText: refusal,
-		OutputIndex: s.messageOutputIndex,
-		Incomplete:  s.status == provider.CompletionStatusIncomplete,
+		Type:         StreamEventOutputItemDone,
+		Text:         text,
+		RefusalText:  refusal,
+		OutputIndex:  s.messageOutputIndex,
+		Incomplete:   s.status == provider.CompletionStatusIncomplete,
+		MessagePhase: s.phase,
 	})
 }
 
@@ -726,6 +738,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 	if c.Message == nil {
 		return nil
+	}
+	if c.Message.Phase != "" {
+		s.phase = c.Message.Phase
 	}
 
 	for _, content := range c.Message.Content {
@@ -973,6 +988,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			if tc.Execution != "" {
 				entry.Execution = tc.Execution
 			}
+			if tc.Async {
+				entry.Async = true
+			}
 
 			if tc.Arguments != "" {
 				entry.Arguments += tc.Arguments
@@ -1029,8 +1047,9 @@ func (s *StreamingAccumulator) Complete() error {
 		s.messageOutputIndex = s.reserveOutputIndex()
 
 		if err := s.emitEvent(StreamEvent{
-			Type:        StreamEventOutputItemAdded,
-			OutputIndex: s.messageOutputIndex,
+			Type:         StreamEventOutputItemAdded,
+			OutputIndex:  s.messageOutputIndex,
+			MessagePhase: s.phase,
 		}); err != nil {
 			return err
 		}
@@ -1152,6 +1171,7 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 		call := provider.ToolCall{
 			ID:        tc.ID,
+			Async:     tc.Async,
 			Kind:      tc.Kind,
 			Name:      tc.Name,
 			Namespace: tc.Namespace,
@@ -1178,6 +1198,7 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
+			Phase:   s.phase,
 			Content: content,
 		},
 	}

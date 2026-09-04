@@ -11,7 +11,8 @@ type CompletionAccumulator struct {
 	stopDetails  *StopDetails
 	stopSequence string
 
-	role MessageRole
+	role  MessageRole
+	phase MessagePhase
 
 	content strings.Builder
 	refusal strings.Builder
@@ -82,6 +83,9 @@ func (a *CompletionAccumulator) Add(c Completion) {
 	if c.Message != nil {
 		if c.Message.Role != "" {
 			a.role = c.Message.Role
+		}
+		if c.Message.Phase != "" {
+			a.phase = c.Message.Phase
 		}
 
 		for _, c := range c.Message.Content {
@@ -260,6 +264,10 @@ func (a *CompletionAccumulator) addToolCall(c *ToolCall) {
 		target.Execution = c.Execution
 	}
 
+	if c.Async {
+		target.Async = true
+	}
+
 	target.Arguments += c.Arguments
 }
 
@@ -304,6 +312,7 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 		Message: &Message{
 			Role:    a.role,
+			Phase:   a.phase,
 			Content: content,
 		},
 

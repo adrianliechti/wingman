@@ -164,6 +164,7 @@ func TestComplete_Basic(t *testing.T) {
 						Model: "underlying-model",
 						Message: &provider.Message{
 							Role:    provider.MessageRoleAssistant,
+							Phase:   provider.MessagePhaseCommentary,
 							Content: []provider.Content{{Text: "Hello, how can I help?"}},
 						},
 					},
@@ -188,6 +189,7 @@ func TestComplete_Basic(t *testing.T) {
 		// Verify message content passed through
 		require.NotNil(t, completions[0].Message)
 		require.Equal(t, provider.MessageRoleAssistant, completions[0].Message.Role)
+		require.Equal(t, provider.MessagePhaseCommentary, completions[0].Message.Phase)
 		require.Len(t, completions[0].Message.Content, 1)
 		require.Equal(t, "Hello, how can I help?", completions[0].Message.Content[0].Text)
 

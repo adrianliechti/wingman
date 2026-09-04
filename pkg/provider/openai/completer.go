@@ -201,36 +201,8 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 	}
 
 	if options.ReasoningOptions != nil && !isLegacyModel(c.model) {
-		reasoning := options.ReasoningOptions
-
-		switch reasoning.Effort {
-		case provider.EffortMinimal:
-			req.ReasoningEffort = openai.ReasoningEffortMinimal
-
-		case provider.EffortLow:
-			req.ReasoningEffort = openai.ReasoningEffortLow
-
-		case provider.EffortMedium:
-			req.ReasoningEffort = openai.ReasoningEffortMedium
-
-		case provider.EffortHigh:
-			req.ReasoningEffort = openai.ReasoningEffortHigh
-
-		case provider.EffortXHigh:
-			req.ReasoningEffort = openai.ReasoningEffortXhigh
-
-		case provider.EffortMax:
-			// GPT-5.6+; no SDK constant yet
-			req.ReasoningEffort = openai.ReasoningEffort("max")
-
-		default:
-			if reasoning.Type == provider.ReasoningTypeAdaptive {
-				req.ReasoningEffort = openai.ReasoningEffortMedium
-			}
-		}
-
-		if reasoning.Type == provider.ReasoningTypeDisabled {
-			req.ReasoningEffort = openai.ReasoningEffortNone
+		if effort := normalizedReasoningEffort(c.model, options.ReasoningOptions); effort != "" {
+			req.ReasoningEffort = openai.ReasoningEffort(effort)
 		}
 	}
 
@@ -294,7 +266,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		}
 	}
 
-	if options.Temperature != nil {
+	if options.Temperature != nil && !isGPT6Astra(c.model) {
 		req.Temperature = openai.Float(float64(*options.Temperature))
 	}
 

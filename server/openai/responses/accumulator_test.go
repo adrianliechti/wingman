@@ -393,6 +393,44 @@ func TestStreamingAccumulatorResultPreservesToolCallMetadata(t *testing.T) {
 	}
 }
 
+func TestStreamingAccumulatorPreservesPhaseAndAsync(t *testing.T) {
+	var added, done StreamEvent
+	acc := NewStreamingAccumulator(func(event StreamEvent) error {
+		switch event.Type {
+		case StreamEventFunctionCallAdded:
+			added = event
+		case StreamEventFunctionCallDone:
+			done = event
+		}
+		return nil
+	})
+
+	if err := acc.Add(provider.Completion{Message: &provider.Message{
+		Role:  provider.MessageRoleAssistant,
+		Phase: provider.MessagePhaseCommentary,
+		Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{
+			ID: "call_async", Async: true, Name: "lookup", Arguments: `{}`,
+		})},
+	}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := acc.Complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	if !added.ToolCallAsync || !done.ToolCallAsync {
+		t.Fatalf("async metadata lost: added=%+v done=%+v", added, done)
+	}
+	result := acc.Result()
+	if result.Message.Phase != provider.MessagePhaseCommentary {
+		t.Fatalf("phase = %q, want commentary", result.Message.Phase)
+	}
+	calls := result.Message.ToolCalls()
+	if len(calls) != 1 || !calls[0].Async {
+		t.Fatalf("result async metadata lost: %+v", calls)
+	}
+}
+
 func TestStreamingAccumulatorPreservesCompactionOrder(t *testing.T) {
 	var events []StreamEvent
 

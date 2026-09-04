@@ -278,3 +278,38 @@ func isLegacyModel(model string) bool {
 
 	return false
 }
+
+func isGPT6Astra(model string) bool {
+	return strings.HasPrefix(strings.ToLower(model), "gpt-6-astra")
+}
+
+// normalizedReasoningEffort applies model-specific compatibility rules before
+// a request reaches the SDK. GPT-6 Astra rejects both `none` and `minimal`;
+// OpenAI's migration guidance recommends `low` for either setting.
+func normalizedReasoningEffort(model string, reasoning *provider.ReasoningOptions) string {
+	if reasoning == nil {
+		return ""
+	}
+
+	if reasoning.Type == provider.ReasoningTypeDisabled {
+		if isGPT6Astra(model) {
+			return string(provider.EffortLow)
+		}
+		return "none"
+	}
+
+	effort := reasoning.Effort
+	if isGPT6Astra(model) && effort == provider.EffortMinimal {
+		effort = provider.EffortLow
+	}
+
+	if effort != "" {
+		return string(effort)
+	}
+
+	if reasoning.Type == provider.ReasoningTypeAdaptive {
+		return string(provider.EffortMedium)
+	}
+
+	return ""
+}

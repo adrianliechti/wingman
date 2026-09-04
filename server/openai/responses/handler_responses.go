@@ -23,6 +23,12 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	normalizeAstraRequest(&req)
+	if err := validateConfigurationUpdates(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	completer, err := h.Completer(req.Model)
 
 	if err != nil {
@@ -188,6 +194,67 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	} else {
 		h.handleResponsesComplete(w, r, req, completer, messages, options)
 	}
+}
+
+func normalizeAstraRequest(req *ResponsesRequest) {
+	if req == nil || !strings.HasPrefix(strings.ToLower(req.Model), "gpt-6-astra") || req.Reasoning == nil || req.Reasoning.Effort == nil {
+		return
+	}
+
+	if *req.Reasoning.Effort == ReasoningEffortNone || *req.Reasoning.Effort == ReasoningEffortMinimal {
+		effort := ReasoningEffortLow
+		req.Reasoning.Effort = &effort
+	}
+}
+
+func validateConfigurationUpdates(req ResponsesRequest) error {
+	previousWasUpdate := false
+	var hasUpdate bool
+
+	for _, item := range req.Input.Items {
+		isUpdate := item.Type == InputItemTypeConfigurationUpdate
+		if isUpdate && previousWasUpdate {
+			return &shared.Error{
+				Param:   "input",
+				Message: "Adjacent configuration_update items are not supported.",
+				Code:    "invalid_request_error",
+			}
+		}
+		if isUpdate && (item.InputConfigurationUpdate == nil || item.InputConfigurationUpdate.Reasoning.Effort == "") {
+			return &shared.Error{
+				Param:   "input",
+				Message: "configuration_update.reasoning.effort is required.",
+				Code:    "invalid_request_error",
+			}
+		}
+
+		hasUpdate = hasUpdate || isUpdate
+		previousWasUpdate = isUpdate
+	}
+
+	if !hasUpdate {
+		return nil
+	}
+
+	if req.Truncation == "auto" {
+		return &shared.Error{
+			Param:   "truncation",
+			Message: "configuration_update cannot be combined with automatic truncation.",
+			Code:    "invalid_request_error",
+		}
+	}
+
+	for _, cm := range req.ContextManagement {
+		if cm.Type == "compaction" && cm.CompactThreshold != nil {
+			return &shared.Error{
+				Param:   "context_management",
+				Message: "configuration_update cannot be combined with automatic compaction.",
+				Code:    "invalid_request_error",
+			}
+		}
+	}
+
+	return nil
 }
 
 func responseStatus(status provider.CompletionStatus) string {
@@ -398,6 +465,7 @@ func (o responseOutputOptions) kindOf(name string) provider.ToolKind {
 func functionCallItem(call provider.ToolCall, status string) *FunctionCallOutputItem {
 	return &FunctionCallOutputItem{
 		ID:        "fc_" + call.ID,
+		Async:     call.Async,
 		Type:      "function_call",
 		Status:    status,
 		Name:      call.Name,
@@ -407,12 +475,29 @@ func functionCallItem(call provider.ToolCall, status string) *FunctionCallOutput
 	}
 }
 
+func messagePhase(message *provider.Message) string {
+	if message != nil && message.Phase != "" {
+		return string(message.Phase)
+	}
+
+	return string(provider.MessagePhaseFinalAnswer)
+}
+
+func streamMessagePhase(phase provider.MessagePhase) string {
+	if phase != "" {
+		return string(phase)
+	}
+
+	return string(provider.MessagePhaseFinalAnswer)
+}
+
 func responseOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
 	if message == nil {
 		return []ResponseOutput{}
 	}
 
 	output := []ResponseOutput{}
+	phase := messagePhase(message)
 	text := message.Text()
 	refusal := message.Refusal()
 	textEmitted := false
@@ -471,7 +556,7 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 					ID:     messageID,
 					Role:   MessageRoleAssistant,
 					Status: status,
-					Phase:  "final_answer",
+					Phase:  phase,
 					Contents: []OutputContent{
 						{
 							Type: "refusal",
@@ -491,7 +576,7 @@ func responseOutputs(message *provider.Message, messageID, status string, opts r
 					ID:     messageID,
 					Role:   MessageRoleAssistant,
 					Status: status,
-					Phase:  "final_answer",
+					Phase:  phase,
 					Contents: []OutputContent{
 						{
 							Type:        "output_text",
@@ -667,7 +752,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Type:    "message",
 					Status:  "in_progress",
 					Content: []OutputContent{},
-					Phase:   "final_answer",
+					Phase:   streamMessagePhase(event.MessagePhase),
 					Role:    MessageRoleAssistant,
 				},
 			})
@@ -785,6 +870,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 						Name:      event.ToolCallName,
 						Namespace: event.ToolCallNamespace,
 						Input:     "",
+						Async:     event.ToolCallAsync,
 					},
 				})
 
@@ -862,6 +948,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			default:
 				call := provider.ToolCall{
 					ID:        event.ToolCallID,
+					Async:     event.ToolCallAsync,
 					Name:      event.ToolCallName,
 					Namespace: event.ToolCallNamespace,
 				}
@@ -937,6 +1024,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		case StreamEventFunctionCallDone:
 			call := provider.ToolCall{
 				ID:        event.ToolCallID,
+				Async:     event.ToolCallAsync,
 				Name:      event.ToolCallName,
 				Namespace: event.ToolCallNamespace,
 				Execution: event.ToolCallExecution,
@@ -1221,7 +1309,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Type:    "message",
 					Status:  itemStatus(event.Incomplete),
 					Content: content,
-					Phase:   "final_answer",
+					Phase:   streamMessagePhase(event.MessagePhase),
 					Role:    MessageRoleAssistant,
 				},
 			})
