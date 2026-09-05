@@ -56,6 +56,35 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 
+		// Reasoning models reject the stop parameter — cut the stream instead
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		var stops *stopFilter
+
+		if !isLegacyModel(c.model) {
+			stops = newStopFilter(options.Stop)
+		}
+
+		if stops != nil {
+			inner := yield
+
+			yield = func(c *provider.Completion, err error) bool {
+				c, hit := stops.filter(c)
+
+				if !inner(c, err) {
+					return false
+				}
+
+				if hit {
+					cancel()
+					return false
+				}
+
+				return true
+			}
+		}
+
 		stream := c.completions.NewStreaming(ctx, *req)
 
 		toolAliases := provider.ToolAliases(options.Tools)
@@ -156,7 +185,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			}
 		}
 
-		if err := stream.Err(); err != nil {
+		if err := stream.Err(); err != nil && (stops == nil || !stops.done) {
 			yield(nil, convertError(err))
 			return
 		}
@@ -228,7 +257,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 			properties := options.Schema.Properties
 
 			if options.Schema.Strict != nil && *options.Schema.Strict {
-				properties = ensureAdditionalPropertiesFalse(properties)
+				properties = ensureStrictSchema(properties)
 			}
 
 			schema := openai.ResponseFormatJSONSchemaJSONSchemaParam{
@@ -252,7 +281,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		}
 	}
 
-	if options.Stop != nil {
+	if options.Stop != nil && isLegacyModel(c.model) {
 		req.Stop = openai.ChatCompletionNewParamsStopUnion{
 			OfStringArray: options.Stop,
 		}
@@ -285,7 +314,7 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
 	var result []openai.ChatCompletionMessageParamUnion
 
-	for _, m := range input {
+	for _, m := range sanitizeToolIDs(input) {
 		switch m.Role {
 		case provider.MessageRoleSystem:
 			parts := []openai.ChatCompletionContentPartTextParam{}
@@ -472,10 +501,16 @@ func convertTools(tools []provider.Tool) ([]openai.ChatCompletionToolUnionParam,
 			continue
 		}
 
+		parameters := t.Parameters
+
+		if t.Strict != nil && *t.Strict {
+			parameters = ensureStrictSchema(parameters)
+		}
+
 		function := openai.FunctionDefinitionParam{
 			Name: t.Name,
 
-			Parameters: openai.FunctionParameters(t.Parameters),
+			Parameters: openai.FunctionParameters(parameters),
 		}
 
 		if t.Description != "" {

@@ -2,77 +2,27 @@ package router
 
 import (
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/toolid"
+	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 )
 
+// ScrubMessages removes history a routed request cannot carry across
+// members. Reasoning and compaction signatures stay: every member is scoped
+// to its own realm, so a signature replays when the router lands on the
+// member that produced it and is dropped by any other member. Gemini tool-id
+// signatures are not realm-tagged and are removed.
 func ScrubMessages(messages []provider.Message) []provider.Message {
-	result := make([]provider.Message, 0, len(messages))
-
-	for _, m := range messages {
-		content := scrubContent(m.Content)
-
-		// e.g. an assistant message holding only a compaction block
-		if len(content) == 0 {
-			continue
-		}
-
-		result = append(result, provider.Message{
-			Role:    m.Role,
-			Phase:   m.Phase,
-			Content: content,
-		})
-	}
-
-	return result
+	return signatures.StripToolSignatures(messages)
 }
 
-func scrubContent(content []provider.Content) []provider.Content {
-	result := make([]provider.Content, 0, len(content))
-
-	for _, c := range content {
-		if c.Reasoning != nil || c.Compaction != nil {
-			continue
-		}
-
-		if c.ToolCall != nil {
-			call := *c.ToolCall
-			call.ID = toolid.StripSignature(call.ID)
-			c.ToolCall = &call
-		}
-
-		if c.ToolResult != nil {
-			res := *c.ToolResult
-			res.ID = toolid.StripSignature(res.ID)
-			c.ToolResult = &res
-		}
-
-		result = append(result, c)
-	}
-
-	return result
-}
-
+// ScrubOptions disables compaction for a routed request: the next turn may
+// land on another member, which cannot resume the compacted history from a
+// foreign blob.
 func ScrubOptions(options *provider.CompleteOptions) *provider.CompleteOptions {
-	if options == nil {
-		return nil
-	}
-
-	includeSignature := options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSignature
-
-	if !includeSignature && options.CompactionOptions == nil {
+	if options == nil || options.CompactionOptions == nil {
 		return options
 	}
 
 	cloned := *options
-
-	if includeSignature {
-		reasoning := *options.ReasoningOptions
-		reasoning.IncludeSignature = false
-		cloned.ReasoningOptions = &reasoning
-	}
-
-	// A compaction blob from one provider cannot round-trip through another;
-	// scrubbing it next turn would silently drop the compacted history instead
 	cloned.CompactionOptions = nil
 
 	return &cloned

@@ -165,3 +165,84 @@ func extractContent(t *testing.T, label string, body map[string]any) string {
 
 	return content
 }
+
+// TestStructuredOutputWithToolsHTTP combines response_format with a client
+// tool. The model must still be able to call the tool; the schema only
+// constrains its final text answer.
+func TestStructuredOutputWithToolsHTTP(t *testing.T) {
+	h := openai.New(t)
+
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.StructuredOutput {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"messages": []map[string]any{
+					{"role": "user", "content": "What's the weather in London? Use the tool."},
+				},
+				"tools": []any{weatherTool},
+				"response_format": map[string]any{
+					"type": "json_schema",
+					"json_schema": map[string]any{
+						"name":   "weather_report",
+						"schema": weatherReportSchema,
+						"strict": true,
+					},
+				},
+			}
+
+			openaiResp, wingmanResp := chat.CompareHTTP(t, h, model, body)
+
+			requireToolCall(t, "openai", openaiResp.Body, "get_weather")
+			requireToolCall(t, "wingman", wingmanResp.Body, "get_weather")
+
+			rules := openai.DefaultChatResponseRules()
+			rules["choices.*.message.tool_calls.*.id"] = harness.FieldPresence
+			rules["choices.*.message.tool_calls.*.function.arguments"] = harness.FieldPresence
+			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
+		})
+	}
+}
+
+// TestJSONObjectHTTP uses schema-less JSON mode. Every backend must return a
+// bare JSON object — no markdown fences, no prose around it.
+func TestJSONObjectHTTP(t *testing.T) {
+	h := openai.New(t)
+
+	for _, model := range openai.DefaultModels() {
+		if !model.Capabilities.StructuredOutput {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"messages": []map[string]any{
+					{"role": "user", "content": "Recommend a classic science fiction book as a JSON object with the keys title, author and year."},
+				},
+				"response_format": map[string]any{
+					"type": "json_object",
+				},
+			}
+
+			openaiResp, wingmanResp := chat.CompareHTTP(t, h, model, body)
+
+			requireValidBookJSON(t, "openai", openaiResp.Body)
+			requireValidBookJSON(t, "wingman", wingmanResp.Body)
+
+			rules := openai.DefaultChatResponseRules()
+			harness.CompareStructure(t, "response", openaiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
+		})
+	}
+}
+
+var weatherReportSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"summary":       map[string]any{"type": "string"},
+		"temperature_c": map[string]any{"type": "number"},
+	},
+	"required":             []string{"summary", "temperature_c"},
+	"additionalProperties": false,
+}

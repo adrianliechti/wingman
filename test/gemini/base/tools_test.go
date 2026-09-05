@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/gemini"
@@ -225,4 +226,70 @@ func requireFunctionCallSSE(t *testing.T, label string, events []*harness.SSEEve
 	}
 
 	t.Fatalf("[%s] no functionCall SSE event with name %q found", label, name)
+}
+
+// TestToolCallingWithTextSSE asks for a sentence before the tool call so the
+// stream carries text chunks followed by a functionCall chunk. Clients
+// concatenate text parts across chunks, so text that was already streamed
+// must not be repeated in the final (functionCall) chunk.
+func TestToolCallingWithTextSSE(t *testing.T) {
+	h := gemini.New(t)
+
+	for _, model := range gemini.DefaultModels() {
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"contents": []map[string]any{
+					{"role": "user", "parts": []map[string]any{{"text": "First write one short sentence telling me what you are about to do, then call get_weather for London."}}},
+				},
+				"tools": []any{gemini.WeatherTool},
+			}
+
+			geminiEvents, wingmanEvents := gemini.CompareSSE(t, h, model.Name, body)
+
+			requireFunctionCallSSE(t, "gemini", geminiEvents, "get_weather")
+			requireFunctionCallSSE(t, "wingman", wingmanEvents, "get_weather")
+
+			requireNoRepeatedTextSSE(t, "gemini", geminiEvents)
+			requireNoRepeatedTextSSE(t, "wingman", wingmanEvents)
+		})
+	}
+}
+
+// requireNoRepeatedTextSSE fails when a chunk carries text that equals the
+// text already streamed before it — the signature of a final chunk that
+// re-sends the accumulated message instead of only the new parts.
+func requireNoRepeatedTextSSE(t *testing.T, label string, events []*harness.SSEEvent) {
+	t.Helper()
+
+	var streamed string
+
+	for i, e := range events {
+		if e.Data == nil {
+			continue
+		}
+
+		var chunk string
+
+		candidates, _ := e.Data["candidates"].([]any)
+		for _, c := range candidates {
+			cand, _ := c.(map[string]any)
+			content, _ := cand["content"].(map[string]any)
+			parts, _ := content["parts"].([]any)
+			for _, p := range parts {
+				part, _ := p.(map[string]any)
+				if thought, _ := part["thought"].(bool); thought {
+					continue
+				}
+				if text, ok := part["text"].(string); ok {
+					chunk += text
+				}
+			}
+		}
+
+		if chunk != "" && len(chunk) >= 10 && streamed != "" && strings.Contains(streamed, chunk) {
+			t.Fatalf("[%s] chunk %d repeats text that was already streamed: %q", label, i, chunk)
+		}
+
+		streamed += chunk
+	}
 }

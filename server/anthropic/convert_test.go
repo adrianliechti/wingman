@@ -390,3 +390,67 @@ func TestToContentBlocks_RedactedThinking(t *testing.T) {
 		t.Errorf("text block: %+v", blocks[2])
 	}
 }
+
+// The Messages API has no refusal block; a refusal from another backend is
+// surfaced as text so the client sees the explanation.
+func TestToContentBlocksRefusal(t *testing.T) {
+	blocks := toContentBlocks([]provider.Content{provider.RefusalContent("I can't help with that.")}, false)
+
+	if len(blocks) != 1 || blocks[0].Type != "text" || blocks[0].Text == nil || *blocks[0].Text != "I can't help with that." {
+		t.Fatalf("expected a text block, got %+v", blocks)
+	}
+}
+
+// Unknown content blocks are rejected with the reference's field path rather
+// than silently dropped from the prompt.
+func TestToMessageRejectsUnknownBlock(t *testing.T) {
+	_, err := toMessage(2, MessageParam{Role: MessageRoleUser, Content: []any{
+		map[string]any{"type": "text", "text": "hi"},
+		map[string]any{"type": "search_result", "title": "x"},
+	}})
+
+	if err == nil || !strings.HasPrefix(err.Error(), "messages.2.content.1: Input tag 'search_result' found using 'type'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestToMessageRejectsUnknownToolResultPart(t *testing.T) {
+	_, err := toMessage(0, MessageParam{Role: MessageRoleUser, Content: []any{
+		map[string]any{"type": "tool_result", "tool_use_id": "t1", "content": []any{
+			map[string]any{"type": "text", "text": "ok"},
+			map[string]any{"type": "browser_state"},
+		}},
+	}})
+
+	if err == nil || !strings.HasPrefix(err.Error(), "messages.0.content.0.tool_result.content.1: Input tag 'browser_state'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestToMessageRejectsUnsupportedSource(t *testing.T) {
+	_, err := toMessage(0, MessageParam{Role: MessageRoleUser, Content: []any{
+		map[string]any{"type": "document", "source": map[string]any{"type": "file", "file_id": "file_1"}},
+	}})
+
+	if err == nil || !strings.HasPrefix(err.Error(), "messages.0.content.0.source: source type 'file' is not supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Toolsets share the family prefix of the legacy tools; they must be
+// rejected instead of being downgraded.
+func TestToToolsRejectsToolsets(t *testing.T) {
+	for _, typ := range []string{"computer_toolset_20260801", "browser_toolset_20260801"} {
+		_, err := toTools([]ToolParam{{Type: typ}})
+
+		if err == nil || !strings.HasPrefix(err.Error(), "tools.0: Tool type '"+typ+"' is not supported") {
+			t.Errorf("%s: unexpected error: %v", typ, err)
+		}
+	}
+
+	// the legacy dated types still map
+	tools, err := toTools([]ToolParam{{Type: "computer_20251124", DisplayWidthPx: 800, DisplayHeightPx: 600}})
+	if err != nil || len(tools) != 1 || tools[0].Kind != provider.ToolKindComputer {
+		t.Fatalf("legacy computer tool: %+v %v", tools, err)
+	}
+}

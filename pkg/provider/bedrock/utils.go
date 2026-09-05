@@ -95,6 +95,50 @@ func outputEffort(e provider.Effort) string {
 	return ""
 }
 
+// thinking is the resolved thinking configuration for one request.
+type thinking struct {
+	Enabled    bool
+	Disabled   bool
+	Summarized bool
+	Effort     string
+}
+
+// resolveThinking maps the reasoning options onto the Converse additional
+// fields. forced marks a request that forces a tool call (schema mode, tool
+// choice "any"), which thinking is incompatible with over Bedrock. Thinking
+// is also turned off when the last assistant turn holds tool calls without a
+// signed thinking block, which Claude rejects.
+func (c *Completer) resolveThinking(messages []provider.Message, options *provider.CompleteOptions, forced bool) thinking {
+	if matchesModel(c.model, LegacyModels) {
+		return thinking{}
+	}
+
+	var t thinking
+
+	if r := options.ReasoningOptions; r != nil {
+		t.Effort = outputEffort(r.Effort)
+		t.Summarized = r.IncludeSummary
+
+		switch r.Type {
+		case provider.ReasoningTypeAdaptive:
+			t.Enabled = true
+		case provider.ReasoningTypeDisabled:
+			t.Disabled = true
+		}
+	}
+
+	if forced || (t.Enabled && provider.LastAssistantToolCallIsUnsigned(messages)) {
+		t.Enabled = false
+		t.Disabled = true
+	}
+
+	if t.Disabled && matchesModel(c.model, DisabledThinkingEffortCapModels) && (t.Effort == "xhigh" || t.Effort == "max") {
+		t.Effort = "high"
+	}
+
+	return t
+}
+
 func ensureAdditionalPropertiesFalse(schema map[string]any) map[string]any {
 	if schema == nil {
 		return schema

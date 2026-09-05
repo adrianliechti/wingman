@@ -236,12 +236,20 @@ type OutputOptions struct {
 	Verbosity Verbosity
 }
 
+// ReasoningOptions has two axes, mirroring the backends that separate them:
+// Type switches thinking on (adaptive) or off, Effort sets how hard the model
+// works. Type "" leaves the backend default; Effort "" leaves the level to the
+// backend. An Effort without a Type raises effort on Claude without enabling
+// thinking, and selects the reasoning level on OpenAI and Gemini, which have
+// no separate switch.
 type ReasoningOptions struct {
 	Type ReasoningType
 
 	Effort  Effort
 	Context ReasoningContext
 
+	// IncludeSummary asks for visible reasoning text; IncludeSignature asks
+	// for the opaque state that lets the next turn continue the reasoning.
 	IncludeSummary   bool
 	IncludeSignature bool
 }

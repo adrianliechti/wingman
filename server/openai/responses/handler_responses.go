@@ -23,7 +23,6 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	normalizeAstraRequest(&req)
 	if err := validateConfigurationUpdates(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -193,17 +192,6 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		h.handleResponsesStream(w, r, req, completer, messages, options)
 	} else {
 		h.handleResponsesComplete(w, r, req, completer, messages, options)
-	}
-}
-
-func normalizeAstraRequest(req *ResponsesRequest) {
-	if req == nil || !strings.HasPrefix(strings.ToLower(req.Model), "gpt-6-astra") || req.Reasoning == nil || req.Reasoning.Effort == nil {
-		return
-	}
-
-	if *req.Reasoning.Effort == ReasoningEffortNone || *req.Reasoning.Effort == ReasoningEffortMinimal {
-		effort := ReasoningEffortLow
-		req.Reasoning.Effort = &effort
 	}
 }
 
@@ -1493,6 +1481,17 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 
 	if result.Status == "completed" {
 		result.CompletedAt = &now
+	}
+
+	if result.Status == "failed" {
+		result.Error = &ResponseError{
+			Code:    "server_error",
+			Message: "The model stopped generating without a usable result.",
+		}
+
+		if completion.StopDetails != nil && completion.StopDetails.Type != "" {
+			result.Error.Message = "The model stopped generating: " + completion.StopDetails.Type
+		}
 	}
 
 	responseDefaults(&result, req)

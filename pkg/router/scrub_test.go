@@ -21,12 +21,17 @@ func TestScrubMessages(t *testing.T) {
 
 	result := ScrubMessages(messages)
 
-	if len(result) != 1 || len(result[0].Content) != 1 {
-		t.Fatalf("expected 1 message with 1 content block, got %+v", result)
+	if len(result) != 1 || len(result[0].Content) != 3 {
+		t.Fatalf("expected reasoning, compaction and text to survive, got %+v", result)
 	}
 
-	if result[0].Content[0].Text != "answer" {
-		t.Errorf("expected text content to survive, got %+v", result[0].Content[0])
+	// signatures stay: the scoped member decides whether they replay
+	if result[0].Content[0].Reasoning == nil || result[0].Content[0].Reasoning.Signature != "SIG" {
+		t.Errorf("expected reasoning to survive, got %+v", result[0].Content[0])
+	}
+
+	if result[0].Content[1].Compaction == nil || result[0].Content[1].Compaction.Signature != "SIG" {
+		t.Errorf("expected compaction to survive, got %+v", result[0].Content[1])
 	}
 
 	if result[0].Phase != provider.MessagePhaseCommentary {
@@ -109,8 +114,8 @@ func TestScrubOptions(t *testing.T) {
 
 	result := ScrubOptions(options)
 
-	if result.ReasoningOptions.IncludeSignature {
-		t.Error("expected IncludeSignature disabled")
+	if !result.ReasoningOptions.IncludeSignature {
+		t.Error("expected IncludeSignature kept")
 	}
 
 	if result.CompactionOptions != nil {
@@ -122,30 +127,7 @@ func TestScrubOptions(t *testing.T) {
 	}
 }
 
-// A compaction-continuation history starts with an assistant message holding
-// only the compaction block; scrubbing must drop the whole message instead of
-// sending an empty one upstream.
-func TestScrubMessages_DropsEmptiedMessages(t *testing.T) {
-	result := ScrubMessages([]provider.Message{
-		{
-			Role: provider.MessageRoleAssistant,
-			Content: []provider.Content{
-				provider.CompactionContent(provider.Compaction{Signature: "ENC"}),
-			},
-		},
-		provider.UserMessage("continue"),
-	})
-
-	if len(result) != 1 {
-		t.Fatalf("expected 1 message, got %d: %+v", len(result), result)
-	}
-
-	if result[0].Role != provider.MessageRoleUser {
-		t.Errorf("expected user message to survive, got %+v", result[0])
-	}
-}
-
-func TestScrubMessages_DropsRedactedReasoning(t *testing.T) {
+func TestScrubMessages_KeepsRedactedReasoning(t *testing.T) {
 	result := ScrubMessages([]provider.Message{
 		{
 			Role: provider.MessageRoleAssistant,
@@ -156,7 +138,7 @@ func TestScrubMessages_DropsRedactedReasoning(t *testing.T) {
 		},
 	})
 
-	if len(result) != 1 || len(result[0].Content) != 1 || result[0].Content[0].Text != "answer" {
-		t.Fatalf("expected only text content to survive, got %+v", result)
+	if len(result) != 1 || len(result[0].Content) != 2 || !result[0].Content[0].Reasoning.Redacted {
+		t.Fatalf("expected redacted reasoning to reach the scoped member, got %+v", result)
 	}
 }

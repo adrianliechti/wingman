@@ -1,108 +1,118 @@
 package gemini
 
 import (
-	"encoding/json"
 	"net/http"
+	"strings"
+
+	"github.com/adrianliechti/wingman/pkg/policy"
+	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/tokens"
 )
 
-const (
-	charsPerToken     = 4
-	jsonCharsPerToken = 3
-
-	// Structural framing per content (role marker + part separators).
-	contentTokenOverhead = 3
-
-	// Flat per-image estimate. Gemini bills images at 258 tokens for
-	// tiles ≤384px and 258 per 768x768 tile above; 1300 approximates a
-	// typical 1MP photo and matches the Anthropic estimate for parity.
-	imageTokens = 1300
-)
-
+// handleCountTokens estimates the prompt tokens of a request. The official
+// body is either bare `contents` or a full `generateContentRequest`; the
+// latter carries the system instruction and tools. The count comes from
+// pkg/tokens, which picks the tokenizer family from the route model, so a
+// GPT or Claude model served through this endpoint is counted with its own
+// tokenizer. Estimates, not billing-accurate counts.
 func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
+	model := r.PathValue("model")
+
 	var req CountTokensRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeRequest(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	var tokens int
-
-	if req.SystemInstruction != nil {
-		tokens += contentTokens(req.SystemInstruction)
+	if _, err := h.Completer(model); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
 	}
 
-	for _, content := range req.Contents {
-		tokens += contentTokens(content)
+	if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
 	}
 
-	for _, tool := range req.Tools {
-		tokens += toolTokens(tool)
+	contents := req.Contents
+	system := req.SystemInstruction
+	toolDefs := req.Tools
+
+	if nested := req.GenerateContentRequest; nested != nil {
+		contents = nested.Contents
+		system = nested.SystemInstruction
+		toolDefs = nested.Tools
 	}
+
+	messages, err := toMessages(system, contents)
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	tools := toTools(toolDefs, false)
+
+	total := tokens.Estimate(model, tokens.Input{Messages: messages, Tools: tools})
 
 	writeJson(w, CountTokensResponse{
-		TotalTokens: tokens,
+		TotalTokens:         total,
+		PromptTokensDetails: modalityDetails(model, messages, total),
 	})
 }
 
-func contentTokens(content *Content) int {
-	if content == nil {
-		return 0
+// modalityDetails splits the estimate by modality the way Gemini reports it:
+// media parts are estimated on their own, the remainder is text.
+func modalityDetails(model string, messages []provider.Message, total int) []*ModalityTokenCount {
+	byModality := map[string]int{}
+	var order []string
+
+	empty := tokens.Estimate(model, tokens.Input{Messages: []provider.Message{{Role: provider.MessageRoleUser}}})
+
+	for _, m := range messages {
+		for _, c := range m.Content {
+			if c.File == nil {
+				continue
+			}
+
+			modality := fileModality(c.File.ContentType)
+
+			single := tokens.Estimate(model, tokens.Input{Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: []provider.Content{c}}}})
+
+			if _, seen := byModality[modality]; !seen {
+				order = append(order, modality)
+			}
+
+			byModality[modality] += max(single-empty, 0)
+		}
 	}
 
-	total := contentTokenOverhead
-
-	for _, part := range content.Parts {
-		if part.Text != "" {
-			total += textTokens(part.Text)
-		}
-
-		if part.FunctionCall != nil {
-			total += textTokens(part.FunctionCall.Name)
-			total += jsonTokens(part.FunctionCall.Args)
-		}
-
-		if part.FunctionResponse != nil {
-			total += textTokens(part.FunctionResponse.Name)
-			total += jsonTokens(part.FunctionResponse.Response)
-		}
-
-		if part.InlineData != nil {
-			total += imageTokens
-		}
+	media := 0
+	for _, count := range byModality {
+		media += count
 	}
 
-	return total
+	details := []*ModalityTokenCount{{Modality: "TEXT", TokenCount: max(total-media, 0)}}
+
+	for _, modality := range order {
+		details = append(details, &ModalityTokenCount{Modality: modality, TokenCount: byModality[modality]})
+	}
+
+	return details
 }
 
-func toolTokens(tool *Tool) int {
-	var total int
-
-	for _, fn := range tool.FunctionDeclarations {
-		total += textTokens(fn.Name)
-		total += textTokens(fn.Description)
-
-		if fn.Parameters != nil {
-			total += jsonTokens(fn.Parameters)
-		}
-
-		if fn.ParametersJsonSchema != nil {
-			total += jsonTokens(fn.ParametersJsonSchema)
-		}
+func fileModality(contentType string) string {
+	switch {
+	case strings.HasPrefix(contentType, "image/"):
+		return "IMAGE"
+	case strings.HasPrefix(contentType, "audio/"):
+		return "AUDIO"
+	case strings.HasPrefix(contentType, "video/"):
+		return "VIDEO"
+	case contentType == "application/pdf":
+		return "DOCUMENT"
 	}
 
-	return total
-}
-
-func textTokens(s string) int {
-	return len(s) / charsPerToken
-}
-
-func jsonTokens(v any) int {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return 0
-	}
-
-	return len(data) / jsonCharsPerToken
+	return "TEXT"
 }

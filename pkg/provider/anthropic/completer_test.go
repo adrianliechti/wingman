@@ -815,3 +815,147 @@ func TestToUsage_ReasoningTokens(t *testing.T) {
 		t.Errorf("reasoning tokens (%d) exceed OutputTokens (%d)", usage.ReasoningTokens, usage.OutputTokens)
 	}
 }
+
+// A schema constrains the final text answer via output_config.format; the
+// model can still call tools, and those tool_use blocks must surface as tool
+// calls rather than being mistaken for structured text.
+func TestCompleterSchemaKeepsToolCalls(t *testing.T) {
+	events := []string{
+		sseEvent("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-test","content":[],"stop_reason":null,"usage":{"input_tokens":25,"output_tokens":1}}}`),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"location\":\"London\"}"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		sseEvent("message_delta", `{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":12}}`),
+		sseEvent("message_stop", `{"type":"message_stop"}`),
+	}
+
+	var body map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, e := range events {
+			w.Write([]byte(e))
+		}
+	}))
+	defer server.Close()
+
+	completer, err := NewCompleter(server.URL, "claude-sonnet-4-6")
+	if err != nil {
+		t.Fatalf("new completer: %v", err)
+	}
+
+	options := &provider.CompleteOptions{
+		Tools: []provider.Tool{{
+			Name:       "get_weather",
+			Parameters: map[string]any{"type": "object", "properties": map[string]any{"location": map[string]any{"type": "string"}}},
+		}},
+		Schema: &provider.Schema{
+			Name:       "report",
+			Properties: map[string]any{"type": "object", "properties": map[string]any{"summary": map[string]any{"type": "string"}}},
+		},
+	}
+
+	acc := provider.CompletionAccumulator{}
+
+	for completion, err := range completer.Complete(t.Context(), []provider.Message{provider.UserMessage("weather?")}, options) {
+		if err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+		acc.Add(*completion)
+	}
+
+	result := acc.Result()
+
+	calls := result.Message.ToolCalls()
+	if len(calls) != 1 || calls[0].Name != "get_weather" || calls[0].Arguments != `{"location":"London"}` {
+		t.Fatalf("expected the tool call to survive, got calls=%+v text=%q", calls, result.Message.Text())
+	}
+
+	if text := result.Message.Text(); text != "" {
+		t.Errorf("tool input leaked into text: %q", text)
+	}
+
+	if _, ok := body["output_config"].(map[string]any)["format"]; !ok {
+		t.Error("output_config.format not sent")
+	}
+	if tools, _ := body["tools"].([]any); len(tools) != 1 {
+		t.Errorf("tools not sent: %v", body["tools"])
+	}
+}
+
+// Schema-less JSON mode has no native equivalent; it is emulated with a
+// system instruction so the answer parses without markdown fences.
+func TestCompleterJSONModeInstruction(t *testing.T) {
+	var body map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(sseEvent("message_stop", `{"type":"message_stop"}`)))
+	}))
+	defer server.Close()
+
+	completer, _ := NewCompleter(server.URL, "claude-sonnet-4-6")
+
+	options := &provider.CompleteOptions{Schema: &provider.Schema{Name: "json_object"}}
+
+	for _, err := range completer.Complete(t.Context(), []provider.Message{provider.SystemMessage("Be brief."), provider.UserMessage("hi")}, options) {
+		if err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+	}
+
+	if _, ok := body["output_config"]; ok {
+		t.Errorf("json_object must not produce an output_config: %v", body["output_config"])
+	}
+
+	system, _ := body["system"].([]any)
+	if len(system) != 2 {
+		t.Fatalf("expected the client system prompt plus the JSON instruction, got %v", body["system"])
+	}
+	if text, _ := system[1].(map[string]any)["text"].(string); !strings.Contains(text, "JSON") {
+		t.Errorf("JSON instruction missing: %v", system[1])
+	}
+}
+
+// Responses-style clients replay the visible thinking as a summary part.
+// The thinking block must carry that text — it is what the signature covers.
+func TestCompleterReplaysSummaryAsThinking(t *testing.T) {
+	var body map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(sseEvent("message_stop", `{"type":"message_stop"}`)))
+	}))
+	defer server.Close()
+
+	completer, _ := NewCompleter(server.URL, "claude-sonnet-4-6")
+
+	messages := []provider.Message{
+		provider.UserMessage("hi"),
+		{Role: provider.MessageRoleAssistant, Content: []provider.Content{
+			provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "summarized thought", Signature: "SIG"}),
+			provider.ToolCallContent(provider.ToolCall{ID: "t1", Name: "f", Arguments: "{}"}),
+		}},
+		provider.ToolMessage("t1", "ok"),
+	}
+
+	options := &provider.CompleteOptions{ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive, IncludeSummary: true}}
+
+	for _, err := range completer.Complete(t.Context(), messages, options) {
+		if err != nil {
+			t.Fatalf("complete: %v", err)
+		}
+	}
+
+	msgs, _ := body["messages"].([]any)
+	assistant, _ := msgs[1].(map[string]any)
+	blocks, _ := assistant["content"].([]any)
+	thinking, _ := blocks[0].(map[string]any)
+
+	if thinking["type"] != "thinking" || thinking["thinking"] != "summarized thought" || thinking["signature"] != "SIG" {
+		t.Fatalf("thinking block: %v", thinking)
+	}
+}

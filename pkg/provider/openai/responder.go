@@ -54,6 +54,31 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 
+		// The Responses API has no stop parameter — cut the stream instead
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		stops := newStopFilter(options.Stop)
+
+		if stops != nil {
+			inner := yield
+
+			yield = func(c *provider.Completion, err error) bool {
+				c, hit := stops.filter(c)
+
+				if !inner(c, err) {
+					return false
+				}
+
+				if hit {
+					cancel()
+					return false
+				}
+
+				return true
+			}
+		}
+
 		stream := r.responses.NewStreaming(ctx, *req)
 
 		// Maps item ID → call ID for function tool calls.
@@ -328,7 +353,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			}
 		}
 
-		if err := stream.Err(); err != nil {
+		if err := stream.Err(); err != nil && (stops == nil || !stops.done) {
 			yield(nil, convertError(err))
 			return
 		}
@@ -451,7 +476,7 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 			properties := options.Schema.Properties
 
 			if options.Schema.Strict != nil && *options.Schema.Strict {
-				properties = ensureAdditionalPropertiesFalse(properties)
+				properties = ensureStrictSchema(properties)
 			}
 
 			schema := &responses.ResponseFormatTextJSONSchemaConfigParam{
@@ -523,7 +548,7 @@ func containsCompactionTrigger(messages []provider.Message) bool {
 
 func (r *Responder) convertResponsesInput(messages []provider.Message, freeformPatch bool) (responses.ResponseNewParamsInputUnion, error) {
 	var separated []provider.Message
-	for _, message := range messages {
+	for _, message := range sanitizeToolIDs(messages) {
 		separated = append(separated, message.SplitMessages()...)
 	}
 	messages = separated
@@ -1204,9 +1229,15 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 					})
 					continue
 				}
+				parameters := inner.Parameters
+
+				if inner.Strict != nil && *inner.Strict {
+					parameters = ensureStrictSchema(parameters)
+				}
+
 				fn := responses.NamespaceToolToolFunctionParam{
 					Name:       inner.Name,
-					Parameters: inner.Parameters,
+					Parameters: parameters,
 				}
 				if inner.Description != "" {
 					fn.Description = openai.String(inner.Description)
@@ -1243,10 +1274,16 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 			continue
 		}
 
+		parameters := t.Parameters
+
+		if t.Strict != nil && *t.Strict {
+			parameters = ensureStrictSchema(parameters)
+		}
+
 		function := &responses.FunctionToolParam{
 			Name: t.Name,
 
-			Parameters: t.Parameters,
+			Parameters: parameters,
 		}
 
 		if t.Description != "" {

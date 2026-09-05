@@ -362,7 +362,8 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		if content.Text != "" {
+		// Refusal text has no Anthropic block type; stream it as text
+		if text := content.Text + content.Refusal; text != "" {
 			if s.textIndex < 0 {
 				index, err := s.startBlock(&ContentBlock{
 					Type: "text",
@@ -381,7 +382,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				Index: s.textIndex,
 				Delta: &Delta{
 					Type: "text_delta",
-					Text: content.Text,
+					Text: text,
 				},
 			}); err != nil {
 				return err
@@ -487,7 +488,7 @@ func (s *StreamingAccumulator) Complete() error {
 		cacheReadInputTokens = result.Usage.CacheReadInputTokens
 		cacheCreationInputTokens = result.Usage.CacheCreationInputTokens
 
-		if result.Usage.ReasoningTokens > 0 || s.ThinkingEnabled {
+		if s.ThinkingEnabled {
 			outputTokensDetails = &OutputTokensDetails{
 				ThinkingTokens: result.Usage.ReasoningTokens,
 			}

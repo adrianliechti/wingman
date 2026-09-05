@@ -243,12 +243,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						Usage: toUsage(message.Usage),
 					}
 
-					if options.Schema != nil {
-						delta.Message.Content = []provider.Content{
-							provider.TextContent(""),
-						}
-					}
-
 					if !yield(delta, nil) {
 						return
 					}
@@ -373,12 +367,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 								}),
 							},
 						},
-					}
-
-					if options.Schema != nil {
-						delta.Message.Content = []provider.Content{
-							provider.TextContent(event.PartialJSON),
-						}
 					}
 
 					if !yield(delta, nil) {
@@ -539,34 +527,6 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	if !matchesModel(c.model, LegacyModels) {
 		req.MaxTokens = 128000
-
-		if reasoning := options.ReasoningOptions; reasoning != nil {
-			switch reasoning.Type {
-			case provider.ReasoningTypeAdaptive:
-				display := anthropic.BetaThinkingConfigAdaptiveDisplaySummarized
-				if !reasoning.IncludeSummary {
-					display = anthropic.BetaThinkingConfigAdaptiveDisplayOmitted
-				}
-
-				req.Thinking = anthropic.BetaThinkingConfigParamUnion{
-					OfAdaptive: &anthropic.BetaThinkingConfigAdaptiveParam{Display: display},
-				}
-
-			case provider.ReasoningTypeDisabled:
-				req.Thinking = disabledThinking(c.model)
-			}
-
-			if effort := outputEffort(reasoning.Effort); effort != "" {
-				req.OutputConfig.Effort = effort
-			}
-		}
-
-		// Claude rejects a thinking-enabled request whose last assistant
-		// message has tool calls but no signed thinking block (e.g. after
-		// signatures were stripped for cross-provider portability).
-		if req.Thinking.OfAdaptive != nil && provider.LastAssistantToolCallIsUnsigned(input) {
-			req.Thinking = disabledThinking(c.model)
-		}
 	}
 
 	var system []anthropic.BetaTextBlockParam
@@ -777,7 +737,14 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					if c.Reasoning.Redacted {
 						blocks = append(blocks, anthropic.NewBetaRedactedThinkingBlock(c.Reasoning.Signature))
 					} else {
-						blocks = append(blocks, anthropic.NewBetaThinkingBlock(c.Reasoning.Signature, c.Reasoning.Text))
+						// Responses-style clients replay the visible thinking as
+						// a summary part; that text is what the signature covers.
+						thinking := c.Reasoning.Text
+						if thinking == "" {
+							thinking = c.Reasoning.Summary
+						}
+
+						blocks = append(blocks, anthropic.NewBetaThinkingBlock(c.Reasoning.Signature, thinking))
 					}
 				}
 
@@ -1000,6 +967,11 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.OutputConfig.Format = anthropic.BetaJSONOutputFormatParam{
 			Schema: ensureAdditionalPropertiesFalse(sanitizeStrictSchema(options.Schema.Properties)),
 		}
+	} else if options.Schema != nil {
+		// JSON mode without a schema (OpenAI json_object, Gemini
+		// responseMimeType) has no native equivalent — instruct the model
+		// instead so the output parses without markdown fences.
+		system = append(system, anthropic.BetaTextBlockParam{Text: jsonModeInstruction})
 	}
 
 	if options.CompactionOptions != nil && !matchesModel(c.model, LegacyModels) {
@@ -1032,9 +1004,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		req.Tools = append(req.Tools, tools...)
 	}
 
-	if options.ToolOptions != nil {
-		forcesTool := false
+	forcesTool := false
 
+	if options.ToolOptions != nil {
 		switch options.ToolOptions.Choice {
 		case provider.ToolChoiceNone:
 			req.ToolChoice = anthropic.BetaToolChoiceUnionParam{
@@ -1080,21 +1052,30 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				req.ToolChoice = anthropic.BetaToolChoiceUnionParam{OfAny: p}
 			}
 		}
+	}
 
-		// Claude doesn't allow thinking with forced tool_choice
-		if forcesTool {
-			req.Thinking = disabledThinking(c.model)
+	thinking := c.resolveThinking(input, options, forcesTool)
+
+	if thinking.Enabled {
+		display := anthropic.BetaThinkingConfigAdaptiveDisplaySummarized
+		if !thinking.Summarized {
+			display = anthropic.BetaThinkingConfigAdaptiveDisplayOmitted
+		}
+
+		req.Thinking = anthropic.BetaThinkingConfigParamUnion{
+			OfAdaptive: &anthropic.BetaThinkingConfigAdaptiveParam{Display: display},
+		}
+	} else if thinking.Disabled {
+		req.Thinking = anthropic.BetaThinkingConfigParamUnion{
+			OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
 		}
 	}
 
-	if req.Thinking.OfDisabled != nil && matchesModel(c.model, DisabledThinkingEffortCapModels) {
-		switch req.OutputConfig.Effort {
-		case anthropic.BetaOutputConfigEffortXhigh, anthropic.BetaOutputConfigEffortMax:
-			req.OutputConfig.Effort = anthropic.BetaOutputConfigEffortHigh
-		}
+	if thinking.Effort != "" {
+		req.OutputConfig.Effort = thinking.Effort
 	}
 
-	if options.Temperature != nil && req.Thinking.OfAdaptive == nil && !matchesModel(c.model, NoSamplingModels) {
+	if options.Temperature != nil && !thinking.Enabled && !matchesModel(c.model, NoSamplingModels) {
 		req.Temperature = anthropic.Float(float64(*options.Temperature))
 	}
 

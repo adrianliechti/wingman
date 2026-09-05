@@ -46,12 +46,13 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		response.UsageMetadata = &UsageMetadata{}
 	}
 
-	// Convert content to Gemini format
-	// Skip function calls during streaming - they will be sent in Complete()
+	// Text, thoughts and thought signatures stream as they arrive. Function
+	// calls are delivered once, in Complete(), so their arguments are never
+	// partial.
 	if c.Message != nil && len(c.Message.Content) > 0 {
 		var textContent []provider.Content
 		for _, content := range c.Message.Content {
-			if content.Text != "" || (content.Reasoning != nil && content.Reasoning.Text != "") {
+			if content.Text != "" || content.Reasoning != nil {
 				textContent = append(textContent, content)
 			}
 		}
@@ -107,18 +108,17 @@ func (s *StreamingAccumulator) Complete() error {
 		Index:        0,
 	}
 
-	// Only include function calls in final response (text was already streamed)
-	// The SDK expects to find function calls in the last response
-	if result.Message != nil && len(result.Message.Content) > 0 {
-		var hasFunctionCalls bool
+	// Only function calls go into the final chunk — text and thoughts were
+	// already streamed, and clients concatenate parts across chunks.
+	if result.Message != nil {
+		var calls []provider.Content
 		for _, c := range result.Message.Content {
 			if c.ToolCall != nil {
-				hasFunctionCalls = true
-				break
+				calls = append(calls, c)
 			}
 		}
-		if hasFunctionCalls {
-			candidate.Content = toContent(result.Message.Content)
+		if len(calls) > 0 {
+			candidate.Content = toContent(calls)
 		}
 	}
 

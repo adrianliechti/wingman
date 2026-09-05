@@ -21,9 +21,10 @@ type routerConfig struct {
 	Models   []string `yaml:"models"`
 	Fallback string   `yaml:"fallback"`
 
-	// ReasoningSignatures set to false strips provider-bound reasoning and
-	// compaction signatures, keeping histories portable across the routed
-	// providers.
+	// ReasoningSignatures set to false strips reasoning and compaction
+	// signatures before routing. By default each member replays only the
+	// signatures it produced itself, so thinking continues whenever the
+	// router lands on the same member again.
 	ReasoningSignatures *bool `yaml:"reasoning_signatures"`
 
 	// FirstTokenTimeout bounds the wait for the first response token before

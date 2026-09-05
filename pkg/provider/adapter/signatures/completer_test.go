@@ -141,3 +141,82 @@ func TestStripOptionsDisablesCompactionWithoutReasoning(t *testing.T) {
 		t.Fatal("caller options must not be mutated")
 	}
 }
+
+func TestScopedTagsAndResolves(t *testing.T) {
+	inner := &captureCompleter{
+		reply: &provider.Completion{
+			Message: &provider.Message{
+				Role: provider.MessageRoleAssistant,
+				Content: []provider.Content{
+					provider.ReasoningContent(provider.Reasoning{Text: "thinking", Signature: "SIG"}),
+					provider.CompactionContent(provider.Compaction{ID: "cp", Signature: "BLOB"}),
+					provider.TextContent("answer"),
+				},
+			},
+		},
+	}
+
+	scoped := ScopedTo("claude-sonnet-4-6", inner)
+
+	messages := []provider.Message{
+		provider.UserMessage("hi"),
+		{Role: provider.MessageRoleAssistant, Content: []provider.Content{
+			provider.ReasoningContent(provider.Reasoning{Text: "own", Signature: "@claude-sonnet-4-6:OWN"}),
+			provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "foreign", Signature: "@gpt-5.4:ENC"}),
+			provider.ReasoningContent(provider.Reasoning{Redacted: true, Signature: "@gpt-5.4:RED"}),
+			provider.ReasoningContent(provider.Reasoning{Text: "legacy", Signature: "RAW"}),
+			provider.CompactionContent(provider.Compaction{Content: "summary", Signature: "@gpt-5.4:CMP"}),
+			provider.ToolCallContent(provider.ToolCall{ID: "call_1::search::c2ln", Name: "search", Arguments: "{}"}),
+		}},
+		provider.ToolMessage("call_1::search::c2ln", "ok"),
+	}
+
+	options := &provider.CompleteOptions{
+		ReasoningOptions:  &provider.ReasoningOptions{IncludeSignature: true},
+		CompactionOptions: &provider.CompactionOptions{Threshold: 1000},
+	}
+
+	var out []*provider.Completion
+	for completion, err := range scoped.Complete(context.Background(), messages, options) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, completion)
+	}
+
+	replayed := inner.messages[1].Content
+	if len(replayed) != 5 {
+		t.Fatalf("replayed contents: %+v", replayed)
+	}
+	if replayed[0].Reasoning.Signature != "OWN" {
+		t.Errorf("own signature must be unwrapped: %q", replayed[0].Reasoning.Signature)
+	}
+	if replayed[1].Reasoning.Signature != "" || replayed[1].Reasoning.Summary != "foreign" {
+		t.Errorf("foreign signature must be stripped, text kept: %+v", replayed[1].Reasoning)
+	}
+	if replayed[2].Reasoning.Signature != "RAW" {
+		t.Errorf("untagged signature must pass through: %q", replayed[2].Reasoning.Signature)
+	}
+	if replayed[3].Compaction.Signature != "" || replayed[3].Compaction.Content != "summary" {
+		t.Errorf("foreign compaction keeps its summary only: %+v", replayed[3].Compaction)
+	}
+	if replayed[4].ToolCall.ID != "call_1::search::c2ln" {
+		t.Errorf("scoped mode leaves tool ids alone: %q", replayed[4].ToolCall.ID)
+	}
+
+	if !inner.options.ReasoningOptions.IncludeSignature || inner.options.CompactionOptions == nil {
+		t.Error("scoped mode must not touch options")
+	}
+
+	if messages[1].Content[0].Reasoning.Signature != "@claude-sonnet-4-6:OWN" {
+		t.Error("input history was mutated")
+	}
+
+	reply := out[0].Message.Content
+	if reply[0].Reasoning.Signature != "@claude-sonnet-4-6:SIG" {
+		t.Errorf("emitted reasoning must be tagged: %q", reply[0].Reasoning.Signature)
+	}
+	if reply[1].Compaction.Signature != "@claude-sonnet-4-6:BLOB" {
+		t.Errorf("emitted compaction must be tagged: %q", reply[1].Compaction.Signature)
+	}
+}

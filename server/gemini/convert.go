@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
+	"github.com/adrianliechti/wingman/server/openai/shared"
 )
 
 func toMessages(systemInstruction *Content, contents []*Content) ([]provider.Message, error) {
@@ -95,6 +97,27 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 				Content:     data,
 				ContentType: part.InlineData.MimeType,
 			}))
+		}
+
+		// File references: only fetchable URLs can be bridged to other
+		// backends; Files API URIs are bound to the caller's Google project.
+		if part.FileData != nil {
+			uri := part.FileData.FileUri
+
+			if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
+				return nil, fmt.Errorf("fileData.fileUri %q is not supported: only http(s) URLs can be fetched", uri)
+			}
+
+			file, err := shared.ToFile(uri)
+			if err != nil {
+				return nil, err
+			}
+
+			if part.FileData.MimeType != "" {
+				file.ContentType = part.FileData.MimeType
+			}
+
+			content = append(content, provider.FileContent(file))
 		}
 
 		// Function call (in model/assistant messages)
@@ -391,4 +414,81 @@ func generateID(length int) string {
 	rand.Read(bytes)
 
 	return hex.EncodeToString(bytes)[:length]
+}
+
+// normalizeResponseSchema converts Gemini's OpenAPI-flavored responseSchema
+// (uppercase TYPE enums, nullable, propertyOrdering) into plain JSON Schema so
+// non-Gemini backends accept it. The input is not mutated.
+func normalizeResponseSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+
+	result := make(map[string]any, len(schema))
+
+	for key, value := range schema {
+		switch key {
+		case "type":
+			if t, ok := value.(string); ok {
+				result[key] = strings.ToLower(t)
+			} else {
+				result[key] = value
+			}
+
+		case "propertyOrdering":
+			// Gemini-only hint; other backends reject unknown keywords in
+			// strict modes
+
+		case "nullable":
+			// folded into the type below
+
+		case "properties", "$defs", "definitions":
+			if m, ok := value.(map[string]any); ok {
+				sub := make(map[string]any, len(m))
+				for name, prop := range m {
+					if ps, ok := prop.(map[string]any); ok {
+						sub[name] = normalizeResponseSchema(ps)
+					} else {
+						sub[name] = prop
+					}
+				}
+				result[key] = sub
+			} else {
+				result[key] = value
+			}
+
+		case "items", "not":
+			if m, ok := value.(map[string]any); ok {
+				result[key] = normalizeResponseSchema(m)
+			} else {
+				result[key] = value
+			}
+
+		case "anyOf", "allOf", "oneOf":
+			if arr, ok := value.([]any); ok {
+				sub := make([]any, len(arr))
+				for i, item := range arr {
+					if m, ok := item.(map[string]any); ok {
+						sub[i] = normalizeResponseSchema(m)
+					} else {
+						sub[i] = item
+					}
+				}
+				result[key] = sub
+			} else {
+				result[key] = value
+			}
+
+		default:
+			result[key] = value
+		}
+	}
+
+	if nullable, _ := schema["nullable"].(bool); nullable {
+		if t, ok := result["type"].(string); ok && t != "null" {
+			result["type"] = []any{t, "null"}
+		}
+	}
+
+	return result
 }

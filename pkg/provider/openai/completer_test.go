@@ -359,3 +359,55 @@ func TestCompleterSynthesizesMissingToolCallIDs(t *testing.T) {
 		t.Errorf("call 1: got %+v", calls[1])
 	}
 }
+
+// Strict mode requires every property to be required and objects to be
+// closed; optional properties from other dialects become nullable instead.
+func TestEnsureStrictSchema(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"title":  map[string]any{"type": "string"},
+			"series": map[string]any{"type": "string"},
+			"tags":   map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"name": map[string]any{"type": "string"}}}},
+		},
+		"required": []any{"title"},
+	}
+
+	got := ensureStrictSchema(schema)
+
+	if got["additionalProperties"] != false {
+		t.Errorf("additionalProperties: %v", got["additionalProperties"])
+	}
+
+	required, _ := got["required"].([]any)
+	if len(required) != 3 {
+		t.Errorf("required should list every property: %v", required)
+	}
+
+	props := got["properties"].(map[string]any)
+
+	if props["title"].(map[string]any)["type"] != "string" {
+		t.Errorf("required property must keep its type: %v", props["title"])
+	}
+
+	series := props["series"].(map[string]any)["type"]
+	if types, _ := series.([]any); len(types) != 2 || types[0] != "string" || types[1] != "null" {
+		t.Errorf("optional property must become nullable: %v", series)
+	}
+
+	items := props["tags"].(map[string]any)["items"].(map[string]any)
+	if items["additionalProperties"] != false {
+		t.Errorf("nested objects must be closed: %v", items)
+	}
+	if req, _ := items["required"].([]any); len(req) != 1 || req[0] != "name" {
+		t.Errorf("nested required: %v", items["required"])
+	}
+
+	// input untouched
+	if _, ok := schema["additionalProperties"]; ok {
+		t.Error("input schema was mutated")
+	}
+	if list, _ := schema["required"].([]any); len(list) != 1 {
+		t.Error("input required list was mutated")
+	}
+}

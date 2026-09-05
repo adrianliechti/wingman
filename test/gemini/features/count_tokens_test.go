@@ -13,48 +13,44 @@ import (
 	"github.com/adrianliechti/wingman/test/harness"
 )
 
-// TestCountTokensHTTP exercises the /v1beta/models/{model}:countTokens
-// endpoint. Wingman's count is heuristic (chars/4) and won't match the
-// upstream tokenizer exactly, so we don't compare values — we only
-// assert both endpoints return a positive totalTokens for the same
-// payload. That catches the common failure modes (404, 500, missing
-// field, zero-count regression).
-//
-// Upstream Gemini's countTokens rejects systemInstruction/tools at the
-// top level — those must be nested inside generateContentRequest.
-// Wingman's handler currently only accepts the flat top-level shape.
-// We send the right shape to each endpoint so both succeed on the same
-// logical payload.
+// TestCountTokensHTTP sends the official countTokens bodies — bare
+// `contents`, and `generateContentRequest` carrying the system instruction
+// and tools — to both endpoints. Wingman estimates rather than tokenizes, so
+// values are not compared; the response shape and the modality breakdown
+// are.
 func TestCountTokensHTTP(t *testing.T) {
 	h := gemini.New(t)
 
+	contents := []map[string]any{
+		{"role": "user", "parts": []map[string]any{{"text": "How many tokens is this sentence?"}}},
+	}
+
 	cases := []struct {
-		name     string
-		contents []map[string]any
-		system   map[string]any
-		tools    []any
+		name string
+		body func(model string) map[string]any
 	}{
 		{
 			name: "contents only",
-			contents: []map[string]any{
-				{"role": "user", "parts": []map[string]any{{"text": "How many tokens is this sentence?"}}},
+			body: func(string) map[string]any {
+				return map[string]any{"contents": contents}
 			},
 		},
 		{
-			name: "contents with system instruction",
-			system: map[string]any{
-				"parts": []map[string]any{{"text": "You are a careful assistant."}},
-			},
-			contents: []map[string]any{
-				{"role": "user", "parts": []map[string]any{{"text": "Hello there, friend."}}},
+			name: "generateContentRequest with system instruction and tools",
+			body: func(model string) map[string]any {
+				return map[string]any{"generateContentRequest": map[string]any{
+					"model":             "models/" + model,
+					"contents":          contents,
+					"systemInstruction": map[string]any{"parts": []map[string]any{{"text": "You are a careful assistant."}}},
+					"tools":             []any{gemini.WeatherTool},
+				}}
 			},
 		},
 		{
-			name: "contents with tools",
-			contents: []map[string]any{
-				{"role": "user", "parts": []map[string]any{{"text": "What's the weather?"}}},
+			name: "snake_case singleton form",
+			body: func(string) map[string]any {
+				return map[string]any{"contents": map[string]any{"parts": map[string]any{"text": "Hello there, friend."}}}
 			},
-			tools: []any{gemini.WeatherTool},
 		},
 	}
 
@@ -64,59 +60,28 @@ func TestCountTokensHTTP(t *testing.T) {
 
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
-					upstreamBody := buildCountTokensBody(tc.contents, tc.system, tc.tools, h.ReferenceModel)
-					wingmanBody := buildCountTokensBody(tc.contents, tc.system, tc.tools, "")
-
-					geminiResp := postCountTokens(t, h, h.Gemini, h.ReferenceModel, upstreamBody)
+					geminiResp := postCountTokens(t, h, h.Gemini, h.ReferenceModel, tc.body(h.ReferenceModel))
 					if geminiResp.StatusCode != 200 {
 						t.Fatalf("gemini returned status %d: %s", geminiResp.StatusCode, string(geminiResp.RawBody))
 					}
 
-					wingmanResp := postCountTokens(t, h, h.Wingman, model.Name, wingmanBody)
+					wingmanResp := postCountTokens(t, h, h.Wingman, model.Name, tc.body(model.Name))
 					if wingmanResp.StatusCode != 200 {
 						t.Fatalf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
 					}
 
 					requirePositiveTotalTokens(t, "gemini", geminiResp.Body)
 					requirePositiveTotalTokens(t, "wingman", wingmanResp.Body)
+
+					rules := map[string]harness.FieldRule{
+						"totalTokens":                     harness.FieldNonEmpty,
+						"promptTokensDetails.*.tokenCount": harness.FieldNonEmpty,
+					}
+					harness.CompareStructure(t, "response", geminiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
 				})
 			}
 		})
 	}
-}
-
-// buildCountTokensBody returns a request body for /v1beta/models/{model}:countTokens.
-//
-// When wrapModel is non-empty (the upstream-Gemini case with non-flat
-// fields), the body is wrapped in generateContentRequest with a nested
-// model — upstream rejects systemInstruction/tools at the top level and
-// also requires generateContentRequest.model when the wrapper is used.
-//
-// When wrapModel is empty (the Wingman case), the flat shape is used —
-// Wingman's handler_tokens.go only accepts {contents, systemInstruction, tools}.
-func buildCountTokensBody(contents []map[string]any, system map[string]any, tools []any, wrapModel string) map[string]any {
-	if wrapModel == "" || (system == nil && tools == nil) {
-		body := map[string]any{"contents": contents}
-		if system != nil {
-			body["systemInstruction"] = system
-		}
-		if tools != nil {
-			body["tools"] = tools
-		}
-		return body
-	}
-
-	inner := map[string]any{
-		"model":    "models/" + wrapModel,
-		"contents": contents,
-	}
-	if system != nil {
-		inner["systemInstruction"] = system
-	}
-	if tools != nil {
-		inner["tools"] = tools
-	}
-	return map[string]any{"generateContentRequest": inner}
 }
 
 func postCountTokens(t *testing.T, h *gemini.Harness, ep harness.Endpoint, model string, body map[string]any) *harness.RawResponse {

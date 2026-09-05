@@ -3,8 +3,10 @@ package openai
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -216,6 +218,143 @@ func statusCodeFromResponseErrorCode(code string) int {
 		// (invalid_prompt, invalid_image, image_too_large, etc.)
 		return http.StatusBadRequest
 	}
+}
+
+// ensureStrictSchema rewrites a JSON schema into the subset OpenAI's strict
+// mode accepts: every object closes additionalProperties, lists all of its
+// properties as required, and expresses formerly optional properties as
+// nullable — the documented way to model optional fields under strict mode.
+// Schemas that already satisfy strict mode come back unchanged. The input is
+// copied along modified paths, never mutated.
+func ensureStrictSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+
+	result := maps.Clone(schema)
+
+	schemaType, _ := schema["type"].(string)
+
+	if schemaType == "object" {
+		if _, ok := result["additionalProperties"]; !ok {
+			result["additionalProperties"] = false
+		}
+
+		props, _ := schema["properties"].(map[string]any)
+
+		required := map[string]bool{}
+		if list, ok := schema["required"].([]any); ok {
+			for _, r := range list {
+				if name, ok := r.(string); ok {
+					required[name] = true
+				}
+			}
+		}
+		if list, ok := schema["required"].([]string); ok {
+			for _, name := range list {
+				required[name] = true
+			}
+		}
+
+		if len(props) > 0 {
+			newProps := make(map[string]any, len(props))
+			names := slices.Sorted(maps.Keys(props))
+
+			for _, name := range names {
+				prop, ok := props[name].(map[string]any)
+				if !ok {
+					newProps[name] = props[name]
+					continue
+				}
+
+				prop = ensureStrictSchema(prop)
+
+				if !required[name] {
+					prop = nullableSchema(prop)
+				}
+
+				newProps[name] = prop
+			}
+
+			result["properties"] = newProps
+
+			all := make([]any, 0, len(names))
+			for _, name := range names {
+				all = append(all, name)
+			}
+			result["required"] = all
+		}
+	}
+
+	if items, ok := schema["items"].(map[string]any); ok {
+		result["items"] = ensureStrictSchema(items)
+	}
+
+	for _, key := range []string{"anyOf", "oneOf", "allOf"} {
+		if arr, ok := schema[key].([]any); ok {
+			sub := make([]any, len(arr))
+			for i, item := range arr {
+				if m, ok := item.(map[string]any); ok {
+					sub[i] = ensureStrictSchema(m)
+				} else {
+					sub[i] = item
+				}
+			}
+			result[key] = sub
+		}
+	}
+
+	for _, key := range []string{"$defs", "definitions"} {
+		if defs, ok := schema[key].(map[string]any); ok {
+			sub := make(map[string]any, len(defs))
+			for name, def := range defs {
+				if m, ok := def.(map[string]any); ok {
+					sub[name] = ensureStrictSchema(m)
+				} else {
+					sub[name] = def
+				}
+			}
+			result[key] = sub
+		}
+	}
+
+	return result
+}
+
+// nullableSchema widens a property schema so null is an accepted value.
+func nullableSchema(schema map[string]any) map[string]any {
+	result := maps.Clone(schema)
+
+	switch t := schema["type"].(type) {
+	case string:
+		if t != "null" {
+			result["type"] = []any{t, "null"}
+		}
+		return result
+
+	case []any:
+		if !slices.Contains(t, any("null")) {
+			result["type"] = append(slices.Clone(t), "null")
+		}
+		return result
+	}
+
+	if arr, ok := schema["anyOf"].([]any); ok {
+		for _, item := range arr {
+			if m, ok := item.(map[string]any); ok && m["type"] == "null" {
+				return result
+			}
+		}
+		result["anyOf"] = append(slices.Clone(arr), map[string]any{"type": "null"})
+		return result
+	}
+
+	// $ref or untyped — wrap so the reference stays intact
+	if _, ok := schema["$ref"]; ok {
+		return map[string]any{"anyOf": []any{schema, map[string]any{"type": "null"}}}
+	}
+
+	return result
 }
 
 // ensureAdditionalPropertiesFalse recursively adds additionalProperties: false

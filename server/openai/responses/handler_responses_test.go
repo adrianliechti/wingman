@@ -38,22 +38,6 @@ func TestReasoningRequestedByEncryptedContentInclude(t *testing.T) {
 	}
 }
 
-func TestAstraRequestNormalizesNoneAndMinimalToLow(t *testing.T) {
-	for _, requested := range []ReasoningEffort{ReasoningEffortNone, ReasoningEffortMinimal} {
-		t.Run(string(requested), func(t *testing.T) {
-			req := ResponsesRequest{
-				Model:     "gpt-6-astra",
-				Reasoning: &ReasoningConfig{Effort: &requested},
-			}
-
-			normalizeAstraRequest(&req)
-			if req.Reasoning == nil || req.Reasoning.Effort == nil || *req.Reasoning.Effort != ReasoningEffortLow {
-				t.Fatalf("effort = %+v, want low", req.Reasoning)
-			}
-		})
-	}
-}
-
 func TestAstraInputPreservesPhaseAsyncAndConfigurationUpdate(t *testing.T) {
 	payload := `[
 		{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"working"}]},

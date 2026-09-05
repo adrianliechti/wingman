@@ -139,6 +139,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		toolCallIDs := map[int32]string{}
 		toolArgsSeen := map[int32]bool{}
 
+		// Schema mode emulates structured output with a forced tool; its
+		// blocks stream as text while every other tool call stays a call.
+		schemaBlocks := map[int32]bool{}
+		sawToolCall := false
+
 		// Emulated custom tools stream JSON-wrapped arguments. Their fragments
 		// cannot be unwrapped one at a time, so buffer them per block and emit
 		// the freeform text once the block closes.
@@ -165,11 +170,14 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				case *types.ContentBlockStartMemberToolUse:
 					toolCallIDs[aws.ToInt32(v.Value.ContentBlockIndex)] = aws.ToString(b.Value.ToolUseId)
 
-					// Schema mode surfaces the forced tool call as text via the
-					// argument deltas, so there is nothing to emit at block start.
-					if options.Schema != nil {
+					// The schema tool's call surfaces as text via the argument
+					// deltas, so there is nothing to emit at block start.
+					if options.Schema != nil && aws.ToString(b.Value.Name) == options.Schema.Name {
+						schemaBlocks[aws.ToInt32(v.Value.ContentBlockIndex)] = true
 						continue
 					}
+
+					sawToolCall = true
 
 					call := provider.UnflattenToolCall(toolAliases, provider.ToolCall{
 						ID:   aws.ToString(b.Value.ToolUseId),
@@ -312,8 +320,8 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						},
 					}
 
-					// Schema mode: stream the tool arguments as text content.
-					if options.Schema != nil {
+					// Schema mode: the schema tool's arguments are the answer.
+					if schemaBlocks[aws.ToInt32(v.Value.ContentBlockIndex)] {
 						delta.Message.Content = []provider.Content{
 							provider.TextContent(aws.ToString(b.Value.Input)),
 						}
@@ -359,7 +367,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					continue
 				}
 
-				if callID, ok := toolCallIDs[blockIndex]; ok && !toolArgsSeen[blockIndex] && options.Schema == nil {
+				if callID, ok := toolCallIDs[blockIndex]; ok && !toolArgsSeen[blockIndex] && !schemaBlocks[blockIndex] {
 					delta := &provider.Completion{
 						ID:    id,
 						Model: c.model,
@@ -400,6 +408,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					delta.StopReason = provider.StopReasonEndTurn
 				case types.StopReasonToolUse:
 					delta.StopReason = provider.StopReasonToolUse
+
+					// the forced schema tool is not a tool call to the client
+					if len(schemaBlocks) > 0 && !sawToolCall {
+						delta.StopReason = provider.StopReasonEndTurn
+					}
 				case types.StopReasonMaxTokens:
 					delta.StopReason = provider.StopReasonMaxTokens
 					delta.Status = provider.CompletionStatusIncomplete
@@ -609,56 +622,33 @@ func isBedrockContentFilterMessage(message string) bool {
 // no native mapping for. The second result reports whether adaptive thinking
 // is enabled — temperature must be cleared in that case.
 func (c *Completer) converseAdditionalFields(messages []provider.Message, options *provider.CompleteOptions) (map[string]any, bool) {
-	if matchesModel(c.model, LegacyModels) {
-		return nil, false
-	}
-
-	reasoning := options.ReasoningOptions
-
 	// Forced tool calls (schema mode, tool choice "any") are incompatible
 	// with thinking on Anthropic models over Bedrock.
 	forced := options.Schema != nil ||
 		(options.ToolOptions != nil && options.ToolOptions.Choice == provider.ToolChoiceAny)
 
-	enable := !forced && reasoning != nil && reasoning.Type == provider.ReasoningTypeAdaptive
-	disable := forced || (reasoning != nil && reasoning.Type == provider.ReasoningTypeDisabled)
-
-	// Claude rejects a thinking-enabled request whose last assistant
-	// message has tool calls but no signed thinking block (e.g. after
-	// signatures were stripped for cross-provider portability).
-	if enable && provider.LastAssistantToolCallIsUnsigned(messages) {
-		enable = false
-		disable = true
-	}
+	thinking := c.resolveThinking(messages, options, forced)
 
 	fields := map[string]any{}
 
-	effort := ""
-
-	if reasoning != nil {
-		effort = outputEffort(reasoning.Effort)
-	}
-
-	if enable {
-		thinking := map[string]any{"type": "adaptive"}
-		if !reasoning.IncludeSummary {
-			thinking["display"] = "omitted"
+	if thinking.Enabled {
+		config := map[string]any{"type": "adaptive"}
+		if !thinking.Summarized {
+			config["display"] = "omitted"
 		}
 
-		fields["thinking"] = thinking
-	} else if disable && matchesModel(c.model, DefaultThinkingModels) {
+		fields["thinking"] = config
+	} else if thinking.Disabled && matchesModel(c.model, DefaultThinkingModels) {
+		// Bedrock only accepts the explicit disable on models that think
+		// by default; the others are off when the field is omitted.
 		fields["thinking"] = map[string]any{"type": "disabled"}
-
-		if matchesModel(c.model, DisabledThinkingEffortCapModels) && (effort == "xhigh" || effort == "max") {
-			effort = "high"
-		}
 	}
 
-	if effort != "" {
-		fields["output_config"] = map[string]any{"effort": effort}
+	if thinking.Effort != "" {
+		fields["output_config"] = map[string]any{"effort": thinking.Effort}
 	}
 
-	return fields, enable
+	return fields, thinking.Enabled
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
@@ -718,10 +708,17 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		}
 
 		config.Tools = append(config.Tools, &types.ToolMemberToolSpec{Value: tool})
-		config.ToolChoice = &types.ToolChoiceMemberTool{
-			Value: types.SpecificToolChoice{
-				Name: aws.String(options.Schema.Name),
-			},
+
+		if len(config.Tools) > 1 {
+			// Client tools stay callable: the model must call some tool, and
+			// the schema tool is the only way to produce the final answer.
+			config.ToolChoice = &types.ToolChoiceMemberAny{}
+		} else {
+			config.ToolChoice = &types.ToolChoiceMemberTool{
+				Value: types.SpecificToolChoice{
+					Name: aws.String(options.Schema.Name),
+				},
+			}
 		}
 	}
 

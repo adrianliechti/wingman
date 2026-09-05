@@ -148,7 +148,7 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 	model := r.PathValue("model")
 
 	var req GenerateContentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeRequest(r.Body, &req); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -166,8 +166,9 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 		return nil, nil, nil, err
 	}
 
-	// Per the Gemini spec FunctionCallingConfig.Mode controls function-calling
-	// behavior. VALIDATED is equivalent to OpenAI's strict-schema enforcement.
+	// VALIDATED lets the model choose between a function call and natural
+	// language (like AUTO) but enforces the declared schemas — the same thing
+	// OpenAI's strict function tools do.
 	var fcc *FunctionCallingConfig
 	if req.ToolConfig != nil {
 		fcc = req.ToolConfig.FunctionCallingConfig
@@ -183,9 +184,9 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 			Allowed: fcc.AllowedFunctionNames,
 		}
 		switch fcc.Mode {
-		case "AUTO":
+		case "AUTO", "VALIDATED":
 			toolOptions.Choice = provider.ToolChoiceAuto
-		case "ANY", "VALIDATED":
+		case "ANY":
 			toolOptions.Choice = provider.ToolChoiceAny
 		case "NONE":
 			toolOptions.Choice = provider.ToolChoiceNone
@@ -200,7 +201,10 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 		options.Temperature = req.GenerationConfig.Temperature
 		options.MaxTokens = req.GenerationConfig.MaxOutputTokens
 
-		// Handle structured output via responseJsonSchema or responseSchema
+		// Structured output via responseJsonSchema (JSON Schema) or
+		// responseSchema (Gemini's OpenAPI dialect). Gemini enforces the
+		// schema, so backends are asked for their strict mode; each adapter
+		// rewrites optional properties into that mode's dialect.
 		strict := true
 
 		if req.GenerationConfig.ResponseJsonSchema != nil {
@@ -216,8 +220,13 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 				options.Schema = &provider.Schema{
 					Name:       "response",
 					Strict:     &strict,
-					Properties: properties,
+					Properties: normalizeResponseSchema(properties),
 				}
+			}
+		} else if strings.EqualFold(req.GenerationConfig.ResponseMimeType, "application/json") {
+			// JSON mode without a schema
+			options.Schema = &provider.Schema{
+				Name: "json_object",
 			}
 		}
 	}
@@ -234,7 +243,8 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 			options.ReasoningOptions = &provider.ReasoningOptions{
 				Type: provider.ReasoningTypeAdaptive,
 
-				IncludeSummary: tc.IncludeThoughts,
+				IncludeSummary:   tc.IncludeThoughts,
+				IncludeSignature: true,
 			}
 
 			switch strings.TrimPrefix(strings.ToLower(tc.ThinkingLevel), "thinking_level_") {

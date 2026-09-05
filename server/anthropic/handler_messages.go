@@ -277,7 +277,9 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 			CacheCreationInputTokens: completion.Usage.CacheCreationInputTokens,
 		}
 
-		if completion.Usage.ReasoningTokens > 0 || thinkingEnabled(options) {
+		// Anthropic only reports thinking tokens when thinking was requested;
+		// a backend that thinks on its own still counts them in output_tokens.
+		if thinkingEnabled(options) {
 			result.Usage.OutputTokensDetails = &OutputTokensDetails{
 				ThinkingTokens: completion.Usage.ReasoningTokens,
 			}

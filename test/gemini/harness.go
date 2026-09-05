@@ -68,7 +68,8 @@ func ModelCapabilities(name string) harness.Capabilities {
 		return harness.Capabilities{Thinking: true, StructuredOutput: true, Audio: true}
 
 	case strings.HasPrefix(n, "gpt-5"):
-		return harness.Capabilities{StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true}
+		// thoughts surface as reasoning summaries
+		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true}
 
 	case strings.HasPrefix(n, "gpt"), strings.HasPrefix(n, "o3"), strings.HasPrefix(n, "o4"):
 		return harness.Capabilities{StructuredOutput: true, Cache: true}

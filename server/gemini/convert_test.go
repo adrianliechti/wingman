@@ -47,3 +47,50 @@ func TestUsageMetadataSplitsReasoningFromCandidates(t *testing.T) {
 		t.Fatalf("expected total token count 120, got %d", metadata.TotalTokenCount)
 	}
 }
+
+func TestNormalizeResponseSchema(t *testing.T) {
+	schema := map[string]any{
+		"type": "OBJECT",
+		"properties": map[string]any{
+			"title":  map[string]any{"type": "STRING"},
+			"series": map[string]any{"type": "STRING", "nullable": true},
+			"tags":   map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING"}},
+		},
+		"required":         []string{"title"},
+		"propertyOrdering": []string{"title", "series", "tags"},
+	}
+
+	got := normalizeResponseSchema(schema)
+
+	if got["type"] != "object" {
+		t.Errorf("type: %v", got["type"])
+	}
+
+	if _, ok := got["propertyOrdering"]; ok {
+		t.Error("propertyOrdering should be stripped")
+	}
+
+	props := got["properties"].(map[string]any)
+
+	if props["title"].(map[string]any)["type"] != "string" {
+		t.Errorf("title type: %v", props["title"])
+	}
+
+	series := props["series"].(map[string]any)
+	if _, ok := series["nullable"]; ok {
+		t.Error("nullable should be folded into type")
+	}
+	if types, _ := series["type"].([]any); len(types) != 2 || types[0] != "string" || types[1] != "null" {
+		t.Errorf("series type: %v", series["type"])
+	}
+
+	items := props["tags"].(map[string]any)["items"].(map[string]any)
+	if items["type"] != "string" {
+		t.Errorf("items type: %v", items["type"])
+	}
+
+	// input untouched
+	if schema["type"] != "OBJECT" {
+		t.Error("input schema was mutated")
+	}
+}

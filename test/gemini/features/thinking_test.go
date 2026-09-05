@@ -27,6 +27,11 @@ func TestThinkingHTTP(t *testing.T) {
 				},
 			}
 
+			// At the default level Gemini only sometimes returns thought
+			// summaries; an explicit level makes every backend surface its
+			// reasoning.
+			body["generationConfig"].(map[string]any)["thinkingConfig"].(map[string]any)["thinkingLevel"] = "high"
+
 			geminiResp, wingmanResp := gemini.CompareHTTP(t, h, model.Name, body)
 
 			requireThoughtPart(t, "gemini", geminiResp.Body)
@@ -58,6 +63,10 @@ func TestThinkingSSE(t *testing.T) {
 					},
 				},
 			}
+
+			// At the default level Gemini streams no thought summaries; an
+			// explicit level makes every backend surface its reasoning.
+			body["generationConfig"].(map[string]any)["thinkingConfig"].(map[string]any)["thinkingLevel"] = "high"
 
 			geminiEvents, wingmanEvents := gemini.CompareSSE(t, h, model.Name, body)
 

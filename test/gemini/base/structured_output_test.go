@@ -207,3 +207,78 @@ func requireValidBookJSONFromSSE(t *testing.T, label string, events []*harness.S
 		t.Errorf("[%s] book author is empty in SSE response", label)
 	}
 }
+
+// TestStructuredOutputOpenAPISchemaHTTP sends responseSchema in the dialect
+// the Gemini SDKs and docs use: uppercase TYPE enums, propertyOrdering, and
+// an optional property. Non-Gemini backends must still honor it.
+func TestStructuredOutputOpenAPISchemaHTTP(t *testing.T) {
+	h := gemini.New(t)
+
+	for _, model := range gemini.DefaultModels() {
+		if !model.Capabilities.StructuredOutput {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"contents": []map[string]any{
+					{"role": "user", "parts": []map[string]any{{"text": "Recommend a classic science fiction book."}}},
+				},
+				"generationConfig": map[string]any{
+					"responseMimeType": "application/json",
+					"responseSchema": map[string]any{
+						"type": "OBJECT",
+						"properties": map[string]any{
+							"title":  map[string]any{"type": "STRING"},
+							"author": map[string]any{"type": "STRING"},
+							"year":   map[string]any{"type": "INTEGER"},
+							"series": map[string]any{"type": "STRING", "nullable": true},
+						},
+						"required":         []string{"title", "author", "year"},
+						"propertyOrdering": []string{"title", "author", "year", "series"},
+					},
+				},
+			}
+
+			geminiResp, wingmanResp := gemini.CompareHTTP(t, h, model.Name, body)
+
+			requireValidBookJSON(t, "gemini", geminiResp.Body)
+			requireValidBookJSON(t, "wingman", wingmanResp.Body)
+
+			rules := gemini.DefaultResponseRules()
+			harness.CompareStructure(t, "response", geminiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
+		})
+	}
+}
+
+// TestJSONModeHTTP sets responseMimeType without any schema — Gemini's plain
+// JSON mode. The reply must parse as a JSON object on every backend, without
+// markdown fences.
+func TestJSONModeHTTP(t *testing.T) {
+	h := gemini.New(t)
+
+	for _, model := range gemini.DefaultModels() {
+		if !model.Capabilities.StructuredOutput {
+			continue
+		}
+
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"contents": []map[string]any{
+					{"role": "user", "parts": []map[string]any{{"text": "Recommend a classic science fiction book as a JSON object with the keys title, author and year."}}},
+				},
+				"generationConfig": map[string]any{
+					"responseMimeType": "application/json",
+				},
+			}
+
+			geminiResp, wingmanResp := gemini.CompareHTTP(t, h, model.Name, body)
+
+			requireValidBookJSON(t, "gemini", geminiResp.Body)
+			requireValidBookJSON(t, "wingman", wingmanResp.Body)
+
+			rules := gemini.DefaultResponseRules()
+			harness.CompareStructure(t, "response", geminiResp.Body, wingmanResp.Body, harness.CompareOption{Rules: rules})
+		})
+	}
+}

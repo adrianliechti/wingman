@@ -94,6 +94,9 @@ func (cfg *Config) registerProviders(f *configFile) error {
 
 				if p.ReasoningSignatures != nil && !*p.ReasoningSignatures {
 					completer = signatures.FromCompleter(completer)
+				} else {
+					// signatures only replay into the model that produced them
+					completer = signatures.ScopedTo(id, completer)
 				}
 
 				if _, ok := completer.(otel.Completer); !ok {

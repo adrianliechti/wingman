@@ -91,6 +91,10 @@ func parseRetryAfter(h http.Header) time.Duration {
 	return 0
 }
 
+// jsonModeInstruction emulates schema-less JSON mode, which the Messages API
+// does not offer natively.
+const jsonModeInstruction = "Respond with a single valid JSON object only. Do not wrap it in markdown code fences and do not add any text before or after the JSON."
+
 var LegacyModels = []string{
 	"claude-3",
 
@@ -113,9 +117,7 @@ var AlwaysThinkingModels = []string{
 }
 
 // NoSamplingModels reject temperature/top_p/top_k outright, regardless of
-// thinking state. Claude Sonnet 5 only rejects non-default values, but since
-// omitting the field has the same effect as passing the default, it is
-// treated the same way here rather than guessing what "default" means.
+// thinking state.
 var NoSamplingModels = []string{
 	"fable-5",
 	"mythos-5",
@@ -154,18 +156,70 @@ func matchesModel(model string, patterns []string) bool {
 	return false
 }
 
-// disabledThinking returns the thinking config that explicitly turns
-// thinking off. Always-thinking models reject `{type: "disabled"}` outright,
-// so for those (and legacy models, which don't take a thinking config at
-// all) the field is left omitted instead.
-func disabledThinking(model string) anthropic.BetaThinkingConfigParamUnion {
-	if matchesModel(model, LegacyModels) || matchesModel(model, AlwaysThinkingModels) {
-		return anthropic.BetaThinkingConfigParamUnion{}
+func outputEffort(e provider.Effort) anthropic.BetaOutputConfigEffort {
+	switch e {
+	case provider.EffortMinimal, provider.EffortLow:
+		return anthropic.BetaOutputConfigEffortLow
+	case provider.EffortMedium:
+		return anthropic.BetaOutputConfigEffortMedium
+	case provider.EffortHigh:
+		return anthropic.BetaOutputConfigEffortHigh
+	case provider.EffortXHigh:
+		return anthropic.BetaOutputConfigEffortXhigh
+	case provider.EffortMax:
+		return anthropic.BetaOutputConfigEffortMax
+	}
+	return ""
+}
+
+// thinking is the resolved thinking configuration for one request.
+type thinking struct {
+	Enabled    bool
+	Disabled   bool
+	Summarized bool
+	Effort     anthropic.BetaOutputConfigEffort
+}
+
+// resolveThinking maps the reasoning options onto the Messages API. forced
+// marks a request that forces a tool call, which thinking is incompatible
+// with. Thinking is also turned off when the last assistant turn holds tool
+// calls without a signed thinking block, which Claude rejects.
+func (c *Completer) resolveThinking(messages []provider.Message, options *provider.CompleteOptions, forced bool) thinking {
+	if matchesModel(c.model, LegacyModels) {
+		return thinking{}
 	}
 
-	return anthropic.BetaThinkingConfigParamUnion{
-		OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
+	var t thinking
+
+	if r := options.ReasoningOptions; r != nil {
+		t.Effort = outputEffort(r.Effort)
+		t.Summarized = r.IncludeSummary
+
+		switch r.Type {
+		case provider.ReasoningTypeAdaptive:
+			t.Enabled = true
+		case provider.ReasoningTypeDisabled:
+			t.Disabled = true
+		}
 	}
+
+	if forced || (t.Enabled && provider.LastAssistantToolCallIsUnsigned(messages)) {
+		t.Enabled = false
+		t.Disabled = true
+	}
+
+	if matchesModel(c.model, AlwaysThinkingModels) {
+		t.Disabled = false
+	}
+
+	if t.Disabled && matchesModel(c.model, DisabledThinkingEffortCapModels) {
+		switch t.Effort {
+		case anthropic.BetaOutputConfigEffortXhigh, anthropic.BetaOutputConfigEffortMax:
+			t.Effort = anthropic.BetaOutputConfigEffortHigh
+		}
+	}
+
+	return t
 }
 
 // Formats the strict-mode grammar compiler supports; others must be stripped.
@@ -300,20 +354,4 @@ func ensureAdditionalPropertiesFalse(schema map[string]any) map[string]any {
 	}
 
 	return schema
-}
-
-func outputEffort(e provider.Effort) anthropic.BetaOutputConfigEffort {
-	switch e {
-	case provider.EffortMinimal, provider.EffortLow:
-		return anthropic.BetaOutputConfigEffortLow
-	case provider.EffortMedium:
-		return anthropic.BetaOutputConfigEffortMedium
-	case provider.EffortHigh:
-		return anthropic.BetaOutputConfigEffortHigh
-	case provider.EffortXHigh:
-		return anthropic.BetaOutputConfigEffortXhigh
-	case provider.EffortMax:
-		return anthropic.BetaOutputConfigEffortMax
-	}
-	return ""
 }

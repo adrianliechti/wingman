@@ -16,6 +16,7 @@ const (
 
 // GenerateContentRequest is the request body for generateContent
 type GenerateContentRequest struct {
+	Model             string            `json:"model,omitempty"` // only inside countTokens.generateContentRequest
 	Contents          []*Content        `json:"contents,omitempty"`
 	SystemInstruction *Content          `json:"systemInstruction,omitempty"`
 	Tools             []*Tool           `json:"tools,omitempty"`
@@ -197,16 +198,21 @@ type PromptFeedback struct {
 	SafetyRatings []*SafetyRating `json:"safetyRatings,omitempty"`
 }
 
-// CountTokensRequest is the request for countTokens
+// CountTokensRequest is the request for countTokens. The official body is
+// either `contents` or a nested `generateContentRequest`; the flat
+// systemInstruction/tools form is a Wingman extension kept for older clients.
 type CountTokensRequest struct {
-	Contents          []*Content `json:"contents,omitempty"`
-	SystemInstruction *Content   `json:"systemInstruction,omitempty"`
-	Tools             []*Tool    `json:"tools,omitempty"`
+	Contents               []*Content              `json:"contents,omitempty"`
+	GenerateContentRequest *GenerateContentRequest `json:"generateContentRequest,omitempty"`
+
+	SystemInstruction *Content `json:"systemInstruction,omitempty"`
+	Tools             []*Tool  `json:"tools,omitempty"`
 }
 
 // CountTokensResponse is the response from countTokens
 type CountTokensResponse struct {
-	TotalTokens int `json:"totalTokens,omitempty"`
+	TotalTokens         int                   `json:"totalTokens"`
+	PromptTokensDetails []*ModalityTokenCount `json:"promptTokensDetails,omitempty"`
 }
 
 // ErrorResponse represents an error response

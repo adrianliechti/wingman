@@ -64,7 +64,9 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 
 	var content []provider.Content
 
-	for _, block := range blocks {
+	for j, block := range blocks {
+		path := fmt.Sprintf("messages.%d.content.%d", index, j)
+
 		switch block.Type {
 		case "text":
 			content = append(content, provider.TextContent(block.Text))
@@ -74,7 +76,7 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 				file, err := toFile(block.Source)
 
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("%s.source: %w", path, err)
 				}
 
 				content = append(content, provider.FileContent(file))
@@ -96,7 +98,7 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 
 			file, err := toFile(block.Source)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s.source: %w", path, err)
 			}
 
 			content = append(content, provider.FileContent(file))
@@ -143,7 +145,7 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 
 		case "tool_result":
 			// Tool result in user message
-			parts, err := toToolResultParts(block.Content)
+			parts, err := toToolResultParts(path+".tool_result.content", block.Content)
 
 			if err != nil {
 				return nil, err
@@ -182,6 +184,12 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 			if marker := webFetchResultMarker(block); marker != "" {
 				content = append(content, provider.TextContent(marker))
 			}
+
+		default:
+			return nil, fmt.Errorf(
+				"%s: Input tag '%s' found using 'type' does not match any of the expected tags: 'compaction', 'document', 'image', 'redacted_thinking', 'server_tool_use', 'text', 'thinking', 'tool_result', 'tool_use', 'web_fetch_tool_result', 'web_search_tool_result'",
+				path, block.Type,
+			)
 		}
 	}
 
@@ -231,12 +239,17 @@ func toFile(source *BlockSource) (*provider.File, error) {
 		if file.ContentType == "" {
 			file.ContentType = "text/plain"
 		}
+
+	default:
+		// Files API references and custom-content documents cannot be
+		// bridged to other backends.
+		return nil, fmt.Errorf("source type '%s' is not supported; expected 'base64', 'url' or 'text'", source.Type)
 	}
 
 	return file, nil
 }
 
-func toToolResultParts(content any) ([]provider.Part, error) {
+func toToolResultParts(path string, content any) ([]provider.Part, error) {
 	if content == nil {
 		return nil, nil
 	}
@@ -248,7 +261,7 @@ func toToolResultParts(content any) ([]provider.Part, error) {
 	case []any:
 		var parts []provider.Part
 
-		for _, item := range v {
+		for j, item := range v {
 			data, err := json.Marshal(item)
 
 			if err != nil {
@@ -271,7 +284,7 @@ func toToolResultParts(content any) ([]provider.Part, error) {
 				if block.Source != nil {
 					file, err := toFile(block.Source)
 					if err != nil {
-						return nil, err
+						return nil, fmt.Errorf("%s.%d.source: %w", path, j, err)
 					}
 					parts = append(parts, provider.Part{File: file})
 				}
@@ -290,9 +303,15 @@ func toToolResultParts(content any) ([]provider.Part, error) {
 				}
 				file, err := toFile(block.Source)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("%s.%d.source: %w", path, j, err)
 				}
 				parts = append(parts, provider.Part{File: file})
+
+			default:
+				return nil, fmt.Errorf(
+					"%s.%d: Input tag '%s' found using 'type' does not match any of the expected tags: 'document', 'image', 'text'",
+					path, j, block.Type,
+				)
 			}
 		}
 		return parts, nil
@@ -331,6 +350,14 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 
 	for i, t := range tools {
 		switch {
+		case strings.Contains(t.Type, "_toolset_"):
+			// The pinned SDK has no toolset types; matching the family prefix
+			// would silently serve the legacy single tool instead.
+			return nil, fmt.Errorf(
+				"tools.%d: Tool type '%s' is not supported; use the single-tool 'computer_*', 'bash_*' or 'text_editor_*' types",
+				i, t.Type,
+			)
+
 		case strings.HasPrefix(t.Type, "text_editor"):
 			result = append(result, provider.Tool{
 				Name:          texteditor.NameTextEditor,
@@ -423,6 +450,15 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 			result = append(result, ContentBlock{
 				Type: "text",
 				Text: &c.Text,
+			})
+		}
+
+		// The Messages API has no refusal block; the refusal text is the only
+		// explanation the client gets, so surface it as text.
+		if c.Refusal != "" {
+			result = append(result, ContentBlock{
+				Type: "text",
+				Text: &c.Refusal,
 			})
 		}
 
