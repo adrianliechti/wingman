@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/config"
-	providerbedrock "github.com/adrianliechti/wingman/pkg/provider/bedrock"
-	serverrealtime "github.com/adrianliechti/wingman/server/openai/realtime"
+	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
+	"github.com/adrianliechti/wingman/server/openai/realtime"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -146,7 +146,7 @@ func startNovaAdapter(t *testing.T) (liveTarget, func()) {
 	t.Helper()
 	modelID := envOr("NOVA_REALTIME_MODEL_ID", "amazon.nova-2-sonic-v1:0")
 	region := envOr("NOVA_REALTIME_REGION", "eu-north-1")
-	upstream, err := providerbedrock.NewRealtime(modelID, providerbedrock.WithRegion(region))
+	upstream, err := bedrock.NewRealtime(modelID, bedrock.WithRegion(region))
 	if err != nil {
 		t.Fatalf("create Nova realtime provider: %v", err)
 	}
@@ -155,7 +155,7 @@ func startNovaAdapter(t *testing.T) (liveTarget, func()) {
 	cfg := &config.Config{}
 	cfg.RegisterRealtime(alias, upstream)
 	router := chi.NewRouter()
-	serverrealtime.New(cfg).Attach(router)
+	realtime.New(cfg).Attach(router)
 	server := httptest.NewServer(router)
 	target := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime?model=" + url.QueryEscape(alias)
 	return liveTarget{name: "nova-adapter", url: target}, server.Close

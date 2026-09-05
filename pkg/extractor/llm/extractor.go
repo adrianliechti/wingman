@@ -1,4 +1,4 @@
-package extractor
+package llm
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
-var _ extractor.Provider = (*Adapter)(nil)
+var _ extractor.Provider = (*Extractor)(nil)
 
 var contentTypes = map[string]string{
 	".png":  "image/png",
@@ -20,17 +20,17 @@ var contentTypes = map[string]string{
 	".pdf":  "application/pdf",
 }
 
-type Adapter struct {
+type Extractor struct {
 	completer provider.Completer
 }
 
-func FromCompleter(completer provider.Completer) *Adapter {
-	return &Adapter{
+func New(completer provider.Completer) *Extractor {
+	return &Extractor{
 		completer: completer,
 	}
 }
 
-func (a *Adapter) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
+func (a *Extractor) Extract(ctx context.Context, input extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
 	if options == nil {
 		options = new(extractor.ExtractOptions)
 	}

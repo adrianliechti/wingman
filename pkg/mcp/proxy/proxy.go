@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
-	neturl "net/url"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,7 +16,7 @@ import (
 var _ mcp.Provider = (*Server)(nil)
 
 type Server struct {
-	url *neturl.URL
+	url *url.URL
 
 	rt    http.RoundTripper
 	proxy *httputil.ReverseProxy
@@ -25,8 +25,8 @@ type Server struct {
 	icon   atomic.Pointer[iconCache]
 }
 
-func New(url string, headers map[string]string, exchanger auth.TokenExchanger) (*Server, error) {
-	u, err := neturl.Parse(url)
+func New(rawURL string, headers map[string]string, exchanger auth.TokenExchanger) (*Server, error) {
+	u, err := url.Parse(rawURL)
 
 	if err != nil {
 		return nil, err

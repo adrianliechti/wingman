@@ -16,10 +16,10 @@ import (
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	openaiProvider "github.com/adrianliechti/wingman/pkg/provider/openai"
-	anthropicHandler "github.com/adrianliechti/wingman/server/anthropic"
-	geminiHandler "github.com/adrianliechti/wingman/server/gemini"
-	chatHandler "github.com/adrianliechti/wingman/server/openai/chat"
+	"github.com/adrianliechti/wingman/pkg/provider/openai"
+	"github.com/adrianliechti/wingman/server/anthropic"
+	"github.com/adrianliechti/wingman/server/gemini"
+	"github.com/adrianliechti/wingman/server/openai/chat"
 	"github.com/adrianliechti/wingman/server/openai/responses"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 
@@ -54,10 +54,10 @@ func newMockOpenAIServer(statusCode int, retryAfter string, errBody mockOpenAIEr
 }
 
 // newResponder creates a Responder pointing at the mock server with retries disabled.
-func newResponder(mockURL string, client *http.Client) *openaiProvider.Responder {
-	r, err := openaiProvider.NewResponder(mockURL, "test-model",
-		openaiProvider.WithClient(client),
-		openaiProvider.WithMaxRetries(0),
+func newResponder(mockURL string, client *http.Client) *openai.Responder {
+	r, err := openai.NewResponder(mockURL, "test-model",
+		openai.WithClient(client),
+		openai.WithMaxRetries(0),
 	)
 	if err != nil {
 		panic(err)
@@ -128,7 +128,7 @@ func newChatServer(completer provider.Completer, modelID string) *httptest.Serve
 	}
 	cfg.RegisterCompleter(modelID, completer)
 
-	handler := chatHandler.New(cfg)
+	handler := chat.New(cfg)
 
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
@@ -144,7 +144,7 @@ func newAnthropicServer(completer provider.Completer, modelID string) *httptest.
 	}
 	cfg.RegisterCompleter(modelID, completer)
 
-	handler := anthropicHandler.New(cfg)
+	handler := anthropic.New(cfg)
 
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
@@ -160,7 +160,7 @@ func newGeminiServer(completer provider.Completer, modelID string) *httptest.Ser
 	}
 	cfg.RegisterCompleter(modelID, completer)
 
-	handler := geminiHandler.New(cfg)
+	handler := gemini.New(cfg)
 
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {

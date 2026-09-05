@@ -6,12 +6,12 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
-	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/resource"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-func setupHTTP(_ context.Context, _ *sdkresource.Resource) error {
+func setupHTTP(_ context.Context, _ *resource.Resource) error {
 	http.DefaultTransport = Transport(http.DefaultTransport)
 
 	// provider.DefaultClient bypasses http.DefaultTransport; instrument it as

@@ -1,4 +1,4 @@
-package translator
+package llm
 
 import (
 	"context"
@@ -10,21 +10,21 @@ import (
 	"github.com/adrianliechti/wingman/pkg/translator"
 )
 
-var _ translator.Provider = (*Adapter)(nil)
+var _ translator.Provider = (*Translator)(nil)
 
 var languagePattern = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
 
-type Adapter struct {
+type Translator struct {
 	completer provider.Completer
 }
 
-func FromCompleter(completer provider.Completer) *Adapter {
-	return &Adapter{
+func New(completer provider.Completer) *Translator {
+	return &Translator{
 		completer: completer,
 	}
 }
 
-func (a *Adapter) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
+func (a *Translator) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	if a.completer == nil {
 		return nil, errors.New("translator: no completer configured")
 	}

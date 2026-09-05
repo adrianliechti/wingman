@@ -1,4 +1,4 @@
-package text
+package plain
 
 import (
 	"context"

@@ -8,13 +8,10 @@ import (
 	"sync"
 	"time"
 
-	mcppkg "github.com/adrianliechti/wingman/pkg/mcp"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-var _ mcppkg.Provider = (*Server)(nil)
 
 type Server struct {
 	http.Handler

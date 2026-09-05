@@ -3,8 +3,7 @@ package otel
 import (
 	"context"
 
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 // endUserProcessor stamps end-user identity (user.id, user.email, user.full_name,
@@ -13,23 +12,14 @@ import (
 // trace-native backends like Langfuse, without instrumenting each span site.
 type endUserProcessor struct{}
 
-func (endUserProcessor) OnStart(parent context.Context, s sdktrace.ReadWriteSpan) {
+func (endUserProcessor) OnStart(parent context.Context, s trace.ReadWriteSpan) {
 	if attrs := EndUserAttrs(parent); len(attrs) > 0 {
 		s.SetAttributes(attrs...)
 	}
 }
 
-func (endUserProcessor) OnEnd(sdktrace.ReadOnlySpan) {}
+func (endUserProcessor) OnEnd(trace.ReadOnlySpan) {}
 
 func (endUserProcessor) Shutdown(context.Context) error { return nil }
 
 func (endUserProcessor) ForceFlush(context.Context) error { return nil }
-
-// SetEndUserSpan stamps end-user identity onto the active span in ctx. Needed
-// for the root HTTP server span, which otelhttp starts before auth runs — so
-// the start-time processor can't yet see the user.
-func SetEndUserSpan(ctx context.Context) {
-	if attrs := EndUserAttrs(ctx); len(attrs) > 0 {
-		trace.SpanFromContext(ctx).SetAttributes(attrs...)
-	}
-}

@@ -1,4 +1,4 @@
-package kernel
+package extract
 
 import (
 	"archive/zip"
@@ -14,7 +14,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/abemedia/go-cfb"
-	gokernel "github.com/adrianliechti/go-kernel"
+	"github.com/adrianliechti/go-extract"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
 )
@@ -103,9 +103,9 @@ func TestExtractRejectsUnsupportedAndOCRDocuments(t *testing.T) {
 	}
 }
 
-func TestNeedsOCRWhenKernelMarksPages(t *testing.T) {
-	document := &gokernel.Document{
-		Format:   gokernel.FormatPDF,
+func TestNeedsOCRWhenPagesAreMarked(t *testing.T) {
+	document := &extract.Document{
+		Format:   extract.FormatPDF,
 		Metadata: map[string]string{"pages_needing_ocr": "2"},
 	}
 
@@ -130,7 +130,7 @@ type mailAttachment struct {
 }
 
 func buildEML(body string, attachments []mailAttachment) []byte {
-	const boundary = "wingman-kernel-boundary"
+	const boundary = "wingman-extract-boundary"
 	var message strings.Builder
 	fmt.Fprintf(&message, "From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Integration message\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=%q\r\n\r\n", boundary)
 	fmt.Fprintf(&message, "--%s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s\r\n", boundary, body)

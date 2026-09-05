@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/config"
-	provideropenai "github.com/adrianliechti/wingman/pkg/provider/openai"
-	serverrealtime "github.com/adrianliechti/wingman/server/openai/realtime"
+	"github.com/adrianliechti/wingman/pkg/provider/openai"
+	"github.com/adrianliechti/wingman/server/openai/realtime"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -283,14 +283,14 @@ func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings,
 
 func startOpenAIAdapter(t *testing.T, settings liveSettings) (liveTarget, func()) {
 	t.Helper()
-	upstream, err := provideropenai.NewRealtime(settings.baseURL, settings.realtimeModel, provideropenai.WithToken(settings.apiKey))
+	upstream, err := openai.NewRealtime(settings.baseURL, settings.realtimeModel, openai.WithToken(settings.apiKey))
 	if err != nil {
 		t.Fatalf("create OpenAI realtime provider: %v", err)
 	}
 	cfg := &config.Config{}
 	cfg.RegisterRealtime(settings.realtimeModel, upstream)
 	router := chi.NewRouter()
-	serverrealtime.New(cfg).Attach(router)
+	realtime.New(cfg).Attach(router)
 	server := httptest.NewServer(router)
 	target := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime?model=" + url.QueryEscape(settings.realtimeModel)
 	return liveTarget{name: "wingman-adapter", url: target}, server.Close

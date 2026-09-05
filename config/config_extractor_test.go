@@ -8,7 +8,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor"
 )
 
-func TestDefaultExtractorUsesKernelRecursion(t *testing.T) {
+func TestDefaultExtractorRecursivelyExtractsAttachments(t *testing.T) {
 	input := strings.Join([]string{
 		"From: sender@example.com",
 		"To: recipient@example.com",

@@ -1,4 +1,4 @@
-package kernel
+package extract
 
 import (
 	"context"
@@ -8,51 +8,51 @@ import (
 	"strings"
 	"unicode"
 
-	gokernel "github.com/adrianliechti/go-kernel"
+	"github.com/adrianliechti/go-extract"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
-	textextractor "github.com/adrianliechti/wingman/pkg/extractor/text"
+	"github.com/adrianliechti/wingman/pkg/extractor/plain"
 	"github.com/adrianliechti/wingman/pkg/text"
 )
 
 var _ extractor.Provider = &Extractor{}
 
 type Extractor struct {
-	kernel *gokernel.Kernel
+	dispatcher *extract.Dispatcher
 }
 
 func New() (*Extractor, error) {
 	e := &Extractor{}
 
-	kernelOptions := gokernel.Options{
+	options := extract.Options{
 		DiscardAttachmentData: true,
 		MaxDepth:              32,
-		Extractors:            []gokernel.Extractor{textAdapter{}},
+		Extractors:            []extract.Extractor{textAdapter{}},
 	}
-	kernelOptions.OOXML.SkipImages = true
-	kernelOptions.OOXML.SlideNotes = true
+	options.OOXML.SkipImages = true
+	options.OOXML.SlideNotes = true
 
-	e.kernel = gokernel.New(kernelOptions)
+	e.dispatcher = extract.New(options)
 
 	return e, nil
 }
 
 func (e *Extractor) Extract(ctx context.Context, file extractor.File, options *extractor.ExtractOptions) (*extractor.Document, error) {
-	document, err := e.kernel.Extract(ctx, gokernel.Input{
+	document, err := e.dispatcher.Extract(ctx, extract.Input{
 		Name:      file.Name,
 		MediaType: file.ContentType,
 		Data:      file.Content,
 	})
 
 	if err != nil {
-		if errors.Is(err, gokernel.ErrUnsupportedFormat) {
+		if errors.Is(err, extract.ErrUnsupportedFormat) {
 			return nil, extractor.ErrUnsupported
 		}
 
 		return nil, err
 	}
 
-	if document.Format == gokernel.FormatEML && !hasMessageIdentity(document) {
+	if document.Format == extract.FormatEML && !hasMessageIdentity(document) {
 		return nil, extractor.ErrUnsupported
 	}
 
@@ -69,9 +69,9 @@ func (e *Extractor) Extract(ctx context.Context, file extractor.File, options *e
 	pageCount := ""
 
 	switch document.Format {
-	case gokernel.FormatPDF:
+	case extract.FormatPDF:
 		pageCount = document.Metadata["page_count"]
-	case gokernel.FormatPPTX:
+	case extract.FormatPPTX:
 		pageCount = document.Metadata["slide_count"]
 	}
 
@@ -84,7 +84,7 @@ func (e *Extractor) Extract(ctx context.Context, file extractor.File, options *e
 	return result, nil
 }
 
-func hasMessageIdentity(document *gokernel.Document) bool {
+func hasMessageIdentity(document *extract.Document) bool {
 	for _, key := range []string{"from", "to", "cc", "bcc", "reply_to", "message_id"} {
 		if strings.TrimSpace(document.Metadata[key]) != "" {
 			return true
@@ -94,8 +94,8 @@ func hasMessageIdentity(document *gokernel.Document) bool {
 	return false
 }
 
-func needsOCR(document *gokernel.Document, content string) bool {
-	if document.Format != gokernel.FormatPDF {
+func needsOCR(document *extract.Document, content string) bool {
+	if document.Format != extract.FormatPDF {
 		return false
 	}
 
@@ -104,7 +104,7 @@ func needsOCR(document *gokernel.Document, content string) bool {
 		!isUsable(content)
 }
 
-func renderDocument(document *gokernel.Document) string {
+func renderDocument(document *extract.Document) string {
 	content := strings.TrimSpace(document.Markdown)
 	attachments := make([]string, 0, len(document.Attachments))
 
@@ -167,27 +167,27 @@ func isUsable(content string) bool {
 
 type textAdapter struct{}
 
-func (textAdapter) Supports(input gokernel.Input) bool {
-	for _, extension := range textextractor.SupportedExtensions {
+func (textAdapter) Supports(input extract.Input) bool {
+	for _, extension := range plain.SupportedExtensions {
 		if strings.HasSuffix(strings.ToLower(input.Name), extension) {
 			return true
 		}
 	}
 
-	return slices.Contains(textextractor.SupportedMimeTypes, input.MediaType)
+	return slices.Contains(plain.SupportedMimeTypes, input.MediaType)
 }
 
-func (textAdapter) Extract(ctx context.Context, input gokernel.Input) (*gokernel.Document, error) {
+func (textAdapter) Extract(ctx context.Context, input extract.Input) (*extract.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	return &gokernel.Document{
+	return &extract.Document{
 		Name:      input.Name,
-		Format:    gokernel.FormatUnknown,
+		Format:    extract.FormatUnknown,
 		MediaType: input.MediaType,
 		Markdown:  text.Normalize(string(input.Data)),
 	}, nil
 }
 
-var _ gokernel.Extractor = textAdapter{}
+var _ extract.Extractor = textAdapter{}

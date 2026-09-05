@@ -7,11 +7,11 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/translator"
 	"github.com/adrianliechti/wingman/pkg/translator"
 	"github.com/adrianliechti/wingman/pkg/translator/azure"
 	"github.com/adrianliechti/wingman/pkg/translator/custom"
 	"github.com/adrianliechti/wingman/pkg/translator/deepl"
+	"github.com/adrianliechti/wingman/pkg/translator/llm"
 )
 
 func (cfg *Config) RegisterTranslator(id string, p translator.Provider) {
@@ -128,7 +128,7 @@ func llmTranslator(cfg translatorConfig, context translatorContext) (translator.
 		return nil, errors.New("translator model not found: " + cfg.Model)
 	}
 
-	return adapter.FromCompleter(context.Completer), nil
+	return llm.New(context.Completer), nil
 }
 
 func azureTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {

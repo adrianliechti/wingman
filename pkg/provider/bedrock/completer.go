@@ -26,7 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/aws/smithy-go"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/aws/smithy-go/transport/http"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -591,7 +591,7 @@ func convertError(err error) error {
 	}
 
 	// Non-modeled HTTP errors: preserve the real upstream status code.
-	var respErr *smithyhttp.ResponseError
+	var respErr *http.ResponseError
 	if errors.As(err, &respErr) {
 		status := respErr.HTTPStatusCode()
 		if status <= 0 {

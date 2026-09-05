@@ -9,7 +9,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
@@ -17,14 +17,14 @@ import (
 // sums (counters, histograms) and cumulative for up/down counters where delta
 // is ill-defined. gen_ai.client.token.usage is a histogram, so it gets delta.
 func TestDeltaTemporalitySelector(t *testing.T) {
-	delta := map[sdkmetric.InstrumentKind]bool{
-		sdkmetric.InstrumentKindCounter:           true,
-		sdkmetric.InstrumentKindHistogram:         true,
-		sdkmetric.InstrumentKindObservableCounter: true,
+	delta := map[metric.InstrumentKind]bool{
+		metric.InstrumentKindCounter:           true,
+		metric.InstrumentKindHistogram:         true,
+		metric.InstrumentKindObservableCounter: true,
 
-		sdkmetric.InstrumentKindUpDownCounter:           false,
-		sdkmetric.InstrumentKindObservableUpDownCounter: false,
-		sdkmetric.InstrumentKindObservableGauge:         false,
+		metric.InstrumentKindUpDownCounter:           false,
+		metric.InstrumentKindObservableUpDownCounter: false,
+		metric.InstrumentKindObservableGauge:         false,
 	}
 
 	for kind, wantDelta := range delta {
@@ -59,8 +59,8 @@ func (f *fakeCompleter) Complete(ctx context.Context, messages []provider.Messag
 // equal the true running total — never re-reporting earlier requests. This is
 // the regression guard against miscounting following requests.
 func TestTokenUsageDeltaSumsAcrossRequests(t *testing.T) {
-	reader := sdkmetric.NewManualReader(sdkmetric.WithTemporalitySelector(deltaTemporality))
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	reader := metric.NewManualReader(metric.WithTemporalitySelector(deltaTemporality))
+	mp := metric.NewMeterProvider(metric.WithReader(reader))
 
 	prev := otel.GetMeterProvider()
 	otel.SetMeterProvider(mp)

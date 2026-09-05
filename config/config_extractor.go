@@ -8,14 +8,14 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor/azure"
 	"github.com/adrianliechti/wingman/pkg/extractor/custom"
 	"github.com/adrianliechti/wingman/pkg/extractor/docling"
-	"github.com/adrianliechti/wingman/pkg/extractor/kernel"
+	"github.com/adrianliechti/wingman/pkg/extractor/extract"
 	"github.com/adrianliechti/wingman/pkg/extractor/kreuzberg"
+	"github.com/adrianliechti/wingman/pkg/extractor/llm"
 	"github.com/adrianliechti/wingman/pkg/extractor/mistral"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
-	"github.com/adrianliechti/wingman/pkg/extractor/text"
+	"github.com/adrianliechti/wingman/pkg/extractor/plain"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/extractor"
 )
 
 func (cfg *Config) RegisterExtractor(id string, p extractor.Provider) {
@@ -110,7 +110,7 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 
 func createExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
-	case "", "default", "kernel":
+	case "", "default", "text":
 		return defaultExtractor()
 
 	case "llm":
@@ -128,9 +128,6 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 	case "mistral":
 		return mistralExtractor(cfg)
 
-	case "text":
-		return textExtractor(cfg)
-
 	case "custom", "wingman-extractor", "wingman-reader":
 		return customExtractor(cfg)
 
@@ -144,7 +141,7 @@ func llmExtractor(cfg extractorConfig, context extractorContext) (extractor.Prov
 		return nil, errors.New("extractor model not found: " + cfg.Model)
 	}
 
-	return adapter.FromCompleter(context.Completer), nil
+	return llm.New(context.Completer), nil
 }
 
 func azureExtractor(cfg extractorConfig) (extractor.Provider, error) {
@@ -187,24 +184,20 @@ func mistralExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	return mistral.New(options...)
 }
 
-func textExtractor(cfg extractorConfig) (extractor.Provider, error) {
-	return text.New()
-}
-
 func defaultExtractor() (extractor.Provider, error) {
-	k, err := kernel.New()
+	e, err := extract.New()
 
 	if err != nil {
 		return nil, err
 	}
 
-	t, err := text.New()
+	t, err := plain.New()
 
 	if err != nil {
 		return nil, err
 	}
 
-	return multi.New(k, t), nil
+	return multi.New(e, t), nil
 }
 
 func customExtractor(cfg extractorConfig) (extractor.Provider, error) {

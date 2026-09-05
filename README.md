@@ -551,7 +551,7 @@ researchers:
 
 #### Default Extractor
 
-Built-in extraction without external services. Uses `go-kernel` for PDF,
+Built-in extraction without external services. Uses `go-extract` for PDF,
 OOXML, HTML, EML and MSG documents, with a plain-text fallback. Email
 attachments are extracted recursively. Used automatically when no extractors
 are configured.

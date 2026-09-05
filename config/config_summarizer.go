@@ -7,9 +7,9 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	adapter "github.com/adrianliechti/wingman/pkg/provider/adapter/summarizer"
 	"github.com/adrianliechti/wingman/pkg/summarizer"
 	"github.com/adrianliechti/wingman/pkg/summarizer/custom"
+	"github.com/adrianliechti/wingman/pkg/summarizer/llm"
 )
 
 func (cfg *Config) RegisterSummarizer(id string, p summarizer.Provider) {
@@ -120,7 +120,7 @@ func llmSummarizer(cfg summarizerConfig, context summarizerContext) (summarizer.
 		return nil, errors.New("summarizer model not found: " + cfg.Model)
 	}
 
-	return adapter.FromCompleter(context.Completer), nil
+	return llm.New(context.Completer), nil
 }
 
 func customSummarizer(cfg summarizerConfig, context summarizerContext) (summarizer.Provider, error) {

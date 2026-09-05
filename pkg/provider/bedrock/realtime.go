@@ -15,7 +15,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/google/uuid"
@@ -57,17 +57,17 @@ func NewRealtime(model string, options ...Option) (*Realtime, error) {
 		option(cfg)
 	}
 
-	var loadOptions []func(*awsconfig.LoadOptions) error
+	var loadOptions []func(*config.LoadOptions) error
 
 	if cfg.client != nil {
-		loadOptions = append(loadOptions, awsconfig.WithHTTPClient(cfg.client))
+		loadOptions = append(loadOptions, config.WithHTTPClient(cfg.client))
 	}
 
 	if cfg.region != "" {
-		loadOptions = append(loadOptions, awsconfig.WithRegion(cfg.region))
+		loadOptions = append(loadOptions, config.WithRegion(cfg.region))
 	}
 
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), loadOptions...)
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), loadOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock realtime: load AWS configuration: %w", err)
 	}

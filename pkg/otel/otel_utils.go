@@ -3,7 +3,7 @@ package otel
 import (
 	"context"
 	"encoding/json"
-	stderrors "errors"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -66,30 +66,30 @@ func normalizeErrorType(err error) string {
 	}
 
 	var provErr *provider.ProviderError
-	if stderrors.As(err, &provErr) && provErr.Code > 0 {
+	if errors.As(err, &provErr) && provErr.Code > 0 {
 		return strconv.Itoa(provErr.Code)
 	}
 
-	if stderrors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
 		return "canceled"
 	}
 
-	if stderrors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return "timeout"
 	}
 
 	var netErr net.Error
-	if stderrors.As(err, &netErr) && netErr.Timeout() {
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		return "timeout"
 	}
 
 	var dnsErr *net.DNSError
-	if stderrors.As(err, &dnsErr) {
+	if errors.As(err, &dnsErr) {
 		return "dns_error"
 	}
 
 	var opErr *net.OpError
-	if stderrors.As(err, &opErr) {
+	if errors.As(err, &opErr) {
 		return "connection_error"
 	}
 
@@ -102,6 +102,15 @@ func GenAISpanName(operation genaiconv.OperationNameAttr, model string) string {
 	}
 
 	return string(operation) + " " + model
+}
+
+// SetEndUserSpan stamps end-user identity onto the active span in ctx. Needed
+// for the root HTTP server span, which otelhttp starts before auth runs — so
+// the start-time processor can't yet see the user.
+func SetEndUserSpan(ctx context.Context) {
+	if attrs := EndUserAttrs(ctx); len(attrs) > 0 {
+		trace.SpanFromContext(ctx).SetAttributes(attrs...)
+	}
 }
 
 func EndUserAttrs(ctx context.Context) []KeyValue {

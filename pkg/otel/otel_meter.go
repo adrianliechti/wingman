@@ -9,17 +9,17 @@ import (
 
 	"go.opentelemetry.io/otel"
 
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/resource"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 )
 
-func setupMeter(ctx context.Context, resource *sdkresource.Resource) error {
+func setupMeter(ctx context.Context, resource *resource.Resource) error {
 	var err error
-	var exporter sdkmetric.Exporter
+	var exporter metric.Exporter
 
 	if strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")) == "grpc" || strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL")) == "grpc" {
 		exporter, err = otlpmetricgrpc.New(ctx)
@@ -31,9 +31,9 @@ func setupMeter(ctx context.Context, resource *sdkresource.Resource) error {
 		return err
 	}
 
-	options := []sdkmetric.Option{
-		sdkmetric.WithResource(resource),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(30*time.Second))),
+	options := []metric.Option{
+		metric.WithResource(resource),
+		metric.WithReader(metric.NewPeriodicReader(exporter, metric.WithInterval(30*time.Second))),
 	}
 
 	// insights sums the datapoints it receives, so it must consume delta
@@ -47,11 +47,11 @@ func setupMeter(ctx context.Context, resource *sdkresource.Resource) error {
 			otlpmetrichttp.WithTemporalitySelector(deltaTemporality),
 		)
 		if err == nil {
-			options = append(options, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(insights, sdkmetric.WithInterval(60*time.Second))))
+			options = append(options, metric.WithReader(metric.NewPeriodicReader(insights, metric.WithInterval(60*time.Second))))
 		}
 	}
 
-	provider := sdkmetric.NewMeterProvider(options...)
+	provider := metric.NewMeterProvider(options...)
 
 	otel.SetMeterProvider(provider)
 
@@ -70,11 +70,11 @@ func endpointWithDefaultPath(endpoint, defaultPath string) string {
 // deltaTemporality is OTel's standard delta preference: delta for monotonic
 // counters and histograms, cumulative for up/down counters (where delta is
 // ill-defined). Summing delta datapoints over a window yields the true total.
-func deltaTemporality(kind sdkmetric.InstrumentKind) metricdata.Temporality {
+func deltaTemporality(kind metric.InstrumentKind) metricdata.Temporality {
 	switch kind {
-	case sdkmetric.InstrumentKindCounter,
-		sdkmetric.InstrumentKindHistogram,
-		sdkmetric.InstrumentKindObservableCounter:
+	case metric.InstrumentKindCounter,
+		metric.InstrumentKindHistogram,
+		metric.InstrumentKindObservableCounter:
 		return metricdata.DeltaTemporality
 	default:
 		return metricdata.CumulativeTemporality
