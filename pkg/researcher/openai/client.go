@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 
 	"github.com/openai/openai-go/v3"
@@ -100,34 +101,48 @@ type source struct {
 }
 
 func outputText(response *responses.Response) string {
+	var messages []responses.ResponseOutputItemUnion
+	var phases []provider.MessagePhase
+	for _, item := range response.Output {
+		if item.Type == "message" {
+			messages = append(messages, item)
+			phases = append(phases, provider.MessagePhase(item.Phase))
+		}
+	}
+	i := provider.FinalMessageIndex(phases)
+	if i < 0 {
+		return ""
+	}
+
 	var content strings.Builder
 
 	var sources []source
 	seen := map[string]struct{}{}
 
-	for _, item := range response.Output {
-		for _, c := range item.Content {
-			if c.Type != "output_text" {
+	for _, c := range messages[i].Content {
+		if c.Type == "refusal" {
+			return ""
+		}
+		if c.Type != "output_text" {
+			continue
+		}
+
+		content.WriteString(c.Text)
+
+		for _, a := range c.Annotations {
+			if a.Type != "url_citation" || a.URL == "" {
 				continue
 			}
 
-			content.WriteString(c.Text)
-
-			for _, a := range c.Annotations {
-				if a.Type != "url_citation" || a.URL == "" {
-					continue
-				}
-
-				if _, ok := seen[a.URL]; ok {
-					continue
-				}
-
-				seen[a.URL] = struct{}{}
-				sources = append(sources, source{
-					title: a.Title,
-					url:   a.URL,
-				})
+			if _, ok := seen[a.URL]; ok {
+				continue
 			}
+
+			seen[a.URL] = struct{}{}
+			sources = append(sources, source{
+				title: a.Title,
+				url:   a.URL,
+			})
 		}
 	}
 

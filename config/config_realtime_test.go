@@ -51,6 +51,7 @@ providers:
 	for _, model := range []string{
 		"gpt-realtime-2.1",
 		"gpt-realtime-2.1-mini",
+		"gpt-live-transcribe",
 		"gemini-3.1-flash-live-preview",
 		"gemini-3.5-transcribe-live",
 		"gemini-2.5-flash-native-audio-preview-12-2025",
@@ -66,10 +67,23 @@ providers:
 		}
 	}
 
-	for _, model := range []string{"gpt-live-transcribe", "gpt-transcribe"} {
-		if _, err := cfg.Transcriber(model); err != nil {
-			t.Errorf("Transcriber(%q): %v", model, err)
-		}
+	// gpt-live-transcribe is a realtime-only companion model; it must never
+	// be reachable as a file-transcription target (explicit or default) —
+	// only gpt-transcribe should resolve there.
+	if _, err := cfg.Transcriber("gpt-live-transcribe"); err == nil {
+		t.Error("Transcriber(\"gpt-live-transcribe\") should not resolve; it is a realtime-only model")
+	}
+
+	if _, err := cfg.Transcriber("gpt-transcribe"); err != nil {
+		t.Errorf("Transcriber(%q): %v", "gpt-transcribe", err)
+	}
+
+	transcriber, err := cfg.Transcriber("")
+	if err != nil {
+		t.Fatalf("Transcriber(\"\") default: %v", err)
+	}
+	if want, err := cfg.Transcriber("gpt-transcribe"); err != nil || transcriber != want {
+		t.Error("default transcriber should be gpt-transcribe, not the realtime-only gpt-live-transcribe")
 	}
 
 	nova, err := cfg.Realtime("nova-2-sonic")
@@ -89,7 +103,7 @@ func TestDetectRealtimeAndTranscriptionModels(t *testing.T) {
 		"gemini-2.5-flash-native-audio-preview-12-2025": ModelTypeRealtime,
 		"gemini-3.5-transcribe-live":                    ModelTypeRealtime,
 		"amazon.nova-2-sonic-v1:0":                      ModelTypeRealtime,
-		"gpt-live-transcribe":                           ModelTypeTranscriber,
+		"gpt-live-transcribe":                           ModelTypeRealtime,
 		"gpt-transcribe":                                ModelTypeTranscriber,
 	}
 	for model, want := range tests {

@@ -88,7 +88,7 @@ func (a *Translator) Translate(ctx context.Context, input translator.Input, opti
 	result := acc.Result()
 
 	return &translator.File{
-		Content:     []byte(result.Message.Text()),
+		Content:     []byte(result.Text()),
 		ContentType: "text/plain",
 	}, nil
 }

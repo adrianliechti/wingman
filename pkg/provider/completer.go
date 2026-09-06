@@ -68,6 +68,8 @@ func ToolMessage(id, content string) Message {
 	}
 }
 
+// Text reads all text blocks of this message, including commentary.
+// Use Completion.Text to select the final answer from an accumulated response.
 func (m Message) Text() string {
 	var parts []string
 

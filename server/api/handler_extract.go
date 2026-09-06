@@ -157,7 +157,7 @@ func (h *Handler) handleExtract(w http.ResponseWriter, r *http.Request) {
 
 		result := acc.Result()
 
-		content = result.Message.Text()
+		content = result.Text()
 		contentType = "application/json"
 	}
 

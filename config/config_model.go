@@ -86,6 +86,7 @@ func DetectModelType(id string) ModelType {
 		"realtime",
 		"sonic",
 		"live-preview",
+		"live-transcribe",
 		"native-audio",
 		"transcribe-live",
 	}

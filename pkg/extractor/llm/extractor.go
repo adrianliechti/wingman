@@ -66,7 +66,7 @@ func (a *Extractor) Extract(ctx context.Context, input extractor.File, options *
 	result := acc.Result()
 
 	return &extractor.Document{
-		Text: result.Message.Text(),
+		Text: result.Text(),
 	}, nil
 }
 

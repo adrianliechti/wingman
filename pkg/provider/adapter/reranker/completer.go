@@ -106,7 +106,7 @@ func (a *CompleterAdapter) Rerank(ctx context.Context, query string, texts []str
 		} `json:"rankings"`
 	}
 
-	if err := json.Unmarshal([]byte(result.Message.Text()), &data); err != nil {
+	if err := json.Unmarshal([]byte(result.Text()), &data); err != nil {
 		return nil, err
 	}
 

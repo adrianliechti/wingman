@@ -119,7 +119,7 @@ func (c *Completer) judgePick(ctx context.Context, s signals, eligible []int) in
 		ModelIndex int `json:"model_index"`
 	}
 
-	if err := json.Unmarshal([]byte(result.Message.Text()), &data); err != nil {
+	if err := json.Unmarshal([]byte(result.Text()), &data); err != nil {
 		return -1
 	}
 

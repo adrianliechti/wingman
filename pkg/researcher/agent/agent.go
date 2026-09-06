@@ -164,7 +164,7 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 
 		calls := result.Message.ToolCalls()
 		if exhausted || len(calls) == 0 {
-			return &researcher.Result{Content: result.Message.Text()}, nil
+			return &researcher.Result{Content: result.Text()}, nil
 		}
 
 		remaining := c.maxToolCalls - s.toolCalls
@@ -273,11 +273,7 @@ func (c *Client) summarize(ctx context.Context, instructions, page string) strin
 		}
 		acc.Add(*completion)
 	}
-	msg := acc.Result().Message
-	if msg == nil {
-		return ""
-	}
-	return msg.Text()
+	return acc.Result().Text()
 }
 
 func appendText(m *provider.Message, text string) {

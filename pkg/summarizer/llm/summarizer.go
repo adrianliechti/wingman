@@ -123,7 +123,7 @@ func (a *Summarizer) complete(ctx context.Context, prompt, input string) (string
 		acc.Add(*completion)
 	}
 
-	return acc.Result().Message.Text(), nil
+	return acc.Result().Text(), nil
 }
 
 func batchBySize(items []string, size int) [][]string {
