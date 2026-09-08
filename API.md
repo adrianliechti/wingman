@@ -94,7 +94,7 @@ List available models or get a specific model by ID.
 | `prompt`           | String | Image description                                     |
 | `size`             | String | Pixel size (e.g. `1024x1536`) or `auto`               |
 | `aspect_ratio`     | String | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size`   |
-| `quality`          | String | `low`, `medium`, `high` (`standard`/`hd` accepted)    |
+| `quality`          | String | `low`, `medium`, `high`, `xhigh`, `max` (`standard`/`hd` accepted) |
 | `resolution`       | String | `512`, `1K`, `2K`, `4K`                                |
 | `background`       | String | `transparent` or `opaque`                             |
 | `output_format`    | String | `png`, `jpeg`, or `webp`                              |
@@ -113,7 +113,7 @@ Geometry and quality are provider-neutral: `size`/`aspect_ratio`/`quality`/`reso
 | `image`            | File   | Image to edit                                         |
 | `size`             | String | Pixel size (e.g. `1024x1536`) or `auto`               |
 | `aspect_ratio`     | String | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size`   |
-| `quality`          | String | `low`, `medium`, `high` (`standard`/`hd` accepted)    |
+| `quality`          | String | `low`, `medium`, `high`, `xhigh`, `max` (`standard`/`hd` accepted) |
 | `resolution`       | String | `512`, `1K`, `2K`, `4K`                                |
 | `background`       | String | `transparent` or `opaque`                             |
 | `output_format`    | String | `png`, `jpeg`, or `webp`                              |
@@ -258,7 +258,7 @@ Generate images from text descriptions.
 | `file`          | File(s)  | Optional reference images                           |
 | `size`          | String   | Pixel size (e.g. `1024x1536`) or `auto`             |
 | `aspect_ratio`  | String   | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size` |
-| `quality`       | String   | `low`, `medium`, `high`                             |
+| `quality`       | String   | `low`, `medium`, `high`, `xhigh`, `max`             |
 | `resolution`    | String   | `512`, `1K`, `2K`, `4K`                              |
 | `background`    | String   | `transparent` or `opaque`                           |
 

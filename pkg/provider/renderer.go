@@ -51,6 +51,8 @@ const (
 	QualityLow    Quality = "low"
 	QualityMedium Quality = "medium"
 	QualityHigh   Quality = "high"
+	QualityXHigh  Quality = "xhigh"
+	QualityMax    Quality = "max"
 )
 
 type Resolution string
@@ -95,6 +97,10 @@ func ParseQuality(value string) Quality {
 		return QualityMedium
 	case "high":
 		return QualityHigh
+	case "xhigh", "x-high", "extra-high":
+		return QualityXHigh
+	case "max", "maximum":
+		return QualityMax
 	}
 
 	return ""

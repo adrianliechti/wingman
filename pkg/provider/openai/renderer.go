@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -51,7 +53,6 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		Model: r.model,
 	}
 
-	sizes := r.sizes()
 	transparent := r.supportsTransparent()
 
 	if len(options.Images) == 0 {
@@ -60,11 +61,11 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			Prompt: input,
 		}
 
-		if size := sizeFor(sizes, options.Aspect); size != "" {
+		if size := r.sizeFor(options.Aspect, options.Resolution); size != "" {
 			params.Size = openai.ImageGenerateParamsSize(size)
 		}
 
-		if quality := qualityValue(options.Quality); quality != "" {
+		if quality := r.qualityFor(options.Quality); quality != "" {
 			params.Quality = openai.ImageGenerateParamsQuality(quality)
 		}
 
@@ -161,11 +162,11 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			},
 		}
 
-		if size := sizeFor(sizes, options.Aspect); size != "" {
+		if size := r.sizeFor(options.Aspect, options.Resolution); size != "" {
 			params.Size = openai.ImageEditParamsSize(size)
 		}
 
-		if quality := qualityValue(options.Quality); quality != "" {
+		if quality := r.qualityFor(options.Quality); quality != "" {
 			params.Quality = openai.ImageEditParamsQuality(quality)
 		}
 
@@ -203,8 +204,11 @@ type aspectSize struct {
 	size   string
 }
 
-// Only gpt-image-2 supports the 16:9 / 9:16 sizes; only gpt-image-1 / -mini
-// support a transparent background. dall-e is no longer supported.
+// gpt-image-1 / -mini only support the three base sizes. gpt-image-2 adds the
+// 16:9 / 9:16 sizes. gpt-image-2.5 (flare, sunburst) accepts arbitrary
+// WIDTHxHEIGHT sizes (multiples of 16, aspect 1:3 to 3:1, up to 4K), so any
+// aspect ratio and resolution is mapped to a custom size for those models.
+// dall-e is no longer supported.
 var (
 	gptImage1Sizes = []aspectSize{
 		{provider.AspectRatio1x1, "1024x1024"},
@@ -221,8 +225,36 @@ var (
 	}
 )
 
+const (
+	// custom size limits of gpt-image-2.5
+	customSizeStep  = 16
+	customSizeEdge  = 3840
+	customSizeMinPx = 655360
+	customSizeMaxPx = 8294400
+	customAspectMin = 1.0 / 3.0
+	customAspectMax = 3.0
+	customDefaultPx = 1536 * 1024
+	customPixels512 = 1024 * 768
+	customPixels1K  = 1536 * 1024
+	customPixels2K  = 2560 * 1440
+	customPixels4K  = 3840 * 2160
+)
+
+func (r *Renderer) isGPTImage25() bool {
+	return strings.HasPrefix(strings.ToLower(r.model), "gpt-image-2.5")
+}
+
+func (r *Renderer) isGPTImage2() bool {
+	model := strings.ToLower(r.model)
+	return strings.HasPrefix(model, "gpt-image-2") && !strings.HasPrefix(model, "gpt-image-2.5")
+}
+
+func (r *Renderer) isGPTImage1() bool {
+	return strings.HasPrefix(strings.ToLower(r.model), "gpt-image-1")
+}
+
 func (r *Renderer) sizes() []aspectSize {
-	if strings.HasPrefix(strings.ToLower(r.model), "gpt-image-2") {
+	if r.isGPTImage2() || r.isGPTImage25() {
 		return gptImage2Sizes
 	}
 
@@ -230,7 +262,45 @@ func (r *Renderer) sizes() []aspectSize {
 }
 
 func (r *Renderer) supportsTransparent() bool {
-	return strings.HasPrefix(strings.ToLower(r.model), "gpt-image-1")
+	return r.isGPTImage1() || r.isGPTImage25()
+}
+
+func (r *Renderer) supportsCustomSize() bool {
+	return r.isGPTImage25()
+}
+
+func (r *Renderer) supportsExtendedQuality() bool {
+	return r.isGPTImage25()
+}
+
+// sizeFor picks the size to request for the given aspect ratio and
+// resolution. Models with a fixed size list get the nearest supported size;
+// gpt-image-2.5 gets a custom size once the request leaves the fixed list
+// (an aspect ratio not in the list or an explicit resolution).
+func (r *Renderer) sizeFor(aspect provider.AspectRatio, resolution provider.Resolution) string {
+	sizes := r.sizes()
+
+	if !r.supportsCustomSize() {
+		return sizeFor(sizes, aspect)
+	}
+
+	if resolution == "" {
+		if aspect == "" {
+			return ""
+		}
+
+		for _, s := range sizes {
+			if s.aspect == aspect {
+				return s.size
+			}
+		}
+	}
+
+	if aspect == "" {
+		aspect = provider.AspectRatio1x1
+	}
+
+	return customSize(aspect, resolution)
 }
 
 // sizeFor maps a requested aspect ratio to the nearest pixel size the model
@@ -257,6 +327,116 @@ func sizeFor(sizes []aspectSize, aspect provider.AspectRatio) string {
 	return ""
 }
 
+// customSize builds a WIDTHxHEIGHT string for gpt-image-2.5: edges are
+// multiples of 16, at most 3840, the aspect ratio is clamped to 1:3..3:1 and
+// the pixel count stays within the model's range.
+func customSize(aspect provider.AspectRatio, resolution provider.Resolution) string {
+	ratio, ok := aspectValue(aspect)
+
+	if !ok {
+		return ""
+	}
+
+	ratio = math.Min(math.Max(ratio, customAspectMin), customAspectMax)
+
+	pixels := float64(customDefaultPx)
+
+	switch resolution {
+	case provider.Resolution512:
+		pixels = customPixels512
+	case provider.Resolution1K:
+		pixels = customPixels1K
+	case provider.Resolution2K:
+		pixels = customPixels2K
+	case provider.Resolution4K:
+		pixels = customPixels4K
+	}
+
+	width := math.Sqrt(pixels * ratio)
+	height := width / ratio
+
+	if width > customSizeEdge {
+		width = customSizeEdge
+		height = width / ratio
+	}
+
+	if height > customSizeEdge {
+		height = customSizeEdge
+		width = height * ratio
+	}
+
+	w := roundStep(width, customSizeStep)
+	h := roundStep(height, customSizeStep)
+
+	// rounding can push the aspect ratio just outside the allowed range
+	for float64(w)/float64(h) > customAspectMax {
+		h += customSizeStep
+	}
+
+	for float64(w)/float64(h) < customAspectMin {
+		w += customSizeStep
+	}
+
+	// rounding can push the pixel count just outside the allowed range
+	for w*h > customSizeMaxPx {
+		if w >= h {
+			w -= customSizeStep
+		} else {
+			h -= customSizeStep
+		}
+	}
+
+	for w*h < customSizeMinPx {
+		if w <= h {
+			w += customSizeStep
+		} else {
+			h += customSizeStep
+		}
+	}
+
+	return fmt.Sprintf("%dx%d", w, h)
+}
+
+func aspectValue(aspect provider.AspectRatio) (float64, bool) {
+	parts := strings.SplitN(strings.TrimSpace(string(aspect)), ":", 2)
+
+	if len(parts) != 2 {
+		return 0, false
+	}
+
+	w, err1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	h, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+
+	if err1 != nil || err2 != nil || w <= 0 || h <= 0 {
+		return 0, false
+	}
+
+	return w / h, true
+}
+
+func roundStep(value float64, step int) int {
+	v := int(math.Round(value/float64(step))) * step
+
+	if v < step {
+		return step
+	}
+
+	return v
+}
+
+// qualityFor maps the requested quality to the model's vocabulary. Only
+// gpt-image-2.5 knows xhigh / max; older models get high instead.
+func (r *Renderer) qualityFor(quality provider.Quality) string {
+	switch quality {
+	case provider.QualityXHigh, provider.QualityMax:
+		if !r.supportsExtendedQuality() {
+			return "high"
+		}
+	}
+
+	return qualityValue(quality)
+}
+
 func qualityValue(quality provider.Quality) string {
 	switch quality {
 	case provider.QualityLow:
@@ -265,6 +445,10 @@ func qualityValue(quality provider.Quality) string {
 		return "medium"
 	case provider.QualityHigh:
 		return "high"
+	case provider.QualityXHigh:
+		return "xhigh"
+	case provider.QualityMax:
+		return "max"
 	}
 
 	return ""
