@@ -901,6 +901,10 @@ type Response struct {
 	Model  string `json:"model"`
 	Status string `json:"status"` // completed, failed, in_progress, incomplete
 
+	// EndTurn is a Codex compatibility extension, separate from the public
+	// Responses status. A completed response can still require another step.
+	EndTurn *bool `json:"end_turn,omitempty"`
+
 	Background bool `json:"background"`
 
 	Output []ResponseOutput `json:"output"`
