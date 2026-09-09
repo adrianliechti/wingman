@@ -256,49 +256,6 @@ func responseStatus(status provider.CompletionStatus) string {
 	}
 }
 
-// responseEndTurn derives Codex's optional continuation signal from the
-// provider-neutral completion. Public Responses status and item phases retain
-// their usual meanings; failed and incomplete responses make no end-turn claim.
-func responseEndTurn(completion *provider.Completion) *bool {
-	if completion == nil || completion.Status == provider.CompletionStatusIncomplete || completion.Status == provider.CompletionStatusFailed {
-		return nil
-	}
-	if completion.Status == provider.CompletionStatusRefused {
-		return new(true)
-	}
-
-	switch completion.StopReason {
-	case provider.StopReasonPauseTurn, provider.StopReasonToolUse, provider.StopReasonCompaction:
-		return new(false)
-	case provider.StopReasonEndTurn, provider.StopReasonStopSequence, provider.StopReasonRefusal:
-		return new(true)
-	case provider.StopReasonMaxTokens, provider.StopReasonContextExceeded:
-		return nil
-	}
-
-	if message := completion.Message; message != nil {
-		if message.Refusal() != "" {
-			return new(true)
-		}
-		for _, call := range message.ToolCalls() {
-			if call.Execution != "server" {
-				return new(false)
-			}
-		}
-		parts := message.SplitMessages()
-		for i := len(parts) - 1; i >= 0; i-- {
-			if parts[i].Text() != "" {
-				return new(parts[i].Phase != provider.MessagePhaseCommentary)
-			}
-		}
-		if message.Phase == provider.MessagePhaseCommentary {
-			return new(false)
-		}
-	}
-	// Providers without phase or stop metadata retain the legacy end behavior.
-	return new(true)
-}
-
 func itemStatus(incomplete bool) string {
 	if incomplete {
 		return "incomplete"
@@ -1383,7 +1340,6 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				CreatedAt:   createdAt,
 				CompletedAt: &now,
 				Status:      "completed",
-				EndTurn:     responseEndTurn(event.Completion),
 				Model:       responseModel(event.Completion, req.Model),
 				Output:      responseOutputs(event.Completion.Message, &ids, "completed", outputOpts),
 				Usage:       responseUsage(event.Completion.Usage),
@@ -1514,7 +1470,6 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		ID:        responseID,
 		CreatedAt: now,
 		Status:    responseStatus(completion.Status),
-		EndTurn:   responseEndTurn(completion),
 		Model:     responseModel(completion, req.Model),
 		Output: responseOutputs(completion.Message, new(messageIDs), responseStatus(completion.Status), responseOutputOptions{
 			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,

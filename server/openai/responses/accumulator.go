@@ -136,14 +136,13 @@ type StreamingAccumulator struct {
 	SuppressReasoning bool
 
 	// Completion metadata (captured from chunks)
-	id         string
-	model      string
-	status     provider.CompletionStatus
-	stopReason provider.StopReason
-	usage      *provider.Usage
-	started    bool
-	message    *streamMessage
-	messages   []*streamMessage
+	id       string
+	model    string
+	status   provider.CompletionStatus
+	usage    *provider.Usage
+	started  bool
+	message  *streamMessage
+	messages []*streamMessage
 
 	// Tool call state — single source of truth
 	toolCalls       []accumulatedToolCall
@@ -735,9 +734,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if c.Status != "" {
 		s.status = c.Status
 	}
-	if c.StopReason != "" {
-		s.stopReason = c.StopReason
-	}
 	if c.Usage != nil {
 		mergeUsage(&s.usage, c.Usage)
 	}
@@ -1246,11 +1242,10 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 	content = append(content, withheld...)
 
 	return &provider.Completion{
-		ID:         s.id,
-		Model:      s.model,
-		Status:     s.status,
-		StopReason: s.stopReason,
-		Usage:      s.usage,
+		ID:     s.id,
+		Model:  s.model,
+		Status: s.status,
+		Usage:  s.usage,
 
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,
