@@ -102,18 +102,10 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			}, nil)
 		}
 
-		emitPhase := func(phase responses.ResponseOutputMessagePhase) bool {
-			if phase == "" {
-				return true
-			}
-			return yield(&provider.Completion{
-				ID:    responseID,
-				Model: responseModel,
-				Message: &provider.Message{
-					Role:  provider.MessageRoleAssistant,
-					Phase: provider.MessagePhase(phase),
-				},
-			}, nil)
+		// A message item starts with an ID-only part; its text and refusal
+		// deltas carry the same ID so accumulators can group them.
+		emitMessageStart := func(item responses.ResponseOutputMessage) bool {
+			return emit(provider.Content{MessageID: item.ID, Phase: provider.MessagePhase(item.Phase)}, "")
 		}
 
 		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage) bool {
@@ -149,7 +141,13 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 		for stream.Next() {
 			data := stream.Current()
-			responseID, responseModel = data.Response.ID, data.Response.Model
+			// Item deltas omit the enclosing response metadata.
+			if data.Response.ID != "" {
+				responseID = data.Response.ID
+			}
+			if data.Response.Model != "" {
+				responseModel = data.Response.Model
+			}
 
 			switch event := data.AsAny().(type) {
 			case responses.ResponseCreatedEvent:
@@ -157,7 +155,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseOutputItemAddedEvent:
 				switch item := event.Item.AsAny().(type) {
 				case responses.ResponseOutputMessage:
-					if !emitPhase(item.Phase) {
+					if !emitMessageStart(item) {
 						return
 					}
 
@@ -196,12 +194,12 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 			case responses.ResponseContentPartAddedEvent:
 			case responses.ResponseTextDeltaEvent:
-				if !emit(provider.TextContent(event.Delta), "") {
+				if !emit(provider.Content{MessageID: event.ItemID, Text: event.Delta}, "") {
 					return
 				}
 
 			case responses.ResponseRefusalDeltaEvent:
-				if !emit(provider.RefusalContent(event.Delta), provider.CompletionStatusRefused) {
+				if !emit(provider.Content{MessageID: event.ItemID, Refusal: event.Delta}, provider.CompletionStatusRefused) {
 					return
 				}
 

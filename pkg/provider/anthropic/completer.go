@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"maps"
 	"slices"
@@ -23,6 +24,8 @@ import (
 )
 
 var _ provider.Completer = (*Completer)(nil)
+
+const maxPauseContinuations = 5
 
 type Completer struct {
 	*Config
@@ -58,10 +61,61 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 
+		var completionID string
+		var usage provider.Usage
+		for continuation := 0; ; continuation++ {
+			previousUsage := usage
+			message := new(anthropic.BetaMessage)
+			for delta, err := range c.streamMessage(ctx, req, options, message) {
+				if delta != nil {
+					if completionID == "" {
+						completionID = delta.ID
+					}
+					delta.ID = completionID
+					if delta.StopReason == provider.StopReasonPauseTurn && continuation < maxPauseContinuations {
+						delta.StopReason = ""
+					}
+					if delta.Usage != nil {
+						delta.Usage.InputTokens += previousUsage.InputTokens
+						delta.Usage.OutputTokens += previousUsage.OutputTokens
+						delta.Usage.ReasoningTokens += previousUsage.ReasoningTokens
+						delta.Usage.CacheReadInputTokens += previousUsage.CacheReadInputTokens
+						delta.Usage.CacheCreationInputTokens += previousUsage.CacheCreationInputTokens
+						usage = *delta.Usage
+					}
+				}
+				if !yield(delta, err) || err != nil {
+					return
+				}
+			}
+			if message.StopReason != anthropic.BetaStopReasonPauseTurn {
+				return
+			}
+			if continuation >= maxPauseContinuations {
+				yield(nil, fmt.Errorf("anthropic: turn still paused after %d continuations", maxPauseContinuations))
+				return
+			}
+			if err := ctx.Err(); err != nil {
+				yield(nil, err)
+				return
+			}
+			// Match the SDK tool runner: preserve native server-tool blocks and
+			// signed thinking when resuming, without inventing a user message.
+			req.Messages = append(req.Messages, message.ToParam())
+			if message.Container.ID != "" {
+				req.Container.OfString = anthropic.String(message.Container.ID)
+			}
+		}
+	}
+}
+
+func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessageNewParams, options *provider.CompleteOptions, message *anthropic.BetaMessage) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
 		toolAliases := provider.ToolAliases(options.Tools)
 
-		message := anthropic.BetaMessage{}
 		stream := c.messages.NewStreaming(ctx, *req)
+		defer stream.Close()
+		messageStopped := false
 
 		toolArgsSeen := map[int64]bool{}
 
@@ -70,6 +124,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		// the freeform text once the block closes.
 		customArgs := map[int64]*strings.Builder{}
 
+	messageStream:
 		for stream.Next() {
 			event := stream.Current()
 
@@ -115,15 +170,21 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				return
 			}
 
-			// SDK's Accumulate copies OutputTokens from message_delta but drops
-			// OutputTokensDetails.ThinkingTokens. Patch it in manually.
-			if delta, ok := event.AsAny().(anthropic.BetaRawMessageDeltaEvent); ok {
-				message.Usage.OutputTokensDetails.ThinkingTokens = delta.Usage.OutputTokensDetails.ThinkingTokens
-			}
-
 			switch event := event.AsAny().(type) {
 			case anthropic.BetaRawMessageStartEvent:
-				break
+				// A continuation is a new native message within the same
+				// completion. Keep its boundary even when it has no phase.
+				if !yield(&provider.Completion{
+					ID:    message.ID,
+					Model: c.model,
+					Message: &provider.Message{
+						Role:    provider.MessageRoleAssistant,
+						Content: []provider.Content{{MessageID: message.ID}},
+					},
+					Usage: toUsage(message.Usage),
+				}, nil) {
+					return
+				}
 
 			case anthropic.BetaRawContentBlockStartEvent:
 				startIndex := event.Index
@@ -409,6 +470,11 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case anthropic.BetaRawMessageStopEvent:
+				messageStopped = true
+				if message.StopReason == "" {
+					yield(nil, errors.New("anthropic: message_stop without a stop reason"))
+					return
+				}
 				delta := &provider.Completion{
 					ID:    message.ID,
 					Model: c.model,
@@ -417,32 +483,19 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 						Role: provider.MessageRoleAssistant,
 					},
 
-					Usage: toUsage(message.Usage),
+					Usage:      toUsage(message.Usage),
+					StopReason: provider.StopReason(message.StopReason),
 				}
 
-				switch message.StopReason {
-				case anthropic.BetaStopReasonEndTurn:
-					delta.StopReason = provider.StopReasonEndTurn
-				case anthropic.BetaStopReasonMaxTokens:
-					delta.StopReason = provider.StopReasonMaxTokens
-				case anthropic.BetaStopReasonStopSequence:
-					delta.StopReason = provider.StopReasonStopSequence
-				case anthropic.BetaStopReasonToolUse:
-					delta.StopReason = provider.StopReasonToolUse
-				case anthropic.BetaStopReasonPauseTurn:
-					delta.StopReason = provider.StopReasonPauseTurn
-				case anthropic.BetaStopReasonCompaction:
-					delta.StopReason = provider.StopReasonCompaction
-				case anthropic.BetaStopReasonRefusal:
-					delta.StopReason = provider.StopReasonRefusal
-				case anthropic.BetaStopReasonModelContextWindowExceeded:
-					delta.StopReason = provider.StopReasonContextExceeded
-				}
-
+				// Most native reasons already use the provider spelling. Preserve
+				// unknown values so new reasons do not fail otherwise valid turns.
 				switch message.StopReason {
 				case anthropic.BetaStopReasonStopSequence:
 					delta.StopSequence = message.StopSequence
-				case anthropic.BetaStopReasonMaxTokens, anthropic.BetaStopReasonModelContextWindowExceeded:
+				case anthropic.BetaStopReasonModelContextWindowExceeded:
+					delta.StopReason = provider.StopReasonContextExceeded
+					delta.Status = provider.CompletionStatusIncomplete
+				case anthropic.BetaStopReasonMaxTokens:
 					delta.Status = provider.CompletionStatusIncomplete
 				case anthropic.BetaStopReasonRefusal:
 					delta.Status = provider.CompletionStatusRefused
@@ -459,7 +512,17 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				if !yield(delta, nil) {
 					return
 				}
+				break messageStream
 			}
+		}
+
+		if err := stream.Err(); err != nil {
+			yield(nil, convertError(err))
+			return
+		}
+		if !messageStopped {
+			yield(nil, fmt.Errorf("anthropic: stream ended without message_stop: %w", io.ErrUnexpectedEOF))
+			return
 		}
 
 		for _, blockIndex := range slices.Sorted(maps.Keys(customArgs)) {
@@ -504,11 +567,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			if !yield(delta, nil) {
 				return
 			}
-		}
-
-		if err := stream.Err(); err != nil {
-			yield(nil, convertError(err))
-			return
 		}
 	}
 }

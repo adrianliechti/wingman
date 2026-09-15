@@ -1408,3 +1408,33 @@ func TestComplete_Resulter(t *testing.T) {
 	}
 	require.True(t, sawRendered, "expected Resulter output to be fed back to the model")
 }
+
+// Message items are identified on their content parts, so the agent must pass
+// them through unchanged when it rebuilds a delta.
+func TestAgentPreservesMessageItems(t *testing.T) {
+	mock := &mockCompleter{responses: [][]provider.Completion{{
+		{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{{MessageID: "msg_1", Phase: provider.MessagePhaseCommentary}}}},
+		{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_1", Text: "checking..."}}}},
+		{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_2", Phase: provider.MessagePhaseFinalAnswer}}}},
+		{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_2", Text: "done"}}}},
+		{StopReason: provider.StopReasonEndTurn},
+	}}}
+
+	agent, err := New("m", WithCompleter(mock))
+	require.NoError(t, err)
+
+	var acc provider.CompletionAccumulator
+	for c, err := range agent.Complete(context.Background(), []provider.Message{provider.UserMessage("hi")}, &provider.CompleteOptions{}) {
+		require.NoError(t, err)
+		acc.Add(*c)
+	}
+
+	result := acc.Result()
+	items := result.Message.SplitMessages()
+	require.Len(t, items, 2)
+	require.Equal(t, provider.MessagePhaseCommentary, items[0].Phase)
+	require.Equal(t, "checking...", items[0].Text())
+	require.Equal(t, provider.MessagePhaseFinalAnswer, items[1].Phase)
+	require.Equal(t, "done", items[1].Text())
+	require.Equal(t, "done", result.Text())
+}

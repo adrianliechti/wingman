@@ -169,10 +169,13 @@ func ConfigurationUpdateContent(val ConfigurationUpdate) Content {
 }
 
 type Content struct {
-	// Phase marks a text or refusal part as the content of one message item in
-	// an accumulated result; every phased part is its own item. Parts without
-	// a phase inherit the enclosing message.
-	Phase MessagePhase
+	// MessageID identifies the assistant message item a text or refusal part
+	// belongs to, the way Reasoning.ID and ToolCall.ID identify theirs. In a
+	// stream, a part with a new ID starts a new item and ID-less parts join
+	// the current one; an accumulated result keeps the IDs so SplitMessages
+	// can restore the items. Phase is metadata of the item and may be empty.
+	MessageID string
+	Phase     MessagePhase
 
 	Text    string
 	Refusal string
@@ -401,30 +404,34 @@ type CompactionOptions struct {
 }
 
 // SplitMessages restores the message items of an accumulated assistant
-// response. A phased text or refusal part starts a new item when the current
-// one already holds text or a refusal; reasoning and tool calls stay with the
-// item they were streamed with. Messages without phased parts come back as is.
+// response. A text or refusal part with a MessageID starts a new item when
+// the ID changes, or when an identified item would otherwise mix text and a
+// refusal. Reasoning and tool calls stay with the item they were streamed
+// with. Messages without identified parts come back as is.
 func (m Message) SplitMessages() []Message {
 	var messages []Message
 
 	current := Message{Role: m.Role, Phase: m.Phase}
-	filled := false
+	currentID := ""
+	hasText, hasRefusal := false, false
 
 	for _, content := range m.Content {
-		part := content.Text != "" || content.Refusal != ""
+		text, refusal := content.Text != "", content.Refusal != ""
+		mixed := (text && hasRefusal) || (refusal && hasText)
 
-		if part && content.Phase != "" {
-			if filled {
+		if (text || refusal) && content.MessageID != "" && (content.MessageID != currentID || mixed) {
+			if hasText || hasRefusal {
 				messages = append(messages, current)
 				current = Message{Role: m.Role}
-				filled = false
+				hasText, hasRefusal = false, false
 			}
 
+			currentID = content.MessageID
 			current.Phase = content.Phase
 		}
 
 		current.Content = append(current.Content, content)
-		filled = filled || part
+		hasText, hasRefusal = hasText || text, hasRefusal || refusal
 	}
 
 	if len(current.Content) > 0 || len(messages) == 0 {

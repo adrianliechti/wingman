@@ -173,3 +173,45 @@ func TestRefusalNonStreamingResponse(t *testing.T) {
 		t.Fatalf("refusal content should not include text field: %s", rec.Body.String())
 	}
 }
+
+// nativeRefusalCompleter mirrors Anthropic and Bedrock adapters: the model's
+// text streams normally and only the final stop reason marks the refusal.
+type nativeRefusalCompleter struct{}
+
+func (nativeRefusalCompleter) Complete(_ context.Context, _ []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	return func(yield func(*provider.Completion, error) bool) {
+		if !yield(&provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.TextContent("I cannot help with that.")}}}, nil) {
+			return
+		}
+		yield(&provider.Completion{Status: provider.CompletionStatusRefused, StopReason: provider.StopReasonRefusal}, nil)
+	}
+}
+
+// A refusal without a refusal part would otherwise look like a finished
+// answer, so clients would continue the turn or ask the model to finish it.
+func TestNativeRefusalIsContentFiltered(t *testing.T) {
+	const model = "native-refusal-model"
+	cfg := &config.Config{Policy: noop.New()}
+	cfg.RegisterCompleter(model, nativeRefusalCompleter{})
+	for _, stream := range []bool{false, true} {
+		body := []byte(`{"model":"` + model + `","stream":` + map[bool]string{false: "false", true: "true"}[stream] + `,"input":"x"}`)
+		req := httptest.NewRequest(http.MethodPost, "/responses", bytes.NewReader(body))
+		rec := httptest.NewRecorder()
+		New(cfg).handleResponses(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("stream=%t: status %d: %s", stream, rec.Code, rec.Body.String())
+		}
+		out := rec.Body.String()
+		for _, want := range []string{`"status":"incomplete"`, `"reason":"content_filter"`, `"text":"I cannot help with that."`} {
+			if !strings.Contains(out, want) {
+				t.Errorf("stream=%t: missing %q in %s", stream, want, out)
+			}
+		}
+		if stream && (!strings.Contains(out, "event: response.incomplete") || strings.Contains(out, "event: response.completed")) {
+			t.Errorf("stream terminal event wrong: %s", out)
+		}
+		if strings.Contains(out, `"type":"refusal"`) {
+			t.Errorf("stream=%t: text turned into a refusal part: %s", stream, out)
+		}
+	}
+}

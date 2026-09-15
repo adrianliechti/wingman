@@ -13,20 +13,20 @@ func TestCompletionText(t *testing.T) {
 		{"message phase", Message{Phase: MessagePhaseFinalAnswer, Content: []Content{TextContent("answer")}}, "answer"},
 		{"commentary only", Message{Phase: MessagePhaseCommentary, Content: []Content{TextContent("working")}}, ""},
 		{"JSON commentary and answer", Message{Content: []Content{
-			{Text: `{"content":"working"}`, Phase: MessagePhaseCommentary},
-			{Text: `{"content":"done"}`, Phase: MessagePhaseFinalAnswer},
+			{MessageID: "msg_1", Text: `{"content":"working"}`, Phase: MessagePhaseCommentary},
+			{MessageID: "msg_2", Text: `{"content":"done"}`, Phase: MessagePhaseFinalAnswer},
 		}}, `{"content":"done"}`},
 		{"last final answer", Message{Content: []Content{
-			{Text: "draft", Phase: MessagePhaseFinalAnswer},
-			{Text: "answer", Phase: MessagePhaseFinalAnswer},
+			{MessageID: "msg_1", Text: "draft", Phase: MessagePhaseFinalAnswer},
+			{MessageID: "msg_2", Text: "answer", Phase: MessagePhaseFinalAnswer},
 		}}, "answer"},
 		{"final refusal", Message{Content: []Content{
-			{Text: `{"content":"draft"}`, Phase: MessagePhaseCommentary},
-			{Refusal: "Cannot answer", Phase: MessagePhaseFinalAnswer},
+			{MessageID: "msg_1", Text: `{"content":"draft"}`, Phase: MessagePhaseCommentary},
+			{MessageID: "msg_2", Refusal: "Cannot answer", Phase: MessagePhaseFinalAnswer},
 		}}, ""},
 		{"invalid final is not replaced by commentary", Message{Content: []Content{
-			{Text: `{"content":"draft"}`, Phase: MessagePhaseCommentary},
-			{Text: `{"content":`, Phase: MessagePhaseFinalAnswer},
+			{MessageID: "msg_1", Text: `{"content":"draft"}`, Phase: MessagePhaseCommentary},
+			{MessageID: "msg_2", Text: `{"content":`, Phase: MessagePhaseFinalAnswer},
 		}}, `{"content":`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -62,12 +62,12 @@ func TestMessageTextPreservesCommentary(t *testing.T) {
 func TestCompletionTextFromStreamedPhases(t *testing.T) {
 	acc := CompletionAccumulator{}
 	for _, chunk := range []Message{
-		{Phase: MessagePhaseCommentary},
-		{Content: []Content{TextContent(`{"content":"working"}`)}},
-		{Phase: MessagePhaseCommentary},
-		{Content: []Content{TextContent("Still working")}},
-		{Phase: MessagePhaseFinalAnswer},
-		{Content: []Content{TextContent(`{"content":`)}},
+		{Content: []Content{{MessageID: "msg_1", Phase: MessagePhaseCommentary}}},
+		{Content: []Content{{MessageID: "msg_1", Text: `{"content":"working"}`}}},
+		{Content: []Content{{MessageID: "msg_2", Phase: MessagePhaseCommentary}}},
+		{Content: []Content{{MessageID: "msg_2", Text: "Still working"}}},
+		{Content: []Content{{MessageID: "msg_3", Phase: MessagePhaseFinalAnswer}}},
+		{Content: []Content{{MessageID: "msg_3", Text: `{"content":`}}},
 		{Content: []Content{TextContent(`"done"}`)}},
 	} {
 		acc.Add(Completion{Message: &chunk})

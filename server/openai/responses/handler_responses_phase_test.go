@@ -3,6 +3,7 @@ package responses
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -23,8 +24,13 @@ func (c phaseCompleter) Complete(_ context.Context, _ []provider.Message, option
 		if options.Schema == nil || options.Schema.Strict == nil || !*options.Schema.Strict || options.Schema.Name != "project" {
 			c.t.Error("strict schema was not forwarded")
 		}
+		items := 0
 		emit := func(phase provider.MessagePhase, part provider.Content) bool {
-			return yield(&provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Phase: phase, Content: []provider.Content{part}}}, nil)
+			if phase != "" {
+				items++
+				part.MessageID, part.Phase = fmt.Sprintf("msg_%d", items), phase
+			}
+			return yield(&provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{part}}}, nil)
 		}
 		// A valid JSON update must never get concatenated with the final JSON.
 		if !emit(provider.MessagePhaseCommentary, provider.TextContent(`{"apps":[]}`)) {
@@ -154,17 +160,17 @@ func TestResponsesPreserveMessagePhases(t *testing.T) {
 type repeatedPhaseCompleter struct{}
 
 // Recorded from the Responses API with a hosted tool: commentary, tool call,
-// commentary, final answer. Phase announcements precede each item's text.
+// commentary, final answer. An ID-only part opens each item before its text.
 func (repeatedPhaseCompleter) Complete(_ context.Context, _ []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
 		chunks := []*provider.Completion{
-			{Message: &provider.Message{Role: provider.MessageRoleAssistant, Phase: provider.MessagePhaseCommentary}},
-			{Message: &provider.Message{Content: []provider.Content{provider.TextContent("Searching Zurich.")}}},
+			{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{{MessageID: "msg_1", Phase: provider.MessagePhaseCommentary}}}},
+			{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_1", Text: "Searching Zurich."}}}},
 			{Message: &provider.Message{Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "search", Arguments: `{}`})}}},
-			{Message: &provider.Message{Role: provider.MessageRoleAssistant, Phase: provider.MessagePhaseCommentary}},
-			{Message: &provider.Message{Content: []provider.Content{provider.TextContent("Searching Geneva.")}}},
-			{Message: &provider.Message{Role: provider.MessageRoleAssistant, Phase: provider.MessagePhaseFinalAnswer}},
-			{Message: &provider.Message{Content: []provider.Content{provider.TextContent("Zurich: 452,421")}}},
+			{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_2", Phase: provider.MessagePhaseCommentary}}}},
+			{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_2", Text: "Searching Geneva."}}}},
+			{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_3", Phase: provider.MessagePhaseFinalAnswer}}}},
+			{Message: &provider.Message{Content: []provider.Content{{MessageID: "msg_3", Text: "Zurich: 452,421"}}}},
 			{Status: provider.CompletionStatusCompleted},
 		}
 		for _, chunk := range chunks {

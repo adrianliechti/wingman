@@ -78,6 +78,7 @@ type StreamEvent struct {
 	ToolCallAsync     bool
 	Arguments         string
 	OutputIndex       int
+	MessageID         string
 	MessagePhase      provider.MessagePhase
 	MessageIndex      int
 
@@ -145,10 +146,9 @@ type StreamingAccumulator struct {
 	messages []*streamMessage
 
 	// Tool call state — single source of truth
-	toolCalls       []accumulatedToolCall
-	toolCallByID    map[string]int // effective call ID → index in toolCalls
-	lastToolCallID  string
-	nextOutputIndex int
+	toolCalls      []accumulatedToolCall
+	toolCallByID   map[string]int // effective call ID → index in toolCalls
+	lastToolCallID string
 
 	// In-flight reasoning state. Closed items archive into completedReasonings
 	// before a new ID starts so each item's ID stays paired with its own
@@ -171,32 +171,36 @@ type StreamingAccumulator struct {
 	hasCompactionItem   bool
 	compactionIndex     int
 
-	compactions  []provider.Compaction
-	contentOrder []streamContentRef
+	compactions []provider.Compaction
+
+	// Register every item when its output index is assigned so snapshots
+	// retain the stream's order, including reasoning after a pause.
+	outputOrder []streamItemRef
 }
 
 type streamMessage struct {
+	id                 string
 	phase              provider.MessagePhase
 	hasOutputItem      bool
 	hasContentPart     bool
 	hasRefusalPart     bool
 	messageClosed      bool
 	messageOutputIndex int
-	textWithheld       bool
 	streamedText       strings.Builder
 	streamedRefusal    strings.Builder
 }
 
-type streamContentKind int
+type streamItemKind int
 
 const (
-	streamContentCompaction streamContentKind = iota
-	streamContentText
-	streamContentRefusal
+	streamItemMessage streamItemKind = iota
+	streamItemReasoning
+	streamItemCompaction
+	streamItemToolCall
 )
 
-type streamContentRef struct {
-	kind  streamContentKind
+type streamItemRef struct {
+	kind  streamItemKind
 	index int
 }
 
@@ -231,9 +235,9 @@ func mergeUsage(dst **provider.Usage, src *provider.Usage) {
 	}
 }
 
-func (s *StreamingAccumulator) reserveOutputIndex() int {
-	idx := s.nextOutputIndex
-	s.nextOutputIndex++
+func (s *StreamingAccumulator) reserveOutputIndex(kind streamItemKind, index int) int {
+	idx := len(s.outputOrder)
+	s.outputOrder = append(s.outputOrder, streamItemRef{kind: kind, index: index})
 	return idx
 }
 
@@ -244,7 +248,7 @@ func (s *StreamingAccumulator) start() error {
 
 	s.started = true
 
-	if err := s.emitEvent(StreamEvent{Type: StreamEventResponseCreated}); err != nil {
+	if err := s.emitEvent(StreamEvent{Type: StreamEventResponseCreated, Completion: s.Result()}); err != nil {
 		return err
 	}
 
@@ -261,7 +265,7 @@ func (s *StreamingAccumulator) ensureMessageItem() error {
 	}
 
 	s.message.hasOutputItem = true
-	s.message.messageOutputIndex = s.reserveOutputIndex()
+	s.message.messageOutputIndex = s.reserveOutputIndex(streamItemMessage, len(s.messages)-1)
 
 	return s.emitEvent(StreamEvent{
 		Type:         StreamEventOutputItemAdded,
@@ -317,7 +321,7 @@ func (s *StreamingAccumulator) trackToolCall(toolCall provider.ToolCall) (string
 			idx := len(s.toolCalls)
 			s.toolCalls = append(s.toolCalls, accumulatedToolCall{
 				ID:          effectiveID,
-				OutputIndex: s.reserveOutputIndex(),
+				OutputIndex: s.reserveOutputIndex(streamItemToolCall, idx),
 			})
 			s.toolCallByID[effectiveID] = idx
 		}
@@ -441,6 +445,10 @@ func (s *StreamingAccumulator) closeToolCall(callID string) error {
 // JSON fragments that don't parse. A normally-completed response never marks a
 // call incomplete — including custom/grammar tools whose input isn't JSON.
 func (s *StreamingAccumulator) toolCallIncomplete(callID string) bool {
+	if s.contentFiltered() {
+		return true
+	}
+
 	if s.status != provider.CompletionStatusIncomplete {
 		return false
 	}
@@ -482,7 +490,7 @@ func (s *StreamingAccumulator) ensureReasoningItem() error {
 	}
 
 	s.hasReasoningItem = true
-	s.reasoningOutputIndex = s.reserveOutputIndex()
+	s.reasoningOutputIndex = s.reserveOutputIndex(streamItemReasoning, len(s.completedReasonings))
 
 	if s.reasoningID == "" {
 		s.reasoningID = "rs_" + uuid.NewString()
@@ -537,7 +545,7 @@ func (s *StreamingAccumulator) closeReasoning() error {
 
 	reasoningText := s.streamedReasoningText.String()
 	reasoningSummary := s.streamedReasoningSummary.String()
-	incomplete := s.status == provider.CompletionStatusIncomplete
+	incomplete := s.status == provider.CompletionStatusIncomplete || s.contentFiltered()
 
 	if s.streamedReasoningText.Len() > 0 {
 		if err := s.emitEvent(StreamEvent{
@@ -672,7 +680,7 @@ func (s *StreamingAccumulator) closeMessage() error {
 		Text:         text,
 		RefusalText:  refusal,
 		OutputIndex:  s.message.messageOutputIndex,
-		Incomplete:   s.status == provider.CompletionStatusIncomplete,
+		Incomplete:   s.status == provider.CompletionStatusIncomplete || s.contentFiltered(),
 		MessagePhase: s.message.phase,
 	})
 }
@@ -702,7 +710,6 @@ func (s *StreamingAccumulator) closeCompaction() error {
 		Content:   s.compactionText,
 		Signature: s.compactionEncrypted,
 	})
-	s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentCompaction, index: len(s.compactions) - 1})
 
 	err := s.emitEvent(StreamEvent{
 		Type:                       StreamEventCompactionItemDone,
@@ -722,10 +729,6 @@ func (s *StreamingAccumulator) closeCompaction() error {
 
 // Add processes a completion chunk and emits appropriate events.
 func (s *StreamingAccumulator) Add(c provider.Completion) error {
-	if err := s.start(); err != nil {
-		return err
-	}
-
 	// Capture metadata
 	if c.ID != "" {
 		s.id = c.ID
@@ -740,16 +743,26 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		mergeUsage(&s.usage, c.Usage)
 	}
 
+	if err := s.start(); err != nil {
+		return err
+	}
+
 	if c.Message == nil {
 		return nil
 	}
-	if c.Message.Phase != "" {
-		if err := s.beginMessage(c.Message.Phase); err != nil {
-			return err
-		}
+	// Identified items carry their own phase; a message-level phase describes
+	// the enclosing, unidentified message.
+	if c.Message.Phase != "" && s.message.id == "" {
+		s.message.phase = c.Message.Phase
 	}
 
 	for _, content := range c.Message.Content {
+		if content.MessageID != "" {
+			if err := s.beginMessage(content.MessageID, content.Phase); err != nil {
+				return err
+			}
+		}
+
 		// Compaction may stream in chunks; the item stays in-flight until
 		// other content starts or the stream completes.
 		if content.Compaction != nil && (content.Compaction.Content != "" || content.Compaction.Signature != "") {
@@ -765,7 +778,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				}
 
 				s.hasCompactionItem = true
-				s.compactionIndex = s.reserveOutputIndex()
+				s.compactionIndex = s.reserveOutputIndex(streamItemCompaction, len(s.compactions))
 
 				s.compactionID = content.Compaction.ID
 				if s.compactionID == "" {
@@ -790,7 +803,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		// Reasoning — must be emitted before text or tool calls
+		// Reasoning can resume after text when a paused turn continues.
 		if content.Reasoning != nil && !s.SuppressReasoning {
 			r := content.Reasoning
 
@@ -875,21 +888,13 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				return err
 			}
 
-			if s.message.phase != "" && s.message.streamedText.Len() > 0 {
-				if err := s.nextMessage(s.message.phase); err != nil {
+			if s.message.id != "" && s.message.streamedText.Len() > 0 {
+				if err := s.nextMessage(s.message.id, s.message.phase); err != nil {
 					return err
 				}
 			}
 
-			if s.message.streamedRefusal.Len() == 0 {
-				s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentRefusal, index: len(s.messages) - 1})
-			}
-
 			s.message.streamedRefusal.WriteString(content.Refusal)
-
-			if len(s.toolCalls) > 0 && !s.message.hasOutputItem {
-				s.message.textWithheld = true
-			}
 
 			if len(s.toolCalls) == 0 {
 				if err := s.closeReasoning(); err != nil {
@@ -923,21 +928,13 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				return err
 			}
 
-			if s.message.phase != "" && s.message.streamedRefusal.Len() > 0 {
-				if err := s.nextMessage(s.message.phase); err != nil {
+			if s.message.id != "" && s.message.streamedRefusal.Len() > 0 {
+				if err := s.nextMessage(s.message.id, s.message.phase); err != nil {
 					return err
 				}
 			}
 
-			if s.message.streamedText.Len() == 0 {
-				s.contentOrder = append(s.contentOrder, streamContentRef{kind: streamContentText, index: len(s.messages) - 1})
-			}
-
 			s.message.streamedText.WriteString(content.Text)
-
-			if len(s.toolCalls) > 0 && !s.message.hasOutputItem {
-				s.message.textWithheld = true
-			}
 
 			if len(s.toolCalls) == 0 {
 				if err := s.closeReasoning(); err != nil {
@@ -1037,8 +1034,6 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
-	// Close items in Responses API order: compaction → reasoning → message → tool calls
-
 	if err := s.closeCompaction(); err != nil {
 		return err
 	}
@@ -1047,40 +1042,73 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
+	result := s.Result()
 	terminalType := StreamEventResponseCompleted
-	if s.status == provider.CompletionStatusIncomplete {
+	if s.status == provider.CompletionStatusIncomplete || s.contentFiltered() {
 		terminalType = StreamEventResponseIncomplete
 	}
 
 	return s.emitEvent(StreamEvent{
 		Type:       terminalType,
-		Completion: s.Result(),
+		Completion: result,
 	})
 }
 
-// beginMessage handles a phase announcement: a message item starts. The
-// current message is complete once it holds text or a refusal, so it is
-// closed and a new one opened even when the phase repeats — OpenAI emits
-// several commentary messages around hosted tool calls in one response.
-func (s *StreamingAccumulator) beginMessage(phase provider.MessagePhase) error {
-	if s.message.streamedText.Len() > 0 || s.message.streamedRefusal.Len() > 0 {
-		return s.nextMessage(phase)
+// contentFiltered reports a refusal that arrived as ordinary text. Native stop
+// reasons such as Anthropic's refusal or a Bedrock guardrail halt the output
+// after text was streamed, without a refusal part. OpenAI expresses that as
+// an incomplete response with the content_filter reason, which clients
+// already treat as a turn that must not continue.
+func contentFiltered(c *provider.Completion) bool {
+	if c == nil || c.Status != provider.CompletionStatusRefused {
+		return false
+	}
+	return c.Message == nil || c.Message.Refusal() == ""
+}
+
+func (s *StreamingAccumulator) contentFiltered() bool {
+	if s.status != provider.CompletionStatusRefused {
+		return false
+	}
+	for _, message := range s.messages {
+		if message.streamedRefusal.Len() > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// beginMessage makes the item with the given ID current. A new ID starts an
+// item, reusing the current one while it holds no text or refusal; ID-less
+// deltas remain in the current item. Phase is item metadata and may be empty.
+func (s *StreamingAccumulator) beginMessage(id string, phase provider.MessagePhase) error {
+	if s.message.id == id {
+		if phase != "" {
+			s.message.phase = phase
+		}
+
+		return nil
 	}
 
+	if s.message.streamedText.Len() > 0 || s.message.streamedRefusal.Len() > 0 {
+		return s.nextMessage(id, phase)
+	}
+
+	s.message.id = id
 	s.message.phase = phase
 
 	return nil
 }
 
-// nextMessage closes the current message item and starts a new one. A phased
-// message holds text or a refusal, never both — a refusal is its own item —
-// so the text and refusal branches also call it when the kinds would mix.
-func (s *StreamingAccumulator) nextMessage(phase provider.MessagePhase) error {
+// nextMessage closes the current message item and starts a new one. Identified
+// items keep text and refusals separate: the text and refusal branches call it
+// with the same ID, and SplitMessages splits such items the same way.
+func (s *StreamingAccumulator) nextMessage(id string, phase provider.MessagePhase) error {
 	if err := s.flushMessage(); err != nil {
 		return err
 	}
 
-	s.message = &streamMessage{phase: phase}
+	s.message = &streamMessage{id: id, phase: phase}
 	s.messages = append(s.messages, s.message)
 
 	return nil
@@ -1104,14 +1132,7 @@ func (s *StreamingAccumulator) flushMessage() error {
 	}
 
 	if (s.message.streamedText.Len() > 0 || s.message.streamedRefusal.Len() > 0) && !s.message.hasOutputItem {
-		s.message.hasOutputItem = true
-		s.message.messageOutputIndex = s.reserveOutputIndex()
-
-		if err := s.emitEvent(StreamEvent{
-			Type:         StreamEventOutputItemAdded,
-			OutputIndex:  s.message.messageOutputIndex,
-			MessagePhase: s.message.phase,
-		}); err != nil {
+		if err := s.ensureMessageItem(); err != nil {
 			return err
 		}
 
@@ -1181,67 +1202,70 @@ func (s *StreamingAccumulator) Error(err error) error {
 func (s *StreamingAccumulator) Result() *provider.Completion {
 	var content []provider.Content
 
-	for _, r := range s.completedReasonings {
-		content = append(content, provider.ReasoningContent(r))
+	appendMessage := func(m *streamMessage) {
+		if m.streamedText.Len() > 0 {
+			content = append(content, provider.Content{MessageID: m.id, Phase: m.phase, Text: m.streamedText.String()})
+		}
+		if m.streamedRefusal.Len() > 0 {
+			content = append(content, provider.Content{MessageID: m.id, Phase: m.phase, Refusal: m.streamedRefusal.String()})
+		}
 	}
 
-	if s.hasReasoningItem {
-		content = append(content, provider.ReasoningContent(provider.Reasoning{
-			ID:        s.reasoningID,
-			Text:      s.streamedReasoningText.String(),
-			Summary:   s.streamedReasoningSummary.String(),
-			Signature: s.reasoningSignature,
-		}))
-	}
-
-	// Withheld trailing text flushes as the last output item; defer it past
-	// the tool calls so the snapshot matches the streamed output indices.
-	var withheld []provider.Content
-
-	for _, ref := range s.contentOrder {
+	for _, ref := range s.outputOrder {
 		switch ref.kind {
-		case streamContentCompaction:
-			content = append(content, provider.CompactionContent(s.compactions[ref.index]))
+		case streamItemMessage:
+			appendMessage(s.messages[ref.index])
 
-		case streamContentText, streamContentRefusal:
-			m := s.messages[ref.index]
-			part := provider.Content{Phase: m.phase}
-			if ref.kind == streamContentText {
-				part.Text = m.streamedText.String()
+		case streamItemReasoning:
+			if ref.index < len(s.completedReasonings) {
+				content = append(content, provider.ReasoningContent(s.completedReasonings[ref.index]))
 			} else {
-				part.Refusal = m.streamedRefusal.String()
+				content = append(content, provider.ReasoningContent(provider.Reasoning{
+					ID:        s.reasoningID,
+					Text:      s.streamedReasoningText.String(),
+					Summary:   s.streamedReasoningSummary.String(),
+					Signature: s.reasoningSignature,
+				}))
 			}
-			if m.textWithheld {
-				withheld = append(withheld, part)
+
+		case streamItemCompaction:
+			if ref.index < len(s.compactions) {
+				content = append(content, provider.CompactionContent(s.compactions[ref.index]))
 			} else {
-				content = append(content, part)
+				content = append(content, provider.CompactionContent(provider.Compaction{
+					ID:        s.compactionID,
+					Content:   s.compactionText,
+					Signature: s.compactionEncrypted,
+				}))
 			}
+
+		case streamItemToolCall:
+			tc := &s.toolCalls[ref.index]
+			call := provider.ToolCall{
+				ID:        tc.ID,
+				Async:     tc.Async,
+				Kind:      tc.Kind,
+				Name:      tc.Name,
+				Namespace: tc.Namespace,
+				Execution: tc.Execution,
+				Arguments: tc.Arguments,
+			}
+
+			// A truncated call keeps its empty arguments — fabricating "{}"
+			// would disguise an aborted call as a valid zero-argument one.
+			if s.status != provider.CompletionStatusIncomplete && !s.contentFiltered() {
+				call = provider.NormalizeToolCallArguments(call)
+			}
+
+			content = append(content, provider.ToolCallContent(call))
 		}
 	}
 
-	for i := range s.toolCalls {
-		tc := &s.toolCalls[i]
-
-		call := provider.ToolCall{
-			ID:        tc.ID,
-			Async:     tc.Async,
-			Kind:      tc.Kind,
-			Name:      tc.Name,
-			Namespace: tc.Namespace,
-			Execution: tc.Execution,
-			Arguments: tc.Arguments,
-		}
-
-		// A truncated call keeps its empty arguments — fabricating "{}"
-		// would disguise an aborted call as a valid zero-argument one.
-		if s.status != provider.CompletionStatusIncomplete {
-			call = provider.NormalizeToolCallArguments(call)
-		}
-
-		content = append(content, provider.ToolCallContent(call))
+	// Before Complete, trailing text may still be waiting for tool calls to
+	// finish. Include it in partial snapshots without assigning an index early.
+	if !s.message.hasOutputItem {
+		appendMessage(s.message)
 	}
-
-	content = append(content, withheld...)
 
 	return &provider.Completion{
 		ID:     s.id,
@@ -1259,6 +1283,7 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 func (s *StreamingAccumulator) emitEvent(event StreamEvent) error {
 	event.MessageIndex = len(s.messages) - 1
+	event.MessageID = s.message.id
 	if s.handler != nil {
 		return s.handler(event)
 	}

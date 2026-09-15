@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -344,8 +345,10 @@ func TestCompletionAccumulatorMergesCompactionChunks(t *testing.T) {
 func TestCompletionAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
 	acc := CompletionAccumulator{}
 
+	items := 0
 	announce := func(phase MessagePhase) {
-		acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Phase: phase}})
+		items++
+		acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{{MessageID: fmt.Sprintf("msg_%d", items), Phase: phase}}}})
 	}
 	add := func(c Content) {
 		acc.Add(Completion{Message: &Message{Content: []Content{c}}})
@@ -388,14 +391,14 @@ func TestCompletionAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
 	}
 }
 
-func TestCompletionAccumulatorPhasedRefusalIsOwnItem(t *testing.T) {
-	phased := CompletionAccumulator{}
-	phased.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Phase: MessagePhaseFinalAnswer}})
-	phased.Add(Completion{Message: &Message{Content: []Content{TextContent("partial")}}})
-	phased.Add(Completion{Message: &Message{Content: []Content{RefusalContent("cannot continue")}}})
+func TestCompletionAccumulatorIdentifiedRefusalIsOwnItem(t *testing.T) {
+	identified := CompletionAccumulator{}
+	identified.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{{MessageID: "msg_1", Phase: MessagePhaseFinalAnswer}}}})
+	identified.Add(Completion{Message: &Message{Content: []Content{{MessageID: "msg_1", Text: "partial"}}}})
+	identified.Add(Completion{Message: &Message{Content: []Content{{MessageID: "msg_1", Refusal: "cannot continue"}}}})
 
-	if got := phased.Result().Message.SplitMessages(); len(got) != 2 || got[0].Text() != "partial" || got[1].Refusal() != "cannot continue" || got[1].Phase != MessagePhaseFinalAnswer {
-		t.Fatalf("phased text and refusal not split into items: %+v", got)
+	if got := identified.Result().Message.SplitMessages(); len(got) != 2 || got[0].Text() != "partial" || got[1].Refusal() != "cannot continue" || got[1].Phase != MessagePhaseFinalAnswer {
+		t.Fatalf("identified text and refusal not split into items: %+v", got)
 	}
 
 	plain := CompletionAccumulator{}
@@ -404,5 +407,30 @@ func TestCompletionAccumulatorPhasedRefusalIsOwnItem(t *testing.T) {
 
 	if got := plain.Result().Message.SplitMessages(); len(got) != 1 || got[0].Text() != "partial" || got[0].Refusal() != "cannot continue" {
 		t.Fatalf("unphased message split unexpectedly: %+v", got)
+	}
+}
+
+func TestCompletionAccumulatorPhaseMetadataDoesNotSplitMessage(t *testing.T) {
+	var acc CompletionAccumulator
+	for _, text := range []string{"Working", " on it."} {
+		acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Phase: MessagePhaseCommentary, Content: []Content{TextContent(text)}}})
+	}
+	messages := acc.Result().Message.SplitMessages()
+	if len(messages) != 1 || messages[0].Text() != "Working on it." || messages[0].Phase != MessagePhaseCommentary {
+		t.Fatalf("phase metadata created a message boundary: %+v", messages)
+	}
+}
+
+func TestCompletionAccumulatorRepeatedMessageIDJoinsItem(t *testing.T) {
+	var acc CompletionAccumulator
+	acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{{MessageID: "msg_1", Phase: MessagePhaseCommentary}}}})
+	for _, text := range []string{"Working", " on it."} {
+		acc.Add(Completion{Message: &Message{Content: []Content{{MessageID: "msg_1", Text: text}}}})
+	}
+	acc.Add(Completion{Message: &Message{Content: []Content{{Text: " Done."}}}})
+
+	messages := acc.Result().Message.SplitMessages()
+	if len(messages) != 1 || messages[0].Text() != "Working on it. Done." || messages[0].Phase != MessagePhaseCommentary {
+		t.Fatalf("deltas of one item split: %+v", messages)
 	}
 }

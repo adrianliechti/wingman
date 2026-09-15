@@ -13,8 +13,8 @@ type phasedCompleter struct{}
 func (phasedCompleter) Complete(context.Context, []provider.Message, *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
 		for _, message := range []provider.Message{
-			{Phase: provider.MessagePhaseCommentary, Content: []provider.Content{provider.TextContent(`{"rankings":[]}`)}},
-			{Phase: provider.MessagePhaseFinalAnswer, Content: []provider.Content{provider.TextContent(`{"rankings":[{"index":0,"score":0.9}]}`)}},
+			{Content: []provider.Content{{MessageID: "msg_1", Phase: provider.MessagePhaseCommentary, Text: `{"rankings":[]}`}}},
+			{Content: []provider.Content{{MessageID: "msg_2", Phase: provider.MessagePhaseFinalAnswer, Text: `{"rankings":[{"index":0,"score":0.9}]}`}}},
 		} {
 			if !yield(&provider.Completion{Message: &message}, nil) {
 				return

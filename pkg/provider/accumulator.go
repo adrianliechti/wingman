@@ -28,6 +28,7 @@ type CompletionAccumulator struct {
 }
 
 type accumulatedMessage struct {
+	id      string
 	phase   MessagePhase
 	text    strings.Builder
 	refusal strings.Builder
@@ -91,10 +92,19 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		}
 		if c.Message.Phase != "" {
 			a.phase = c.Message.Phase
-			a.beginMessage()
+
+			// Identified items carry their own phase; a message-level phase
+			// describes the enclosing, unidentified message.
+			if n := len(a.messages); n > 0 && a.messages[n-1].id == "" {
+				a.messages[n-1].phase = a.phase
+			}
 		}
 
 		for _, c := range c.Message.Content {
+			if c.MessageID != "" {
+				a.beginMessage(c.MessageID, c.Phase)
+			}
+
 			if c.Text != "" {
 				message := a.currentMessage(accumulatedContentText)
 
@@ -152,12 +162,29 @@ func (a *CompletionAccumulator) Add(c Completion) {
 	}
 }
 
-func (a *CompletionAccumulator) beginMessage() {
-	if n := len(a.messages); n == 0 || a.messages[n-1].text.Len() > 0 || a.messages[n-1].refusal.Len() > 0 {
+// beginMessage makes the item with the given ID current. A new ID starts an
+// item, reusing the current one while it holds no text or refusal, so that
+// reasoning and tool calls streamed before the first part stay with it.
+func (a *CompletionAccumulator) beginMessage(id string, phase MessagePhase) {
+	n := len(a.messages)
+
+	if n > 0 && a.messages[n-1].id == id {
+		if phase != "" {
+			a.messages[n-1].phase = phase
+			a.phase = phase
+		}
+
+		return
+	}
+
+	if n == 0 || a.messages[n-1].text.Len() > 0 || a.messages[n-1].refusal.Len() > 0 {
 		a.messages = append(a.messages, &accumulatedMessage{})
 	}
 
-	a.messages[len(a.messages)-1].phase = a.phase
+	message := a.messages[len(a.messages)-1]
+	message.id = id
+	message.phase = phase
+	a.phase = phase
 }
 
 func (a *CompletionAccumulator) currentMessage(kind accumulatedContentKind) *accumulatedMessage {
@@ -166,14 +193,12 @@ func (a *CompletionAccumulator) currentMessage(kind accumulatedContentKind) *acc
 	}
 
 	message := a.messages[len(a.messages)-1]
-
-	if message.phase != "" {
-		mixed := (kind == accumulatedContentText && message.refusal.Len() > 0) || (kind == accumulatedContentRefusal && message.text.Len() > 0)
-
-		if mixed {
-			message = &accumulatedMessage{phase: message.phase}
-			a.messages = append(a.messages, message)
-		}
+	mixed := (kind == accumulatedContentText && message.refusal.Len() > 0) || (kind == accumulatedContentRefusal && message.text.Len() > 0)
+	if message.id != "" && mixed {
+		// Split before merging bytes: SplitMessages cannot restore the order
+		// once text on either side of a refusal has been concatenated.
+		message = &accumulatedMessage{id: message.id, phase: message.phase}
+		a.messages = append(a.messages, message)
 	}
 
 	return message
@@ -321,11 +346,11 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 		case accumulatedContentText:
 			m := a.messages[ref.index]
-			content = append(content, Content{Text: m.text.String(), Phase: m.phase})
+			content = append(content, Content{MessageID: m.id, Phase: m.phase, Text: m.text.String()})
 
 		case accumulatedContentRefusal:
 			m := a.messages[ref.index]
-			content = append(content, Content{Refusal: m.refusal.String(), Phase: m.phase})
+			content = append(content, Content{MessageID: m.id, Phase: m.phase, Refusal: m.refusal.String()})
 
 		case accumulatedContentToolCall:
 			call := a.toolCalls[ref.index]

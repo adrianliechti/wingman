@@ -1,6 +1,8 @@
 package responses
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -555,8 +557,10 @@ func TestStreamingAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
 		return nil
 	})
 
+	announced := 0
 	announce := func(phase provider.MessagePhase) {
-		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Phase: phase}}); err != nil {
+		announced++
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{{MessageID: fmt.Sprintf("msg_%d", announced), Phase: phase}}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -611,5 +615,161 @@ func TestStreamingAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
 		if streamed[i] != part.Text() {
 			t.Fatalf("message %d streamed %q but snapshot says %q", i, streamed[i], part.Text())
 		}
+	}
+}
+
+func TestStreamingAccumulatorFilteredItemStatus(t *testing.T) {
+	for _, content := range []provider.Content{
+		provider.TextContent("I cannot help with that."),
+		provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Text: "checking"}),
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "example", Arguments: `{}`}),
+	} {
+		var done []StreamEvent
+		acc := NewStreamingAccumulator(func(e StreamEvent) error {
+			switch e.Type {
+			case StreamEventOutputItemDone, StreamEventReasoningItemDone, StreamEventFunctionCallDone:
+				done = append(done, e)
+			}
+			return nil
+		})
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{content}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := acc.Add(provider.Completion{Status: provider.CompletionStatusRefused}); err != nil {
+			t.Fatal(err)
+		}
+		if err := acc.Complete(); err != nil {
+			t.Fatal(err)
+		}
+		if len(done) != 1 || !done[0].Incomplete {
+			t.Errorf("filtered item must be incomplete in its done event as well as the final response: %+v", done)
+		}
+	}
+}
+
+func TestAccumulatorsPreserveAlternatingMessageParts(t *testing.T) {
+	for _, phase := range []provider.MessagePhase{"", provider.MessagePhaseFinalAnswer} {
+		for _, repeatID := range []bool{false, true} {
+			for _, tc := range []struct {
+				name  string
+				parts []provider.Content
+			}{
+				{"text-refusal-text", []provider.Content{{Text: "first"}, {Refusal: "refusal"}, {Text: "last"}}},
+				{"refusal-text-refusal", []provider.Content{{Refusal: "first"}, {Text: "text"}, {Refusal: "last"}}},
+			} {
+				t.Run(fmt.Sprintf("%s/phase=%s/repeatID=%t", tc.name, phase, repeatID), func(t *testing.T) {
+					var plain provider.CompletionAccumulator
+					var ids messageIDs
+					var addedIDs []string
+					streamed := NewStreamingAccumulator(func(e StreamEvent) error {
+						if e.Type == StreamEventOutputItemAdded {
+							addedIDs = append(addedIDs, ids.get(e.MessageIndex, e.MessageID))
+						}
+						return nil
+					})
+					add := func(part provider.Content) {
+						t.Helper()
+						chunk := provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{part}}}
+						plain.Add(chunk)
+						if err := streamed.Add(chunk); err != nil {
+							t.Fatal(err)
+						}
+					}
+					add(provider.Content{MessageID: "msg_1", Phase: phase})
+					var want []provider.Message
+					for _, part := range tc.parts {
+						if repeatID {
+							part.MessageID = "msg_1"
+						}
+						add(part)
+						part.MessageID, part.Phase = "msg_1", phase
+						want = append(want, provider.Message{Role: provider.MessageRoleAssistant, Phase: phase, Content: []provider.Content{part}})
+					}
+					if err := streamed.Complete(); err != nil {
+						t.Fatal(err)
+					}
+					outputs := responseOutputs(streamed.Result().Message, &ids, "completed", responseOutputOptions{})
+					if len(addedIDs) != len(want) || len(outputs) != len(want) || addedIDs[0] != "msg_1" {
+						t.Fatalf("lost native item ID: added=%v, outputs=%+v", addedIDs, outputs)
+					}
+					seen := map[string]bool{}
+					for i, output := range outputs {
+						id := output.OutputMessage.ID
+						if seen[id] || id != addedIDs[i] {
+							t.Errorf("split item ID reused or changed: added=%v, final=%q", addedIDs, id)
+						}
+						seen[id] = true
+					}
+					for name, result := range map[string]*provider.Completion{"plain": plain.Result(), "streamed": streamed.Result()} {
+						if got := result.Message.SplitMessages(); !reflect.DeepEqual(got, want) {
+							t.Errorf("%s message order: got %+v, want %+v", name, got, want)
+						}
+						if got, wantText := result.Text(), tc.parts[len(tc.parts)-1].Text; got != wantText {
+							t.Errorf("%s final text = %q, want %q", name, got, wantText)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestStreamingAccumulatorSnapshotPreservesMixedItemOrder(t *testing.T) {
+	var added []string
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		var kind string
+		switch e.Type {
+		case StreamEventOutputItemAdded:
+			kind = "message"
+		case StreamEventReasoningItemAdded:
+			kind = "reasoning"
+		case StreamEventCompactionItemAdded:
+			kind = "compaction"
+		case StreamEventFunctionCallAdded:
+			kind = "function_call"
+		}
+		if kind != "" {
+			if e.OutputIndex != len(added) {
+				t.Fatalf("%s output_index = %d, want %d", kind, e.OutputIndex, len(added))
+			}
+			added = append(added, kind)
+		}
+		return nil
+	})
+	for _, part := range []provider.Content{
+		provider.CompactionContent(provider.Compaction{ID: "cmp_1", Signature: "CMP_1"}),
+		provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "start", Signature: "SIG_1"}),
+		{MessageID: "msg_1", Text: "first"},
+		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "search", Arguments: "{}"}),
+		{MessageID: "msg_2", Text: "second"},
+		{MessageID: "msg_3"}, // Flush the withheld second message before reasoning resumes.
+		provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Summary: "resume", Signature: "SIG_2"}),
+		provider.ToolCallContent(provider.ToolCall{ID: "call_2", Name: "search", Arguments: "{}"}),
+		{MessageID: "msg_3", Text: "third"},
+	} {
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{part}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := "compaction,reasoning,message,function_call,message,reasoning,function_call,message"
+	checkSnapshot := func() {
+		t.Helper()
+		output := responseOutputs(acc.Result().Message, new(messageIDs), "completed", responseOutputOptions{IncludeReasoning: true})
+		var kinds []string
+		for _, item := range output {
+			kinds = append(kinds, string(item.Type))
+		}
+		if got := strings.Join(kinds, ","); got != want {
+			t.Fatalf("snapshot order = %s, want %s", got, want)
+		}
+	}
+	checkSnapshot() // Partial results must still include the withheld third message.
+	if err := acc.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	checkSnapshot()
+	if got := strings.Join(added, ","); got != want {
+		t.Fatalf("streamed order = %s, want %s", got, want)
 	}
 }

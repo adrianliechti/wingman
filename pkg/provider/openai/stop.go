@@ -92,14 +92,13 @@ func (f *stopFilter) filter(c *provider.Completion) (*provider.Completion, bool)
 
 		kept := append([]provider.Content{}, c.Message.Content[:i]...)
 		if cut > 0 {
-			kept = append(kept, provider.Content{Text: content.Text[:cut], Phase: content.Phase})
+			content.Text = content.Text[:cut]
+			kept = append(kept, content)
 		}
 
-		out.Message = &provider.Message{
-			Role:    c.Message.Role,
-			Phase:   c.Message.Phase,
-			Content: kept,
-		}
+		message := *c.Message
+		message.Content = kept
+		out.Message = &message
 
 		return &out, true
 	}

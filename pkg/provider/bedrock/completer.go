@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"maps"
 	"slices"
@@ -132,6 +133,9 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			yield(nil, convertError(err))
 			return
 		}
+		stream := resp.GetStream()
+		defer stream.Close()
+		messageStopped := false
 
 		id := uuid.NewString()
 
@@ -149,7 +153,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		// the freeform text once the block closes.
 		customArgs := map[int32]*strings.Builder{}
 
-		for event := range resp.GetStream().Events() {
+		for event := range stream.Events() {
 			switch v := event.(type) {
 			case *types.ConverseStreamOutputMemberMessageStart:
 				delta := &provider.Completion{
@@ -390,9 +394,23 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case *types.ConverseStreamOutputMemberMessageStop:
+				messageStopped = true
+				if v.Value.StopReason == "" {
+					yield(nil, errors.New("bedrock: messageStop without a stop reason"))
+					return
+				}
+				// Bedrock reports unusable generations as stop reasons. Their
+				// content, including any tool call, must not reach the client.
+				switch v.Value.StopReason {
+				case types.StopReasonMalformedToolUse, types.StopReasonMalformedModelOutput:
+					yield(nil, fmt.Errorf("bedrock: model output unusable: %s", v.Value.StopReason))
+					return
+				}
 				delta := &provider.Completion{
 					ID:    id,
 					Model: c.model,
+
+					StopReason: provider.StopReason(v.Value.StopReason),
 
 					Message: &provider.Message{
 						Role: provider.MessageRoleAssistant,
@@ -403,24 +421,18 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					},
 				}
 
+				// Preserve new native reasons; normalize only known differences.
 				switch v.Value.StopReason {
-				case types.StopReasonEndTurn:
-					delta.StopReason = provider.StopReasonEndTurn
 				case types.StopReasonToolUse:
-					delta.StopReason = provider.StopReasonToolUse
-
 					// the forced schema tool is not a tool call to the client
 					if len(schemaBlocks) > 0 && !sawToolCall {
 						delta.StopReason = provider.StopReasonEndTurn
 					}
 				case types.StopReasonMaxTokens:
-					delta.StopReason = provider.StopReasonMaxTokens
 					delta.Status = provider.CompletionStatusIncomplete
 				case types.StopReasonModelContextWindowExceeded:
 					delta.StopReason = provider.StopReasonContextExceeded
 					delta.Status = provider.CompletionStatusIncomplete
-				case types.StopReasonStopSequence:
-					delta.StopReason = provider.StopReasonStopSequence
 				case types.StopReasonGuardrailIntervened, types.StopReasonContentFiltered:
 					delta.StopReason = provider.StopReasonRefusal
 					delta.Status = provider.CompletionStatusRefused
@@ -458,6 +470,15 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			}
 		}
 
+		if err := stream.Err(); err != nil {
+			yield(nil, convertError(err))
+			return
+		}
+		if !messageStopped {
+			yield(nil, fmt.Errorf("bedrock: stream ended without messageStop: %w", io.ErrUnexpectedEOF))
+			return
+		}
+
 		for _, blockIndex := range slices.Sorted(maps.Keys(customArgs)) {
 			buffer := customArgs[blockIndex]
 			// The wrapper is unfinished here, so Unwrap would hand the raw
@@ -490,11 +511,6 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			}
 		}
 
-		// Check for stream errors
-		if err := resp.GetStream().Err(); err != nil {
-			yield(nil, convertError(err))
-			return
-		}
 	}
 }
 
