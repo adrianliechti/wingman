@@ -566,6 +566,9 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 }
 
 func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.BetaMessageNewParams, error) {
+	if !matchesModel(c.model, []string{"fable-5-1", "mythos-5-1", "opus-5"}) {
+		input, options = provider.ResolveConfigurationUpdates(input, options)
+	}
 	if options == nil {
 		options = new(provider.CompleteOptions)
 	}
@@ -619,23 +622,46 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			hasToolSearch = true
 		}
 	}
+	if hasToolSearch && matchesModel(c.model, []string{"fable-5-1"}) {
+		return nil, fmt.Errorf("anthropic: hosted tool search on %s requires prefix-preserving tool-result replay, which is not supported; use client tool search", c.model)
+	}
+
+	usedNames := map[string]bool{}
 
 	// Tools a client-executed tool_search returned in prior turns — they must
 	// be available (non-deferred) so the model can call them.
 	var discovered []provider.Tool
 
-	// Tools already called in the conversation stay loaded as well.
-	usedNames := map[string]bool{}
-
 	for _, m := range input {
-		for _, c := range m.Content {
-			if c.ToolCall != nil {
-				usedNames[provider.FlattenToolName(*c.ToolCall)] = true
+		for _, content := range m.Content {
+			if content.ToolCall != nil && content.ToolCall.Name != "" {
+				usedNames[provider.FlattenToolName(*content.ToolCall)] = true
 			}
 		}
-	}
-
-	for _, m := range input {
+		var effort provider.Effort
+		for _, content := range m.Content {
+			if content.ConfigurationUpdate != nil {
+				effort = content.ConfigurationUpdate.ReasoningEffort
+			}
+		}
+		if effort != "" {
+			if !slices.Contains(req.Betas, "mid-conversation-output-config-2026-07-01") {
+				req.Betas = append(req.Betas, "mid-conversation-output-config-2026-07-01")
+			}
+			var blocks []anthropic.BetaContentBlockParamUnion
+			for _, content := range m.Content {
+				if content.Text != "" {
+					blocks = append(blocks, anthropic.NewBetaTextBlock(content.Text))
+				}
+			}
+			if blocks == nil {
+				blocks = []anthropic.BetaContentBlockParamUnion{}
+			}
+			update := anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleSystem, Content: blocks}
+			update.SetExtraFields(map[string]any{"output_config": map[string]any{"effort": outputEffort(effort)}})
+			messages = append(messages, update)
+			continue
+		}
 		switch m.Role {
 		case provider.MessageRoleSystem:
 			var texts []anthropic.BetaTextBlockParam
@@ -1018,9 +1044,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			tool.Strict = anthropic.Bool(*t.Strict)
 		}
 
-		// deferring requires a search tool to discover the definition, and
-		// tools already discovered or called in prior turns must stay loaded
-		if t.Deferred != nil && *t.Deferred && hasToolSearch && !discoveredNames[t.Name] && !usedNames[t.Name] {
+		// Hosted search results are not replayed, so previously used or
+		// client-discovered tools must be available on subsequent requests.
+		if t.Deferred != nil && *t.Deferred && hasToolSearch && !usedNames[t.Name] && !discoveredNames[t.Name] {
 			tool.DeferLoading = anthropic.Bool(true)
 		}
 
@@ -1093,11 +1119,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			req.ToolChoice = anthropic.BetaToolChoiceUnionParam{OfAuto: p}
 
 		case provider.ToolChoiceAny:
-			// Fable/Mythos 5.1 reject forced tool use. Omitting tool_choice
-			// retains the API default (auto), while leaving every supplied tool
-			// available for the model to choose.
 			if matchesModel(c.model, NoForcedToolChoiceModels) {
-				break
+				return nil, fmt.Errorf("anthropic: model %s does not support forced tool_choice; use auto or none", c.model)
 			}
 
 			forcesTool = true

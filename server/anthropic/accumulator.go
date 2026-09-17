@@ -58,8 +58,6 @@ type StreamingAccumulator struct {
 	messageID string
 	model     string
 
-	ThinkingEnabled bool
-
 	// State tracking
 	started bool
 
@@ -240,7 +238,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	// Process content
 	for _, content := range c.Message.Content {
 		if content.Compaction != nil && (content.Compaction.Content != "" || content.Compaction.Signature != "") {
-			block := toContentBlocks([]provider.Content{content}, false)[0]
+			block := toContentBlocks([]provider.Content{content})[0]
 			if block.Signature != "" {
 				// On-demand compaction arrives whole in content_block_start.
 				index, err := s.startBlock(&block)
@@ -286,7 +284,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		if s.ThinkingEnabled && content.Reasoning != nil && content.Reasoning.Redacted && content.Reasoning.Signature != "" {
+		if content.Reasoning != nil && content.Reasoning.Redacted && content.Reasoning.Signature != "" {
 			index, err := s.startBlock(&ContentBlock{
 				Type: "redacted_thinking",
 				Data: content.Reasoning.Signature,
@@ -301,7 +299,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		if s.ThinkingEnabled && content.Reasoning != nil && !content.Reasoning.Redacted && (content.Reasoning.Text != "" || content.Reasoning.Summary != "" || content.Reasoning.Signature != "") {
+		if content.Reasoning != nil && !content.Reasoning.Redacted && (content.Reasoning.Text != "" || content.Reasoning.Summary != "" || content.Reasoning.Signature != "") {
 			reasoning := content.Reasoning
 
 			// A signature ends a thinking block; a new ID starts the next item
@@ -488,7 +486,7 @@ func (s *StreamingAccumulator) Complete() error {
 		cacheReadInputTokens = result.Usage.CacheReadInputTokens
 		cacheCreationInputTokens = result.Usage.CacheCreationInputTokens
 
-		if s.ThinkingEnabled {
+		if result.Usage.ReasoningTokens > 0 {
 			outputTokensDetails = &OutputTokensDetails{
 				ThinkingTokens: result.Usage.ReasoningTokens,
 			}

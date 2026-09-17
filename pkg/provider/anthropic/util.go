@@ -131,8 +131,8 @@ var NoSamplingModels = []string{
 }
 
 // NoForcedToolChoiceModels reject `tool_choice: {type: "any"}` and named
-// `tool_choice: {type: "tool"}`. Leave the choice unset so their normal
-// automatic tool selection can still use the supplied tool definitions.
+// `tool_choice: {type: "tool"}`. Reject these requests rather than weakening
+// the caller's requirement to automatic selection.
 var NoForcedToolChoiceModels = []string{
 	"fable-5-1",
 	"mythos-5-1",

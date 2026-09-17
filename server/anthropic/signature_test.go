@@ -33,7 +33,7 @@ func TestThinkingBlockRoundTrip(t *testing.T) {
 			Summary:   "the summary",
 			Signature: "BLOB",
 		}),
-	}, true)
+	})
 
 	if len(blocks) != 1 || blocks[0].Type != "thinking" {
 		t.Fatalf("expected one thinking block, got %+v", blocks)

@@ -1,7 +1,6 @@
 package anthropic
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/tokens"
@@ -16,8 +15,7 @@ import (
 // tests).
 func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	var req CountTokensRequest
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeRequest(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

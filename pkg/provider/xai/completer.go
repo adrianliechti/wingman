@@ -47,6 +47,7 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 }
 
 func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+	messages, options = provider.ResolveConfigurationUpdates(messages, options)
 	messages = consolidateSystemMessages(messages)
 	return c.responder.Complete(ctx, messages, options)
 }

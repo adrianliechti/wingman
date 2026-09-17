@@ -581,7 +581,16 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 		}
 		if len(controlItems) > 0 {
 			result = append(result, controlItems...)
-			continue
+			var content []provider.Content
+			for _, part := range m.Content {
+				if part.ConfigurationUpdate == nil && !part.CompactionTrigger {
+					content = append(content, part)
+				}
+			}
+			if len(content) == 0 {
+				continue
+			}
+			m.Content = content
 		}
 
 		switch m.Role {

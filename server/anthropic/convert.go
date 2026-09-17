@@ -41,7 +41,7 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 	blocks, err := parseContentBlocks(m.Content)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("messages.%d.content: %w", index, err)
 	}
 
 	var role provider.MessageRole
@@ -64,9 +64,21 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 	}
 
 	var content []provider.Content
+	if m.OutputConfig != nil {
+		if m.Role != MessageRoleSystem || m.OutputConfig.Format != nil || !validEffort(m.OutputConfig.Effort) {
+			return nil, fmt.Errorf("messages.%d.output_config: requires a system message and a valid effort", index)
+		}
+		content = append(content, provider.ConfigurationUpdateContent(provider.ConfigurationUpdate{ReasoningEffort: provider.Effort(m.OutputConfig.Effort)}))
+	}
 
 	for j, block := range blocks {
 		path := fmt.Sprintf("messages.%d.content.%d", index, j)
+		if m.Role == MessageRoleSystem && block.Type != "text" {
+			return nil, fmt.Errorf("%s: system messages support only text and output_config.effort", path)
+		}
+		if block.Caller != nil && block.Caller.Type != "direct" {
+			return nil, fmt.Errorf("%s.caller: only direct tool calls are supported", path)
+		}
 
 		switch block.Type {
 		case "text":
@@ -355,8 +367,8 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 	for i, t := range tools {
 		switch {
 		case strings.Contains(t.Type, "_toolset_"):
-			// The pinned SDK has no toolset types; matching the family prefix
-			// would silently serve the legacy single tool instead.
+			// Tool collections require shared member identities and result types.
+			// Other backends cannot emulate this protocol as a legacy tool.
 			return nil, fmt.Errorf(
 				"tools.%d: Tool type '%s' is not supported; use the single-tool 'computer_*', 'bash_*' or 'text_editor_*' types",
 				i, t.Type,
@@ -398,6 +410,7 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 				Name:        t.Name,
 				Description: t.Description,
 				Parameters:  tool.NormalizeSchema(t.InputSchema),
+				Strict:      t.Strict,
 			}
 
 			if t.DeferLoading {
@@ -418,11 +431,11 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 	return result, nil
 }
 
-func toContentBlocks(content []provider.Content, includeThinking bool) []ContentBlock {
+func toContentBlocks(content []provider.Content) []ContentBlock {
 	result := make([]ContentBlock, 0, len(content))
 
 	for _, c := range content {
-		if includeThinking && c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "" || c.Reasoning.Signature != "") {
+		if c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "" || c.Reasoning.Signature != "") {
 			if c.Reasoning.Redacted {
 				result = append(result, ContentBlock{
 					Type: "redacted_thinking",

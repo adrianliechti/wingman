@@ -1,7 +1,6 @@
 package anthropic
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,21 +9,14 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
-func thinkingEnabled(options *provider.CompleteOptions) bool {
-	reasoning := options.ReasoningOptions
-
-	if reasoning == nil || reasoning.Type == provider.ReasoningTypeDisabled {
-		return false
-	}
-
-	return reasoning.Type == provider.ReasoningTypeAdaptive || reasoning.Effort != ""
-}
-
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	var req MessageRequest
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeRequest(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Model == "" || len(req.Messages) == 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("model and non-empty messages are required"))
 		return
 	}
 
@@ -187,6 +179,10 @@ func toCompleteOptions(req MessageRequest) (*provider.CompleteOptions, error) {
 			IncludeSummary:   summary,
 			IncludeSignature: true,
 		}
+	} else {
+		// Request replayable state without overriding the model's thinking
+		// defaults. Providers that always return signatures need no extra flag.
+		options.ReasoningOptions = &provider.ReasoningOptions{IncludeSignature: true}
 	}
 
 	if req.ContextManagement != nil {
@@ -229,7 +225,13 @@ func validateCompactionRequest(req MessageRequest) error {
 		}
 	}
 	if req.ContextManagement != nil {
+		if len(req.ContextManagement.Edits) > 1 {
+			return fmt.Errorf("context_management.edits: only one compaction edit is supported")
+		}
 		for _, edit := range req.ContextManagement.Edits {
+			if edit.Type != "compact_20260112" {
+				return fmt.Errorf("context_management.edits: unsupported edit %q", edit.Type)
+			}
 			if edit.Instructions != "" || edit.PauseAfterCompaction {
 				return fmt.Errorf("context_management: custom compaction instructions and pause_after_compaction are not supported; use compaction.type=summarize for explicit compaction")
 			}
@@ -242,6 +244,32 @@ func validateCompactionRequest(req MessageRequest) error {
 }
 
 func validateMessageRequest(req MessageRequest) error {
+	if req.OutputConfig != nil && req.OutputConfig.Effort != "" && !validEffort(req.OutputConfig.Effort) {
+		return fmt.Errorf("output_config.effort: unsupported effort %q", req.OutputConfig.Effort)
+	}
+	if req.Thinking != nil {
+		switch req.Thinking.Type {
+		case "enabled", "adaptive", "disabled":
+		default:
+			return fmt.Errorf("thinking.type: must be enabled, adaptive, or disabled")
+		}
+		switch req.Thinking.Display {
+		case "", "summarized", "omitted":
+		default:
+			return fmt.Errorf("thinking.display: only summarized and omitted are supported")
+		}
+	}
+	if req.ToolChoice != nil {
+		switch req.ToolChoice.Type {
+		case "auto", "any", "none":
+		case "tool":
+			if req.ToolChoice.Name == "" {
+				return fmt.Errorf("tool_choice.name: required for type tool")
+			}
+		default:
+			return fmt.Errorf("tool_choice.type: must be auto, any, tool, or none")
+		}
+	}
 	if req.MaxTokens == nil {
 		return fmt.Errorf("max_tokens: Field required")
 	}
@@ -314,9 +342,7 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 			CacheCreationInputTokens: completion.Usage.CacheCreationInputTokens,
 		}
 
-		// Anthropic only reports thinking tokens when thinking was requested;
-		// a backend that thinks on its own still counts them in output_tokens.
-		if thinkingEnabled(options) {
+		if completion.Usage.ReasoningTokens > 0 {
 			result.Usage.OutputTokensDetails = &OutputTokensDetails{
 				ThinkingTokens: completion.Usage.ReasoningTokens,
 			}
@@ -324,7 +350,7 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 	}
 
 	if completion.Message != nil {
-		result.Content = toContentBlocks(completion.Message.Content, thinkingEnabled(options))
+		result.Content = toContentBlocks(completion.Message.Content)
 		reason := toStopReason(completion)
 		result.StopReason = &reason
 
@@ -422,8 +448,6 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, r
 
 		return nil
 	})
-
-	accumulator.ThinkingEnabled = thinkingEnabled(options)
 
 	for completion, err := range completer.Complete(r.Context(), messages, options) {
 		if err != nil {

@@ -137,13 +137,11 @@ Anthropic-compatible endpoints. See [Anthropic API Reference](https://docs.anthr
 | `max_tokens`          | Integer      | Maximum tokens to generate                     |
 | `stream`              | Boolean      | Enable streaming                               |
 | `temperature`         | Float        | Sampling temperature                           |
-| `top_p`               | Float        | Nucleus sampling                               |
-| `top_k`               | Integer      | Top-k sampling                                 |
 | `stop_sequences`      | Array        | Stop sequences                                 |
 | `tools`               | Array        | Available tools/functions                      |
 | `tool_choice`         | Object       | Tool selection (auto, any, tool, none)         |
-| `metadata`            | Object       | Request metadata (`user_id`)                   |
 | `output_format`       | Object       | Structured output with JSON schema             |
+| `output_config`       | Object       | Structured output and reasoning effort         |
 | `thinking`            | Object       | Thinking configuration (type, budget_tokens)   |
 | `context_management`  | Object       | Context management with compaction edits       |
 | `compaction`          | Object       | `{"type":"summarize"}` requests on-demand Claude compaction |

@@ -152,7 +152,6 @@ func TestStreamingAccumulatorSplitsThinkingBlocks(t *testing.T) {
 		events = append(events, event)
 		return nil
 	})
-	acc.ThinkingEnabled = true
 
 	add := func(content provider.Content) {
 		t.Helper()
@@ -203,7 +202,6 @@ func TestStreamingAccumulatorRedactedThinking(t *testing.T) {
 		events = append(events, event)
 		return nil
 	})
-	acc.ThinkingEnabled = true
 
 	add := func(content provider.Content) {
 		t.Helper()
@@ -296,7 +294,6 @@ func TestStreamingAccumulatorEmitsThinkingUsage(t *testing.T) {
 		events = append(events, event)
 		return nil
 	})
-	acc.ThinkingEnabled = true
 
 	err := acc.Add(provider.Completion{
 		Usage: &provider.Usage{
@@ -345,7 +342,6 @@ func TestStreamingAccumulatorSummaryReasoning(t *testing.T) {
 		events = append(events, event)
 		return nil
 	})
-	acc.ThinkingEnabled = true
 
 	add := func(content provider.Content) {
 		t.Helper()

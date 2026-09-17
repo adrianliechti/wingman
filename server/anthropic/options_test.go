@@ -68,7 +68,6 @@ func TestToCompleteOptions_Thinking(t *testing.T) {
 		req        MessageRequest
 		wantType   provider.ReasoningType
 		wantEffort provider.Effort
-		wantNil    bool
 	}{
 		{
 			name:     "adaptive",
@@ -92,9 +91,8 @@ func TestToCompleteOptions_Thinking(t *testing.T) {
 			wantEffort: provider.EffortXHigh,
 		},
 		{
-			name:    "no thinking",
-			req:     MessageRequest{},
-			wantNil: true,
+			name: "model defaults",
+			req:  MessageRequest{},
 		},
 	}
 
@@ -105,15 +103,11 @@ func TestToCompleteOptions_Thinking(t *testing.T) {
 				t.Fatalf("toCompleteOptions: %v", err)
 			}
 
-			if tc.wantNil {
-				if options.ReasoningOptions != nil {
-					t.Fatalf("expected nil reasoning options, got %+v", options.ReasoningOptions)
-				}
-				return
-			}
-
 			if options.ReasoningOptions == nil {
 				t.Fatal("expected reasoning options")
+			}
+			if !options.ReasoningOptions.IncludeSignature {
+				t.Fatal("thinking must remain replayable")
 			}
 			if options.ReasoningOptions.Type != tc.wantType {
 				t.Errorf("type: got %q, want %q", options.ReasoningOptions.Type, tc.wantType)

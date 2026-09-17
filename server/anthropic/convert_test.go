@@ -374,7 +374,7 @@ func TestToContentBlocks_RedactedThinking(t *testing.T) {
 		provider.TextContent("answer"),
 	}
 
-	blocks := toContentBlocks(content, true)
+	blocks := toContentBlocks(content)
 
 	if len(blocks) != 3 {
 		t.Fatalf("expected 3 blocks, got %d: %+v", len(blocks), blocks)
@@ -394,7 +394,7 @@ func TestToContentBlocks_RedactedThinking(t *testing.T) {
 // The Messages API has no refusal block; a refusal from another backend is
 // surfaced as text so the client sees the explanation.
 func TestToContentBlocksRefusal(t *testing.T) {
-	blocks := toContentBlocks([]provider.Content{provider.RefusalContent("I can't help with that.")}, false)
+	blocks := toContentBlocks([]provider.Content{provider.RefusalContent("I can't help with that.")})
 
 	if len(blocks) != 1 || blocks[0].Type != "text" || blocks[0].Text == nil || *blocks[0].Text != "I can't help with that." {
 		t.Fatalf("expected a text block, got %+v", blocks)
@@ -406,7 +406,7 @@ func TestToContentBlocksRefusal(t *testing.T) {
 func TestToMessageRejectsUnknownBlock(t *testing.T) {
 	_, err := toMessage(2, MessageParam{Role: MessageRoleUser, Content: []any{
 		map[string]any{"type": "text", "text": "hi"},
-		map[string]any{"type": "search_result", "title": "x"},
+		map[string]any{"type": "search_result"},
 	}})
 
 	if err == nil || !strings.HasPrefix(err.Error(), "messages.2.content.1: Input tag 'search_result' found using 'type'") {
@@ -429,7 +429,7 @@ func TestToMessageRejectsUnknownToolResultPart(t *testing.T) {
 
 func TestToMessageRejectsUnsupportedSource(t *testing.T) {
 	_, err := toMessage(0, MessageParam{Role: MessageRoleUser, Content: []any{
-		map[string]any{"type": "document", "source": map[string]any{"type": "file", "file_id": "file_1"}},
+		map[string]any{"type": "document", "source": map[string]any{"type": "file"}},
 	}})
 
 	if err == nil || !strings.HasPrefix(err.Error(), "messages.0.content.0.source: source type 'file' is not supported") {
