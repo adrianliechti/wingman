@@ -51,6 +51,37 @@ func TestClaudeReleaseE2E(t *testing.T) {
 	}
 
 	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("instruction_lifetime/stream=%t", stream), func(t *testing.T) {
+			history := []any{
+				map[string]any{"role": "user", "content": "What color is a clear daytime sky?"},
+				map[string]any{"role": "system", "clear_at": "next_user_message", "content": "Answer color questions in German, with a single lowercase color word."},
+			}
+			body := map[string]any{"model": model, "max_tokens": 4096, "stream": stream,
+				"system": "Answer questions in English using a single lowercase color word.", "messages": history,
+				"output_config": map[string]any{"effort": "low"},
+			}
+			for _, expected := range []string{"blau", "green"} {
+				output := postLiveOutput(t, h.Client, h.Wingman, "messages", body)
+				var answer strings.Builder
+				for _, raw := range output {
+					block := raw.(map[string]any)
+					if block["type"] == "text" {
+						answer.WriteString(block["text"].(string))
+					}
+				}
+				if strings.TrimSpace(answer.String()) != expected {
+					var types []any
+					for _, raw := range output {
+						types = append(types, raw.(map[string]any)["type"])
+					}
+					t.Fatalf("instruction lifetime: got %q, want %q (blocks: %v)", answer.String(), expected, types)
+				}
+				body["messages"] = append(history, map[string]any{"role": "assistant", "content": output}, map[string]any{"role": "user", "content": "What color is healthy grass? Please answer in English."})
+			}
+		})
+	}
+
+	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("default_thinking/stream=%t", stream), func(t *testing.T) {
 			body := map[string]any{"model": model, "max_tokens": 4096, "stream": stream, "messages": []any{
 				map[string]any{"role": "user", "content": "Find the smallest positive integer x such that x mod 7 = 3, x mod 11 = 5, and x mod 13 = 7. Verify the remainders; give a brief answer."},

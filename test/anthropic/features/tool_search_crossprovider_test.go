@@ -62,10 +62,11 @@ func TestToolSearchCrossProviderLive(t *testing.T) {
 	defer local.Close()
 	endpoint := harness.Endpoint{Name: "wingman", BaseURL: local.URL}
 
-	for _, api := range []string{"messages", "responses"} {
+	for _, apiCase := range []string{"messages", "responses", "responses-namespaced"} {
+		api := strings.TrimSuffix(apiCase, "-namespaced")
 		for _, stream := range []bool{false, true} {
 			for _, source := range models {
-				t.Run(fmt.Sprintf("%s/stream=%t/from=%s", api, stream, source), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/stream=%t/from=%s", apiCase, stream, source), func(t *testing.T) {
 					body := map[string]any{"model": source, "stream": stream}
 					history := []any{map[string]any{"role": "user", "content": "Find lookup_project using tool search, then call it with project ALPHA-7. After its result, reply with only the status value."}}
 					schema := map[string]any{"type": "object", "properties": map[string]any{"project": map[string]any{"type": "string"}}, "required": []string{"project"}, "additionalProperties": false}
@@ -78,8 +79,12 @@ func TestToolSearchCrossProviderLive(t *testing.T) {
 						body["reasoning"] = map[string]any{"effort": "low", "summary": "auto"}
 						body["include"] = []string{"reasoning.encrypted_content"}
 						body["tools"] = []any{map[string]any{"type": "tool_search"}, map[string]any{"type": "function", "name": "lookup_project", "description": "Look up a project's current status by project code.", "parameters": schema, "defer_loading": true}}
+						if apiCase == "responses-namespaced" {
+							tool := body["tools"].([]any)[1]
+							body["tools"].([]any)[1] = map[string]any{"type": "namespace", "name": "projects", "description": "Tools for looking up project status.", "tools": []any{tool}}
+						}
 					}
-					output := postSearchLive(t, h.Client, endpoint, api, body)
+					output := postLiveOutput(t, h.Client, endpoint, api, body)
 					var callID string
 					var searched, loaded bool
 					for _, item := range output {
@@ -109,7 +114,7 @@ func TestToolSearchCrossProviderLive(t *testing.T) {
 					for _, target := range models {
 						t.Run("to="+target, func(t *testing.T) {
 							body["model"] = target
-							result := postSearchLive(t, h.Client, endpoint, api, body)
+							result := postLiveOutput(t, h.Client, endpoint, api, body)
 							var answer strings.Builder
 							for _, item := range result {
 								block := item.(map[string]any)
@@ -138,7 +143,7 @@ func TestToolSearchCrossProviderLive(t *testing.T) {
 	}
 }
 
-func postSearchLive(t *testing.T, client *harness.Client, endpoint harness.Endpoint, api string, body map[string]any) []any {
+func postLiveOutput(t *testing.T, client *harness.Client, endpoint harness.Endpoint, api string, body map[string]any) []any {
 	t.Helper()
 	if stream, _ := body["stream"].(bool); !stream {
 		response, err := client.Post(t.Context(), endpoint, "/"+api, body)

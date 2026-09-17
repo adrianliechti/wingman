@@ -186,3 +186,41 @@ func TestToolSearchAcrossAPIsAndProvidersE2E(t *testing.T) {
 		}
 	}
 }
+
+func TestToolSearchFallbackAcrossProvidersE2E(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	t.Setenv("AWS_REGION", "us-east-1")
+	for _, backend := range []string{"chat", "gemini", "xai", "bedrock"} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", backend, stream), func(t *testing.T) {
+				var sent map[string]any
+				p := featureBackend(t, backend, func(_ *http.Request, body map[string]any) { sent = body })
+				body := map[string]any{"model": "target", "stream": stream, "max_tokens": 1024,
+					"tools": []any{
+						map[string]any{"type": "tool_search_tool_regex_20251119", "name": "tool_search_tool_regex"},
+						map[string]any{"name": "lookup", "input_schema": map[string]any{"type": "object", "properties": map[string]any{}}, "defer_loading": true},
+					},
+					"messages": []any{
+						map[string]any{"role": "user", "content": "Use lookup."},
+						map[string]any{"role": "assistant", "content": []any{
+							map[string]any{"type": "server_tool_use", "id": "srvtoolu_1", "name": "tool_search_tool_regex", "input": map[string]any{"pattern": "lookup"}},
+							map[string]any{"type": "tool_search_tool_result", "tool_use_id": "srvtoolu_1", "content": map[string]any{"type": "tool_search_tool_search_result", "tool_references": []any{map[string]any{"type": "tool_reference", "tool_name": "lookup"}}}},
+							map[string]any{"type": "tool_use", "id": "call_1", "name": "lookup", "input": map[string]any{}},
+						}},
+						map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": "call_1", "content": "READY-7"}}},
+					},
+				}
+				rec := featurePost(t, featureRouter(p), "/messages", body)
+				if rec.Code != 200 || !strings.Contains(rec.Body.String(), "done") {
+					t.Fatalf("fallback failed: %d %s", rec.Code, rec.Body)
+				}
+				data, _ := json.Marshal(sent)
+				wire := string(data)
+				if strings.Contains(wire, "tool_search") || !strings.Contains(wire, "lookup") || !strings.Contains(wire, "READY-7") || !strings.Contains(wire, "call_1") {
+					t.Fatalf("fallback lost tool state: %s", wire)
+				}
+			})
+		}
+	}
+}

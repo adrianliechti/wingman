@@ -3,9 +3,9 @@
 // Anthropic's tool search tool (tool_search_tool_regex/bm25, server-executed).
 //
 // On a backend with native server-side search (OpenAI hosted mode, Anthropic),
-// the search runs transparently inside the turn — the client only sees the
-// eventual call of a discovered tool. Client-executed search is emulated as a
-// plain function tool; the tools the client returns in tool_search_output are
+// the search runs inside the turn. Hosted calls and results stay in shared
+// history for replay, followed by the call of a discovered tool. Client search
+// is emulated as a plain function tool; tools returned in tool_search_output are
 // merged back into the toolset on subsequent turns.
 package toolsearch
 

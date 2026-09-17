@@ -83,10 +83,10 @@ func TestRecorder(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.Close()
-	if len(r.exchanges) != 1 || r.exchanges[0].Response != line+string(rest) || r.exchanges[0].Status != 200 {
+	if len(r.Exchanges()) != 1 || r.Exchanges()[0].Response != line+string(rest) || r.Exchanges()[0].Status != 200 {
 		t.Fatal("recorder lost response bytes or status")
 	}
-	data, _ := json.Marshal(r.exchanges)
+	data, _ := json.Marshal(r.Exchanges())
 	if strings.Contains(string(data), "secret") {
 		t.Fatal("authentication or cookie leaked into trace")
 	}

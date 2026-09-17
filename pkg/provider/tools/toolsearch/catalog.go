@@ -55,6 +55,17 @@ func Resolve(tools, catalog []provider.Tool) []provider.Tool {
 }
 
 func ResolveResults(messages []provider.Message, catalog []provider.Tool) ([]provider.Message, error) {
+	definitions := map[string]provider.Tool{}
+	for _, tool := range provider.FlattenTools(catalog) {
+		definitions[tool.Name] = tool
+	}
+	aliases := provider.ToolAliases(catalog)
+	namespaces := map[string]provider.Tool{}
+	for _, tool := range catalog {
+		if len(tool.Tools) > 0 {
+			namespaces[tool.Name] = tool
+		}
+	}
 	result := make([]provider.Message, len(messages))
 	for i, message := range messages {
 		message.Content = append([]provider.Content(nil), message.Content...)
@@ -65,20 +76,18 @@ func ResolveResults(messages []provider.Message, catalog []provider.Tool) ([]pro
 				if err := json.Unmarshal(output.Payload, &items); err != nil {
 					return nil, err
 				}
-				// Full definitions may contain provider-supported fields beyond
-				// our shared catalog. Only expand name-only references; retain
-				// complete results unchanged for replay.
-				definitions := map[string]provider.Tool{}
-				for _, tool := range provider.FlattenTools(catalog) {
-					definitions[tool.Name] = tool
-				}
+				// Expand references and restore namespaces flattened by other
+				// providers. Complete definitions keep their original fields.
 				changed := false
+				normalized := make([]map[string]any, 0, len(items))
+				groups := map[string]map[string]any{}
 				for _, item := range items {
-					if item["type"] != "function" || item["parameters"] != nil {
+					if item["type"] != "function" {
+						normalized = append(normalized, item)
 						continue
 					}
 					name, _ := item["name"].(string)
-					if definition, ok := definitions[name]; ok {
+					if definition, ok := definitions[name]; ok && item["parameters"] == nil {
 						item["parameters"] = definition.Parameters
 						item["description"] = definition.Description
 						if definition.Strict != nil {
@@ -87,10 +96,27 @@ func ResolveResults(messages []provider.Message, catalog []provider.Tool) ([]pro
 						item["defer_loading"] = true
 						changed = true
 					}
+					if alias, ok := aliases[name]; ok {
+						item["name"] = alias.Name
+						group := groups[alias.Namespace]
+						if group == nil {
+							description := namespaces[alias.Namespace].Description
+							if description == "" {
+								description = "Tools in the " + alias.Namespace + " namespace."
+							}
+							group = map[string]any{"type": "namespace", "name": alias.Namespace, "description": description, "tools": []any{}}
+							groups[alias.Namespace] = group
+							normalized = append(normalized, group)
+						}
+						group["tools"] = append(group["tools"].([]any), item)
+						changed = true
+					} else {
+						normalized = append(normalized, item)
+					}
 				}
 				if changed {
 					var err error
-					copy.Payload, err = json.Marshal(items)
+					copy.Payload, err = json.Marshal(normalized)
 					if err != nil {
 						return nil, err
 					}

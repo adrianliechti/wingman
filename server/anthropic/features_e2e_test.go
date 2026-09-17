@@ -182,59 +182,9 @@ func TestEffortAndStrictToolsAcrossProvidersE2E(t *testing.T) {
 	for _, backend := range []string{"claude", "claude-fallback", "responses", "chat", "gemini", "xai", "bedrock"} {
 		for _, api := range []string{"messages", "responses"} {
 			t.Run(backend+"/"+api, func(t *testing.T) {
-				wire := claudeFeatureStream
-				switch backend {
-				case "responses", "xai":
-					wire = responsesFeatureStream
-				case "chat":
-					wire = "data: {\"id\":\"chatcmpl_test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
-				case "gemini":
-					wire = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"done\"}]},\"finishReason\":\"STOP\"}]}\n\n"
-				case "bedrock":
-					var buffer bytes.Buffer
-					encoder := eventstream.NewEncoder()
-					for _, event := range []struct{ kind, payload string }{
-						{"messageStart", `{"role":"assistant"}`},
-						{"contentBlockDelta", `{"contentBlockIndex":0,"delta":{"text":"done"}}`},
-						{"contentBlockStop", `{"contentBlockIndex":0}`},
-						{"messageStop", `{"stopReason":"end_turn"}`},
-					} {
-						if err := encoder.Encode(&buffer, eventstream.Message{Headers: eventstream.Headers{
-							{Name: ":message-type", Value: eventstream.StringValue("event")},
-							{Name: ":event-type", Value: eventstream.StringValue(event.kind)},
-							{Name: ":content-type", Value: eventstream.StringValue("application/json")},
-						}, Payload: []byte(event.payload)}); err != nil {
-							t.Fatal(err)
-						}
-					}
-					wire = buffer.String()
-				}
 				var sent map[string]any
 				var headers http.Header
-				client := featureClient(t, wire, func(r *http.Request, body map[string]any) { sent, headers = body, r.Header })
-				var p provider.Completer
-				var err error
-				switch backend {
-				case "claude", "claude-fallback":
-					model := "claude-opus-5"
-					if backend == "claude-fallback" {
-						model = "claude-sonnet-4-6"
-					}
-					p, err = anthropic.NewCompleter("https://upstream.invalid", model, anthropic.WithClient(client))
-				case "responses":
-					p, err = openai.NewResponder("https://upstream.invalid", "gpt-6-astra", openai.WithClient(client))
-				case "chat":
-					p, err = openai.NewCompleter("https://upstream.invalid", "gpt-6-astra", openai.WithClient(client))
-				case "gemini":
-					p, err = google.NewCompleter("gemini-3.8-flash", google.WithToken("test"), google.WithClient(client))
-				case "xai":
-					p, err = xai.NewCompleter("grok-4", xai.WithToken("test"), xai.WithClient(client))
-				case "bedrock":
-					p, err = bedrock.NewCompleter("anthropic.claude-opus-4-6-v1", bedrock.WithClient(client))
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
+				p := featureBackend(t, backend, func(r *http.Request, body map[string]any) { sent, headers = body, r.Header })
 				schema := map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "string"}}, "required": []string{"value"}, "additionalProperties": false}
 				history := []any{map[string]any{"role": "user", "content": "Plan"}, map[string]any{"role": "assistant", "content": "Ready"}, map[string]any{"role": "user", "content": "Continue"}}
 				body := map[string]any{"model": "target"}
@@ -351,4 +301,60 @@ func TestUnsupportedFeaturesRejectedE2E(t *testing.T) {
 			t.Fatalf("invalid request accepted: %d %s", rec.Code, rec.Body)
 		}
 	}
+}
+
+func featureBackend(t *testing.T, backend string, capture func(*http.Request, map[string]any)) provider.Completer {
+	t.Helper()
+	wire := claudeFeatureStream
+	switch backend {
+	case "responses", "xai":
+		wire = responsesFeatureStream
+	case "chat":
+		wire = "data: {\"id\":\"chatcmpl_test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+	case "gemini":
+		wire = "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"done\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+	case "bedrock":
+		var buffer bytes.Buffer
+		encoder := eventstream.NewEncoder()
+		for _, event := range []struct{ kind, payload string }{
+			{"messageStart", `{"role":"assistant"}`},
+			{"contentBlockDelta", `{"contentBlockIndex":0,"delta":{"text":"done"}}`},
+			{"contentBlockStop", `{"contentBlockIndex":0}`},
+			{"messageStop", `{"stopReason":"end_turn"}`},
+		} {
+			if err := encoder.Encode(&buffer, eventstream.Message{Headers: eventstream.Headers{
+				{Name: ":message-type", Value: eventstream.StringValue("event")},
+				{Name: ":event-type", Value: eventstream.StringValue(event.kind)},
+				{Name: ":content-type", Value: eventstream.StringValue("application/json")},
+			}, Payload: []byte(event.payload)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		wire = buffer.String()
+	}
+	client := featureClient(t, wire, capture)
+	var p provider.Completer
+	var err error
+	switch backend {
+	case "claude", "claude-fallback":
+		model := "claude-opus-5"
+		if backend == "claude-fallback" {
+			model = "claude-sonnet-4-6"
+		}
+		p, err = anthropic.NewCompleter("https://upstream.invalid", model, anthropic.WithClient(client))
+	case "responses":
+		p, err = openai.NewResponder("https://upstream.invalid", "gpt-6-astra", openai.WithClient(client))
+	case "chat":
+		p, err = openai.NewCompleter("https://upstream.invalid", "gpt-6-astra", openai.WithClient(client))
+	case "gemini":
+		p, err = google.NewCompleter("gemini-3.8-flash", google.WithToken("test"), google.WithClient(client))
+	case "xai":
+		p, err = xai.NewCompleter("grok-4", xai.WithToken("test"), xai.WithClient(client))
+	case "bedrock":
+		p, err = bedrock.NewCompleter("anthropic.claude-opus-4-6-v1", bedrock.WithClient(client))
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

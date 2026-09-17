@@ -14,8 +14,9 @@ through September 18 and the linked feature guides, including betas. September
 18 only adds Compliance API coverage and does not change the inference adapter.
 
 Every inference request follows wire format → `pkg/provider` → target provider.
-There is no Claude passthrough or raw-request context hook. No fields were added
-to the shared completion, compaction, or reasoning types for this work.
+There is no Claude passthrough or raw-request context hook. Compaction and
+reasoning reuse their existing shared types. Scoped system guidance uses one
+`Content.Instructions` part containing `Text` and `Scope`.
 
 Implemented and tested:
 
@@ -32,16 +33,27 @@ Implemented and tested:
 - Backend thinking and signatures are returned for model defaults as well as
   explicit thinking requests, over HTTP and SSE. Signature-only blocks include
   an empty `thinking` string. Reported thinking token counts are preserved.
-- Unknown fields, trailing JSON, missing model/messages, unsupported enum
-  values, and forced tool choice on Fable/Mythos 5.1 return explicit errors.
+- Hosted tool search round-trips through existing `ToolCall`/`ToolResult`
+  parts, including loaded definitions and call/result order. Claude and OpenAI
+  use native discovery; Chat Completions, Gemini, Bedrock Converse, and xAI
+  expose the catalog as normal tools and omit completed hosted search events.
+  Client-executed search remains a callable function on fallback providers.
+- `clear_at: next_user_message` maps to `Instructions` with turn scope.
+  Supported Claude models retain the original messages and native beta; other
+  providers omit expired instructions without mutating the source history.
+  A client tool-result message expires the instruction; hosted search does not.
+- `clear_thinking_20251015` maps supported keep-all / one-thinking-turn values
+  to the existing reasoning context setting.
+- Optional unknown fields and provider hints remain best effort. Trailing JSON,
+  missing required fields, invalid enum values, unsupported semantic controls,
+  and forced tool choice on Fable/Mythos 5.1 return explicit errors.
 
-Unsupported controls now fail rather than disappear: `clear_at`, tool changes,
-thinking display `updates`, binding controls, task budgets, explicit cache
-markers/TTL, and non-compaction context edits. `top_p`, `top_k`, and `metadata`
-were removed from the advertised interface. Computer/browser toolsets remain
-explicitly unsupported. Hosted tool search on Fable 5.1 is rejected until its
-results can be replayed without changing the signed prefix; client tool search
-remains available through the shared tool-search representation.
+Unsupported semantic controls still return errors: tool additions/removals,
+thinking display `updates`, explicit binding controls, task budgets, custom
+compaction instructions/pause, and unsupported context edits. Cache markers/TTL,
+`top_p`, `top_k`, and `metadata` are accepted as optional hints but are not
+preserved across providers. Automatic Claude caching remains enabled.
+Computer/browser toolsets remain unsupported; legacy computer tools still work.
 
 Claude Files/Skills, hosted code execution, advisor, and MCP connector support
 would be separate feature work. Managed Agents and administrative endpoints are
@@ -53,8 +65,8 @@ those tools through `POST /v1/messages`.
 
 - [ ] P1 Validate `budget_tokens` and sampling ranges.
 - [ ] P1 Validate mid-conversation `role: "system"` placement and model support.
-- [ ] P2 Support turn-scoped instructions and tool additions/removals through
-      shared conversation state. These controls are currently rejected.
+- [ ] P2 Support tool additions/removals through shared conversation state.
+      Tool-change blocks are currently rejected; scoped instructions are supported.
       See [mid-conversation system messages](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages).
 - [ ] P1 Confirm or reject `max_tokens: 0` per backend (forwarded verbatim).
 - [ ] P2 Return an Anthropic error body on authentication failure (bare 401
@@ -62,7 +74,7 @@ those tools through `POST /v1/messages`.
 
 ## Request fields
 
-- [ ] P2 Support currently rejected fields where a shared concept is useful:
+- [ ] P2 Honor additional request options where a shared concept is useful:
       top-level `cache_control`, `fallbacks`,
       `fallback_credit_token`, `container`, `inference_geo`, `speed`,
       `diagnostics`, `mcp_servers`, `service_tier`,
@@ -80,18 +92,18 @@ those tools through `POST /v1/messages`.
 - [ ] P1 Support `thinking.block_binding` and report `input_transformations`;
       the explicit control is currently rejected.
       [Prefix binding](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)
-      is enforced by default for Fable 5.1 on newer accounts. Also verify the
-      hosted tool-search replay: `defer_loading` changes after a tool is used
-      because hosted search result blocks are missing from shared history.
-      Fable 5.1 hosted tool search is blocked until the full replay path exists.
+      is enforced by default for Fable 5.1 on newer accounts. Hosted search
+      replay now retains search blocks and unchanged tool declarations and has
+      passed live Fable 5.1 replay. Explicit binding-policy selection and its
+      diagnostics are still unsupported.
 - [ ] P1 Preserve a fixed `budget_tokens` for Claude backends instead of a
       coarse effort (Claude 4.5 and older receive no thinking at all).
 
 ## Cache control
 
 - [ ] P2 Design shared cache policy if explicit placement/TTL is needed.
-      Explicit markers are rejected today; the Claude adapter's automatic
-      top-level caching remains enabled.
+      Explicit markers/TTL are currently ignored; the Claude adapter's
+      automatic top-level caching remains enabled.
 
 ## Context management
 
@@ -99,15 +111,16 @@ those tools through `POST /v1/messages`.
       (explicitly rejected; common trigger/threshold compaction is supported).
 - [ ] P1 Report applied edits (`context_management` in the response and
       `message_delta`).
-- [ ] P2 Support `clear_tool_uses_*` and `clear_thinking_*` edits.
+- [ ] P2 Support `clear_tool_uses_*` and arbitrary thinking retention counts.
+      Keep-all and one-thinking-turn retention already use shared reasoning context.
 
 ## Input content
 
-- [ ] P1 Round-trip `server_tool_use`, `web_search_tool_result`,
-      `web_fetch_tool_result` natively instead of as marker text.
+- [ ] P1 Round-trip hosted web-search/fetch calls and results through shared
+      tool history. Hosted tool-search calls/results already round-trip.
 - [ ] P2 Accept `search_result`, `mcp_tool_use`, `mcp_tool_result`,
       `container_upload`, `mid_conv_system`, `fallback`, `tool_addition`,
-      `tool_removal`, advisor / code-execution / tool-search result blocks,
+      `tool_removal`, advisor / code-execution result blocks,
       and `source.type: "file"` / `"content"` (all rejected with a field
       path today).
 - [ ] P2 Support document `context`, `title`, `citations`; text `citations`;
@@ -142,7 +155,7 @@ those tools through `POST /v1/messages`.
       (`web_search_tool_result`, `web_fetch_tool_result`,
       `advisor_tool_result`, `code_execution_tool_result`,
       `bash_code_execution_tool_result`,
-      `text_editor_code_execution_tool_result`, `tool_search_tool_result`,
+      `text_editor_code_execution_tool_result`,
       `mcp_tool_use`, `mcp_tool_result`, `container_upload`, `fallback`).
 - [ ] P2 Emit assistant-generated files.
 - [ ] P2 Add `request-id` and workspace response headers.
@@ -169,8 +182,9 @@ those tools through `POST /v1/messages`.
 
 ## Tests to add
 
-- [ ] Turn-scoped instruction expiry and thinking-display/binding controls.
-- [ ] Fable 5.1 signed-thinking replay with tool search and binding enforcement.
+- [ ] Thinking-display and explicit binding-policy controls.
+- [ ] Fable 5.1 replay with explicit strict binding enforcement. Default-policy
+      signed tool-search replay is covered by the live cross-provider matrix.
 - [ ] `max_tokens: 0` across backends.
 - [ ] Wire-shape fixtures (JSON and SSE) for every stop reason and for
       envelope / usage field presence.
@@ -180,30 +194,25 @@ those tools through `POST /v1/messages`.
 Keep provider API structs at the server/provider boundaries. Add common fields
 only for semantics every adapter can either implement or explicitly reject.
 
-1. **Conversation state:** extend the existing configuration update concept
-   with instruction lifetime and active tool names. A common resolver computes
-   current instructions/tools for adapters without positional controls; capable
-   adapters retain the original events. Expiry must distinguish ordinary user
-   turns from tool-result continuations. Stable signed prefixes require complete
-   replay or deliberate removal of incompatible reasoning state; merely removing
-   expired text from old messages is insufficient.
+1. **Tool availability:** extend conversation updates with active tool names.
+   A common resolver can compute the current catalog for adapters without
+   positional controls; capable adapters can retain the original events.
+   Instruction lifetime already follows this pattern through `Instructions`.
 2. **Tool collections:** reuse `Tool.Tools`, namespaces, and normal tool
    calls/results. Define computer/browser member schemas and a portable browser
    state result. Providers with built-in toolsets can compile these to native
    definitions; others use function tools with the same member identities and
    executor. Preserve ordered execution and stop-on-error behavior.
-3. **Hosted tool replay and progress:** carry hosted calls/results through the
-   existing `ToolCall`/`ToolResult` representation, and progress through
-   `MessagePhaseCommentary`. Both API frontends must round-trip these items before
-   enabling prefix-bound search or provider progress controls. No raw provider
-   request envelopes are needed.
+3. **Other hosted tools and progress:** extend the same `ToolCall`/`ToolResult`
+   path used by tool search, and represent progress through shared commentary
+   events. Both API frontends must round-trip a feature's complete history.
 4. **Budgets, cache, and binding:** put a total task budget in shared agent-loop
    accounting, separate from per-response `MaxTokens`. Treat cache policy and
    invalid reasoning state as capability-aware adapter policies. Report any
    dropped state through common diagnostics if that becomes a product requirement.
 
-These are proposals, not implemented support. Scoped instructions, toolsets,
-progress/binding controls, and total task budgets remain explicit errors.
+Tool availability changes, toolsets, progress/binding controls, and total task
+budgets above are proposals, not implemented support.
 
 ## Review verification
 
@@ -219,5 +228,23 @@ on September 18: default-thinking HTTP and SSE, signed second-turn replay, and
 strict-tool execution with effort changes before and after the tool call.
 Run it with `CLAUDE_RELEASE_LIVE=1`.
 
+Its scoped-instruction cases also passed over HTTP and SSE: temporary German
+guidance applies to one answer; the next user turn can again use English while
+the original instruction and signed assistant output remain in the transcript.
+
 Compaction and mid-conversation instruction live coverage remains in
 `test/anthropic/features/context_e2e_test.go`, gated by `CLAUDE_CONTEXT_LIVE=1`.
+
+`server/anthropic/toolsearch_e2e_test.go` checks HTTP/SSE hosted-search replay
+between Claude and OpenAI through both API frontends, including null OpenAI
+hosted call IDs, loaded schemas, deferred flags, and implicit namespaces. It also
+checks fallback replay on Chat, Gemini, xAI, and Bedrock using mocked transports.
+`instructions_e2e_test.go` checks native/fallback instruction lifetimes over
+HTTP/SSE across seven adapters and acceptance of optional provider hints.
+
+`TOOL_SEARCH_LIVE=1 go test ./test/anthropic/features -run TestToolSearchCrossProviderLive -v`
+passed on September 18: 54 replay cases across Claude Opus 5, Claude Fable 5.1,
+and GPT-5.4, using Messages and Responses over HTTP/SSE. Responses also covers
+namespaced tools. Each case discovers a deferred tool, replays the complete
+output with a client tool result to the target model, and verifies its final
+answer. These use real upstream APIs and local Wingman handlers.

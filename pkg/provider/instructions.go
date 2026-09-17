@@ -7,7 +7,7 @@ const (
 	InstructionScopeTurn         InstructionScope = "turn"
 )
 
-// Instructions is system-level guidance at this position in the conversation.
+// Instructions supplies guidance in a system message at this conversation position.
 // An empty scope means conversation. Turn scope expires at the next user
 // message, including client tool results, but not hosted tool-search results.
 type Instructions struct {
@@ -19,6 +19,15 @@ type Instructions struct {
 // lifetimes. Expired instructions are omitted; active ones remain system text.
 // The source history is unchanged and can still be replayed to a native provider.
 func ResolveInstructions(messages []Message) []Message {
+	found := false
+	for _, message := range messages {
+		for _, part := range message.Content {
+			found = found || part.Instructions != nil
+		}
+	}
+	if !found {
+		return messages
+	}
 	result := make([]Message, len(messages))
 	laterUser := false
 	for i := len(messages) - 1; i >= 0; i-- {

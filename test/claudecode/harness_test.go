@@ -7,122 +7,28 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/adrianliechti/wingman/test/harness"
 )
 
-type exchange struct {
-	Method          string      `json:"method"`
-	Path            string      `json:"path"`
-	RequestHeaders  http.Header `json:"request_headers"`
-	Request         string      `json:"request"`
-	Status          int         `json:"status"`
-	ResponseHeaders http.Header `json:"response_headers"`
-	Response        string      `json:"response"`
-}
+type exchange = harness.Exchange
 
-type recorder struct {
-	*httptest.Server
-	mu        sync.Mutex
-	exchanges []exchange
-}
-
-// Claude receives a dummy credential. Only this proxy knows the upstream key,
-// and only protocol headers are recorded in artifacts.
-func newRecorder(t *testing.T, endpoint harness.Endpoint) *recorder {
+// Claude appends /v1 itself; the shared harness uses /v1 base URLs.
+func newRecorder(t *testing.T, endpoint harness.Endpoint) *harness.Recorder {
 	t.Helper()
-	u, err := url.Parse(endpoint.BaseURL)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		t.Fatal("endpoint must be an HTTP(S) base URL without credentials, query or fragment")
+	baseURL := strings.TrimSuffix(strings.TrimRight(endpoint.BaseURL, "/"), "/v1")
+	auth := http.Header{"X-Api-Key": {endpoint.APIKey}}
+	if endpoint.Name == "wingman" {
+		auth.Set("Authorization", "Bearer "+endpoint.APIKey)
 	}
-	// The existing API harness uses /v1 base URLs; Claude appends /v1 itself.
-	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/v1")
-	u.RawPath = ""
-	r := &recorder{}
-	proxy := &httputil.ReverseProxy{
-		FlushInterval: -1,
-		Rewrite: func(p *httputil.ProxyRequest) {
-			p.SetURL(u)
-			p.Out.Header.Del("Accept-Encoding") // Let Go decode compressed responses before recording.
-			p.Out.Header.Del("Authorization")
-			p.Out.Header.Del("X-Api-Key")
-			p.Out.Header.Set("X-Api-Key", endpoint.APIKey)
-			if endpoint.Name == "wingman" {
-				p.Out.Header.Set("Authorization", "Bearer "+endpoint.APIKey)
-			}
-		},
-		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			http.Error(w, "upstream request failed: "+err.Error(), http.StatusBadGateway)
-		},
-	}
-	r.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		body, err := io.ReadAll(req.Body)
-		req.Body.Close()
-		if err != nil {
-			http.Error(w, "read request: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		req.Body = io.NopCloser(bytes.NewReader(body))
-		record := exchange{Method: req.Method, Path: req.URL.RequestURI(), RequestHeaders: protocolHeaders(req.Header), Request: string(body)}
-		cw := &captureWriter{ResponseWriter: w}
-		defer func() {
-			// Keep partial responses even when ReverseProxy aborts a broken stream.
-			record.Status, record.Response = cw.status, cw.body.String()
-			record.ResponseHeaders = protocolHeaders(w.Header())
-			r.mu.Lock()
-			r.exchanges = append(r.exchanges, record)
-			r.mu.Unlock()
-		}()
-		proxy.ServeHTTP(cw, req)
-	}))
-	t.Cleanup(r.Close)
-	return r
+	return harness.NewRecorder(t, baseURL, auth, 0)
 }
-
-func protocolHeaders(headers http.Header) http.Header {
-	result := http.Header{}
-	for _, key := range []string{"Content-Type", "Anthropic-Version", "Anthropic-Beta", "User-Agent", "Request-Id"} {
-		if values := headers.Values(key); len(values) > 0 {
-			result[key] = append([]string(nil), values...)
-		}
-	}
-	return result
-}
-
-type captureWriter struct {
-	http.ResponseWriter
-	status int
-	body   bytes.Buffer
-}
-
-func (w *captureWriter) WriteHeader(status int) {
-	if w.status == 0 {
-		w.status = status
-	}
-	w.ResponseWriter.WriteHeader(status)
-}
-
-func (w *captureWriter) Write(p []byte) (int, error) {
-	if w.status == 0 {
-		w.WriteHeader(http.StatusOK)
-	}
-	n, err := w.ResponseWriter.Write(p)
-	w.body.Write(p[:n])
-	return n, err
-}
-
-// ReverseProxy uses ResponseController to flush through this wrapper.
-func (w *captureWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 type cliEvent struct {
 	Type              string            `json:"type"`
@@ -202,12 +108,12 @@ func runClaude(t *testing.T, binary string, endpoint harness.Endpoint, model, pr
 	r.Close() // Drain handlers before reading the captured exchanges.
 	writeArtifact(t, filepath.Join(dir, "stdout.jsonl"), stdout.Bytes())
 	writeArtifact(t, filepath.Join(dir, "stderr.log"), stderr.Bytes())
-	data, err := json.MarshalIndent(r.exchanges, "", "  ")
+	data, err := json.MarshalIndent(r.Exchanges(), "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeArtifact(t, filepath.Join(dir, "http.json"), data)
-	t.Logf("%s/%s: %d HTTP exchanges; artifacts: %s", endpoint.Name, model, len(r.exchanges), dir)
+	t.Logf("%s/%s: %d HTTP exchanges; artifacts: %s", endpoint.Name, model, len(r.Exchanges()), dir)
 	if runErr != nil {
 		t.Errorf("Claude Code failed: %v (context: %v)\n%s", runErr, ctx.Err(), stderr.String())
 	}
@@ -233,7 +139,7 @@ func runClaude(t *testing.T, binary string, endpoint harness.Endpoint, model, pr
 	if result.IsError || result.Subtype != "success" || len(result.PermissionDenials) != 0 {
 		t.Fatalf("Claude Code did not complete successfully: %+v", *result)
 	}
-	return strings.TrimSpace(result.Result), r.exchanges, fixture
+	return strings.TrimSpace(result.Result), r.Exchanges(), fixture
 }
 
 func writeArtifact(t *testing.T, path string, data []byte) {
