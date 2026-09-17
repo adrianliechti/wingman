@@ -11,6 +11,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
@@ -288,6 +289,15 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}), "") {
 						return
 					}
+				case responses.ResponseToolSearchOutputItem:
+					payload, err := json.Marshal(item.Tools)
+					if err != nil {
+						yield(nil, err)
+						return
+					}
+					if !emit(provider.ToolResultContent(provider.ToolResult{ID: item.CallID, Kind: provider.ToolKindToolSearch, Execution: string(item.Execution), Payload: payload}), "") {
+						return
+					}
 
 				case responses.ResponseReasoningItem:
 					// Capture encrypted_content for conversation continuity
@@ -367,6 +377,11 @@ func responseToolCallAsync(raw string) bool {
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {
+	var err error
+	messages, err = toolsearch.ResolveResults(messages, options.Tools)
+	if err != nil {
+		return nil, err
+	}
 	if !isLegacyModel(r.model) && options.Temperature != nil {
 		optsCopy := *options
 		optsCopy.Temperature = nil
@@ -547,7 +562,9 @@ func containsCompactionTrigger(messages []provider.Message) bool {
 func (r *Responder) convertResponsesInput(messages []provider.Message, freeformPatch bool) (responses.ResponseNewParamsInputUnion, error) {
 	var separated []provider.Message
 	for _, message := range sanitizeToolIDs(messages) {
-		separated = append(separated, message.SplitMessages()...)
+		for _, part := range message.SplitMessages() {
+			separated = append(separated, toolsearch.SplitResults(part)...)
+		}
 	}
 	messages = separated
 

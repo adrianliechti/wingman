@@ -118,6 +118,8 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 		messageStopped := false
 
 		toolArgsSeen := map[int64]bool{}
+		textBlockIDs := map[int64]string{}
+		textBlocks := 0
 
 		// Emulated custom tools stream JSON-wrapped arguments. Their fragments
 		// cannot be unwrapped one at a time, so buffer them per block and emit
@@ -137,6 +139,13 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 				}
 
 				block := &message.Content[event.Index]
+				if block.Type == "server_tool_use" && strings.HasPrefix(block.Name, "tool_search_tool_") {
+					if !yield(&provider.Completion{ID: message.ID, Model: c.model, Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{
+						provider.ToolCallContent(provider.ToolCall{ID: block.ID, Name: block.Name, Kind: provider.ToolKindToolSearch, Execution: "server", Arguments: string(block.Input)}),
+					}}}, nil) {
+						return
+					}
+				}
 
 				if block.Type == "tool_use" && !toolArgsSeen[event.Index] {
 					if len(block.Input) == 0 {
@@ -172,6 +181,8 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 
 			switch event := event.AsAny().(type) {
 			case anthropic.BetaRawMessageStartEvent:
+				textBlockIDs = map[int64]string{}
+				textBlocks = 0
 				// A continuation is a new native message within the same
 				// completion. Keep its boundary even when it has no phase.
 				if !yield(&provider.Completion{
@@ -190,6 +201,15 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 				startIndex := event.Index
 
 				switch event := event.ContentBlock.AsAny().(type) {
+				case anthropic.BetaToolSearchToolResultBlock:
+					result, err := ParseToolSearchResult(event.ToolUseID, []byte(event.Content.RawJSON()), options.Tools)
+					if err != nil {
+						yield(nil, err)
+						return
+					}
+					if !yield(&provider.Completion{ID: message.ID, Model: c.model, Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolResultContent(result)}}}, nil) {
+						return
+					}
 				case anthropic.BetaThinkingBlock:
 					delta := &provider.Completion{
 						ID:    message.ID,
@@ -214,6 +234,12 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 					}
 
 				case anthropic.BetaTextBlock:
+					textID := message.ID
+					if textBlocks > 0 {
+						textID = fmt.Sprintf("%s_%d", message.ID, startIndex)
+					}
+					textBlockIDs[startIndex] = textID
+					textBlocks++
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -222,7 +248,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								provider.TextContent(event.Text),
+								{MessageID: textID, Text: event.Text},
 							},
 						},
 
@@ -377,7 +403,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								provider.TextContent(event.Text),
+								{MessageID: textBlockIDs[blockIndex], Text: event.Text},
 							},
 						},
 					}
@@ -622,20 +648,22 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			hasToolSearch = true
 		}
 	}
-	if hasToolSearch && matchesModel(c.model, []string{"fable-5-1"}) {
-		return nil, fmt.Errorf("anthropic: hosted tool search on %s requires prefix-preserving tool-result replay, which is not supported; use client tool search", c.model)
-	}
-
-	usedNames := map[string]bool{}
 
 	// Tools a client-executed tool_search returned in prior turns — they must
 	// be available (non-deferred) so the model can call them.
 	var discovered []provider.Tool
+	discoveredNames := map[string]bool{}
 
 	for _, m := range input {
 		for _, content := range m.Content {
-			if content.ToolCall != nil && content.ToolCall.Name != "" {
-				usedNames[provider.FlattenToolName(*content.ToolCall)] = true
+			if result := content.ToolResult; result != nil && result.Kind == provider.ToolKindToolSearch {
+				found := toolsearch.Resolve(toolsearch.Tools(result.Payload), options.Tools)
+				discovered = append(discovered, found...)
+				if result.Execution == "client" {
+					for _, tool := range provider.FlattenTools(found) {
+						discoveredNames[tool.Name] = true
+					}
+				}
 			}
 		}
 		var effort provider.Effort
@@ -730,11 +758,15 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 				if c.ToolResult != nil {
 					if c.ToolResult.Kind == provider.ToolKindToolSearch {
-						discovered = append(discovered, toolsearch.Tools(c.ToolResult.Payload)...)
-
 						if c.ToolResult.Execution != "client" {
-							// server-side search happened inside another
-							// backend's turn — only the discovered tools matter
+							// Responses represents hosted results as separate input
+							// items; Claude keeps them in the assistant's turn.
+							block := toolSearchResultBlock(*c.ToolResult)
+							if len(messages) > 0 && messages[len(messages)-1].Role == anthropic.BetaMessageParamRoleAssistant {
+								messages[len(messages)-1].Content = append(messages[len(messages)-1].Content, block)
+							} else {
+								messages = append(messages, anthropic.BetaMessageParam{Role: anthropic.BetaMessageParamRoleAssistant, Content: []anthropic.BetaContentBlockParamUnion{block}})
+							}
 							continue
 						}
 
@@ -858,6 +890,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 				if c.ToolCall != nil {
 					if c.ToolCall.Kind == provider.ToolKindToolSearch && c.ToolCall.Execution != "client" {
+						arguments := json.RawMessage(c.ToolCall.Arguments)
+						if len(arguments) == 0 {
+							arguments = json.RawMessage("{}")
+						}
+						blocks = append(blocks, anthropic.BetaContentBlockParamUnion{OfServerToolUse: &anthropic.BetaServerToolUseBlockParam{
+							ID: c.ToolCall.ID, Name: anthropic.BetaServerToolUseBlockParamName(toolSearchCallName(*c.ToolCall, options.Tools)), Input: arguments,
+						}})
 						continue
 					}
 
@@ -883,6 +922,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						},
 					})
 				}
+				if c.ToolResult != nil && c.ToolResult.Kind == provider.ToolKindToolSearch && c.ToolResult.Execution != "client" {
+					blocks = append(blocks, toolSearchResultBlock(*c.ToolResult))
+				}
 			}
 
 			message := anthropic.BetaMessageParam{
@@ -890,7 +932,11 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				Content: blocks,
 			}
 
-			messages = append(messages, message)
+			if len(messages) > 0 && messages[len(messages)-1].Role == message.Role {
+				messages[len(messages)-1].Content = append(messages[len(messages)-1].Content, message.Content...)
+			} else {
+				messages = append(messages, message)
+			}
 		}
 	}
 
@@ -901,9 +947,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		defined[t.Name] = true
 	}
 
-	discoveredNames := map[string]bool{}
 	for _, t := range provider.FlattenTools(discovered) {
-		discoveredNames[t.Name] = true
 
 		if !defined[t.Name] {
 			defined[t.Name] = true
@@ -1044,9 +1088,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			tool.Strict = anthropic.Bool(*t.Strict)
 		}
 
-		// Hosted search results are not replayed, so previously used or
-		// client-discovered tools must be available on subsequent requests.
-		if t.Deferred != nil && *t.Deferred && hasToolSearch && !usedNames[t.Name] && !discoveredNames[t.Name] {
+		// Hosted results keep references in history. Keeping definitions
+		// deferred also preserves the prefix covered by thinking signatures.
+		if t.Deferred != nil && *t.Deferred && hasToolSearch && !discoveredNames[t.Name] {
 			tool.DeferLoading = anthropic.Bool(true)
 		}
 

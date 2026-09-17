@@ -244,10 +244,16 @@ func validateCompactionRequest(req MessageRequest) error {
 }
 
 func validateMessageRequest(req MessageRequest) error {
+	if req.OutputConfig != nil && len(req.OutputConfig.TaskBudget) > 0 && string(req.OutputConfig.TaskBudget) != "null" {
+		return fmt.Errorf("output_config.task_budget: task-wide budgets are not supported")
+	}
 	if req.OutputConfig != nil && req.OutputConfig.Effort != "" && !validEffort(req.OutputConfig.Effort) {
 		return fmt.Errorf("output_config.effort: unsupported effort %q", req.OutputConfig.Effort)
 	}
 	if req.Thinking != nil {
+		if len(req.Thinking.BlockBinding) > 0 && string(req.Thinking.BlockBinding) != "null" {
+			return fmt.Errorf("thinking.block_binding: binding controls are not supported")
+		}
 		switch req.Thinking.Type {
 		case "enabled", "adaptive", "disabled":
 		default:

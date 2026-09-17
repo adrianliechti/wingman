@@ -45,14 +45,16 @@ type ContextManagementEdit struct {
 }
 
 type ThinkingConfig struct {
-	Type         string `json:"type"`                    // "enabled", "adaptive", or "disabled"
-	BudgetTokens int    `json:"budget_tokens,omitempty"` // required when type is "enabled"
-	Display      string `json:"display,omitempty"`       // "summarized" or "omitted"
+	Type         string          `json:"type"`                    // "enabled", "adaptive", or "disabled"
+	BudgetTokens int             `json:"budget_tokens,omitempty"` // required when type is "enabled"
+	Display      string          `json:"display,omitempty"`       // "summarized" or "omitted"
+	BlockBinding json.RawMessage `json:"block_binding,omitempty"`
 }
 
 type OutputConfig struct {
-	Effort string        `json:"effort,omitempty"` // "low", "medium", "high", "xhigh", "max"
-	Format *OutputFormat `json:"format,omitempty"`
+	Effort     string          `json:"effort,omitempty"` // "low", "medium", "high", "xhigh", "max"
+	Format     *OutputFormat   `json:"format,omitempty"`
+	TaskBudget json.RawMessage `json:"task_budget,omitempty"`
 }
 
 type OutputFormat struct {
@@ -66,6 +68,7 @@ type MessageParam struct {
 	Role         MessageRole   `json:"role"`
 	Content      any           `json:"content"` // string or []ContentBlockParam
 	OutputConfig *OutputConfig `json:"output_config,omitempty"`
+	ClearAt      string        `json:"clear_at,omitempty"`
 }
 
 type MessageRole string
@@ -183,8 +186,9 @@ type ContentBlock struct {
 	Data string `json:"data,omitempty"`
 
 	// For compaction blocks
-	Content          string `json:"content,omitempty"`
+	Content          any    `json:"content,omitempty"`
 	EncryptedContent string `json:"encrypted_content,omitempty"`
+	ToolUseID        string `json:"tool_use_id,omitempty"`
 
 	// For tool_use blocks
 	ID     string       `json:"id,omitempty"`

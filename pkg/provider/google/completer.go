@@ -16,6 +16,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -41,6 +42,7 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
 		messages, options = provider.ResolveConfigurationUpdates(messages, options)
+		messages, options = toolsearch.Inline(messages, options)
 
 		client, err := c.newClient(ctx)
 

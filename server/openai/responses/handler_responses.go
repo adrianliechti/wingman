@@ -448,6 +448,9 @@ type responseOutputOptions struct {
 }
 
 func (o responseOutputOptions) kindOf(name string) provider.ToolKind {
+	if strings.HasPrefix(name, "tool_search_tool_") {
+		return provider.ToolKindToolSearch
+	}
 	return outputKind(name, o.Tools)
 }
 
@@ -654,6 +657,9 @@ func messageOutputs(message *provider.Message, messageID, status string, opts re
 				})
 			}
 		}
+		if content.ToolResult != nil && content.ToolResult.Kind == provider.ToolKindToolSearch {
+			output = append(output, ResponseOutput{Type: ResponseOutputTypeToolSearchOutput, ToolSearchOutputItem: toolResultToToolSearchOutput(*content.ToolResult)})
+		}
 
 		if content.Compaction != nil && (content.Compaction.Content != "" || content.Compaction.Signature != "") {
 			id := content.Compaction.ID
@@ -752,6 +758,14 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	// Create streaming accumulator with event handler
 	accumulator := NewStreamingAccumulator(func(event StreamEvent) error {
 		switch event.Type {
+		case StreamEventToolSearchResult:
+			item := ResponseOutput{Type: ResponseOutputTypeToolSearchOutput, ToolSearchOutputItem: toolResultToToolSearchOutput(*event.ToolResult)}
+			for _, kind := range []string{"response.output_item.added", "response.output_item.done"} {
+				if err := writeEvent(w, kind, map[string]any{"type": kind, "sequence_number": nextSeq(), "output_index": event.OutputIndex, "item": item}); err != nil {
+					return err
+				}
+			}
+			return nil
 		case StreamEventResponseCreated:
 			if event.Completion != nil {
 				responseID = event.Completion.ID

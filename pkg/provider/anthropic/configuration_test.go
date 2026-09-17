@@ -2,7 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -47,14 +47,28 @@ func TestPerMessageEffortPreservesPosition(t *testing.T) {
 	}
 }
 
-func TestPrefixBoundToolSearchIsRejected(t *testing.T) {
+func TestToolSearchPreservesDefinitionsAndResults(t *testing.T) {
 	c, _ := NewCompleter("http://localhost", "claude-fable-5-1")
 	options := &provider.CompleteOptions{Tools: []provider.Tool{
 		{Kind: provider.ToolKindToolSearch, Name: "tool_search_tool_regex", Execution: "server"},
 		{Name: "lookup", Deferred: new(true), Parameters: map[string]any{"type": "object", "properties": map[string]any{}}},
 	}}
-	_, err := c.convertMessageRequest([]provider.Message{provider.UserMessage("Task")}, options)
-	if err == nil || !strings.Contains(err.Error(), "prefix-preserving") {
-		t.Fatalf("expected an explicit unsupported error: %v", err)
+	history := []provider.Message{provider.UserMessage("Task")}
+	before := requestBody(t, c, history, options)
+	history = append(history, provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "srv_1", Name: "tool_search_tool_regex", Kind: provider.ToolKindToolSearch, Execution: "server", Arguments: `{"pattern":"lookup"}`}),
+		provider.ToolResultContent(provider.ToolResult{ID: "srv_1", Kind: provider.ToolKindToolSearch, Execution: "server", Payload: []byte(`[{"type":"function","name":"lookup"}]`)}),
+		provider.ReasoningContent(provider.Reasoning{Signature: "signed-state"}),
+		provider.ToolCallContent(provider.ToolCall{ID: "tool_1", Name: "lookup", Arguments: "{}"}),
+	}}, provider.ToolMessage("tool_1", "Result"))
+	after := requestBody(t, c, history, options)
+	if !reflect.DeepEqual(before["tools"], after["tools"]) {
+		t.Fatal("tool search changed the signed prefix")
+	}
+	blocks := after["messages"].([]any)[1].(map[string]any)["content"].([]any)
+	for i, typ := range []string{"server_tool_use", "tool_search_tool_result", "thinking", "tool_use"} {
+		if blocks[i].(map[string]any)["type"] != typ {
+			t.Fatalf("lost hosted history: %v", blocks)
+		}
 	}
 }

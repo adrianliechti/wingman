@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
+	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 
 	"github.com/google/uuid"
 
@@ -194,6 +195,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 func (c *Completer) convertCompletionRequest(input []provider.Message, options *provider.CompleteOptions) (*openai.ChatCompletionNewParams, error) {
 	input, options = provider.ResolveConfigurationUpdates(input, options)
+	input, options = toolsearch.Inline(input, options)
 	tools, err := convertTools(provider.FlattenTools(options.Tools))
 
 	if err != nil {

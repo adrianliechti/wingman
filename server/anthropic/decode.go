@@ -6,10 +6,10 @@ import (
 	"io"
 )
 
-// Reject unrepresented controls instead of silently changing their semantics.
+// Accept optional provider hints for compatibility. Controls whose omission
+// changes conversation behavior are validated explicitly after decoding.
 func decodeRequest(r io.Reader, target any) error {
 	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}

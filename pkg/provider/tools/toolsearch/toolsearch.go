@@ -57,11 +57,13 @@ func Tools(payload []byte) []provider.Tool {
 		Name        string         `json:"name"`
 		Description string         `json:"description"`
 		Parameters  map[string]any `json:"parameters"`
+		Strict      *bool          `json:"strict"`
 
 		Tools []struct {
 			Name        string         `json:"name"`
 			Description string         `json:"description"`
 			Parameters  map[string]any `json:"parameters"`
+			Strict      *bool          `json:"strict"`
 		} `json:"tools"`
 	}
 
@@ -83,6 +85,7 @@ func Tools(payload []byte) []provider.Tool {
 					Name:        inner.Name,
 					Description: inner.Description,
 					Parameters:  inner.Parameters,
+					Strict:      inner.Strict,
 				})
 			}
 
@@ -101,6 +104,7 @@ func Tools(payload []byte) []provider.Tool {
 			Name:        t.Name,
 			Description: t.Description,
 			Parameters:  t.Parameters,
+			Strict:      t.Strict,
 		})
 	}
 

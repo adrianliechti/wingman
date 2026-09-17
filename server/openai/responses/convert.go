@@ -954,6 +954,22 @@ func toolCallToToolSearchCall(call provider.ToolCall, status string) *ToolSearch
 	return item
 }
 
+func toolResultToToolSearchOutput(result provider.ToolResult) *InputToolSearchOutput {
+	status := "completed"
+	tools := result.Payload
+	if len(tools) == 0 || result.IsError {
+		tools = []byte("[]")
+	}
+	if result.IsError {
+		status = "incomplete"
+	}
+	execution := result.Execution
+	if execution == "" {
+		execution = "server"
+	}
+	return &InputToolSearchOutput{ID: "tso_" + result.ID, CallID: result.ID, Status: status, Execution: execution, Tools: tools}
+}
+
 // computerOutputParts maps a computer_call_output.output object to Parts.
 // Per the OpenAI Responses spec the payload is a computer_screenshot with
 // either an image_url (often a data URL) or a file_id. Falls back to a JSON

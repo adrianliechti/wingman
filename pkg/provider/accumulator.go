@@ -20,6 +20,7 @@ type CompletionAccumulator struct {
 	compactions []Compaction
 
 	toolCalls      []ToolCall
+	toolResults    []ToolResult
 	lastToolCallID string
 
 	usage *Usage
@@ -54,6 +55,7 @@ const (
 	accumulatedContentText
 	accumulatedContentRefusal
 	accumulatedContentToolCall
+	accumulatedContentToolResult
 )
 
 type accumulatedContentRef struct {
@@ -135,6 +137,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 			if c.ToolCall != nil {
 				a.addToolCall(c.ToolCall)
+			}
+			if c.ToolResult != nil {
+				a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentToolResult, index: len(a.toolResults)})
+				a.toolResults = append(a.toolResults, *c.ToolResult)
 			}
 		}
 	}
@@ -362,6 +368,8 @@ func (a *CompletionAccumulator) Result() *Completion {
 			}
 
 			content = append(content, ToolCallContent(call))
+		case accumulatedContentToolResult:
+			content = append(content, ToolResultContent(a.toolResults[ref.index]))
 		}
 	}
 

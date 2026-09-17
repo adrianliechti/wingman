@@ -38,6 +38,9 @@ func toMessages(system string, messages []MessageParam) ([]provider.Message, err
 }
 
 func toMessage(index int, m MessageParam) (*provider.Message, error) {
+	if m.ClearAt != "" && m.ClearAt != "never" {
+		return nil, fmt.Errorf("messages.%d.clear_at: turn-scoped instructions are not supported", index)
+	}
 	blocks, err := parseContentBlocks(m.Content)
 
 	if err != nil {
@@ -65,7 +68,7 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 
 	var content []provider.Content
 	if m.OutputConfig != nil {
-		if m.Role != MessageRoleSystem || m.OutputConfig.Format != nil || !validEffort(m.OutputConfig.Effort) {
+		if m.Role != MessageRoleSystem || m.OutputConfig.Format != nil || len(m.OutputConfig.TaskBudget) > 0 || !validEffort(m.OutputConfig.Effort) {
 			return nil, fmt.Errorf("messages.%d.output_config: requires a system message and a valid effort", index)
 		}
 		content = append(content, provider.ConfigurationUpdateContent(provider.ConfigurationUpdate{ReasoningEffort: provider.Effort(m.OutputConfig.Effort)}))
@@ -187,9 +190,27 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 			}
 
 		case "server_tool_use":
+			if strings.HasPrefix(block.Name, "tool_search_tool_") {
+				args, err := toJSONString(block.Input)
+				if err != nil {
+					return nil, err
+				}
+				content = append(content, provider.ToolCallContent(provider.ToolCall{ID: block.ID, Name: block.Name, Kind: provider.ToolKindToolSearch, Execution: "server", Arguments: args}))
+				break
+			}
 			if marker := serverToolUseMarker(block); marker != "" {
 				content = append(content, provider.TextContent(marker))
 			}
+		case "tool_search_tool_result":
+			data, err := json.Marshal(block.Content)
+			if err != nil {
+				return nil, err
+			}
+			result, err := anthropic.ParseToolSearchResult(block.ToolUseID, data, nil)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", path, err)
+			}
+			content = append(content, provider.ToolResultContent(result))
 
 		case "web_search_tool_result":
 			if marker := webSearchResultMarker(block); marker != "" {
@@ -494,10 +515,14 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 					input = map[string]any{}
 				}
 
+				name := c.ToolCall.Name
+				if !strings.HasPrefix(name, "tool_search_tool_") {
+					name = "tool_search_tool_regex"
+				}
 				result = append(result, ContentBlock{
 					Type:  "server_tool_use",
 					ID:    c.ToolCall.ID,
-					Name:  "tool_search_tool_regex",
+					Name:  name,
 					Input: input,
 				})
 				continue
@@ -539,6 +564,9 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 
 				Caller: &BlockCaller{Type: "direct"},
 			})
+		}
+		if c.ToolResult != nil && c.ToolResult.Kind == provider.ToolKindToolSearch && c.ToolResult.Execution != "client" {
+			result = append(result, ContentBlock{Type: "tool_search_tool_result", ToolUseID: c.ToolResult.ID, Content: anthropic.ToolSearchResultContent(*c.ToolResult)})
 		}
 	}
 

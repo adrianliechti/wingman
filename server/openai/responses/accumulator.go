@@ -36,6 +36,7 @@ const (
 	StreamEventFunctionCallArgumentsDelta StreamEventType = "function_call_arguments.delta"
 	StreamEventFunctionCallArgumentsDone  StreamEventType = "function_call_arguments.done"
 	StreamEventFunctionCallDone           StreamEventType = "function_call.done"
+	StreamEventToolSearchResult           StreamEventType = "tool_search.result"
 
 	StreamEventCustomToolCallInputDelta StreamEventType = "custom_tool_call_input.delta"
 	StreamEventCustomToolCallInputDone  StreamEventType = "custom_tool_call_input.done"
@@ -76,6 +77,7 @@ type StreamEvent struct {
 	ToolCallNamespace string
 	ToolCallExecution string
 	ToolCallAsync     bool
+	ToolResult        *provider.ToolResult
 	Arguments         string
 	OutputIndex       int
 	MessageID         string
@@ -147,6 +149,7 @@ type StreamingAccumulator struct {
 
 	// Tool call state — single source of truth
 	toolCalls      []accumulatedToolCall
+	toolResults    []provider.ToolResult
 	toolCallByID   map[string]int // effective call ID → index in toolCalls
 	lastToolCallID string
 
@@ -197,6 +200,7 @@ const (
 	streamItemReasoning
 	streamItemCompaction
 	streamItemToolCall
+	streamItemToolResult
 )
 
 type streamItemRef struct {
@@ -956,6 +960,20 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
+		if content.ToolResult != nil && content.ToolResult.Kind == provider.ToolKindToolSearch {
+			if err := s.closePendingItems(); err != nil {
+				return err
+			}
+			if err := s.closeToolCall(content.ToolResult.ID); err != nil {
+				return err
+			}
+			index := s.reserveOutputIndex(streamItemToolResult, len(s.toolResults))
+			s.toolResults = append(s.toolResults, *content.ToolResult)
+			if err := s.emitEvent(StreamEvent{Type: StreamEventToolSearchResult, OutputIndex: index, ToolResult: content.ToolResult}); err != nil {
+				return err
+			}
+		}
+
 		// Tool calls — close pending reasoning and message before starting
 		if content.ToolCall != nil {
 			tc := content.ToolCall
@@ -1256,6 +1274,8 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 			}
 
 			content = append(content, provider.ToolCallContent(call))
+		case streamItemToolResult:
+			content = append(content, provider.ToolResultContent(s.toolResults[ref.index]))
 		}
 	}
 

@@ -398,7 +398,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		}
 
 		if content.ToolCall != nil {
-			s.stopReason = StopReasonToolUse
+			hosted := content.ToolCall.Kind == provider.ToolKindToolSearch && content.ToolCall.Execution != "client"
+			if !hosted {
+				s.stopReason = StopReasonToolUse
+			}
 
 			id := content.ToolCall.ID
 
@@ -414,14 +417,18 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 			if !found {
 				var err error
-
-				index, err = s.startBlock(&ContentBlock{
+				block := &ContentBlock{
 					Type:   "tool_use",
 					ID:     id,
 					Name:   content.ToolCall.Name,
 					Input:  map[string]any{},
 					Caller: &BlockCaller{Type: "direct"},
-				})
+				}
+				if hosted {
+					block = &toContentBlocks([]provider.Content{content})[0]
+					block.Input = map[string]any{}
+				}
+				index, err = s.startBlock(block)
 
 				if err != nil {
 					return err
@@ -445,6 +452,21 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				}); err != nil {
 					return err
 				}
+			}
+		}
+		if content.ToolResult != nil && content.ToolResult.Kind == provider.ToolKindToolSearch && content.ToolResult.Execution != "client" {
+			if callIndex, found := s.toolIndexByID[content.ToolResult.ID]; found {
+				if err := s.stopBlock(callIndex); err != nil {
+					return err
+				}
+			}
+			block := toContentBlocks([]provider.Content{content})[0]
+			index, err := s.startBlock(&block)
+			if err != nil {
+				return err
+			}
+			if err := s.stopBlock(index); err != nil {
+				return err
 			}
 		}
 	}

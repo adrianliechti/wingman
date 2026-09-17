@@ -317,28 +317,19 @@ func TestUnsupportedFeaturesRejectedE2E(t *testing.T) {
 	p, _ := anthropic.NewCompleter("https://upstream.invalid", "claude-fable-5-1", anthropic.WithClient(featureClient(t, claudeFeatureStream, func(_ *http.Request, _ map[string]any) { t.Fatal("invalid request reached upstream") })))
 	router := featureRouter(p)
 	for _, fields := range []string{
-		`"clear_at":"next_user_message"`,
 		`"messages":[{"role":"system","content":"Temporary","clear_at":"next_user_message"}]`,
 		`"thinking":{"type":"adaptive","display":"updates"}`,
 		`"thinking":{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"error"}}`,
 		`"output_config":{"task_budget":{"type":"tokens","total":20000}}`,
-		`"cache_control":{"type":"ephemeral","ttl":"1h"}`,
-		`"system":[{"type":"text","text":"Hi","cache_control":{"type":"ephemeral"}}]`,
-		`"messages":[{"role":"user","content":[{"type":"text","text":"Hi","cache_control":{"type":"ephemeral"}}]}]`,
-		`"tools":[{"name":"lookup","cache_control":{"type":"ephemeral"}}]`,
 		`"tools":[{"type":"computer_toolset_20260801"}]`,
 		`"tools":[{"type":"browser_toolset_20260801"}]`,
 		`"messages":[{"role":"system","content":[{"type":"tool_removal","name":"lookup"}]}]`,
 		`"context_management":{"edits":[{"type":"clear_thinking_20251015"}]}`,
 		`"context_management":{"edits":[{"type":"compact_20260112","pause_after_compaction":true}]}`,
 		`"tool_choice":{"type":"any"},"tools":[{"name":"lookup","input_schema":{"type":"object"}}]`,
-		`"tools":[{"type":"tool_search_tool_regex_20251119","name":"tool_search_tool_regex"}]`,
 		`"tool_choice":{"type":"invalid"}`,
 		`"thinking":{"type":"invalid"}`,
 		`"output_config":{"effort":"invalid"}`,
-		`"top_p":0.9`,
-		`"top_k":10`,
-		`"metadata":{"user_id":"test"}`,
 	} {
 		t.Run(fields, func(t *testing.T) {
 			body := `{"model":"target","max_tokens":128,"messages":[{"role":"user","content":"Hi"}],` + fields + `}`
