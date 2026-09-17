@@ -110,8 +110,12 @@ func TestSupportsStrictTools(t *testing.T) {
 
 // TestConvertConverseInput_SchemaStrict verifies schema-mode strict propagates
 // to the forced structured-output tool.
+// TestConvertConverseInput_SchemaStrict covers the forced-tool emulation on a
+// model without native JSON-schema output: strict still reaches the schema
+// tool. Claude models with structured outputs use outputConfig instead (see
+// TestConvertConverseInput_NativeOutputFormat).
 func TestConvertConverseInput_SchemaStrict(t *testing.T) {
-	c := &Completer{Config: &Config{model: "anthropic.claude-opus-4-5-20251101-v1:0"}}
+	c := &Completer{Config: &Config{model: "amazon.nova-premier-v1:0"}}
 
 	strict := true
 

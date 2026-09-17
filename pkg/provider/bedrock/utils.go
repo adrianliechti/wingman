@@ -67,6 +67,30 @@ func supportsStrictTools(model string) bool {
 	return !isClaudeModel(model) || matchesModel(model, StrictToolModels)
 }
 
+// Native JSON-schema output (outputConfig.textFormat) is the same structured
+// outputs feature as strict tools, so it follows the Claude allowlist. Other
+// model families keep the forced-tool emulation, which needs no structured
+// outputs support and therefore cannot fail the request.
+func supportsOutputFormat(model string) bool {
+	return matchesModel(model, StrictToolModels)
+}
+
+// MidSystemModels accept role "system" messages inside the conversation —
+// the same Claude models as on the native API (4.8 and 5.x, not Sonnet 5).
+// Other models get their later instructions hoisted into the top-level
+// system prompt.
+var MidSystemModels = []string{
+	"fable-5",
+	"mythos-5",
+
+	"opus-4-8",
+	"opus-5",
+}
+
+func (c *Completer) supportsMidSystem() bool {
+	return matchesModel(c.model, MidSystemModels)
+}
+
 func matchesModel(model string, patterns []string) bool {
 	model = strings.ToLower(model)
 

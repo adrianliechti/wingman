@@ -69,7 +69,7 @@ func TestConverseAdditionalFields_SchemaDisablesThinking(t *testing.T) {
 		Schema: &provider.Schema{Name: "classify", Properties: testSchema},
 	})
 
-	if thinking {
+	if thinking.Enabled {
 		t.Error("expected thinking not enabled")
 	}
 
@@ -147,7 +147,7 @@ func TestConverseAdditionalFields_UnsignedToolHistoryDisablesThinking(t *testing
 
 	fields, thinking := c.converseAdditionalFields(stripped, options)
 
-	if thinking {
+	if thinking.Enabled {
 		t.Error("expected thinking not enabled")
 	}
 	got, _ := fields["thinking"].(map[string]any)
@@ -166,7 +166,7 @@ func TestConverseAdditionalFields_UnsignedToolHistoryDisablesThinking(t *testing
 
 	fields, thinking = c.converseAdditionalFields(signed, options)
 
-	if !thinking {
+	if !thinking.Enabled {
 		t.Error("expected thinking enabled for signed history")
 	}
 	got, _ = fields["thinking"].(map[string]any)
@@ -340,7 +340,7 @@ func TestToUsage_NilReturnsNil(t *testing.T) {
 func TestConvert_CachePointPlacementForClaude(t *testing.T) {
 	c := &Completer{Config: &Config{model: "anthropic.claude-sonnet-4-6"}}
 
-	sys := c.convertSystem([]provider.Message{provider.SystemMessage("You are helpful.")})
+	sys := c.convertSystem([]provider.Message{provider.SystemMessage("You are helpful.")}, false)
 	if len(sys) == 0 {
 		t.Fatal("expected system blocks")
 	}
@@ -352,7 +352,7 @@ func TestConvert_CachePointPlacementForClaude(t *testing.T) {
 		t.Errorf("system cachePoint type = %q, want default", cp.Value.Type)
 	}
 
-	msgs, err := c.convertMessages([]provider.Message{provider.UserMessage("Hello there.")})
+	msgs, err := c.convertMessages([]provider.Message{provider.UserMessage("Hello there.")}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,13 +378,13 @@ func TestConvert_CachePointPlacementForClaude(t *testing.T) {
 func TestConvert_NoCachePointForNonClaude(t *testing.T) {
 	c := &Completer{Config: &Config{model: "amazon.nova-pro-v1:0"}}
 
-	for _, b := range c.convertSystem([]provider.Message{provider.SystemMessage("You are helpful.")}) {
+	for _, b := range c.convertSystem([]provider.Message{provider.SystemMessage("You are helpful.")}, false) {
 		if _, ok := b.(*types.SystemContentBlockMemberCachePoint); ok {
 			t.Error("non-Claude model must not get a system cachePoint")
 		}
 	}
 
-	msgs, err := c.convertMessages([]provider.Message{provider.UserMessage("Hello there.")})
+	msgs, err := c.convertMessages([]provider.Message{provider.UserMessage("Hello there.")}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
