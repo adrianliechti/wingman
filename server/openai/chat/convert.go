@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
+	"github.com/adrianliechti/wingman/server/files"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 
 	"github.com/google/uuid"
@@ -107,7 +108,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 				}
 
 				if c.Type == MessageContentTypeFile && c.File != nil {
-					file, err := shared.ToFile(c.File.Data)
+					file, err := files.FromURL(c.File.Data)
 
 					if err != nil {
 						return nil, err
@@ -121,7 +122,7 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 				}
 
 				if c.Type == MessageContentTypeImage && c.Image != nil {
-					file, err := shared.ToFile(c.Image.URL)
+					file, err := files.FromURL(c.Image.URL)
 
 					if err != nil {
 						return nil, err

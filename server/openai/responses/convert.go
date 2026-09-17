@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 	"github.com/adrianliechti/wingman/pkg/tool"
+	"github.com/adrianliechti/wingman/server/files"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
 
@@ -970,7 +971,7 @@ func computerOutputParts(output any) ([]provider.Part, error) {
 	}
 	if err := json.Unmarshal(data, &screenshot); err == nil && screenshot.Type == "computer_screenshot" {
 		if screenshot.ImageURL != "" {
-			file, err := shared.ToFile(screenshot.ImageURL)
+			file, err := files.FromURL(screenshot.ImageURL)
 			if err != nil {
 				return nil, err
 			}
@@ -995,7 +996,7 @@ func toParts(items []InputContent) ([]provider.Part, error) {
 			}
 
 		case InputContentImage:
-			file, err := shared.ToFile(c.ImageURL)
+			file, err := files.FromURL(c.ImageURL)
 			if err != nil {
 				return nil, err
 			}
@@ -1017,13 +1018,13 @@ func toParts(items []InputContent) ([]provider.Part, error) {
 // fileFromInputContent decodes an input_file content part into provider.File.
 // FileData accepts either raw base64 (mime inferred from filename) or a full
 // data URL (mime parsed from the URL prefix). FileURL is handled via
-// shared.ToFile which supports http/https + data URLs.
+// files.FromURL which supports http/https + data URLs.
 func fileFromInputContent(c InputContent) (*provider.File, error) {
 	file := &provider.File{Name: c.Filename}
 
 	if c.FileData != "" {
 		if strings.HasPrefix(c.FileData, "data:") {
-			f, err := shared.ToFile(c.FileData)
+			f, err := files.FromURL(c.FileData)
 			if err != nil {
 				return nil, err
 			}
@@ -1045,7 +1046,7 @@ func fileFromInputContent(c InputContent) (*provider.File, error) {
 	}
 
 	if c.FileURL != "" {
-		f, err := shared.ToFile(c.FileURL)
+		f, err := files.FromURL(c.FileURL)
 		if err != nil {
 			return nil, err
 		}
@@ -1071,7 +1072,7 @@ func toInputContent(items []InputContent) ([]provider.Content, error) {
 			result = append(result, provider.RefusalContent(c.Refusal))
 
 		case InputContentImage:
-			file, err := shared.ToFile(c.ImageURL)
+			file, err := files.FromURL(c.ImageURL)
 			if err != nil {
 				return nil, err
 			}

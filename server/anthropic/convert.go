@@ -9,11 +9,12 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 	"github.com/adrianliechti/wingman/pkg/tool"
-	"github.com/adrianliechti/wingman/server/openai/shared"
+	"github.com/adrianliechti/wingman/server/files"
 )
 
 func toMessages(system string, messages []MessageParam) ([]provider.Message, error) {
@@ -161,6 +162,9 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 			compaction := provider.Compaction{
 				Signature: block.EncryptedContent,
 			}
+			if block.Signature != "" {
+				compaction.Signature = anthropic.WrapCompactionSignature(block.Signature)
+			}
 
 			if compactionContent, ok := block.Content.(string); ok {
 				compaction.Content = compactionContent
@@ -221,7 +225,7 @@ func toFile(source *BlockSource) (*provider.File, error) {
 	case "url":
 		// No provider consumes raw URLs — fetch the content here so URL
 		// sources work across all backends.
-		fetched, err := shared.ToFile(source.URL)
+		fetched, err := files.FromURL(source.URL)
 
 		if err != nil {
 			return nil, err
@@ -415,7 +419,7 @@ func toTools(tools []ToolParam) ([]provider.Tool, error) {
 }
 
 func toContentBlocks(content []provider.Content, includeThinking bool) []ContentBlock {
-	var result []ContentBlock
+	result := make([]ContentBlock, 0, len(content))
 
 	for _, c := range content {
 		if includeThinking && c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "" || c.Reasoning.Signature != "") {
@@ -439,11 +443,15 @@ func toContentBlocks(content []provider.Content, includeThinking bool) []Content
 		}
 
 		if c.Compaction != nil && (c.Compaction.Content != "" || c.Compaction.Signature != "") {
-			result = append(result, ContentBlock{
+			block := ContentBlock{
 				Type:             "compaction",
 				Content:          c.Compaction.Content,
 				EncryptedContent: c.Compaction.Signature,
-			})
+			}
+			if signature, signed := anthropic.UnwrapCompactionSignature(c.Compaction.Signature); signed {
+				block.Signature, block.EncryptedContent = signature, ""
+			}
+			result = append(result, block)
 		}
 
 		if c.Text != "" {

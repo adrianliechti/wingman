@@ -266,10 +266,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								provider.CompactionContent(provider.Compaction{
-									Content:   event.Content,
-									Signature: event.EncryptedContent,
-								}),
+								provider.CompactionContent(compactionFromBlock(message.ID, startIndex, event.Content, event.EncryptedContent, event.RawJSON())),
 							},
 						},
 					}
@@ -362,10 +359,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								provider.CompactionContent(provider.Compaction{
-									Content:   event.Content,
-									Signature: event.EncryptedContent,
-								}),
+								provider.CompactionContent(compactionFromBlock(message.ID, blockIndex, event.Content, event.EncryptedContent, event.RawJSON())),
 							},
 						},
 					}
@@ -575,6 +569,22 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	if options == nil {
 		options = new(provider.CompleteOptions)
 	}
+	// A compaction_trigger input item and the explicit option are equivalent.
+	for i, message := range input {
+		for j, content := range message.Content {
+			if content.CompactionTrigger {
+				if i != len(input)-1 || j != len(message.Content)-1 {
+					return nil, fmt.Errorf("anthropic: compaction_trigger must be the final input item")
+				}
+				cloned := *options
+				cloned.CompactionOptions = &provider.CompactionOptions{Trigger: true}
+				options = &cloned
+			}
+		}
+	}
+	if options.CompactionOptions != nil && matchesModel(c.model, LegacyModels) {
+		return nil, fmt.Errorf("anthropic: model %s does not support compaction", c.model)
+	}
 
 	req := &anthropic.BetaMessageNewParams{
 		Model: anthropic.Model(c.model),
@@ -592,7 +602,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	var tools []anthropic.BetaToolUnionParam
 	var messages []anthropic.BetaMessageParam
 
-	var hasCompaction bool
+	var hasCompaction, hasSignedCompaction bool
 
 	if options.Stop != nil {
 		req.StopSequences = options.Stop
@@ -661,6 +671,12 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			var contentBlocks []anthropic.BetaContentBlockParamUnion
 
 			for _, c := range m.Content {
+				if c.Compaction != nil {
+					block, signed := compactionParam(c.Compaction)
+					contentBlocks = append(contentBlocks, block)
+					hasCompaction = true
+					hasSignedCompaction = hasSignedCompaction || signed
+				}
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 					contentBlocks = append(contentBlocks, anthropic.NewBetaTextBlock(text))
 				}
@@ -809,19 +825,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				if c.Compaction != nil && (c.Compaction.Content != "" || c.Compaction.Signature != "") {
 					hasCompaction = true
 
-					compaction := &anthropic.BetaCompactionBlockParam{}
-
-					if c.Compaction.Content != "" {
-						compaction.Content = anthropic.String(c.Compaction.Content)
-					}
-
-					if c.Compaction.Signature != "" {
-						compaction.EncryptedContent = anthropic.String(c.Compaction.Signature)
-					}
-
-					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
-						OfCompaction: compaction,
-					})
+					block, signed := compactionParam(c.Compaction)
+					hasSignedCompaction = hasSignedCompaction || signed
+					blocks = append(blocks, block)
 				}
 
 				if c.ToolCall != nil {
@@ -1032,12 +1038,16 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		system = append(system, anthropic.BetaTextBlockParam{Text: jsonModeInstruction})
 	}
 
-	if options.CompactionOptions != nil && !matchesModel(c.model, LegacyModels) {
+	triggerCompaction := options.CompactionOptions != nil && options.CompactionOptions.Trigger
+	if !triggerCompaction && (options.CompactionOptions != nil || hasCompaction && !hasSignedCompaction) {
+		if hasSignedCompaction {
+			return nil, fmt.Errorf("anthropic: threshold compaction cannot be combined with a signed compaction block")
+		}
 		hasCompaction = true
 
 		edit := &anthropic.BetaCompact20260112EditParam{}
 
-		if options.CompactionOptions.Threshold > 0 {
+		if options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 {
 			edit.Trigger = anthropic.BetaInputTokensTriggerParam{
 				Value: int64(options.CompactionOptions.Threshold),
 			}
@@ -1050,7 +1060,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		}
 	}
 
-	if hasCompaction {
+	if hasSignedCompaction || triggerCompaction {
+		req.Betas = append(req.Betas, "compact-2026-09-04")
+	} else if hasCompaction {
 		req.Betas = append(req.Betas, "compact-2026-01-12")
 	}
 
@@ -1140,6 +1152,13 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	if len(messages) > 0 {
 		req.Messages = messages
 	}
+	if triggerCompaction {
+		if len(options.Stop) > 0 || options.Schema != nil || forcesTool {
+			return nil, fmt.Errorf("anthropic: compaction cannot be combined with stop sequences, output format, or forced tools")
+		}
+		compaction := map[string]any{"type": "summarize"}
+		req.SetExtraFields(map[string]any{"compaction": compaction})
+	}
 
 	return req, nil
 }
@@ -1148,14 +1167,14 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 	if usage.InputTokens == 0 &&
 		usage.OutputTokens == 0 &&
 		usage.CacheReadInputTokens == 0 &&
-		usage.CacheCreationInputTokens == 0 {
+		usage.CacheCreationInputTokens == 0 && len(usage.Iterations) == 0 {
 		return nil
 	}
 
 	cacheReadInputTokens := int(usage.CacheReadInputTokens)
 	cacheCreationInputTokens := int(usage.CacheCreationInputTokens)
 
-	return &provider.Usage{
+	result := &provider.Usage{
 		// Anthropic reports input_tokens excluding cached tokens. Normalize to a
 		// cache-inclusive total so the intermediate Usage has one consistent
 		// meaning across providers (cache fields are the cached subset of it).
@@ -1167,4 +1186,30 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 		CacheReadInputTokens:     cacheReadInputTokens,
 		CacheCreationInputTokens: cacheCreationInputTokens,
 	}
+	if len(usage.Iterations) > 0 {
+		// Top-level usage excludes compaction. Keep the shared usage contract:
+		// total billed tokens, with cached tokens included in the input total.
+		result.InputTokens, result.OutputTokens = 0, 0
+		result.CacheReadInputTokens, result.CacheCreationInputTokens = 0, 0
+		for _, iteration := range usage.Iterations {
+			input := int(iteration.InputTokens + iteration.CacheReadInputTokens + iteration.CacheCreationInputTokens)
+			result.InputTokens += input
+			result.OutputTokens += int(iteration.OutputTokens)
+			result.CacheReadInputTokens += int(iteration.CacheReadInputTokens)
+			result.CacheCreationInputTokens += int(iteration.CacheCreationInputTokens)
+		}
+	}
+	return result
+}
+
+func compactionFromBlock(messageID string, index int64, content, encrypted, raw string) provider.Compaction {
+	var block struct {
+		Signature string `json:"signature"`
+	}
+	_ = json.Unmarshal([]byte(raw), &block)
+	result := provider.Compaction{ID: fmt.Sprintf("%s_compaction_%d", messageID, index), Content: content, Signature: encrypted}
+	if block.Signature != "" {
+		result.Signature = WrapCompactionSignature(block.Signature)
+	}
+	return result
 }

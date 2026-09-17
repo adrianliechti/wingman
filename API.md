@@ -146,6 +146,7 @@ Anthropic-compatible endpoints. See [Anthropic API Reference](https://docs.anthr
 | `output_format`       | Object       | Structured output with JSON schema             |
 | `thinking`            | Object       | Thinking configuration (type, budget_tokens)   |
 | `context_management`  | Object       | Context management with compaction edits       |
+| `compaction`          | Object       | `{"type":"summarize"}` requests on-demand Claude compaction |
 
 ## Count Tokens
 

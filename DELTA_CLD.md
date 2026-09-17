@@ -14,7 +14,8 @@ already works is listed. Priorities: **P0** wrong answer or silent 200,
 - [ ] P1 Validate `tool_choice.type`, `tool_choice.name` for `type: "tool"`,
       `thinking.type` and `thinking.display` values, `budget_tokens` range,
       sampling ranges, `metadata.user_id`.
-- [ ] P1 Reject `role: "system"` inside `messages`.
+- [ ] P1 Validate mid-conversation `role: "system"` placement and model support;
+      support turn-scoped `clear_at` and per-message `output_config.effort`.
 - [ ] P1 Confirm or reject `max_tokens: 0` per backend (forwarded verbatim).
 - [ ] P2 Return an Anthropic error body on authentication failure (bare 401
       today).
@@ -47,7 +48,8 @@ already works is listed. Priorities: **P0** wrong answer or silent 200,
 
 ## Context management
 
-- [ ] P1 Support `compact_*` `instructions` and `pause_after_compaction`.
+- [ ] P1 Support `compact_*` `instructions` and `pause_after_compaction`
+      (explicitly rejected; common trigger/threshold compaction is supported).
 - [ ] P1 Report applied edits (`context_management` in the response and
       `message_delta`).
 - [ ] P2 Support `clear_tool_uses_*` and `clear_thinking_*` edits.

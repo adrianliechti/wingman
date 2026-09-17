@@ -1,4 +1,4 @@
-package shared
+package files
 
 import (
 	"encoding/base64"
@@ -14,7 +14,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func ToFile(url string) (*provider.File, error) {
+// FromURL loads a file from an HTTP(S) or base64 data URL for any API format.
+func FromURL(url string) (*provider.File, error) {
 	if url == "" {
 		return nil, fmt.Errorf("invalid url")
 	}

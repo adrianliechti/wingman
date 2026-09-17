@@ -61,8 +61,7 @@ type StreamingAccumulator struct {
 	ThinkingEnabled bool
 
 	// State tracking
-	started    bool
-	hasContent bool
+	started bool
 
 	// Content blocks may interleave; deltas are routed to stable indexes
 	// and open blocks are closed on Complete
@@ -122,7 +121,6 @@ func (s *StreamingAccumulator) startBlock(block *ContentBlock) (int, error) {
 	index := s.nextBlockIndex
 	s.nextBlockIndex++
 
-	s.hasContent = true
 	s.openBlocks = append(s.openBlocks, index)
 
 	return index, s.emitEvent(StreamEvent{
@@ -242,6 +240,18 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	// Process content
 	for _, content := range c.Message.Content {
 		if content.Compaction != nil && (content.Compaction.Content != "" || content.Compaction.Signature != "") {
+			block := toContentBlocks([]provider.Content{content}, false)[0]
+			if block.Signature != "" {
+				// On-demand compaction arrives whole in content_block_start.
+				index, err := s.startBlock(&block)
+				if err != nil {
+					return err
+				}
+				if err := s.stopBlock(index); err != nil {
+					return err
+				}
+				continue
+			}
 			if s.compactionIndex >= 0 && content.Compaction.ID != "" && s.compactionID != "" && content.Compaction.ID != s.compactionID {
 				if err := s.stopBlock(s.compactionIndex); err != nil {
 					return err
@@ -450,16 +460,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 // Complete signals that streaming is done and emits final events
 func (s *StreamingAccumulator) Complete() error {
 	result := s.accumulator.Result()
-
-	// If no content was generated, send an empty text block
-	if !s.hasContent {
-		if _, err := s.startBlock(&ContentBlock{
-			Type: "text",
-			Text: new(""),
-		}); err != nil {
-			return err
-		}
-	}
 
 	// Close all open content blocks
 	for len(s.openBlocks) > 0 {

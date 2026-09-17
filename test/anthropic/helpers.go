@@ -134,6 +134,11 @@ func PostMessagesSSE(t *testing.T, h *Harness, ep harness.Endpoint, body map[str
 // betaHeaders returns the beta headers required by features used in the body.
 func betaHeaders(body map[string]any) []string {
 	var betas []string
+	// Signed compaction also needs the beta on every continuation request.
+	data, _ := json.Marshal(body["messages"])
+	if body["compaction"] != nil || strings.Contains(string(data), `"type":"compaction"`) && strings.Contains(string(data), `"signature"`) {
+		betas = append(betas, "compact-2026-09-04")
+	}
 
 	if _, ok := body["context_management"]; ok {
 		betas = append(betas, "compact-2026-01-12")

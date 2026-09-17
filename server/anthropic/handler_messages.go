@@ -74,6 +74,9 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func toCompleteOptions(req MessageRequest) (*provider.CompleteOptions, error) {
+	if err := validateCompactionRequest(req); err != nil {
+		return nil, err
+	}
 	tools, err := toTools(req.Tools)
 
 	if err != nil {
@@ -200,8 +203,42 @@ func toCompleteOptions(req MessageRequest) (*provider.CompleteOptions, error) {
 			}
 		}
 	}
+	if req.Compaction != nil {
+		options.CompactionOptions = &provider.CompactionOptions{
+			Trigger: true,
+		}
+	}
 
 	return options, nil
+}
+
+func validateCompactionRequest(req MessageRequest) error {
+	if req.Compaction != nil {
+		if req.Compaction.Instructions != "" {
+			return fmt.Errorf("compaction.instructions: custom compaction instructions are not supported")
+		}
+		if req.Compaction.Type != "summarize" {
+			return fmt.Errorf("compaction.type: must be summarize")
+		}
+		if req.ContextManagement != nil {
+			return fmt.Errorf("compaction cannot be combined with context_management")
+		}
+		if len(req.StopSequences) > 0 || req.OutputFormat != nil || (req.OutputConfig != nil && req.OutputConfig.Format != nil) ||
+			(req.ToolChoice != nil && (req.ToolChoice.Type == "any" || req.ToolChoice.Type == "tool")) {
+			return fmt.Errorf("compaction cannot be combined with stop_sequences, output format, or forced tool_choice")
+		}
+	}
+	if req.ContextManagement != nil {
+		for _, edit := range req.ContextManagement.Edits {
+			if edit.Instructions != "" || edit.PauseAfterCompaction {
+				return fmt.Errorf("context_management: custom compaction instructions and pause_after_compaction are not supported; use compaction.type=summarize for explicit compaction")
+			}
+			if edit.Type == "compact_20260112" && edit.Trigger != nil && (edit.Trigger.Type != "input_tokens" || edit.Trigger.Value < 50000) {
+				return fmt.Errorf("context_management: compaction trigger must be input_tokens with value at least 50000")
+			}
+		}
+	}
+	return nil
 }
 
 func validateMessageRequest(req MessageRequest) error {

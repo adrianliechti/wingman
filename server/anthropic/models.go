@@ -23,6 +23,12 @@ type MessageRequest struct {
 	OutputConfig      *OutputConfig      `json:"output_config,omitempty"`
 	Thinking          *ThinkingConfig    `json:"thinking,omitempty"`
 	ContextManagement *ContextManagement `json:"context_management,omitempty"`
+	Compaction        *CompactionConfig  `json:"compaction,omitempty"`
+}
+
+type CompactionConfig struct {
+	Type         string `json:"type"`
+	Instructions string `json:"instructions,omitempty"`
 }
 
 type ContextManagement struct {
@@ -30,8 +36,10 @@ type ContextManagement struct {
 }
 
 type ContextManagementEdit struct {
-	Type    string `json:"type"` // "compact_20260112"
-	Trigger *struct {
+	Instructions         string `json:"instructions,omitempty"`
+	PauseAfterCompaction bool   `json:"pause_after_compaction,omitempty"`
+	Type                 string `json:"type"` // "compact_20260112"
+	Trigger              *struct {
 		Type  string `json:"type"` // "input_tokens"
 		Value int    `json:"value"`
 	} `json:"trigger,omitempty"`

@@ -10,7 +10,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
-	"github.com/adrianliechti/wingman/server/openai/shared"
+	"github.com/adrianliechti/wingman/server/files"
 )
 
 func toMessages(systemInstruction *Content, contents []*Content) ([]provider.Message, error) {
@@ -108,7 +108,7 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 				return nil, fmt.Errorf("fileData.fileUri %q is not supported: only http(s) URLs can be fetched", uri)
 			}
 
-			file, err := shared.ToFile(uri)
+			file, err := files.FromURL(uri)
 			if err != nil {
 				return nil, err
 			}
