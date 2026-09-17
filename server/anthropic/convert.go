@@ -38,8 +38,11 @@ func toMessages(system string, messages []MessageParam) ([]provider.Message, err
 }
 
 func toMessage(index int, m MessageParam) (*provider.Message, error) {
-	if m.ClearAt != "" && m.ClearAt != "never" {
-		return nil, fmt.Errorf("messages.%d.clear_at: turn-scoped instructions are not supported", index)
+	if m.ClearAt != "" && (m.Role != MessageRoleSystem || (m.ClearAt != "never" && m.ClearAt != "next_user_message")) {
+		return nil, fmt.Errorf("messages.%d.clear_at: requires a system message and either never or next_user_message", index)
+	}
+	if m.ClearAt == "next_user_message" && m.OutputConfig != nil {
+		return nil, fmt.Errorf("messages.%d.output_config: turn-scoped instructions support only text", index)
 	}
 	blocks, err := parseContentBlocks(m.Content)
 
@@ -85,7 +88,15 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 
 		switch block.Type {
 		case "text":
-			content = append(content, provider.TextContent(block.Text))
+			if m.Role == MessageRoleSystem {
+				scope := provider.InstructionScopeConversation
+				if m.ClearAt == "next_user_message" {
+					scope = provider.InstructionScopeTurn
+				}
+				content = append(content, provider.InstructionsContent(provider.Instructions{Text: block.Text, Scope: scope}))
+			} else {
+				content = append(content, provider.TextContent(block.Text))
+			}
 
 		case "image":
 			if block.Source != nil {

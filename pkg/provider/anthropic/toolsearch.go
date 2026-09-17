@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/toolid"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -72,6 +73,13 @@ func toolSearchCallName(call provider.ToolCall, tools []provider.Tool) string {
 
 func toolSearchResultBlock(result provider.ToolResult) anthropic.BetaContentBlockParamUnion {
 	return anthropic.BetaContentBlockParamUnion{OfToolSearchToolResult: &anthropic.BetaToolSearchToolResultBlockParam{
-		ToolUseID: result.ID, Content: ToolSearchResultContent(result),
+		ToolUseID: toolSearchID(result.ID), Content: ToolSearchResultContent(result),
 	}}
+}
+
+func toolSearchID(id string) string {
+	if strings.HasPrefix(id, "srvtoolu_") {
+		return id
+	}
+	return "srvtoolu_" + strings.ReplaceAll(toolid.Sanitize(id, 119), "-", "_")
 }

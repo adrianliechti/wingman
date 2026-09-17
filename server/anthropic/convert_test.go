@@ -236,8 +236,8 @@ func TestToMessage_SystemRole(t *testing.T) {
 		t.Errorf("role: got %q, want %q", msg.Role, provider.MessageRoleSystem)
 	}
 
-	if len(msg.Content) != 1 || msg.Content[0].Text != "be terse" {
-		t.Errorf("content: got %+v, want single text %q", msg.Content, "be terse")
+	if len(msg.Content) != 1 || msg.Content[0].Instructions == nil || *msg.Content[0].Instructions != (provider.Instructions{Text: "be terse", Scope: provider.InstructionScopeConversation}) {
+		t.Errorf("content: got %+v, want persistent instructions", msg.Content)
 	}
 }
 

@@ -187,6 +187,9 @@ func toCompleteOptions(req MessageRequest) (*provider.CompleteOptions, error) {
 
 	if req.ContextManagement != nil {
 		for _, edit := range req.ContextManagement.Edits {
+			if edit.Type == "clear_thinking_20251015" {
+				options.ReasoningOptions.Context, _ = edit.reasoningContext() // Validated above.
+			}
 			if strings.HasPrefix(edit.Type, "compact") {
 				options.CompactionOptions = &provider.CompactionOptions{}
 
@@ -225,15 +228,29 @@ func validateCompactionRequest(req MessageRequest) error {
 		}
 	}
 	if req.ContextManagement != nil {
-		if len(req.ContextManagement.Edits) > 1 {
-			return fmt.Errorf("context_management.edits: only one compaction edit is supported")
-		}
-		for _, edit := range req.ContextManagement.Edits {
+		seen := map[string]bool{}
+		for i, edit := range req.ContextManagement.Edits {
+			if seen[edit.Type] {
+				return fmt.Errorf("context_management.edits: duplicate edit %q", edit.Type)
+			}
+			seen[edit.Type] = true
+			if edit.Type == "clear_thinking_20251015" {
+				if i != 0 || edit.Trigger != nil || edit.Instructions != "" || edit.PauseAfterCompaction {
+					return fmt.Errorf("context_management: thinking retention must be first and may only configure keep")
+				}
+				if _, err := edit.reasoningContext(); err != nil {
+					return err
+				}
+				continue
+			}
 			if edit.Type != "compact_20260112" {
 				return fmt.Errorf("context_management.edits: unsupported edit %q", edit.Type)
 			}
 			if edit.Instructions != "" || edit.PauseAfterCompaction {
 				return fmt.Errorf("context_management: custom compaction instructions and pause_after_compaction are not supported; use compaction.type=summarize for explicit compaction")
+			}
+			if len(edit.Keep) > 0 {
+				return fmt.Errorf("context_management: compaction does not support keep")
 			}
 			if edit.Type == "compact_20260112" && edit.Trigger != nil && (edit.Trigger.Type != "input_tokens" || edit.Trigger.Value < 50000) {
 				return fmt.Errorf("context_management: compaction trigger must be input_tokens with value at least 50000")

@@ -35,9 +35,10 @@ type ContextManagement struct {
 }
 
 type ContextManagementEdit struct {
-	Instructions         string `json:"instructions,omitempty"`
-	PauseAfterCompaction bool   `json:"pause_after_compaction,omitempty"`
-	Type                 string `json:"type"` // "compact_20260112"
+	Keep                 json.RawMessage `json:"keep,omitempty"`
+	Instructions         string          `json:"instructions,omitempty"`
+	PauseAfterCompaction bool            `json:"pause_after_compaction,omitempty"`
+	Type                 string          `json:"type"` // "compact_20260112"
 	Trigger              *struct {
 		Type  string `json:"type"` // "input_tokens"
 		Value int    `json:"value"`

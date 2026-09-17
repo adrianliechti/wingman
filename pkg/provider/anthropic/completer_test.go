@@ -583,7 +583,7 @@ func TestConvertRequest_CompactionExplicitTrigger(t *testing.T) {
 // TestConvertRequest_SystemPlacement verifies a leading system message maps to
 // the top-level system field and a mid-conversation one stays in messages.
 func TestConvertRequest_SystemPlacement(t *testing.T) {
-	completer, _ := NewCompleter("http://localhost", "claude-test")
+	completer, _ := NewCompleter("http://localhost", "claude-opus-5")
 
 	messages := []provider.Message{
 		provider.SystemMessage("be helpful"),

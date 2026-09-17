@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-// Accept optional provider hints for compatibility. Controls whose omission
+// Accept optional metadata and cache hints for compatibility. Controls whose omission
 // changes conversation behavior are validated explicitly after decoding.
 func decodeRequest(r io.Reader, target any) error {
 	decoder := json.NewDecoder(r)

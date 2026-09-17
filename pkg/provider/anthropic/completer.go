@@ -592,6 +592,10 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 }
 
 func (c *Completer) convertMessageRequest(input []provider.Message, options *provider.CompleteOptions) (*anthropic.BetaMessageNewParams, error) {
+	midSystem := matchesModel(c.model, []string{"fable-5", "mythos-5", "opus-4-8", "opus-5"})
+	if !midSystem {
+		input = provider.ResolveInstructions(input)
+	}
 	if !matchesModel(c.model, []string{"fable-5-1", "mythos-5-1", "opus-5"}) {
 		input, options = provider.ResolveConfigurationUpdates(input, options)
 	}
@@ -681,6 +685,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				if content.Text != "" {
 					blocks = append(blocks, anthropic.NewBetaTextBlock(content.Text))
 				}
+				if content.Instructions != nil {
+					blocks = append(blocks, anthropic.NewBetaTextBlock(content.Instructions.Text))
+				}
 			}
 			if blocks == nil {
 				blocks = []anthropic.BetaContentBlockParamUnion{}
@@ -693,10 +700,15 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		switch m.Role {
 		case provider.MessageRoleSystem:
 			var texts []anthropic.BetaTextBlockParam
+			var turnScoped bool
 
 			for _, c := range m.Content {
 				if c.Text != "" {
 					texts = append(texts, anthropic.BetaTextBlockParam{Text: c.Text})
+				}
+				if c.Instructions != nil {
+					texts = append(texts, anthropic.BetaTextBlockParam{Text: c.Instructions.Text})
+					turnScoped = turnScoped || c.Instructions.Scope == provider.InstructionScopeTurn
 				}
 			}
 
@@ -704,7 +716,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				break
 			}
 
-			if len(messages) == 0 || matchesModel(c.model, LegacyModels) {
+			if (len(messages) == 0 && !turnScoped) || !midSystem {
 				system = append(system, texts...)
 				break
 			}
@@ -714,10 +726,17 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				blocks[i] = anthropic.BetaContentBlockParamUnion{OfText: &texts[i]}
 			}
 
-			messages = append(messages, anthropic.BetaMessageParam{
+			message := anthropic.BetaMessageParam{
 				Role:    anthropic.BetaMessageParamRoleSystem,
 				Content: blocks,
-			})
+			}
+			if turnScoped {
+				message.SetExtraFields(map[string]any{"clear_at": "next_user_message"})
+				if !slices.Contains(req.Betas, "mid-conversation-system-clear-at-2026-08-21") {
+					req.Betas = append(req.Betas, "mid-conversation-system-clear-at-2026-08-21")
+				}
+			}
+			messages = append(messages, message)
 
 		case provider.MessageRoleUser:
 			// tool_result blocks must precede other content in a user message
@@ -850,6 +869,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			}
 
 			blocks = append(blocks, contentBlocks...)
+			if len(blocks) == 0 {
+				break
+			}
 
 			message := anthropic.NewBetaUserMessage(blocks...)
 			messages = append(messages, message)
@@ -895,7 +917,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 							arguments = json.RawMessage("{}")
 						}
 						blocks = append(blocks, anthropic.BetaContentBlockParamUnion{OfServerToolUse: &anthropic.BetaServerToolUseBlockParam{
-							ID: c.ToolCall.ID, Name: anthropic.BetaServerToolUseBlockParamName(toolSearchCallName(*c.ToolCall, options.Tools)), Input: arguments,
+							ID: toolSearchID(c.ToolCall.ID), Name: anthropic.BetaServerToolUseBlockParamName(toolSearchCallName(*c.ToolCall, options.Tools)), Input: arguments,
 						}})
 						continue
 					}
@@ -1205,6 +1227,24 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	} else if thinking.Disabled {
 		req.Thinking = anthropic.BetaThinkingConfigParamUnion{
 			OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
+		}
+	}
+	// Retention is meaningful only with active thinking. Tool continuations
+	// without signed thinking and forced tool calls can disable it above.
+	if options.ReasoningOptions != nil && (thinking.Enabled || matchesModel(c.model, AlwaysThinkingModels)) {
+		var keep anthropic.BetaClearThinking20251015EditKeepUnionParam
+		switch options.ReasoningOptions.Context {
+		case provider.ReasoningContextAllTurns:
+			keep.OfAll = "all"
+		case provider.ReasoningContextCurrentTurn:
+			keep.OfThinkingTurns = &anthropic.BetaThinkingTurnsParam{Value: 1}
+		}
+		if keep.OfAll != "" || keep.OfThinkingTurns != nil {
+			// Thinking retention precedes compaction when both are requested.
+			req.ContextManagement.Edits = append([]anthropic.BetaContextManagementConfigEditUnionParam{
+				{OfClearThinking20251015: &anthropic.BetaClearThinking20251015EditParam{Keep: keep}},
+			}, req.ContextManagement.Edits...)
+			req.Betas = append(req.Betas, "context-management-2025-06-27")
 		}
 	}
 

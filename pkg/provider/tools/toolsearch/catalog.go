@@ -12,7 +12,7 @@ import (
 func Payload(tools []provider.Tool) ([]byte, error) {
 	items := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
-		item := map[string]any{"type": "function", "name": tool.Name}
+		item := map[string]any{"type": "function", "name": tool.Name, "defer_loading": true}
 		if tool.Description != "" {
 			item["description"] = tool.Description
 		}
@@ -28,6 +28,7 @@ func Payload(tools []provider.Tool) ([]byte, error) {
 				return nil, err
 			}
 			item["type"], item["tools"] = "namespace", json.RawMessage(children)
+			delete(item, "defer_loading")
 		}
 		items = append(items, item)
 	}
@@ -60,10 +61,39 @@ func ResolveResults(messages []provider.Message, catalog []provider.Tool) ([]pro
 		for j, part := range message.Content {
 			if output := part.ToolResult; output != nil && output.Kind == provider.ToolKindToolSearch && !output.IsError {
 				copy := *output
-				var err error
-				copy.Payload, err = Payload(Resolve(Tools(output.Payload), catalog))
-				if err != nil {
+				var items []map[string]any
+				if err := json.Unmarshal(output.Payload, &items); err != nil {
 					return nil, err
+				}
+				// Full definitions may contain provider-supported fields beyond
+				// our shared catalog. Only expand name-only references; retain
+				// complete results unchanged for replay.
+				definitions := map[string]provider.Tool{}
+				for _, tool := range provider.FlattenTools(catalog) {
+					definitions[tool.Name] = tool
+				}
+				changed := false
+				for _, item := range items {
+					if item["type"] != "function" || item["parameters"] != nil {
+						continue
+					}
+					name, _ := item["name"].(string)
+					if definition, ok := definitions[name]; ok {
+						item["parameters"] = definition.Parameters
+						item["description"] = definition.Description
+						if definition.Strict != nil {
+							item["strict"] = *definition.Strict
+						}
+						item["defer_loading"] = true
+						changed = true
+					}
+				}
+				if changed {
+					var err error
+					copy.Payload, err = json.Marshal(items)
+					if err != nil {
+						return nil, err
+					}
 				}
 				message.Content[j].ToolResult = &copy
 			}

@@ -168,6 +168,10 @@ func ConfigurationUpdateContent(val ConfigurationUpdate) Content {
 	}
 }
 
+func InstructionsContent(val Instructions) Content {
+	return Content{Instructions: &val}
+}
+
 type Content struct {
 	// MessageID identifies the assistant message item a text or refusal part
 	// belongs to, the way Reasoning.ID and ToolCall.ID identify theirs. In a
@@ -187,6 +191,7 @@ type Content struct {
 
 	CompactionTrigger   bool
 	ConfigurationUpdate *ConfigurationUpdate
+	Instructions        *Instructions
 
 	ToolCall   *ToolCall
 	ToolResult *ToolResult

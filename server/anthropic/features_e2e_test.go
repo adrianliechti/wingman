@@ -317,14 +317,14 @@ func TestUnsupportedFeaturesRejectedE2E(t *testing.T) {
 	p, _ := anthropic.NewCompleter("https://upstream.invalid", "claude-fable-5-1", anthropic.WithClient(featureClient(t, claudeFeatureStream, func(_ *http.Request, _ map[string]any) { t.Fatal("invalid request reached upstream") })))
 	router := featureRouter(p)
 	for _, fields := range []string{
-		`"messages":[{"role":"system","content":"Temporary","clear_at":"next_user_message"}]`,
+		`"messages":[{"role":"user","content":"Temporary","clear_at":"next_user_message"}]`,
 		`"thinking":{"type":"adaptive","display":"updates"}`,
 		`"thinking":{"type":"adaptive","block_binding":{"prefix_mismatch_behavior":"error"}}`,
 		`"output_config":{"task_budget":{"type":"tokens","total":20000}}`,
 		`"tools":[{"type":"computer_toolset_20260801"}]`,
 		`"tools":[{"type":"browser_toolset_20260801"}]`,
 		`"messages":[{"role":"system","content":[{"type":"tool_removal","name":"lookup"}]}]`,
-		`"context_management":{"edits":[{"type":"clear_thinking_20251015"}]}`,
+		`"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":{"type":"thinking_turns","value":2}}]}`,
 		`"context_management":{"edits":[{"type":"compact_20260112","pause_after_compaction":true}]}`,
 		`"tool_choice":{"type":"any"},"tools":[{"name":"lookup","input_schema":{"type":"object"}}]`,
 		`"tool_choice":{"type":"invalid"}`,

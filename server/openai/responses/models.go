@@ -1001,10 +1001,12 @@ type ResponseOutput struct {
 func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 	switch r.Type {
 	case ResponseOutputTypeToolSearchOutput:
+		type output InputToolSearchOutput
 		return json.Marshal(struct {
 			Type ResponseOutputType `json:"type"`
-			*InputToolSearchOutput
-		}{r.Type, r.ToolSearchOutputItem})
+			*output
+			CallID *string `json:"call_id"`
+		}{r.Type, (*output)(r.ToolSearchOutputItem), toolSearchCallID(r.ToolSearchOutputItem.CallID, r.ToolSearchOutputItem.Execution)})
 	case ResponseOutputTypeMessage:
 		if r.OutputMessage != nil {
 			return json.Marshal(struct {
@@ -1103,31 +1105,7 @@ func (r ResponseOutput) MarshalJSON() ([]byte, error) {
 		}
 	case ResponseOutputTypeToolSearchCall:
 		if r.ToolSearchCallItem != nil {
-			execution := r.ToolSearchCallItem.Execution
-			if execution == "" {
-				execution = "server"
-			}
-
-			arguments := r.ToolSearchCallItem.Arguments
-			if len(arguments) == 0 {
-				arguments = json.RawMessage("{}")
-			}
-
-			return json.Marshal(struct {
-				Type      ResponseOutputType `json:"type"`
-				ID        string             `json:"id"`
-				Status    string             `json:"status"`
-				CallID    string             `json:"call_id"`
-				Execution string             `json:"execution"`
-				Arguments json.RawMessage    `json:"arguments"`
-			}{
-				Type:      r.Type,
-				ID:        r.ToolSearchCallItem.ID,
-				Status:    r.ToolSearchCallItem.Status,
-				CallID:    r.ToolSearchCallItem.CallID,
-				Execution: execution,
-				Arguments: arguments,
-			})
+			return json.Marshal(r.ToolSearchCallItem)
 		}
 	case ResponseOutputTypeCustomToolCall:
 		if r.CustomToolCallItem != nil {
@@ -1214,6 +1192,28 @@ type ToolSearchCallItem struct {
 	Status    string          `json:"status"`
 	Execution string          `json:"execution"`
 	Arguments json.RawMessage `json:"arguments"`
+}
+
+func toolSearchCallID(id, execution string) *string {
+	if execution == "client" {
+		return &id
+	}
+	return nil
+}
+
+func (item ToolSearchCallItem) MarshalJSON() ([]byte, error) {
+	type call ToolSearchCallItem
+	item.Type = "tool_search_call"
+	if item.Execution == "" {
+		item.Execution = "server"
+	}
+	if len(item.Arguments) == 0 {
+		item.Arguments = json.RawMessage("{}")
+	}
+	return json.Marshal(struct {
+		call
+		CallID *string `json:"call_id"`
+	}{call(item), toolSearchCallID(item.CallID, item.Execution)})
 }
 
 // ComputerCallItem represents a computer use tool call in the output

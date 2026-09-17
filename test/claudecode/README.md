@@ -10,6 +10,8 @@ complete the task, return valid SSE lifecycles and usage, produce valid streamed
 arguments, and accept matching tool results on subsequent requests. Comparison
 uses the final fixture/text and completed tool names; request counts, generated
 prose, IDs, token counts, and chunk boundaries may differ.
+Models may recover from local tool errors. Each required tool must succeed,
+all tool results must match recorded calls, and the final file must be correct.
 
 ## Run
 

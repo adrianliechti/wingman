@@ -14,6 +14,7 @@ import (
 func checkExchanges(t *testing.T, exchanges []exchange, model string) []string {
 	t.Helper()
 	emitted, returned := map[string]string{}, map[string]bool{}
+	succeeded, failed := map[string]bool{}, map[string]bool{}
 	messages := 0
 	for i, record := range exchanges {
 		u, err := url.Parse(record.Path)
@@ -61,10 +62,17 @@ func checkExchanges(t *testing.T, exchanges []exchange, model string) []string {
 				if block.Type != "tool_result" {
 					continue
 				}
-				if emitted[block.ToolUseID] == "" || block.IsError {
-					t.Errorf("exchange %d: failed or unmatched tool result %q", i, block.ToolUseID)
+				if emitted[block.ToolUseID] == "" {
+					t.Errorf("exchange %d: unmatched tool result %q", i, block.ToolUseID)
 				}
 				returned[block.ToolUseID] = true
+				// Models may retry a valid tool call after a local file or
+				// argument error. Count only successful calls toward coverage.
+				if block.IsError {
+					failed[block.ToolUseID] = true
+				} else {
+					succeeded[block.ToolUseID] = true
+				}
 			}
 		}
 		if !strings.HasPrefix(record.ResponseHeaders.Get("Content-Type"), "text/event-stream") {
@@ -90,14 +98,16 @@ func checkExchanges(t *testing.T, exchanges []exchange, model string) []string {
 		if !returned[id] {
 			t.Errorf("tool call %s (%s) was not returned in a later request", name, id)
 		}
-		names[name] = true
+		if succeeded[id] {
+			names[name] = true
+		}
 	}
 	var result []string
 	for name := range names {
 		result = append(result, name)
 	}
 	slices.Sort(result)
-	t.Logf("validated %d Messages streams and %d tool calls", messages, len(emitted))
+	t.Logf("validated %d Messages streams and %d tool calls (%d tool errors)", messages, len(emitted), len(failed))
 	return result
 }
 

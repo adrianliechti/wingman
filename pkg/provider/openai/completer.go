@@ -194,6 +194,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 }
 
 func (c *Completer) convertCompletionRequest(input []provider.Message, options *provider.CompleteOptions) (*openai.ChatCompletionNewParams, error) {
+	input = provider.ResolveInstructions(input)
 	input, options = provider.ResolveConfigurationUpdates(input, options)
 	input, options = toolsearch.Inline(input, options)
 	tools, err := convertTools(provider.FlattenTools(options.Tools))

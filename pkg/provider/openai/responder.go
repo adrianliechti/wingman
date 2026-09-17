@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"iter"
 	"strings"
 
@@ -89,6 +90,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		seenCompactions := make(map[string]struct{})
 
 		var responseID, responseModel string
+		var searchCallID string
 
 		emit := func(content provider.Content, status provider.CompletionStatus) bool {
 			return yield(&provider.Completion{
@@ -279,9 +281,16 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}
 
 				case responses.ResponseToolSearchCall:
+					searchCallID = item.CallID
+					if searchCallID == "" {
+						searchCallID = item.ID
+						if searchCallID == "" {
+							searchCallID = fmt.Sprintf("search_%s_%d", responseID, event.OutputIndex)
+						}
+					}
 					args, _ := json.Marshal(item.Arguments)
 					if !emit(provider.ToolCallContent(provider.ToolCall{
-						ID:        item.CallID,
+						ID:        searchCallID,
 						Kind:      provider.ToolKindToolSearch,
 						Name:      "tool_search",
 						Execution: string(item.Execution),
@@ -290,12 +299,20 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						return
 					}
 				case responses.ResponseToolSearchOutputItem:
-					payload, err := json.Marshal(item.Tools)
+					id := item.CallID
+					if id == "" {
+						id = searchCallID
+					}
+					loaded := make([]responses.ToolUnionParam, len(item.Tools))
+					for i, tool := range item.Tools {
+						loaded[i] = tool.ToParam()
+					}
+					payload, err := json.Marshal(loaded)
 					if err != nil {
 						yield(nil, err)
 						return
 					}
-					if !emit(provider.ToolResultContent(provider.ToolResult{ID: item.CallID, Kind: provider.ToolKindToolSearch, Execution: string(item.Execution), Payload: payload}), "") {
+					if !emit(provider.ToolResultContent(provider.ToolResult{ID: id, Kind: provider.ToolKindToolSearch, Execution: string(item.Execution), Payload: payload}), "") {
 						return
 					}
 
@@ -377,6 +394,7 @@ func responseToolCallAsync(raw string) bool {
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {
+	messages = provider.ResolveInstructions(messages)
 	var err error
 	messages, err = toolsearch.ResolveResults(messages, options.Tools)
 	if err != nil {
@@ -569,6 +587,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 	messages = separated
 
 	var result []responses.ResponseInputItemUnionParam
+	loadedTools := map[string]provider.Tool{}
 
 	for _, m := range messages {
 		var controlItems []responses.ResponseInputItemUnionParam
@@ -765,11 +784,24 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 						})
 
 					case provider.ToolKindToolSearch:
+						loaded := toolsearch.Tools(c.ToolResult.Payload)
+						for name, tool := range provider.ToolAliases(loaded) {
+							loadedTools[name] = tool
+						}
+						for _, tool := range loaded {
+							if len(tool.Tools) == 0 {
+								// Responses loads a top-level deferred function into
+								// an implicit namespace with that function's name.
+								loadedTools[tool.Name] = provider.Tool{Name: tool.Name, Namespace: tool.Name}
+							}
+						}
 						tso := &responses.ResponseToolSearchOutputItemParam{
 							Status: responses.ResponseToolSearchOutputItemParamStatusCompleted,
 						}
-						if c.ToolResult.ID != "" {
+						if c.ToolResult.Execution == "client" && c.ToolResult.ID != "" {
 							tso.CallID = openai.String(c.ToolResult.ID)
+						} else {
+							tso.CallID = param.Null[string]()
 						}
 						if c.ToolResult.Execution != "" {
 							tso.Execution = responses.ResponseToolSearchOutputItemParamExecution(c.ToolResult.Execution)
@@ -883,6 +915,10 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 
 				if c.ToolCall != nil {
 					flushMessage()
+					if c.ToolCall.Namespace == "" {
+						call := provider.UnflattenToolCall(loadedTools, *c.ToolCall)
+						c.ToolCall = &call
+					}
 
 					switch c.ToolCall.Kind {
 					case provider.ToolKindTextEditor:
@@ -965,8 +1001,10 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 						ts := &responses.ResponseInputItemToolSearchCallParam{
 							Status: "completed",
 						}
-						if c.ToolCall.ID != "" {
+						if c.ToolCall.Execution == "client" && c.ToolCall.ID != "" {
 							ts.CallID = openai.String(c.ToolCall.ID)
+						} else {
+							ts.CallID = param.Null[string]()
 						}
 						if c.ToolCall.Execution != "" {
 							ts.Execution = c.ToolCall.Execution

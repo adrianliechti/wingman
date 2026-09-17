@@ -84,6 +84,7 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 
 func (c *Completer) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
+		messages = provider.ResolveInstructions(messages)
 		messages, options = provider.ResolveConfigurationUpdates(messages, options)
 		messages, options = toolsearch.Inline(messages, options)
 
@@ -668,6 +669,7 @@ func (c *Completer) converseAdditionalFields(messages []provider.Message, option
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
+	input = provider.ResolveInstructions(input)
 	input, options = provider.ResolveConfigurationUpdates(input, options)
 	input, options = toolsearch.Inline(input, options)
 	messages, err := c.convertMessages(input)

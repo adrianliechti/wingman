@@ -55,6 +55,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 	var pendingReasoning []provider.Content
 	var pendingCalls []provider.Content
 	var pendingResults []provider.Content
+	var searchCallID string
 
 	kindByCallID := make(map[string]provider.ToolKind)
 
@@ -447,9 +448,18 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			flushResults()
 
 			call := item.InputToolSearchCall
+			searchCallID = call.CallID
+			if searchCallID == "" {
+				// Our output item ID prefixes the shared call ID. Recover it
+				// when hosted call_id is null so Claude's signed replay is stable.
+				searchCallID = strings.TrimPrefix(call.ID, "tsc_")
+				if searchCallID == "" {
+					searchCallID = fmt.Sprintf("search_%d", i)
+				}
+			}
 
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
-				ID:        call.CallID,
+				ID:        searchCallID,
 				Kind:      provider.ToolKindToolSearch,
 				Name:      "tool_search",
 				Execution: call.Execution,
@@ -464,9 +474,13 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			flushCalls()
 
 			output := item.InputToolSearchOutput
+			id := output.CallID
+			if id == "" {
+				id = searchCallID
+			}
 
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
-				ID:        output.CallID,
+				ID:        id,
 				Kind:      provider.ToolKindToolSearch,
 				Execution: output.Execution,
 				Payload:   []byte(output.Tools),

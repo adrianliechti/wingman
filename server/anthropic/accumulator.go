@@ -101,12 +101,15 @@ func NewStreamingAccumulator(messageID, model string, handler StreamEventHandler
 	}
 }
 
-func (s *StreamingAccumulator) startBlock(block *ContentBlock) (int, error) {
+func (s *StreamingAccumulator) startBlock(block *ContentBlock, preserve ...int) (int, error) {
 	// Anthropic-facing tool calls may arrive interleaved from another provider.
 	// Keep existing tool blocks open while another tool starts so later argument
 	// deltas remain enclosed by that block's start/stop events.
 	openBlocks := append([]int(nil), s.openBlocks...)
 	for _, open := range openBlocks {
+		if slices.Contains(preserve, open) {
+			continue
+		}
 		if block.Type == "tool_use" && s.isToolBlock(open) {
 			continue
 		}
@@ -301,6 +304,14 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 		if content.Reasoning != nil && !content.Reasoning.Redacted && (content.Reasoning.Text != "" || content.Reasoning.Summary != "" || content.Reasoning.Signature != "") {
 			reasoning := content.Reasoning
+			// Gemini can deliver an opaque signature after the answer text.
+			// Keep that text open until the signature block is complete so
+			// block-oriented clients finish on the answer, not empty thinking.
+			lateSignature := s.thinkingIndex < 0 && s.textIndex >= 0 && reasoning.Text == "" && reasoning.Summary == "" && reasoning.Signature != ""
+			preserveText := -1
+			if lateSignature {
+				preserveText = s.textIndex
+			}
 
 			// A signature ends a thinking block; a new ID starts the next item
 			if s.thinkingIndex >= 0 && (s.thinkingSigned || (reasoning.ID != "" && s.thinkingID != "" && reasoning.ID != s.thinkingID)) {
@@ -316,7 +327,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					Type:      "thinking",
 					Thinking:  "",
 					Signature: "",
-				})
+				}, preserveText)
 
 				if err != nil {
 					return err
@@ -365,6 +376,11 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 						Signature: encodeSignature(id, reasoning.Signature),
 					},
 				}); err != nil {
+					return err
+				}
+			}
+			if lateSignature {
+				if err := s.stopBlock(s.thinkingIndex); err != nil {
 					return err
 				}
 			}

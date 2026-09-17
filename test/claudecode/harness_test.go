@@ -183,6 +183,7 @@ func runClaude(t *testing.T, binary string, endpoint harness.Endpoint, model, pr
 	if input != "" {
 		writeArtifact(t, filepath.Join(fixture, "input.txt"), []byte(input))
 		writeArtifact(t, filepath.Join(fixture, "output.txt"), []byte("REPLACE_ME\n"))
+		prompt += fmt.Sprintf("\nUse the absolute paths %q and %q. For Read, pass only file_path; these are plain text files.", filepath.Join(fixture, "input.txt"), filepath.Join(fixture, "output.txt"))
 	}
 	r := newRecorder(t, endpoint)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
