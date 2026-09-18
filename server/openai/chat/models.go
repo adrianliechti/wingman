@@ -3,6 +3,8 @@ package chat
 import (
 	"encoding/json"
 	"errors"
+
+	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 type MessageRole string
@@ -405,4 +407,11 @@ type PromptTokensDetails struct {
 
 type CompletionTokensDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
+func reasoningTokenDetails(usage *provider.Usage) *CompletionTokensDetails {
+	if !usage.HasReasoningTokens() {
+		return nil
+	}
+	return &CompletionTokensDetails{ReasoningTokens: *usage.ReasoningTokens}
 }

@@ -90,13 +90,15 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		seenCompactions := make(map[string]struct{})
 
 		var responseID, responseModel string
+		var reasoningContext provider.ReasoningContext
 		var searchCallID string
 
 		emit := func(content provider.Content, status provider.CompletionStatus) bool {
 			return yield(&provider.Completion{
-				ID:     responseID,
-				Model:  responseModel,
-				Status: status,
+				ID:        responseID,
+				Model:     responseModel,
+				Status:    status,
+				Reasoning: reasoningContext,
 
 				Message: &provider.Message{
 					Role:    provider.MessageRoleAssistant,
@@ -113,10 +115,11 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage) bool {
 			return yield(&provider.Completion{
-				ID:     responseID,
-				Model:  responseModel,
-				Status: status,
-				Usage:  usage,
+				ID:        responseID,
+				Model:     responseModel,
+				Status:    status,
+				Usage:     usage,
+				Reasoning: reasoningContext,
 			}, nil)
 		}
 
@@ -150,6 +153,9 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			}
 			if data.Response.Model != "" {
 				responseModel = data.Response.Model
+			}
+			if data.Response.Reasoning.Context != "" {
+				reasoningContext = provider.ReasoningContext(data.Response.Reasoning.Context)
 			}
 
 			switch event := data.AsAny().(type) {
@@ -1656,9 +1662,14 @@ func computerCallToArgs(item responses.ResponseComputerToolCall) map[string]any 
 }
 
 func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
+	var reasoningTokens *int
+	if usage.OutputTokensDetails.JSON.ReasoningTokens.Valid() || usage.OutputTokensDetails.ReasoningTokens > 0 {
+		reasoningTokens = new(int(usage.OutputTokensDetails.ReasoningTokens))
+	}
+
 	if usage.InputTokens == 0 &&
 		usage.OutputTokens == 0 &&
-		usage.InputTokensDetails.CachedTokens == 0 {
+		usage.InputTokensDetails.CachedTokens == 0 && reasoningTokens == nil {
 		return nil
 	}
 
@@ -1666,7 +1677,7 @@ func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
 		InputTokens:  int(usage.InputTokens),
 		OutputTokens: int(usage.OutputTokens),
 
-		ReasoningTokens: int(usage.OutputTokensDetails.ReasoningTokens),
+		ReasoningTokens: reasoningTokens,
 
 		CacheReadInputTokens:     int(usage.InputTokensDetails.CachedTokens),
 		CacheCreationInputTokens: int(usage.InputTokensDetails.CacheWriteTokens),

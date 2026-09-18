@@ -781,8 +781,31 @@ func TestToUsage_ZeroReturnsNil(t *testing.T) {
 	}
 }
 
-// TestToUsage_ReasoningTokens verifies thinking tokens map to ReasoningTokens
-// as a subset of the reasoning-inclusive OutputTokens.
+func TestToUsageReasoningTokenPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw string
+		known     bool
+	}{
+		{"missing breakdown", `{"input_tokens":10,"output_tokens":5}`, false},
+		{"missing count", `{"output_tokens":5,"output_tokens_details":{}}`, false},
+		{"null count", `{"output_tokens":5,"output_tokens_details":{"thinking_tokens":null}}`, false},
+		{"measured zero", `{"output_tokens":5,"output_tokens_details":{"thinking_tokens":0}}`, true},
+		{"all zero", `{"output_tokens_details":{"thinking_tokens":0}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var raw anthropic.BetaUsage
+			if err := json.Unmarshal([]byte(tc.raw), &raw); err != nil {
+				t.Fatal(err)
+			}
+			usage := toUsage(raw)
+			if usage == nil || usage.HasReasoningTokens() != tc.known || tc.known && *usage.ReasoningTokens != 0 {
+				t.Fatalf("usage = %+v, want known=%t", usage, tc.known)
+			}
+		})
+	}
+}
+
+// Thinking tokens remain a subset of the reasoning-inclusive output total.
 func TestToUsage_ReasoningTokens(t *testing.T) {
 	usage := toUsage(anthropic.BetaUsage{
 		InputTokens:         10,
@@ -796,11 +819,14 @@ func TestToUsage_ReasoningTokens(t *testing.T) {
 	if usage.OutputTokens != 30 {
 		t.Errorf("OutputTokens = %d, want 30 (thinking-inclusive)", usage.OutputTokens)
 	}
-	if usage.ReasoningTokens != 12 {
-		t.Errorf("ReasoningTokens = %d, want 12", usage.ReasoningTokens)
+	if usage.ReasoningTokens == nil {
+		t.Fatal("expected reasoning token count")
 	}
-	if usage.ReasoningTokens > usage.OutputTokens {
-		t.Errorf("reasoning tokens (%d) exceed OutputTokens (%d)", usage.ReasoningTokens, usage.OutputTokens)
+	if *usage.ReasoningTokens != 12 {
+		t.Errorf("ReasoningTokens = %d, want 12", *usage.ReasoningTokens)
+	}
+	if *usage.ReasoningTokens > usage.OutputTokens {
+		t.Errorf("reasoning tokens (%d) exceed OutputTokens (%d)", *usage.ReasoningTokens, usage.OutputTokens)
 	}
 }
 

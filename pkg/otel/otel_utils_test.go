@@ -163,7 +163,7 @@ func TestUsageAttrsMatchesGenAISemconv(t *testing.T) {
 	attrs := UsageAttrs(&provider.Usage{
 		InputTokens:              100,
 		OutputTokens:             180,
-		ReasoningTokens:          50,
+		ReasoningTokens:          new(50),
 		CacheReadInputTokens:     50,
 		CacheCreationInputTokens: 25,
 	})
@@ -195,7 +195,7 @@ func TestUsageAttrsMatchesGenAISemconv(t *testing.T) {
 	}
 }
 
-// Zero-valued usage fields are omitted, and nil usage yields no attributes.
+// Unknown reasoning usage is omitted, and nil usage yields no attributes.
 func TestUsageAttrsOmitsZeroAndNil(t *testing.T) {
 	if attrs := UsageAttrs(nil); attrs != nil {
 		t.Fatalf("nil usage: expected no attrs, got %v", attrs)
@@ -210,4 +210,13 @@ func TestUsageAttrsOmitsZeroAndNil(t *testing.T) {
 			t.Errorf("zero-valued field %q must be omitted", string(kv.Key))
 		}
 	}
+}
+
+func TestUsageAttrsPreservesMeasuredZeroReasoning(t *testing.T) {
+	for _, attr := range UsageAttrs(&provider.Usage{ReasoningTokens: new(0)}) {
+		if string(attr.Key) == "gen_ai.usage.reasoning.output_tokens" && attr.Value.AsInt64() == 0 {
+			return
+		}
+	}
+	t.Fatal("measured zero reasoning usage was omitted")
 }

@@ -365,9 +365,9 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 			CacheCreationInputTokens: completion.Usage.CacheCreationInputTokens,
 		}
 
-		if completion.Usage.ReasoningTokens > 0 {
+		if completion.Usage.ReasoningTokens != nil {
 			result.Usage.OutputTokensDetails = &OutputTokensDetails{
-				ThinkingTokens: completion.Usage.ReasoningTokens,
+				ThinkingTokens: *completion.Usage.ReasoningTokens,
 			}
 		}
 	}

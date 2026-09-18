@@ -55,81 +55,30 @@ func TestReasoningOutputInResponseCompletedShape(t *testing.T) {
 	}
 }
 
-// reasoning.context is part of the OpenAI Responses reference response
-// shape. When the client omits it (or asks for "auto"), the response reports
-// the effective mode: "all_turns" for the gpt-5.6 family, "current_turn" for
-// earlier models.
-func TestResponseDefaultsFillsReasoningContext(t *testing.T) {
-	auto := "auto"
-
-	cases := []struct {
-		name  string
-		model string
-		req   ResponsesRequest
-		want  string
-	}{
-		{
-			name: "no reasoning provided",
-			req:  ResponsesRequest{},
-			want: "current_turn",
-		},
-		{
-			name: "reasoning provided without context",
-			req: ResponsesRequest{
-				Reasoning: &ReasoningConfig{},
-			},
-			want: "current_turn",
-		},
-		{
-			name:  "gpt-5.6 defaults to all_turns",
-			model: "gpt-5.6",
-			req:   ResponsesRequest{},
-			want:  "all_turns",
-		},
-		{
-			name:  "auto resolves to the effective mode",
-			model: "gpt-5.6-codex",
-			req: ResponsesRequest{
-				Reasoning: &ReasoningConfig{Context: &auto},
-			},
-			want: "all_turns",
-		},
-		{
-			name:  "earlier models default to current_turn",
-			model: "gpt-5.4",
-			req:   ResponsesRequest{},
-			want:  "current_turn",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp := &Response{Model: tc.model}
-			responseDefaults(resp, tc.req)
-			if resp.Reasoning == nil || resp.Reasoning.Context == nil {
-				t.Fatalf("expected reasoning.context to be set, got %+v", resp.Reasoning)
+func TestResponseDefaultsOnlyReportsProviderReasoningContext(t *testing.T) {
+	for _, model := range []string{"gpt-5.6", "gpt-5.4", "deployment-alias", "bedrock"} {
+		for _, requested := range []string{"", "auto", "all_turns", "current_turn"} {
+			for _, effective := range []provider.ReasoningContext{"", provider.ReasoningContextAuto, provider.ReasoningContextCurrentTurn, provider.ReasoningContextAllTurns} {
+				t.Run(model+"/"+requested+"/"+string(effective), func(t *testing.T) {
+					req := ResponsesRequest{}
+					if requested != "" {
+						req.Reasoning = &ReasoningConfig{Context: &requested}
+					}
+					resp := &Response{Model: model}
+					responseDefaults(resp, req, &provider.Completion{Reasoning: effective})
+					if effective == "" || effective == provider.ReasoningContextAuto {
+						if resp.Reasoning.Context != nil {
+							t.Fatalf("invented effective context: %q", *resp.Reasoning.Context)
+						}
+					} else if resp.Reasoning.Context == nil || *resp.Reasoning.Context != string(effective) {
+						t.Fatalf("reasoning = %+v, want context %q", resp.Reasoning, effective)
+					}
+					if req.Reasoning != nil && *req.Reasoning.Context != requested {
+						t.Fatal("response defaults mutated request reasoning")
+					}
+				})
 			}
-			if *resp.Reasoning.Context != tc.want {
-				t.Fatalf("expected context=%q, got %q", tc.want, *resp.Reasoning.Context)
-			}
-		})
-	}
-}
-
-// When the client explicitly sets a context value, the response must
-// echo it (matches OpenAI's pass-through behavior).
-func TestResponseDefaultsEchoesReasoningContextFromRequest(t *testing.T) {
-	ctx := "ephemeral"
-	resp := &Response{}
-	responseDefaults(resp, ResponsesRequest{
-		Reasoning: &ReasoningConfig{Context: &ctx},
-	})
-
-	if resp.Reasoning == nil || resp.Reasoning.Context == nil {
-		t.Fatalf("expected reasoning.context, got %+v", resp.Reasoning)
-	}
-	if *resp.Reasoning.Context != ctx {
-		t.Fatalf("expected context=%q, got %q", ctx, *resp.Reasoning.Context)
+		}
 	}
 }
 
@@ -351,7 +300,7 @@ func TestResponseDefaultsAddsTextFormatDefault(t *testing.T) {
 	resp := &Response{}
 	responseDefaults(resp, ResponsesRequest{
 		Text: &TextConfig{Verbosity: VerbosityLow},
-	})
+	}, nil)
 
 	if resp.Text == nil {
 		t.Fatal("expected text config")

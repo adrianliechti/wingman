@@ -318,6 +318,9 @@ type Completion struct {
 	Model  string
 	Status CompletionStatus
 
+	// Reasoning is the effective context mode reported by the provider.
+	Reasoning ReasoningContext
+
 	StopReason   StopReason
 	StopDetails  *StopDetails
 	StopSequence string

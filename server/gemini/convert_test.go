@@ -1,10 +1,29 @@
 package gemini
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
+
+func TestUsageMetadataPreservesReasoningPresence(t *testing.T) {
+	for _, count := range []*int{nil, new(0), new(3)} {
+		metadata := toUsageMetadata(&provider.Usage{OutputTokens: 5, ReasoningTokens: count})
+		data, err := json.Marshal(metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wire map[string]any
+		if err := json.Unmarshal(data, &wire); err != nil {
+			t.Fatal(err)
+		}
+		value, reported := wire["thoughtsTokenCount"]
+		if reported != (count != nil) || reported && value != float64(*count) {
+			t.Fatalf("wire usage = %s, want reasoning count %v", data, count)
+		}
+	}
+}
 
 func TestUsageMetadataIncludesCachedTokens(t *testing.T) {
 	metadata := toUsageMetadata(&provider.Usage{
@@ -31,7 +50,7 @@ func TestUsageMetadataSplitsReasoningFromCandidates(t *testing.T) {
 	metadata := toUsageMetadata(&provider.Usage{
 		InputTokens:     100,
 		OutputTokens:    20, // 14 visible + 6 thinking
-		ReasoningTokens: 6,
+		ReasoningTokens: new(6),
 	})
 
 	if metadata == nil {
@@ -40,8 +59,11 @@ func TestUsageMetadataSplitsReasoningFromCandidates(t *testing.T) {
 	if metadata.CandidatesTokenCount != 14 {
 		t.Fatalf("expected candidates token count 14, got %d", metadata.CandidatesTokenCount)
 	}
-	if metadata.ThoughtsTokenCount != 6 {
-		t.Fatalf("expected thoughts token count 6, got %d", metadata.ThoughtsTokenCount)
+	if metadata.ThoughtsTokenCount == nil {
+		t.Fatal("expected thoughts token count")
+	}
+	if *metadata.ThoughtsTokenCount != 6 {
+		t.Fatalf("expected thoughts token count 6, got %d", *metadata.ThoughtsTokenCount)
 	}
 	if metadata.TotalTokenCount != 120 {
 		t.Fatalf("expected total token count 120, got %d", metadata.TotalTokenCount)

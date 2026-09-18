@@ -524,9 +524,9 @@ func (s *StreamingAccumulator) Complete() error {
 		cacheReadInputTokens = result.Usage.CacheReadInputTokens
 		cacheCreationInputTokens = result.Usage.CacheCreationInputTokens
 
-		if result.Usage.ReasoningTokens > 0 {
+		if result.Usage.ReasoningTokens != nil {
 			outputTokensDetails = &OutputTokensDetails{
-				ThinkingTokens: result.Usage.ReasoningTokens,
+				ThinkingTokens: *result.Usage.ReasoningTokens,
 			}
 		}
 	}

@@ -605,6 +605,12 @@ func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *pr
 	if metadata == nil {
 		return nil
 	}
+	// The SDK does not retain field presence, so zero could mean an omitted
+	// breakdown. Only a positive count establishes measured reasoning usage.
+	var reasoningTokens *int
+	if metadata.ThoughtsTokenCount > 0 {
+		reasoningTokens = new(int(metadata.ThoughtsTokenCount))
+	}
 
 	// Gemini's PromptTokenCount already includes cached tokens, and
 	// thoughts tokens are reported separately from candidates. Add thoughts
@@ -614,7 +620,7 @@ func toCompletionUsage(metadata *genai.GenerateContentResponseUsageMetadata) *pr
 		InputTokens:  int(metadata.PromptTokenCount),
 		OutputTokens: int(metadata.CandidatesTokenCount) + int(metadata.ThoughtsTokenCount),
 
-		ReasoningTokens: int(metadata.ThoughtsTokenCount),
+		ReasoningTokens: reasoningTokens,
 
 		CacheReadInputTokens: int(metadata.CachedContentTokenCount),
 	}

@@ -349,7 +349,7 @@ func TestStreamingAccumulatorEmitsThinkingUsage(t *testing.T) {
 			// Cache-inclusive intermediate total: 10 fresh + 40 read + 50 write.
 			InputTokens:              100,
 			OutputTokens:             30,
-			ReasoningTokens:          12,
+			ReasoningTokens:          new(12),
 			CacheReadInputTokens:     40,
 			CacheCreationInputTokens: 50,
 		},

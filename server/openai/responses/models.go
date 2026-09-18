@@ -954,7 +954,7 @@ type Usage struct {
 	InputTokensDetails *InputTokensDetails `json:"input_tokens_details"`
 
 	OutputTokens        int                  `json:"output_tokens"`
-	OutputTokensDetails *OutputTokensDetails `json:"output_tokens_details"`
+	OutputTokensDetails *OutputTokensDetails `json:"output_tokens_details,omitempty"`
 
 	TotalTokens int `json:"total_tokens"`
 }

@@ -579,7 +579,12 @@ func toCompletionStatus(finishReason string) provider.CompletionStatus {
 }
 
 func toUsage(metadata openai.CompletionUsage) *provider.Usage {
-	if metadata.TotalTokens == 0 && metadata.PromptTokensDetails.CachedTokens == 0 {
+	var reasoningTokens *int
+	if metadata.CompletionTokensDetails.JSON.ReasoningTokens.Valid() || metadata.CompletionTokensDetails.ReasoningTokens > 0 {
+		reasoningTokens = new(int(metadata.CompletionTokensDetails.ReasoningTokens))
+	}
+
+	if metadata.TotalTokens == 0 && metadata.PromptTokensDetails.CachedTokens == 0 && reasoningTokens == nil {
 		return nil
 	}
 
@@ -587,7 +592,7 @@ func toUsage(metadata openai.CompletionUsage) *provider.Usage {
 		InputTokens:  int(metadata.PromptTokens),
 		OutputTokens: int(metadata.CompletionTokens),
 
-		ReasoningTokens: int(metadata.CompletionTokensDetails.ReasoningTokens),
+		ReasoningTokens: reasoningTokens,
 
 		CacheReadInputTokens:     int(metadata.PromptTokensDetails.CachedTokens),
 		CacheCreationInputTokens: int(metadata.PromptTokensDetails.CacheWriteTokens),

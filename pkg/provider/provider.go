@@ -106,7 +106,7 @@ type Schema struct {
 // (including reasoning ones). The remaining fields are subsets of those totals:
 //
 //	CacheReadInputTokens + CacheCreationInputTokens <= InputTokens
-//	ReasoningTokens <= OutputTokens
+//	*ReasoningTokens <= OutputTokens (when reported)
 //
 // Each provider's mapping normalizes its native shape to this convention so the
 // server handlers can translate to any wire format without per-provider quirks.
@@ -114,8 +114,14 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 
-	ReasoningTokens int
+	// ReasoningTokens is nil when the provider did not report a breakdown.
+	// A non-nil zero means reasoning usage was measured as zero.
+	ReasoningTokens *int
 
 	CacheReadInputTokens     int
 	CacheCreationInputTokens int
+}
+
+func (u *Usage) HasReasoningTokens() bool {
+	return u != nil && u.ReasoningTokens != nil
 }

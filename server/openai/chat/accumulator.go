@@ -287,9 +287,7 @@ func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 					CachedTokens:     result.Usage.CacheReadInputTokens,
 					CacheWriteTokens: result.Usage.CacheCreationInputTokens,
 				},
-				CompletionTokensDetails: &CompletionTokensDetails{
-					ReasoningTokens: result.Usage.ReasoningTokens,
-				},
+				CompletionTokensDetails: reasoningTokenDetails(result.Usage),
 			},
 		}
 

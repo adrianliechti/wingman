@@ -53,6 +53,50 @@ func TestStreamingAccumulatorMergesUsage(t *testing.T) {
 	}
 }
 
+func TestAccumulatorsPreserveOptionalReasoningUsage(t *testing.T) {
+	for _, kind := range []string{"completion", "stream"} {
+		for _, tc := range []struct {
+			name   string
+			counts []*int
+			want   *int
+		}{
+			{"unknown", []*int{nil, nil}, nil},
+			{"measured zero", []*int{nil, new(0), nil}, new(0)},
+			{"increasing", []*int{new(0), new(3), new(5)}, new(5)},
+			{"missing or smaller later", []*int{new(3), nil, new(0), new(2)}, new(3)},
+		} {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				var completion provider.CompletionAccumulator
+				add := func(c provider.Completion) error { completion.Add(c); return nil }
+				result := completion.Result
+				if kind == "stream" {
+					stream := NewStreamingAccumulator(func(StreamEvent) error { return nil })
+					add, result = stream.Add, stream.Result
+				}
+				if err := add(provider.Completion{Reasoning: provider.ReasoningContextAllTurns}); err != nil {
+					t.Fatal(err)
+				}
+				for _, count := range tc.counts {
+					if err := add(provider.Completion{Usage: &provider.Usage{OutputTokens: 10, ReasoningTokens: count}}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// A caller can reuse the source value after Add; the accumulator
+				// must own its copy of the measured count.
+				for _, count := range tc.counts {
+					if count != nil {
+						*count = 99
+					}
+				}
+				got := result()
+				if got.Reasoning != provider.ReasoningContextAllTurns || got.Usage == nil || !reflect.DeepEqual(got.Usage.ReasoningTokens, tc.want) {
+					t.Fatalf("result = %+v, usage = %+v, want count %v", got, got.Usage, tc.want)
+				}
+			})
+		}
+	}
+}
+
 // When two reasoning items stream through the accumulator (different IDs),
 // each must produce its own reasoning_item.done event with its own
 // encrypted_content — and Result() must report them as two separate

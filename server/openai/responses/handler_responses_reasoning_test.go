@@ -16,12 +16,17 @@ import (
 )
 
 type reasoningStatusCompleter struct {
-	content []provider.Content
-	status  provider.CompletionStatus
+	content          []provider.Content
+	status           provider.CompletionStatus
+	usage            *provider.Usage
+	reasoningContext provider.ReasoningContext
 }
 
 func (c reasoningStatusCompleter) Complete(_ context.Context, _ []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
+		if !yield(&provider.Completion{Reasoning: c.reasoningContext, Usage: c.usage}, nil) {
+			return
+		}
 		for _, content := range c.content {
 			if !yield(&provider.Completion{Message: &provider.Message{
 				Role:    provider.MessageRoleAssistant,
@@ -31,6 +36,81 @@ func (c reasoningStatusCompleter) Complete(_ context.Context, _ []provider.Messa
 			}
 		}
 		yield(&provider.Completion{Status: c.status}, nil)
+	}
+}
+
+func TestResponsesPreserveReasoningMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		context provider.ReasoningContext
+		tokens  *int
+	}{
+		{"unavailable", "", nil},
+		{"measured zero", provider.ReasoningContextCurrentTurn, new(0)},
+		{"measured reasoning", provider.ReasoningContextAllTurns, new(3)},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(tc.name+map[bool]string{false: "/json", true: "/stream"}[stream], func(t *testing.T) {
+				cfg := &config.Config{Policy: noop.New()}
+				cfg.RegisterCompleter("gpt-5.6", reasoningStatusCompleter{
+					content:          []provider.Content{provider.TextContent("Answer")},
+					status:           provider.CompletionStatusCompleted,
+					reasoningContext: tc.context,
+					usage:            &provider.Usage{InputTokens: 10, OutputTokens: 5, ReasoningTokens: tc.tokens},
+				})
+				body, err := json.Marshal(map[string]any{
+					"model": "gpt-5.6", "input": "Think", "stream": stream,
+					"reasoning": map[string]any{"context": "all_turns"},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				rec := httptest.NewRecorder()
+				New(cfg).handleResponses(rec, httptest.NewRequest(http.MethodPost, "/responses", bytes.NewReader(body)))
+				if rec.Code != http.StatusOK {
+					t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+				}
+				var result *Response
+				if stream {
+					for _, line := range strings.Split(rec.Body.String(), "\n") {
+						data, ok := strings.CutPrefix(line, "data: ")
+						if !ok {
+							continue
+						}
+						var event struct {
+							Type     string    `json:"type"`
+							Response *Response `json:"response"`
+						}
+						if err := json.Unmarshal([]byte(data), &event); err != nil {
+							t.Fatal(err)
+						}
+						if event.Type == "response.completed" {
+							result = event.Response
+						}
+					}
+				} else if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				if result == nil || result.Usage == nil || result.Reasoning == nil {
+					t.Fatalf("response = %+v", result)
+				}
+				if tc.context == "" {
+					if result.Reasoning.Context != nil {
+						t.Fatalf("invented context: %q", *result.Reasoning.Context)
+					}
+				} else if result.Reasoning.Context == nil || *result.Reasoning.Context != string(tc.context) {
+					t.Fatalf("reasoning = %+v, want context %q", result.Reasoning, tc.context)
+				}
+				details := result.Usage.OutputTokensDetails
+				if tc.tokens != nil {
+					if details == nil || details.ReasoningTokens != *tc.tokens {
+						t.Fatalf("details = %+v", details)
+					}
+				} else if details != nil {
+					t.Fatalf("invented reasoning tokens: %+v", details)
+				}
+			})
+		}
 	}
 }
 

@@ -85,8 +85,15 @@ func (a *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 			opts.OutputOptions = &provider.OutputOptions{Verbosity: a.verbosity}
 		}
 
-		if opts.ReasoningOptions == nil && a.effort != "" {
-			opts.ReasoningOptions = &provider.ReasoningOptions{Effort: a.effort}
+		// Summary, signature, and retention preferences do not override the
+		// agent's effort default. Explicit thinking controls still take precedence.
+		if r := opts.ReasoningOptions; a.effort != "" && (r == nil || r.Type == "" && r.Effort == "") {
+			reasoning := provider.ReasoningOptions{}
+			if r != nil {
+				reasoning = *r
+			}
+			reasoning.Effort = a.effort
+			opts.ReasoningOptions = &reasoning
 		}
 
 		if opts.Temperature == nil {

@@ -651,10 +651,18 @@ func (c *Completer) converseAdditionalFields(messages []provider.Message, option
 }
 
 // schemaAsTool reports whether schema mode is emulated with a forced tool
-// call: the model has no native JSON-schema output, or the request asks for
-// JSON without a schema (OpenAI json_object, Gemini responseMimeType).
+// call: the model has no native JSON-schema output, the request asks for JSON
+// without a schema, or a non-strict schema allows arbitrary object keys.
 func (c *Completer) schemaAsTool(options *provider.CompleteOptions) bool {
-	return options.Schema != nil && (options.Schema.Properties == nil || !supportsOutputFormat(c.model))
+	if options.Schema == nil {
+		return false
+	}
+	if options.Schema.Properties == nil || !supportsOutputFormat(c.model) {
+		return true
+	}
+	// Native grammars reject dictionaries. Preserve their schema with the
+	// existing non-strict tool emulation instead of closing or rejecting them.
+	return (options.Schema.Strict == nil || !*options.Schema.Strict) && schemaAllowsAdditionalProperties(options.Schema.Properties)
 }
 
 // resolveInput lowers the shared conversation features Converse has no
@@ -668,6 +676,16 @@ func (c *Completer) resolveInput(messages []provider.Message, options *provider.
 }
 
 func (c *Completer) convertConverseInput(input []provider.Message, options *provider.CompleteOptions) (*bedrockruntime.ConverseInput, error) {
+	if options != nil && options.ReasoningOptions != nil {
+		mode := options.ReasoningOptions.Context
+		if mode != "" && mode != provider.ReasoningContextAuto {
+			return nil, &provider.ProviderError{
+				Code:    400,
+				Type:    "invalid_request_error",
+				Message: "Bedrock Converse does not support explicit reasoning.context; omit it or use auto",
+			}
+		}
+	}
 	input, options = c.resolveInput(input, options)
 
 	midSystem := c.supportsMidSystem()
@@ -1042,10 +1060,16 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 					},
 				})
 			} else {
+				// The Responses API presents signed thinking text as a summary.
+				// Restore it exactly, as the native Anthropic adapter does.
+				text := c.Reasoning.Text
+				if text == "" {
+					text = c.Reasoning.Summary
+				}
 				reasoning = append(reasoning, &types.ContentBlockMemberReasoningContent{
 					Value: &types.ReasoningContentBlockMemberReasoningText{
 						Value: types.ReasoningTextBlock{
-							Text:      aws.String(c.Reasoning.Text),
+							Text:      aws.String(text),
 							Signature: aws.String(c.Reasoning.Signature),
 						},
 					},

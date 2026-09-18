@@ -130,10 +130,15 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 			}
 		}
 
-		if opts.ReasoningOptions == nil && c.effort != "" {
-			opts.ReasoningOptions = &provider.ReasoningOptions{
-				Effort: c.effort,
+		// Summary, signature, and retention preferences do not override the
+		// agent's effort default. Explicit thinking controls still take precedence.
+		if r := opts.ReasoningOptions; c.effort != "" && (r == nil || r.Type == "" && r.Effort == "") {
+			reasoning := provider.ReasoningOptions{}
+			if r != nil {
+				reasoning = *r
 			}
+			reasoning.Effort = c.effort
+			opts.ReasoningOptions = &reasoning
 		}
 
 		if opts.Temperature == nil {
@@ -207,8 +212,9 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 				acc.Add(*completion)
 
 				delta := &provider.Completion{
-					ID:    accID,
-					Model: c.model,
+					ID:        accID,
+					Model:     c.model,
+					Reasoning: completion.Reasoning,
 
 					Usage: completion.Usage,
 				}
@@ -265,15 +271,21 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 				return
 			}
 
-			var hasAgentCall, hasCallerCall bool
+			var agentCalls []provider.ToolCall
+			var hasCallerCall bool
 
 			for _, cnt := range completion.Message.Content {
 				if cnt.ToolCall == nil {
 					continue
 				}
+				// Hosted discovery has already executed upstream. Keep it in
+				// the transcript, but it needs neither an agent nor caller result.
+				if cnt.ToolCall.Kind == provider.ToolKindToolSearch && cnt.ToolCall.Execution != "client" {
+					continue
+				}
 
 				if _, isAgent := agentTools[cnt.ToolCall.Name]; isAgent {
-					hasAgentCall = true
+					agentCalls = append(agentCalls, *cnt.ToolCall)
 				} else {
 					hasCallerCall = true
 				}
@@ -283,27 +295,23 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 			// the stream for the caller to handle. A single assistant turn cannot
 			// span both — the chain would either loop without the caller's result
 			// (provider 400) or yield without the agent result (lost work).
-			if hasAgentCall && hasCallerCall {
+			if len(agentCalls) > 0 && hasCallerCall {
 				yield(nil, errors.New("agent: model returned both agent-handled and caller-handled tool calls in one turn"))
 				return
 			}
 
-			if !hasAgentCall {
+			if len(agentCalls) == 0 {
 				return
 			}
 
 			input = append(input, *completion.Message)
 
-			for _, cnt := range completion.Message.Content {
-				if cnt.ToolCall == nil {
-					continue
-				}
-
-				t := agentTools[cnt.ToolCall.Name]
+			for _, call := range agentCalls {
+				t := agentTools[call.Name]
 
 				var params map[string]any
 
-				if err := json.Unmarshal([]byte(cnt.ToolCall.Arguments), &params); err != nil {
+				if err := json.Unmarshal([]byte(call.Arguments), &params); err != nil {
 					yield(nil, err)
 					return
 				}
@@ -311,20 +319,20 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 				if c.observer != nil {
 					c.observer(ctx, ToolEvent{
 						Phase:  ToolPhaseStart,
-						CallID: cnt.ToolCall.ID,
-						Name:   cnt.ToolCall.Name,
+						CallID: call.ID,
+						Name:   call.Name,
 						Input:  params,
 					})
 				}
 
-				result, err := t.Execute(ctx, cnt.ToolCall.Name, params)
+				result, err := t.Execute(ctx, call.Name, params)
 
 				if err != nil {
 					if c.observer != nil {
 						c.observer(ctx, ToolEvent{
 							Phase:  ToolPhaseError,
-							CallID: cnt.ToolCall.ID,
-							Name:   cnt.ToolCall.Name,
+							CallID: call.ID,
+							Name:   call.Name,
 							Input:  params,
 							Error:  err,
 						})
@@ -334,7 +342,7 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 						Role: provider.MessageRoleUser,
 						Content: []provider.Content{
 							provider.ToolResultContent(provider.ToolResult{
-								ID:    cnt.ToolCall.ID,
+								ID:    call.ID,
 								Parts: []provider.Part{{Text: "Error: " + err.Error()}},
 							}),
 						},
@@ -343,7 +351,7 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 					continue
 				}
 
-				toolResult, err := renderToolResult(t, cnt.ToolCall.ID, cnt.ToolCall.Name, result)
+				toolResult, err := renderToolResult(t, call.ID, call.Name, result)
 
 				if err != nil {
 					yield(nil, err)
@@ -353,8 +361,8 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 				if c.observer != nil {
 					c.observer(ctx, ToolEvent{
 						Phase:  ToolPhaseResult,
-						CallID: cnt.ToolCall.ID,
-						Name:   cnt.ToolCall.Name,
+						CallID: call.ID,
+						Name:   call.Name,
 						Input:  params,
 						Result: &toolResult,
 					})

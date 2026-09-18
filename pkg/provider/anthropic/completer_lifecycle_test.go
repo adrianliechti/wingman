@@ -192,32 +192,47 @@ func TestCompleterResumesPauses(t *testing.T) {
 }
 
 func TestCompleterPreservesThinkingUsageAcrossPauses(t *testing.T) {
-	requests := 0
-	client := &http.Client{Transport: lifecycleTransport(func(*http.Request) (*http.Response, error) {
-		requests++
-		reason := "end_turn"
-		if requests == 1 {
-			reason = "pause_turn"
-		}
-		// The final usage delta can omit details reported by an earlier delta.
-		// They must survive accumulation and contribute to the resumed total.
-		events := strings.Replace(lifecycleEvents(reason, true), "event: message_delta\n",
-			sseEvent("message_delta", `{"type":"message_delta","delta":{"stop_reason":null},"usage":{"output_tokens":3,"output_tokens_details":{"thinking_tokens":2}}}`)+"event: message_delta\n", 1)
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(events))}, nil
-	})}
-	c, err := NewCompleter("http://anthropic.test", "claude-test", WithClient(client), WithMaxRetries(0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var acc provider.CompletionAccumulator
-	for delta, err := range c.Complete(t.Context(), []provider.Message{provider.UserMessage("work")}, nil) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		acc.Add(*delta)
-	}
-	usage := acc.Result().Usage
-	if requests != 2 || usage == nil || usage.ReasoningTokens != 4 || usage.OutputTokens != 8 {
-		t.Fatalf("requests=%d usage=%+v, want 4 thinking tokens across 2 messages", requests, usage)
+	for _, tc := range []struct {
+		name    string
+		details string
+		want    *int
+	}{
+		{"unknown", "", nil},
+		{"zero", `,"output_tokens_details":{"thinking_tokens":0}`, new(0)},
+		{"positive", `,"output_tokens_details":{"thinking_tokens":2}`, new(4)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := 0
+			client := &http.Client{Transport: lifecycleTransport(func(*http.Request) (*http.Response, error) {
+				requests++
+				reason := "end_turn"
+				if requests == 1 {
+					reason = "pause_turn"
+				}
+				// The final usage delta can omit details reported by an earlier delta.
+				// They must survive accumulation and contribute to the resumed total.
+				events := strings.Replace(lifecycleEvents(reason, true), "event: message_delta\n",
+					sseEvent("message_delta", `{"type":"message_delta","delta":{"stop_reason":null},"usage":{"output_tokens":3`+tc.details+`}}`)+"event: message_delta\n", 1)
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(events))}, nil
+			})}
+			c, err := NewCompleter("http://anthropic.test", "claude-test", WithClient(client), WithMaxRetries(0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var acc provider.CompletionAccumulator
+			for delta, err := range c.Complete(t.Context(), []provider.Message{provider.UserMessage("work")}, nil) {
+				if err != nil {
+					t.Fatal(err)
+				}
+				acc.Add(*delta)
+			}
+			usage := acc.Result().Usage
+			if requests != 2 || usage == nil || usage.OutputTokens != 8 {
+				t.Fatalf("requests=%d usage=%+v, want usage across 2 messages", requests, usage)
+			}
+			if usage.HasReasoningTokens() != (tc.want != nil) || tc.want != nil && *usage.ReasoningTokens != *tc.want {
+				t.Fatalf("usage=%+v, want reasoning count %v", usage, tc.want)
+			}
+		})
 	}
 }

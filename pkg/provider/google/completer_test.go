@@ -161,14 +161,17 @@ func TestToCompletionUsage_ReasoningAndCacheInclusive(t *testing.T) {
 	if usage.OutputTokens != 20 {
 		t.Errorf("OutputTokens = %d, want 20 (14 visible + 6 thinking)", usage.OutputTokens)
 	}
-	if usage.ReasoningTokens != 6 {
-		t.Errorf("ReasoningTokens = %d, want 6", usage.ReasoningTokens)
+	if usage.ReasoningTokens == nil {
+		t.Fatal("expected reasoning token count")
+	}
+	if *usage.ReasoningTokens != 6 {
+		t.Errorf("ReasoningTokens = %d, want 6", *usage.ReasoningTokens)
 	}
 	if usage.CacheReadInputTokens != 40 {
 		t.Errorf("CacheReadInputTokens = %d, want 40", usage.CacheReadInputTokens)
 	}
-	if usage.ReasoningTokens > usage.OutputTokens {
-		t.Errorf("reasoning tokens (%d) exceed OutputTokens (%d)", usage.ReasoningTokens, usage.OutputTokens)
+	if *usage.ReasoningTokens > usage.OutputTokens {
+		t.Errorf("reasoning tokens (%d) exceed OutputTokens (%d)", *usage.ReasoningTokens, usage.OutputTokens)
 	}
 }
 

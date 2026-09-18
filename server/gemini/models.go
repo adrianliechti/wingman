@@ -173,12 +173,12 @@ type SafetyRating struct {
 
 // UsageMetadata contains token usage information
 type UsageMetadata struct {
-	PromptTokenCount        int `json:"promptTokenCount,omitempty"`
-	CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
-	CandidatesTokenCount    int `json:"candidatesTokenCount,omitempty"`
-	ToolUsePromptTokenCount int `json:"toolUsePromptTokenCount,omitempty"`
-	ThoughtsTokenCount      int `json:"thoughtsTokenCount,omitempty"`
-	TotalTokenCount         int `json:"totalTokenCount,omitempty"`
+	PromptTokenCount        int  `json:"promptTokenCount,omitempty"`
+	CachedContentTokenCount int  `json:"cachedContentTokenCount,omitempty"`
+	CandidatesTokenCount    int  `json:"candidatesTokenCount,omitempty"`
+	ToolUsePromptTokenCount int  `json:"toolUsePromptTokenCount,omitempty"`
+	ThoughtsTokenCount      *int `json:"thoughtsTokenCount,omitempty"`
+	TotalTokenCount         int  `json:"totalTokenCount,omitempty"`
 
 	PromptTokensDetails        []*ModalityTokenCount `json:"promptTokensDetails,omitempty"`
 	CacheTokensDetails         []*ModalityTokenCount `json:"cacheTokensDetails,omitempty"`

@@ -275,8 +275,11 @@ func TestToUsage_CacheInclusiveInputTokens(t *testing.T) {
 	if usage.OutputTokens != 7 {
 		t.Errorf("OutputTokens = %d, want 7", usage.OutputTokens)
 	}
-	if usage.ReasoningTokens != 3 {
-		t.Errorf("ReasoningTokens = %d, want 3", usage.ReasoningTokens)
+	if usage.ReasoningTokens == nil {
+		t.Fatal("expected reasoning token count")
+	}
+	if *usage.ReasoningTokens != 3 {
+		t.Errorf("ReasoningTokens = %d, want 3", *usage.ReasoningTokens)
 	}
 	if usage.CacheReadInputTokens != 40 {
 		t.Errorf("CacheReadInputTokens = %d, want 40", usage.CacheReadInputTokens)

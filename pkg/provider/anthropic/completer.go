@@ -78,7 +78,13 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 					if delta.Usage != nil {
 						delta.Usage.InputTokens += previousUsage.InputTokens
 						delta.Usage.OutputTokens += previousUsage.OutputTokens
-						delta.Usage.ReasoningTokens += previousUsage.ReasoningTokens
+						if previousUsage.ReasoningTokens != nil {
+							tokens := *previousUsage.ReasoningTokens
+							if delta.Usage.ReasoningTokens != nil {
+								tokens += *delta.Usage.ReasoningTokens
+							}
+							delta.Usage.ReasoningTokens = new(tokens)
+						}
 						delta.Usage.CacheReadInputTokens += previousUsage.CacheReadInputTokens
 						delta.Usage.CacheCreationInputTokens += previousUsage.CacheCreationInputTokens
 						usage = *delta.Usage
@@ -1271,10 +1277,15 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 }
 
 func toUsage(usage anthropic.BetaUsage) *provider.Usage {
+	var reasoningTokens *int
+	if usage.OutputTokensDetails.JSON.ThinkingTokens.Valid() || usage.OutputTokensDetails.ThinkingTokens > 0 {
+		reasoningTokens = new(int(usage.OutputTokensDetails.ThinkingTokens))
+	}
+
 	if usage.InputTokens == 0 &&
 		usage.OutputTokens == 0 &&
 		usage.CacheReadInputTokens == 0 &&
-		usage.CacheCreationInputTokens == 0 && len(usage.Iterations) == 0 {
+		usage.CacheCreationInputTokens == 0 && len(usage.Iterations) == 0 && reasoningTokens == nil {
 		return nil
 	}
 
@@ -1288,7 +1299,7 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 		InputTokens:  int(usage.InputTokens) + cacheReadInputTokens + cacheCreationInputTokens,
 		OutputTokens: int(usage.OutputTokens),
 
-		ReasoningTokens: int(usage.OutputTokensDetails.ThinkingTokens),
+		ReasoningTokens: reasoningTokens,
 
 		CacheReadInputTokens:     cacheReadInputTokens,
 		CacheCreationInputTokens: cacheCreationInputTokens,

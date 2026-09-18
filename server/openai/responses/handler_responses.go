@@ -277,6 +277,10 @@ func responseUsage(usage *provider.Usage) *Usage {
 	if usage == nil {
 		return nil
 	}
+	var reasoning *OutputTokensDetails
+	if usage.HasReasoningTokens() {
+		reasoning = &OutputTokensDetails{ReasoningTokens: *usage.ReasoningTokens}
+	}
 
 	return &Usage{
 		InputTokens: usage.InputTokens,
@@ -285,17 +289,15 @@ func responseUsage(usage *provider.Usage) *Usage {
 			CacheWriteTokens: usage.CacheCreationInputTokens,
 		},
 
-		OutputTokens: usage.OutputTokens,
-		OutputTokensDetails: &OutputTokensDetails{
-			ReasoningTokens: usage.ReasoningTokens,
-		},
+		OutputTokens:        usage.OutputTokens,
+		OutputTokensDetails: reasoning,
 
 		TotalTokens: usage.InputTokens + usage.OutputTokens,
 	}
 }
 
 // responseDefaults populates the OpenAI-compatible default fields on a Response.
-func responseDefaults(resp *Response, req ResponsesRequest) {
+func responseDefaults(resp *Response, req ResponsesRequest, completion *provider.Completion) {
 	resp.Object = "response"
 	resp.Background = false
 	resp.Store = false
@@ -330,7 +332,8 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	}
 
 	if req.Reasoning != nil {
-		resp.Reasoning = req.Reasoning
+		reasoning := *req.Reasoning
+		resp.Reasoning = &reasoning
 	} else {
 		effort := ReasoningEffortNone
 		resp.Reasoning = &ReasoningConfig{
@@ -343,8 +346,14 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 		resp.Reasoning.Effort = &effort
 	}
 
-	if resp.Reasoning.Context == nil || *resp.Reasoning.Context == "auto" {
-		resp.Reasoning.Context = new(effectiveReasoningContext(resp.Model))
+	// A request preference or a model-name guess is not an effective mode.
+	// Leave it unavailable unless the provider reported the mode it used.
+	resp.Reasoning.Context = nil
+	if completion != nil {
+		switch completion.Reasoning {
+		case provider.ReasoningContextCurrentTurn, provider.ReasoningContextAllTurns:
+			resp.Reasoning.Context = new(string(completion.Reasoning))
+		}
 	}
 
 	if req.Text != nil {
@@ -406,17 +415,6 @@ func responseDefaults(resp *Response, req ResponsesRequest) {
 	if resp.Output == nil {
 		resp.Output = []ResponseOutput{}
 	}
-}
-
-// effectiveReasoningContext returns the reasoning context mode a model uses
-// when the request omits it or leaves it on "auto": the gpt-5.6 family
-// defaults to "all_turns", earlier models to "current_turn".
-func effectiveReasoningContext(model string) string {
-	if strings.Contains(strings.ToLower(model), "gpt-5.6") {
-		return "all_turns"
-	}
-
-	return "current_turn"
 }
 
 // reasoningRequested returns true if the request explicitly asks for reasoning output.
@@ -751,7 +749,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			Model:     req.Model,
 			Output:    output,
 		}
-		responseDefaults(resp, req)
+		responseDefaults(resp, req, nil)
 		return resp
 	}
 
@@ -1375,7 +1373,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 				Output:      responseOutputs(event.Completion.Message, &ids, "completed", outputOpts),
 				Usage:       responseUsage(event.Completion.Usage),
 			}
-			responseDefaults(response, req)
+			responseDefaults(response, req, event.Completion)
 
 			return writeEvent(w, "response.completed", ResponseCompletedEvent{
 				Type:           "response.completed",
@@ -1395,7 +1393,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 			if contentFiltered(event.Completion) {
 				response.IncompleteDetails = &IncompleteDetails{Reason: "content_filter"}
 			}
-			responseDefaults(response, req)
+			responseDefaults(response, req, event.Completion)
 
 			return writeEvent(w, "response.incomplete", ResponseIncompleteEvent{
 				Type:           "response.incomplete",
@@ -1427,7 +1425,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 					Message: event.Error.Error(),
 				},
 			}
-			responseDefaults(failResp, req)
+			responseDefaults(failResp, req, event.Completion)
 
 			return writeEvent(w, "response.failed", ResponseFailedEvent{
 				Type:           "response.failed",
@@ -1536,7 +1534,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	responseDefaults(&result, req)
+	responseDefaults(&result, req, completion)
 
 	writeJson(w, result)
 }

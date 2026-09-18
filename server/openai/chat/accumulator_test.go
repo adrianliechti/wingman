@@ -254,7 +254,7 @@ func TestStreamingAccumulatorUsageIncludesReasoningAndTotal(t *testing.T) {
 		Usage: &provider.Usage{
 			InputTokens:          100,
 			OutputTokens:         30,
-			ReasoningTokens:      12,
+			ReasoningTokens:      new(12),
 			CacheReadInputTokens: 80,
 		},
 	}); err != nil {

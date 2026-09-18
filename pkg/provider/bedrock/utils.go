@@ -163,6 +163,38 @@ func (c *Completer) resolveThinking(messages []provider.Message, options *provid
 	return t
 }
 
+// Check schema nodes, not annotations or property names: a property named
+// "additionalProperties" is unrelated to the keyword on its containing schema.
+func schemaAllowsAdditionalProperties(schema map[string]any) bool {
+	if additional, ok := schema["additionalProperties"]; ok && additional != false {
+		return true
+	}
+	for _, key := range []string{"properties", "$defs", "definitions", "patternProperties", "dependentSchemas"} {
+		if children, ok := schema[key].(map[string]any); ok {
+			for _, child := range children {
+				if nested, ok := child.(map[string]any); ok && schemaAllowsAdditionalProperties(nested) {
+					return true
+				}
+			}
+		}
+	}
+	for _, key := range []string{"items", "contains", "propertyNames", "not", "if", "then", "else", "additionalItems", "unevaluatedItems", "unevaluatedProperties"} {
+		if nested, ok := schema[key].(map[string]any); ok && schemaAllowsAdditionalProperties(nested) {
+			return true
+		}
+	}
+	for _, key := range []string{"anyOf", "allOf", "oneOf", "prefixItems", "items"} {
+		if children, ok := schema[key].([]any); ok {
+			for _, child := range children {
+				if nested, ok := child.(map[string]any); ok && schemaAllowsAdditionalProperties(nested) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func ensureAdditionalPropertiesFalse(schema map[string]any) map[string]any {
 	if schema == nil {
 		return schema
