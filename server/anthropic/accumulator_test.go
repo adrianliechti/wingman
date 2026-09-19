@@ -433,3 +433,46 @@ func TestStreamingAccumulatorSummaryReasoning(t *testing.T) {
 		t.Errorf("expected signature_delta on the summary block, got %v", signatures)
 	}
 }
+
+// Message items arrive with IDs from OpenAI (commentary and final answer) or
+// from a resumed Claude turn. Streaming emits one text block per item, as the
+// non-streaming response does.
+func TestStreamingAccumulatorSplitsTextBlocksPerMessageItem(t *testing.T) {
+	var events []StreamEvent
+	acc := NewStreamingAccumulator("msg_test", "model", func(e StreamEvent) error {
+		events = append(events, e)
+		return nil
+	})
+	add := func(parts ...provider.Content) {
+		t.Helper()
+		if err := acc.Add(provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: parts}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(provider.Content{MessageID: "msg_1", Phase: provider.MessagePhaseCommentary})
+	add(provider.Content{MessageID: "msg_1", Text: "Looking it up."})
+	add(provider.Content{MessageID: "msg_2", Phase: provider.MessagePhaseFinalAnswer})
+	add(provider.Content{MessageID: "msg_2", Text: "42"})
+	if err := acc.Complete(); err != nil {
+		t.Fatal(err)
+	}
+
+	var blocks []string
+	texts := map[int]string{}
+	for _, e := range events {
+		switch e.Type {
+		case StreamEventContentBlockStart:
+			blocks = append(blocks, e.ContentBlock.Type)
+		case StreamEventContentBlockDelta:
+			texts[e.Index] += e.Delta.Text
+		}
+	}
+	if len(blocks) != 2 || blocks[0] != "text" || blocks[1] != "text" || texts[0] != "Looking it up." || texts[1] != "42" {
+		t.Fatalf("streamed blocks = %v %v, want one text block per message item", blocks, texts)
+	}
+
+	content := toContentBlocks(acc.Result().Message.Content)
+	if len(content) != 2 || *content[0].Text != "Looking it up." || *content[1].Text != "42" {
+		t.Fatalf("non-streaming blocks = %+v, want the same two text blocks", content)
+	}
+}

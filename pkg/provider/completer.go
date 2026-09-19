@@ -11,7 +11,11 @@ type Completer interface {
 }
 
 type Message struct {
-	Role  MessageRole
+	Role MessageRole
+
+	// Phase labels an assistant message item (commentary or final answer) in
+	// replayed history and in SplitMessages results. Streamed parts carry
+	// their phase on Content instead.
 	Phase MessagePhase
 
 	Content []Content
@@ -412,26 +416,24 @@ type CompactionOptions struct {
 }
 
 // SplitMessages restores the message items of an accumulated assistant
-// response. A text or refusal part with a MessageID starts a new item when
-// the ID changes, or when an identified item would otherwise mix text and a
-// refusal. Reasoning and tool calls stay with the item they were streamed
-// with. Messages without identified parts come back as is.
+// response. A text or refusal part whose MessageID differs from the current
+// item's starts a new item. Reasoning and tool calls stay with the item they
+// were streamed with. Messages without identified parts come back as is.
 func (m Message) SplitMessages() []Message {
 	var messages []Message
 
 	current := Message{Role: m.Role, Phase: m.Phase}
 	currentID := ""
-	hasText, hasRefusal := false, false
+	filled := false
 
 	for _, content := range m.Content {
-		text, refusal := content.Text != "", content.Refusal != ""
-		mixed := (text && hasRefusal) || (refusal && hasText)
+		part := content.Text != "" || content.Refusal != ""
 
-		if (text || refusal) && content.MessageID != "" && (content.MessageID != currentID || mixed) {
-			if hasText || hasRefusal {
+		if part && content.MessageID != "" && content.MessageID != currentID {
+			if filled {
 				messages = append(messages, current)
 				current = Message{Role: m.Role}
-				hasText, hasRefusal = false, false
+				filled = false
 			}
 
 			currentID = content.MessageID
@@ -439,7 +441,7 @@ func (m Message) SplitMessages() []Message {
 		}
 
 		current.Content = append(current.Content, content)
-		hasText, hasRefusal = hasText || text, hasRefusal || refusal
+		filled = filled || part
 	}
 
 	if len(current.Content) > 0 || len(messages) == 0 {

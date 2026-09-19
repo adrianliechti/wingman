@@ -12,8 +12,7 @@ type CompletionAccumulator struct {
 	stopDetails  *StopDetails
 	stopSequence string
 
-	role  MessageRole
-	phase MessagePhase
+	role MessageRole
 
 	messages []*accumulatedMessage
 
@@ -96,23 +95,13 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		if c.Message.Role != "" {
 			a.role = c.Message.Role
 		}
-		if c.Message.Phase != "" {
-			a.phase = c.Message.Phase
-
-			// Identified items carry their own phase; a message-level phase
-			// describes the enclosing, unidentified message.
-			if n := len(a.messages); n > 0 && a.messages[n-1].id == "" {
-				a.messages[n-1].phase = a.phase
-			}
-		}
-
 		for _, c := range c.Message.Content {
 			if c.MessageID != "" {
 				a.beginMessage(c.MessageID, c.Phase)
 			}
 
 			if c.Text != "" {
-				message := a.currentMessage(accumulatedContentText)
+				message := a.currentMessage()
 
 				if message.text.Len() == 0 {
 					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentText, index: len(a.messages) - 1})
@@ -122,7 +111,7 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			}
 
 			if c.Refusal != "" {
-				message := a.currentMessage(accumulatedContentRefusal)
+				message := a.currentMessage()
 
 				if message.refusal.Len() == 0 {
 					a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentRefusal, index: len(a.messages) - 1})
@@ -181,7 +170,6 @@ func (a *CompletionAccumulator) beginMessage(id string, phase MessagePhase) {
 	if n > 0 && a.messages[n-1].id == id {
 		if phase != "" {
 			a.messages[n-1].phase = phase
-			a.phase = phase
 		}
 
 		return
@@ -194,24 +182,14 @@ func (a *CompletionAccumulator) beginMessage(id string, phase MessagePhase) {
 	message := a.messages[len(a.messages)-1]
 	message.id = id
 	message.phase = phase
-	a.phase = phase
 }
 
-func (a *CompletionAccumulator) currentMessage(kind accumulatedContentKind) *accumulatedMessage {
+func (a *CompletionAccumulator) currentMessage() *accumulatedMessage {
 	if len(a.messages) == 0 {
-		a.messages = append(a.messages, &accumulatedMessage{phase: a.phase})
+		a.messages = append(a.messages, &accumulatedMessage{})
 	}
 
-	message := a.messages[len(a.messages)-1]
-	mixed := (kind == accumulatedContentText && message.refusal.Len() > 0) || (kind == accumulatedContentRefusal && message.text.Len() > 0)
-	if message.id != "" && mixed {
-		// Split before merging bytes: SplitMessages cannot restore the order
-		// once text on either side of a refusal has been concatenated.
-		message = &accumulatedMessage{id: message.id, phase: message.phase}
-		a.messages = append(a.messages, message)
-	}
-
-	return message
+	return a.messages[len(a.messages)-1]
 }
 
 // Distinct IDs are kept as separate entries; without an ID, deltas merge into
@@ -389,7 +367,6 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 		Message: &Message{
 			Role:    a.role,
-			Phase:   a.phase,
 			Content: content,
 		},
 

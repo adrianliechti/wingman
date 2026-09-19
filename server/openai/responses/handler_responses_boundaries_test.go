@@ -58,6 +58,7 @@ func TestResponsesMessageBoundaries(t *testing.T) {
 					} `json:"output"`
 				}
 				added, done := map[string]string{}, map[string]string{}
+				var responseID string
 				payload := rec.Body.Bytes()
 				if stream {
 					payload = nil
@@ -76,9 +77,10 @@ func TestResponsesMessageBoundaries(t *testing.T) {
 						switch event.Type {
 						case "response.created", "response.in_progress":
 							var response struct{ ID string }
-							if err := json.Unmarshal(event.Response, &response); err != nil || response.ID != "resp_test" {
-								t.Fatalf("lost native response ID in %s: %s (%v)", event.Type, event.Response, err)
+							if err := json.Unmarshal(event.Response, &response); err != nil || response.ID == "" || (responseID != "" && response.ID != responseID) {
+								t.Fatalf("response ID missing or changed in %s: %s (%v)", event.Type, event.Response, err)
 							}
+							responseID = response.ID
 						case "response.completed":
 							payload = event.Response
 						case "response.output_item.added":
@@ -94,7 +96,7 @@ func TestResponsesMessageBoundaries(t *testing.T) {
 				if err := json.Unmarshal(payload, &result); err != nil {
 					t.Fatalf("missing final response: %v", err)
 				}
-				if result.ID != "resp_test" || result.Status != "completed" || len(result.Output) != len(phases) {
+				if result.ID == "" || (stream && result.ID != responseID) || result.Status != "completed" || len(result.Output) != len(phases) {
 					t.Fatalf("message boundaries lost: %+v", result)
 				}
 				for i, item := range result.Output {

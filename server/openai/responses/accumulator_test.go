@@ -439,7 +439,7 @@ func TestStreamingAccumulatorResultPreservesToolCallMetadata(t *testing.T) {
 	}
 }
 
-func TestStreamingAccumulatorPreservesPhaseAndAsync(t *testing.T) {
+func TestStreamingAccumulatorPreservesAsync(t *testing.T) {
 	var added, done StreamEvent
 	acc := NewStreamingAccumulator(func(event StreamEvent) error {
 		switch event.Type {
@@ -452,8 +452,7 @@ func TestStreamingAccumulatorPreservesPhaseAndAsync(t *testing.T) {
 	})
 
 	if err := acc.Add(provider.Completion{Message: &provider.Message{
-		Role:  provider.MessageRoleAssistant,
-		Phase: provider.MessagePhaseCommentary,
+		Role: provider.MessageRoleAssistant,
 		Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{
 			ID: "call_async", Async: true, Name: "lookup", Arguments: `{}`,
 		})},
@@ -467,11 +466,7 @@ func TestStreamingAccumulatorPreservesPhaseAndAsync(t *testing.T) {
 	if !added.ToolCallAsync || !done.ToolCallAsync {
 		t.Fatalf("async metadata lost: added=%+v done=%+v", added, done)
 	}
-	result := acc.Result()
-	if result.Message.Phase != provider.MessagePhaseCommentary {
-		t.Fatalf("phase = %q, want commentary", result.Message.Phase)
-	}
-	calls := result.Message.ToolCalls()
+	calls := acc.Result().Message.ToolCalls()
 	if len(calls) != 1 || !calls[0].Async {
 		t.Fatalf("result async metadata lost: %+v", calls)
 	}
@@ -691,69 +686,46 @@ func TestStreamingAccumulatorFilteredItemStatus(t *testing.T) {
 	}
 }
 
-func TestAccumulatorsPreserveAlternatingMessageParts(t *testing.T) {
-	for _, phase := range []provider.MessagePhase{"", provider.MessagePhaseFinalAnswer} {
-		for _, repeatID := range []bool{false, true} {
-			for _, tc := range []struct {
-				name  string
-				parts []provider.Content
-			}{
-				{"text-refusal-text", []provider.Content{{Text: "first"}, {Refusal: "refusal"}, {Text: "last"}}},
-				{"refusal-text-refusal", []provider.Content{{Refusal: "first"}, {Text: "text"}, {Refusal: "last"}}},
-			} {
-				t.Run(fmt.Sprintf("%s/phase=%s/repeatID=%t", tc.name, phase, repeatID), func(t *testing.T) {
-					var plain provider.CompletionAccumulator
-					var ids messageIDs
-					var addedIDs []string
-					streamed := NewStreamingAccumulator(func(e StreamEvent) error {
-						if e.Type == StreamEventOutputItemAdded {
-							addedIDs = append(addedIDs, ids.get(e.MessageIndex, e.MessageID))
-						}
-						return nil
-					})
-					add := func(part provider.Content) {
-						t.Helper()
-						chunk := provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{part}}}
-						plain.Add(chunk)
-						if err := streamed.Add(chunk); err != nil {
-							t.Fatal(err)
-						}
-					}
-					add(provider.Content{MessageID: "msg_1", Phase: phase})
-					var want []provider.Message
-					for _, part := range tc.parts {
-						if repeatID {
-							part.MessageID = "msg_1"
-						}
-						add(part)
-						part.MessageID, part.Phase = "msg_1", phase
-						want = append(want, provider.Message{Role: provider.MessageRoleAssistant, Phase: phase, Content: []provider.Content{part}})
-					}
-					if err := streamed.Complete(); err != nil {
-						t.Fatal(err)
-					}
-					outputs := responseOutputs(streamed.Result().Message, &ids, "completed", responseOutputOptions{})
-					if len(addedIDs) != len(want) || len(outputs) != len(want) || addedIDs[0] != "msg_1" {
-						t.Fatalf("lost native item ID: added=%v, outputs=%+v", addedIDs, outputs)
-					}
-					seen := map[string]bool{}
-					for i, output := range outputs {
-						id := output.OutputMessage.ID
-						if seen[id] || id != addedIDs[i] {
-							t.Errorf("split item ID reused or changed: added=%v, final=%q", addedIDs, id)
-						}
-						seen[id] = true
-					}
-					for name, result := range map[string]*provider.Completion{"plain": plain.Result(), "streamed": streamed.Result()} {
-						if got := result.Message.SplitMessages(); !reflect.DeepEqual(got, want) {
-							t.Errorf("%s message order: got %+v, want %+v", name, got, want)
-						}
-						if got, wantText := result.Text(), tc.parts[len(tc.parts)-1].Text; got != wantText {
-							t.Errorf("%s final text = %q, want %q", name, got, wantText)
-						}
-					}
-				})
-			}
+// A native item that streams text and then a refusal stays one message item
+// with both parts, under its native ID; the snapshot agrees with the stream.
+func TestAccumulatorsKeepTextAndRefusalInOneItem(t *testing.T) {
+	var plain provider.CompletionAccumulator
+	var ids messageIDs
+	var addedIDs []string
+	streamed := NewStreamingAccumulator(func(e StreamEvent) error {
+		if e.Type == StreamEventOutputItemAdded {
+			addedIDs = append(addedIDs, ids.get(e.MessageIndex, e.MessageID))
+		}
+		return nil
+	})
+	add := func(part provider.Content) {
+		t.Helper()
+		chunk := provider.Completion{Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{part}}}
+		plain.Add(chunk)
+		if err := streamed.Add(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(provider.Content{MessageID: "msg_1", Phase: provider.MessagePhaseFinalAnswer})
+	add(provider.Content{MessageID: "msg_1", Text: "partial"})
+	add(provider.Content{MessageID: "msg_1", Refusal: "cannot continue"})
+	if err := streamed.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(addedIDs, []string{"msg_1"}) {
+		t.Fatalf("mixed parts opened extra items: %v", addedIDs)
+	}
+	outputs := responseOutputs(streamed.Result().Message, &ids, "completed", responseOutputOptions{})
+	if len(outputs) != 1 || outputs[0].OutputMessage == nil || outputs[0].OutputMessage.ID != "msg_1" {
+		t.Fatalf("outputs = %+v, want one message item with the native ID", outputs)
+	}
+	for name, result := range map[string]*provider.Completion{"plain": plain.Result(), "streamed": streamed.Result()} {
+		items := result.Message.SplitMessages()
+		if len(items) != 1 || items[0].Phase != provider.MessagePhaseFinalAnswer || items[0].Text() != "partial" || items[0].Refusal() != "cannot continue" {
+			t.Errorf("%s items = %+v, want one item holding both parts", name, items)
+		}
+		if text := result.Text(); text != "" {
+			t.Errorf("%s final text = %q, want none for a refused item", name, text)
 		}
 	}
 }

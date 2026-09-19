@@ -323,7 +323,7 @@ func convertContent(message provider.Message, toolCallNames map[string]string) (
 			if c.Reasoning != nil {
 				if c.Reasoning.Text == "" && c.Reasoning.Summary == "" {
 					if c.Reasoning.Signature != "" {
-						pendingSig = []byte(c.Reasoning.Signature)
+						pendingSig = DecodeThoughtSignature(c.Reasoning.Signature)
 					}
 					continue
 				}
@@ -336,7 +336,7 @@ func convertContent(message provider.Message, toolCallNames map[string]string) (
 				part := genai.NewPartFromText(text)
 				part.Thought = true
 				if c.Reasoning.Signature != "" {
-					part.ThoughtSignature = []byte(c.Reasoning.Signature)
+					part.ThoughtSignature = DecodeThoughtSignature(c.Reasoning.Signature)
 				}
 				content.Parts = append(content.Parts, part)
 				continue
@@ -486,7 +486,7 @@ func toContent(content *genai.Content, toolAliases map[string]provider.Tool, too
 	var parts []provider.Content
 
 	for _, p := range content.Parts {
-		sig := string(p.ThoughtSignature)
+		sig := EncodeThoughtSignature(p.ThoughtSignature)
 
 		if p.Thought {
 			parts = append(parts, provider.ReasoningContent(provider.Reasoning{
@@ -646,6 +646,28 @@ func generateCallID() string {
 
 func StripToolIDSignature(s string) string {
 	return toolid.StripSignature(s)
+}
+
+// EncodeThoughtSignature renders Gemini's opaque signature bytes as base64,
+// the form in which a provider signature travels: the OpenAI and Anthropic
+// surfaces place it in JSON strings, which cannot carry arbitrary bytes.
+func EncodeThoughtSignature(signature []byte) string {
+	if len(signature) == 0 {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(signature)
+}
+
+// DecodeThoughtSignature restores the bytes for the Gemini wire. A value that
+// is not base64 is taken as the raw bytes of an older, in-process history.
+func DecodeThoughtSignature(signature string) []byte {
+	if signature == "" {
+		return nil
+	}
+	if data, err := base64.StdEncoding.DecodeString(signature); err == nil {
+		return data
+	}
+	return []byte(signature)
 }
 
 // dummyThoughtSignature bypasses thought-signature validation for tool calls

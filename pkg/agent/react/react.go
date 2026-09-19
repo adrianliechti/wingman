@@ -221,8 +221,7 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 
 				if completion.Message != nil {
 					message := &provider.Message{
-						Role:  completion.Message.Role,
-						Phase: completion.Message.Phase,
+						Role: completion.Message.Role,
 					}
 
 					for _, cnt := range completion.Message.Content {

@@ -25,8 +25,6 @@ import (
 
 var _ provider.Completer = (*Completer)(nil)
 
-const maxPauseContinuations = 5
-
 type Completer struct {
 	*Config
 	messages anthropic.BetaMessageService
@@ -61,71 +59,29 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			return
 		}
 
-		var completionID string
-		var usage provider.Usage
-		for continuation := 0; ; continuation++ {
-			previousUsage := usage
-			message := new(anthropic.BetaMessage)
-			for delta, err := range c.streamMessage(ctx, req, options, message) {
-				if delta != nil {
-					if completionID == "" {
-						completionID = delta.ID
-					}
-					delta.ID = completionID
-					if delta.StopReason == provider.StopReasonPauseTurn && continuation < maxPauseContinuations {
-						delta.StopReason = ""
-					}
-					if delta.Usage != nil {
-						delta.Usage.InputTokens += previousUsage.InputTokens
-						delta.Usage.OutputTokens += previousUsage.OutputTokens
-						if previousUsage.ReasoningTokens != nil {
-							tokens := *previousUsage.ReasoningTokens
-							if delta.Usage.ReasoningTokens != nil {
-								tokens += *delta.Usage.ReasoningTokens
-							}
-							delta.Usage.ReasoningTokens = new(tokens)
-						}
-						delta.Usage.CacheReadInputTokens += previousUsage.CacheReadInputTokens
-						delta.Usage.CacheCreationInputTokens += previousUsage.CacheCreationInputTokens
-						usage = *delta.Usage
-					}
-				}
-				if !yield(delta, err) || err != nil {
-					return
-				}
-			}
-			if message.StopReason != anthropic.BetaStopReasonPauseTurn {
-				return
-			}
-			if continuation >= maxPauseContinuations {
-				yield(nil, fmt.Errorf("anthropic: turn still paused after %d continuations", maxPauseContinuations))
-				return
-			}
-			if err := ctx.Err(); err != nil {
-				yield(nil, err)
-				return
-			}
-			// Match the SDK tool runner: preserve native server-tool blocks and
-			// signed thinking when resuming, without inventing a user message.
-			req.Messages = append(req.Messages, message.ToParam())
-			if message.Container.ID != "" {
-				req.Container.OfString = anthropic.String(message.Container.ID)
-			}
-		}
+		// A paused turn (stop_reason pause_turn, raised by server tools) is
+		// passed through as the native stop reason; the caller resends the
+		// conversation to continue, as the API documents.
+		c.streamMessage(ctx, req, options)(yield)
 	}
 }
 
-func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessageNewParams, options *provider.CompleteOptions, message *anthropic.BetaMessage) iter.Seq2[*provider.Completion, error] {
+func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessageNewParams, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
 		toolAliases := provider.ToolAliases(options.Tools)
 
+		message := anthropic.BetaMessage{}
 		stream := c.messages.NewStreaming(ctx, *req)
 		defer stream.Close()
 		messageStopped := false
 
 		toolArgsSeen := map[int64]bool{}
-		textBlockIDs := map[int64]string{}
-		textBlocks := 0
+
+		// Text blocks form message items the way OpenAI's output does: adjacent
+		// blocks (such as cited fragments) share one item, and a block that
+		// follows a server tool or thinking block starts the next item.
+		textItems := map[int64]string{}
+		textItem, afterText := "", false
 
 		// Emulated custom tools stream JSON-wrapped arguments. Their fragments
 		// cannot be unwrapped one at a time, so buffer them per block and emit
@@ -186,25 +142,20 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 			}
 
 			switch event := event.AsAny().(type) {
-			case anthropic.BetaRawMessageStartEvent:
-				textBlockIDs = map[int64]string{}
-				textBlocks = 0
-				// A continuation is a new native message within the same
-				// completion. Keep its boundary even when it has no phase.
-				if !yield(&provider.Completion{
-					ID:    message.ID,
-					Model: c.model,
-					Message: &provider.Message{
-						Role:    provider.MessageRoleAssistant,
-						Content: []provider.Content{{MessageID: message.ID}},
-					},
-					Usage: toUsage(message.Usage),
-				}, nil) {
-					return
-				}
-
 			case anthropic.BetaRawContentBlockStartEvent:
 				startIndex := event.Index
+
+				_, isText := event.ContentBlock.AsAny().(anthropic.BetaTextBlock)
+				if isText {
+					switch {
+					case textItem == "":
+						textItem = message.ID
+					case !afterText:
+						textItem = fmt.Sprintf("%s_%d", message.ID, startIndex)
+					}
+					textItems[startIndex] = textItem
+				}
+				afterText = isText
 
 				switch event := event.ContentBlock.AsAny().(type) {
 				case anthropic.BetaToolSearchToolResultBlock:
@@ -240,12 +191,6 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 					}
 
 				case anthropic.BetaTextBlock:
-					textID := message.ID
-					if textBlocks > 0 {
-						textID = fmt.Sprintf("%s_%d", message.ID, startIndex)
-					}
-					textBlockIDs[startIndex] = textID
-					textBlocks++
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -254,7 +199,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								{MessageID: textID, Text: event.Text},
+								{MessageID: textItems[startIndex], Text: event.Text},
 							},
 						},
 
@@ -409,7 +354,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								{MessageID: textBlockIDs[blockIndex], Text: event.Text},
+								{MessageID: textItems[blockIndex], Text: event.Text},
 							},
 						},
 					}

@@ -171,6 +171,16 @@ type Message struct {
 	StopDetails  *StopDetails   `json:"stop_details"`
 	StopSequence *string        `json:"stop_sequence"`
 	Usage        Usage          `json:"usage"`
+
+	// Container is the code execution container of the turn. No backend runs
+	// one through the gateway, so it is null, as on turns without one.
+	Container *Container `json:"container"`
+}
+
+// Container identifies a server-side code execution container.
+type Container struct {
+	ID        string `json:"id"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 type ContentBlock struct {
@@ -308,6 +318,7 @@ type MessageDelta struct {
 	StopReason   StopReason   `json:"stop_reason"`
 	StopDetails  *StopDetails `json:"stop_details"`
 	StopSequence *string      `json:"stop_sequence"`
+	Container    *Container   `json:"container"`
 }
 
 type DeltaUsage struct {

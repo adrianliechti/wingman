@@ -1468,8 +1468,10 @@ type ReasoningOutputItem struct {
 	Type   string `json:"type"`   // reasoning
 	Status string `json:"status"` // in_progress, completed, incomplete
 
+	// Summary and Content are always arrays, as on OpenAI's items; the
+	// terminal snapshot and the streamed item must serialize identically.
 	Summary []ReasoningOutputSummary     `json:"summary"`
-	Content []ReasoningOutputContentPart `json:"content,omitempty"`
+	Content []ReasoningOutputContentPart `json:"content"`
 
 	EncryptedContent string `json:"encrypted_content,omitempty"`
 }

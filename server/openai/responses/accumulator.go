@@ -178,7 +178,7 @@ type StreamingAccumulator struct {
 	compactions []provider.Compaction
 
 	// Register every item when its output index is assigned so snapshots
-	// retain the stream's order, including reasoning after a pause.
+	// retain the stream's order, including reasoning after a message.
 	outputOrder []streamItemRef
 }
 
@@ -756,12 +756,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if c.Message == nil {
 		return nil
 	}
-	// Identified items carry their own phase; a message-level phase describes
-	// the enclosing, unidentified message.
-	if c.Message.Phase != "" && s.message.id == "" {
-		s.message.phase = c.Message.Phase
-	}
-
 	for _, content := range c.Message.Content {
 		if content.MessageID != "" {
 			if err := s.beginMessage(content.MessageID, content.Phase); err != nil {
@@ -809,7 +803,8 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		// Reasoning can resume after text when a paused turn continues.
+		// Reasoning can follow a message item, as between a commentary
+		// message and the final answer.
 		if content.Reasoning != nil && !s.SuppressReasoning {
 			r := content.Reasoning
 
@@ -894,12 +889,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				return err
 			}
 
-			if s.message.id != "" && s.message.streamedText.Len() > 0 {
-				if err := s.nextMessage(s.message.id, s.message.phase); err != nil {
-					return err
-				}
-			}
-
 			s.message.streamedRefusal.WriteString(content.Refusal)
 
 			if len(s.toolCalls) == 0 {
@@ -932,12 +921,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		if content.Text != "" {
 			if err := s.closeCompaction(); err != nil {
 				return err
-			}
-
-			if s.message.id != "" && s.message.streamedRefusal.Len() > 0 {
-				if err := s.nextMessage(s.message.id, s.message.phase); err != nil {
-					return err
-				}
 			}
 
 			s.message.streamedText.WriteString(content.Text)
@@ -1120,9 +1103,7 @@ func (s *StreamingAccumulator) beginMessage(id string, phase provider.MessagePha
 	return nil
 }
 
-// nextMessage closes the current message item and starts a new one. Identified
-// items keep text and refusals separate: the text and refusal branches call it
-// with the same ID, and SplitMessages splits such items the same way.
+// nextMessage closes the current message item and starts a new one.
 func (s *StreamingAccumulator) nextMessage(id string, phase provider.MessagePhase) error {
 	if err := s.flushMessage(); err != nil {
 		return err

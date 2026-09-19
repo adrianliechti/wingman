@@ -67,6 +67,7 @@ type StreamingAccumulator struct {
 	openBlocks     []int
 
 	textIndex int
+	textID    string
 
 	thinkingID     string
 	thinkingIndex  int
@@ -240,6 +241,18 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 	// Process content
 	for _, content := range c.Message.Content {
+		// A new message item starts a new text block, matching the
+		// non-streaming response, which emits one text block per item.
+		if content.MessageID != "" && content.MessageID != s.textID {
+			if s.textIndex >= 0 {
+				if err := s.stopBlock(s.textIndex); err != nil {
+					return err
+				}
+			}
+
+			s.textID = content.MessageID
+		}
+
 		if content.Compaction != nil && (content.Compaction.Content != "" || content.Compaction.Signature != "") {
 			block := toContentBlocks([]provider.Content{content})[0]
 			if block.Signature != "" {

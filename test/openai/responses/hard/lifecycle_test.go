@@ -91,8 +91,24 @@ func requireStreamItemLifecycle(t *testing.T, events []*harness.SSEEvent) {
 		t.Fatalf("item counts changed: added=%d, done=%d, final=%d", len(added), len(done), len(output))
 	}
 	for i, item := range output {
-		if !reflect.DeepEqual(done[i], item) {
+		final, _ := item.(map[string]any)
+		if !reflect.DeepEqual(withoutEncryptedContent(done[i]), withoutEncryptedContent(final)) {
 			t.Errorf("item %d changed between output_item.done and terminal response: done=%v, final=%v", i, done[i], item)
 		}
 	}
+}
+
+// withoutEncryptedContent drops the opaque reasoning state: OpenAI re-encrypts
+// it for the terminal response, so only the item's other fields must match.
+func withoutEncryptedContent(item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	copied := make(map[string]any, len(item))
+	for key, value := range item {
+		if key != "encrypted_content" {
+			copied[key] = value
+		}
+	}
+	return copied
 }

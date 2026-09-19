@@ -41,12 +41,11 @@ func TestCompletionAccumulatorConcatsToolCallFragments(t *testing.T) {
 	}
 }
 
-func TestCompletionAccumulatorPreservesPhaseAndAsyncToolCall(t *testing.T) {
+func TestCompletionAccumulatorPreservesAsyncToolCall(t *testing.T) {
 	acc := CompletionAccumulator{}
 
 	acc.Add(Completion{Message: &Message{
-		Role:  MessageRoleAssistant,
-		Phase: MessagePhaseCommentary,
+		Role: MessageRoleAssistant,
 		Content: []Content{ToolCallContent(ToolCall{
 			ID:    "call_async",
 			Async: true,
@@ -55,9 +54,6 @@ func TestCompletionAccumulatorPreservesPhaseAndAsyncToolCall(t *testing.T) {
 	}})
 
 	result := acc.Result()
-	if result.Message.Phase != MessagePhaseCommentary {
-		t.Fatalf("phase = %q, want commentary", result.Message.Phase)
-	}
 	calls := result.Message.ToolCalls()
 	if len(calls) != 1 || !calls[0].Async {
 		t.Fatalf("async tool call lost: %+v", calls)
@@ -363,10 +359,6 @@ func TestCompletionAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
 	add(TextContent("Zurich: 452,421"))
 
 	result := acc.Result()
-	if result.Message.Phase != MessagePhaseFinalAnswer {
-		t.Fatalf("message phase = %q, want the last item's phase", result.Message.Phase)
-	}
-
 	messages := result.Message.SplitMessages()
 
 	want := []struct {
@@ -391,33 +383,17 @@ func TestCompletionAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
 	}
 }
 
-func TestCompletionAccumulatorIdentifiedRefusalIsOwnItem(t *testing.T) {
-	identified := CompletionAccumulator{}
-	identified.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{{MessageID: "msg_1", Phase: MessagePhaseFinalAnswer}}}})
-	identified.Add(Completion{Message: &Message{Content: []Content{{MessageID: "msg_1", Text: "partial"}}}})
-	identified.Add(Completion{Message: &Message{Content: []Content{{MessageID: "msg_1", Refusal: "cannot continue"}}}})
-
-	if got := identified.Result().Message.SplitMessages(); len(got) != 2 || got[0].Text() != "partial" || got[1].Refusal() != "cannot continue" || got[1].Phase != MessagePhaseFinalAnswer {
-		t.Fatalf("identified text and refusal not split into items: %+v", got)
-	}
-
-	plain := CompletionAccumulator{}
-	plain.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{TextContent("partial")}}})
-	plain.Add(Completion{Message: &Message{Content: []Content{RefusalContent("cannot continue")}}})
-
-	if got := plain.Result().Message.SplitMessages(); len(got) != 1 || got[0].Text() != "partial" || got[0].Refusal() != "cannot continue" {
-		t.Fatalf("unphased message split unexpectedly: %+v", got)
-	}
-}
-
-func TestCompletionAccumulatorPhaseMetadataDoesNotSplitMessage(t *testing.T) {
+// A message item may hold a text and a refusal part, as OpenAI's content
+// array allows. The accumulator never invents extra items to separate them.
+func TestCompletionAccumulatorIdentifiedItemHoldsTextAndRefusal(t *testing.T) {
 	var acc CompletionAccumulator
-	for _, text := range []string{"Working", " on it."} {
-		acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Phase: MessagePhaseCommentary, Content: []Content{TextContent(text)}}})
-	}
-	messages := acc.Result().Message.SplitMessages()
-	if len(messages) != 1 || messages[0].Text() != "Working on it." || messages[0].Phase != MessagePhaseCommentary {
-		t.Fatalf("phase metadata created a message boundary: %+v", messages)
+	acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{{MessageID: "msg_1", Phase: MessagePhaseFinalAnswer}}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{{MessageID: "msg_1", Text: "partial"}}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{{MessageID: "msg_1", Refusal: "cannot continue"}}}})
+
+	got := acc.Result().Message.SplitMessages()
+	if len(got) != 1 || got[0].Text() != "partial" || got[0].Refusal() != "cannot continue" || got[0].Phase != MessagePhaseFinalAnswer || got[0].Content[0].MessageID != "msg_1" {
+		t.Fatalf("identified text and refusal split into items: %+v", got)
 	}
 }
 
@@ -429,7 +405,8 @@ func TestCompletionAccumulatorRepeatedMessageIDJoinsItem(t *testing.T) {
 	}
 	acc.Add(Completion{Message: &Message{Content: []Content{{Text: " Done."}}}})
 
-	messages := acc.Result().Message.SplitMessages()
+	result := acc.Result()
+	messages := result.Message.SplitMessages()
 	if len(messages) != 1 || messages[0].Text() != "Working on it. Done." || messages[0].Phase != MessagePhaseCommentary {
 		t.Fatalf("deltas of one item split: %+v", messages)
 	}
