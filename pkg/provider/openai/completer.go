@@ -217,6 +217,18 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		IncludeUsage: openai.Bool(true),
 	}
 
+	if cache := options.CacheOptions; options != nil && cache != nil {
+		if cache.Key != "" {
+			req.PromptCacheKey = openai.String(cache.Key)
+		}
+		if cache.Retention == provider.CacheRetentionExtended {
+			req.PromptCacheRetention = openai.ChatCompletionNewParamsPromptCacheRetention24h
+		}
+		if cache.Mode == provider.CacheModeExplicit && supportsCacheBreakpoints(c.model) {
+			req.PromptCacheOptions = openai.ChatCompletionNewParamsPromptCacheOptions{Mode: "explicit"}
+		}
+	}
+
 	if len(tools) > 0 {
 		req.Tools = tools
 	}
@@ -318,6 +330,8 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
 	var result []openai.ChatCompletionMessageParamUnion
 
+	breakpoints := supportsCacheBreakpoints(c.model)
+
 	for _, m := range sanitizeToolIDs(input) {
 		switch m.Role {
 		case provider.MessageRoleSystem:
@@ -325,7 +339,11 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 
 			for _, c := range m.Content {
 				if c.Text != "" {
-					parts = append(parts, openai.ChatCompletionContentPartTextParam{Text: c.Text})
+					part := openai.ChatCompletionContentPartTextParam{Text: c.Text}
+					if c.CacheControl != nil && breakpoints {
+						part.PromptCacheBreakpoint = chatTextBreakpoint()
+					}
+					parts = append(parts, part)
 				}
 			}
 
@@ -343,7 +361,11 @@ func (c *Completer) convertMessages(input []provider.Message) ([]openai.ChatComp
 
 			for _, c := range m.Content {
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
-					parts = append(parts, openai.TextContentPart(text))
+					part := openai.ChatCompletionContentPartTextParam{Text: text}
+					if c.CacheControl != nil && breakpoints {
+						part.PromptCacheBreakpoint = chatTextBreakpoint()
+					}
+					parts = append(parts, openai.ChatCompletionContentPartUnionParam{OfText: &part})
 				}
 
 				if c.File != nil {

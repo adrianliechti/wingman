@@ -17,6 +17,35 @@ import (
 	"github.com/adrianliechti/wingman/server/files"
 )
 
+// blockCacheControl turns a cache_control breakpoint into the provider's
+// marker; a 1h TTL asks for extended retention at that breakpoint.
+func blockCacheControl(control *CacheControlParam) *provider.CacheControl {
+	if control == nil {
+		return nil
+	}
+	result := &provider.CacheControl{}
+	if control.TTL == "1h" {
+		result.Retention = provider.CacheRetentionExtended
+	}
+	return result
+}
+
+// systemCacheControl returns the breakpoint of the last system block that
+// carries one; the system prompt is one part for the provider.
+func systemCacheControl(system any) *provider.CacheControl {
+	blocks, err := parseContentBlocks(system)
+	if err != nil {
+		return nil
+	}
+	var control *provider.CacheControl
+	for _, block := range blocks {
+		if block.CacheControl != nil {
+			control = blockCacheControl(block.CacheControl)
+		}
+	}
+	return control
+}
+
 func toMessages(system string, messages []MessageParam) ([]provider.Message, error) {
 	var result []provider.Message
 
@@ -93,9 +122,13 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 				if m.ClearAt == "next_user_message" {
 					scope = provider.InstructionScopeTurn
 				}
-				content = append(content, provider.InstructionsContent(provider.Instructions{Text: block.Text, Scope: scope}))
+				instructions := provider.InstructionsContent(provider.Instructions{Text: block.Text, Scope: scope})
+				instructions.CacheControl = blockCacheControl(block.CacheControl)
+				content = append(content, instructions)
 			} else {
-				content = append(content, provider.TextContent(block.Text))
+				text := provider.TextContent(block.Text)
+				text.CacheControl = blockCacheControl(block.CacheControl)
+				content = append(content, text)
 			}
 
 		case "image":
@@ -178,11 +211,13 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 				return nil, err
 			}
 
-			content = append(content, provider.ToolResultContent(provider.ToolResult{
+			result := provider.ToolResultContent(provider.ToolResult{
 				ID:      block.ToolUseID,
 				IsError: block.IsError,
 				Parts:   parts,
-			}))
+			})
+			result.CacheControl = blockCacheControl(block.CacheControl)
+			content = append(content, result)
 
 		case "compaction":
 			compaction := provider.Compaction{

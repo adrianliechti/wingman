@@ -61,6 +61,8 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 
 		MaxTokens:   req.MaxOutputTokens,
 		Temperature: req.Temperature,
+
+		CacheOptions: shared.CacheOptions(req.PromptCacheKey, req.PromptCacheRetention, req.PromptCacheOptions.mode()),
 	}
 
 	if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {
@@ -319,6 +321,9 @@ func responseDefaults(resp *Response, req ResponsesRequest, completion *provider
 	} else {
 		resp.Truncation = "disabled"
 	}
+	resp.PromptCacheKey = req.PromptCacheKey
+	resp.PromptCacheRetention = req.PromptCacheRetention
+	resp.PromptCacheOptions = req.PromptCacheOptions
 
 	if req.Instructions != "" {
 		resp.Instructions = &req.Instructions

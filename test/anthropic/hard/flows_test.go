@@ -2,6 +2,7 @@ package hard_test
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"testing"
@@ -510,4 +511,93 @@ func TestFlowSystemAfterToolResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFlowPromptCacheAcrossTurns keeps a long system prefix stable across a
+// tool loop. Backends that cache prompts must report cache reads on every
+// turn after the first, through Wingman as natively. The client marks the
+// prefix as the Messages API requires; the gateway caches the prefix by
+// default on every backend that supports it.
+func TestFlowPromptCacheAcrossTurns(t *testing.T) {
+	h := anthropic.New(t)
+
+	for _, model := range anthropic.DefaultModels() {
+		t.Run(model.Name, func(t *testing.T) {
+			h.SkipUnlessConfigured(t, model.Name)
+
+			body := map[string]any{
+				"max_tokens": 1024,
+				"system":     []any{map[string]any{"type": "text", "text": hardtest.CachePrefix(), "cache_control": map[string]any{"type": "ephemeral"}}},
+				"tools":      []any{anthropic.WeatherTool, clockTool},
+				"messages":   user(hardtest.ChainedPrompt),
+			}
+
+			for _, tg := range targets(h, model) {
+				t.Run(tg.label, func(t *testing.T) {
+					cached := cacheReadsPerTurn(t, h, tg, body)
+					requireCachedTurns(t, tg.label, cached, model.Capabilities.Cache, tg.label == "anthropic" || deterministicCache(model.Name))
+				})
+			}
+		})
+	}
+}
+
+// deterministicCache reports backends whose prompt cache answers every
+// matching prefix within its TTL. OpenAI's cache is best effort and may miss
+// a turn under load, so only one cached turn can be required there.
+func deterministicCache(model string) bool {
+	return strings.Contains(model, "claude") || strings.Contains(model, "bedrock")
+}
+
+// requireCachedTurns checks the cache reads of a tool loop: every turn after
+// the first on deterministic backends, at least one otherwise.
+func requireCachedTurns(t *testing.T, label string, cached []float64, expected, deterministic bool) {
+	t.Helper()
+
+	if len(cached) < 2 {
+		t.Fatalf("[%s] tool loop finished in %d turn(s); need at least two", label, len(cached))
+	}
+	hits := 0
+	for turn, tokens := range cached {
+		t.Logf("[%s] turn %d: cache_read_input_tokens %v", label, turn+1, tokens)
+		if turn == 0 {
+			continue
+		}
+		if tokens > 0 {
+			hits++
+		} else if expected && deterministic {
+			t.Errorf("[%s] turn %d: no cache read although the prefix did not change", label, turn+1)
+		}
+	}
+	if expected && hits == 0 {
+		t.Errorf("[%s] no turn reported a cache read", label)
+	}
+}
+
+// cacheReadsPerTurn drives the tool loop, replaying content verbatim, and
+// returns each turn's cache_read_input_tokens.
+func cacheReadsPerTurn(t *testing.T, h *anthropic.Harness, tg target, body map[string]any) []float64 {
+	t.Helper()
+
+	messages := append([]any{}, body["messages"].([]any)...)
+	var cached []float64
+
+	for round := 0; round < 6; round++ {
+		req := maps.Clone(body)
+		req["messages"] = messages
+
+		resp := post(t, h, tg, req)
+		usage, _ := resp["usage"].(map[string]any)
+		read, _ := usage["cache_read_input_tokens"].(float64)
+		cached = append(cached, read)
+
+		content, _ := resp["content"].([]any)
+		if len(toolUses(resp)) == 0 {
+			return cached
+		}
+		messages = append(messages, map[string]any{"role": "assistant", "content": content}, map[string]any{"role": "user", "content": toolResults(content)})
+	}
+
+	t.Fatalf("[%s] tool loop did not finish within 6 rounds", tg.label)
+	return nil
 }

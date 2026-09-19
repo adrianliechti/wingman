@@ -31,7 +31,7 @@ func TestResolveThinking(t *testing.T) {
 		{"disabled", "claude-sonnet-4-6", nil, disabled, false, thinking{Disabled: true, Effort: anthropic.BetaOutputConfigEffortMax}},
 		{"legacy ignores everything", "claude-sonnet-4-5", nil, adaptive, false, thinking{}},
 		{"forced tool disables", "claude-sonnet-4-6", nil, adaptive, true, thinking{Disabled: true, Summarized: true, Effort: anthropic.BetaOutputConfigEffortMax}},
-		{"unsigned tool turn disables", "claude-sonnet-4-6", unsigned, adaptive, false, thinking{Disabled: true, Summarized: true, Effort: anthropic.BetaOutputConfigEffortMax}},
+		{"unsigned tool turn keeps thinking", "claude-sonnet-4-6", unsigned, adaptive, false, thinking{Enabled: true, Summarized: true, Effort: anthropic.BetaOutputConfigEffortMax}},
 		{"always-thinking cannot disable", "claude-fable-5-1", nil, disabled, false, thinking{Effort: anthropic.BetaOutputConfigEffortMax}},
 		{"disabled effort is capped", "claude-opus-5", nil, disabled, false, thinking{Disabled: true, Effort: anthropic.BetaOutputConfigEffortHigh}},
 	}

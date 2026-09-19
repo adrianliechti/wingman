@@ -46,6 +46,12 @@ type codexRunOptions struct {
 	setup       func(*testing.T, string)
 	timeout     time.Duration
 	maxRequests int
+	// webSearch sets Codex's web_search mode ("disabled", "cached", "live");
+	// anything but disabled adds the hosted web_search tool to requests.
+	webSearch string
+	// autoCompactTokenLimit makes Codex compact the conversation once its
+	// token count passes the limit, exercising the compaction protocol.
+	autoCompactTokenLimit int
 }
 
 func codexEnv(configDir string) []string {
@@ -60,9 +66,21 @@ func codexEnv(configDir string) []string {
 }
 
 func codexConfig(baseURL, model, catalog string, edit bool) string {
+	return codexConfigWithOptions(baseURL, model, catalog, edit, codexRunOptions{})
+}
+
+func codexConfigWithOptions(baseURL, model, catalog string, edit bool, options codexRunOptions) string {
 	sandbox := "read-only"
 	if edit {
 		sandbox = "workspace-write"
+	}
+	webSearch := options.webSearch
+	if webSearch == "" {
+		webSearch = "disabled"
+	}
+	extra := ""
+	if options.autoCompactTokenLimit > 0 {
+		extra = fmt.Sprintf("model_auto_compact_token_limit = %d\n", options.autoCompactTokenLimit)
 	}
 	return fmt.Sprintf(`model = %q
 model_provider = "wingman_e2e"
@@ -71,8 +89,8 @@ model_reasoning_effort = "low"
 model_reasoning_summary = "none"
 approval_policy = "never"
 sandbox_mode = %q
-web_search = "disabled"
-project_doc_max_bytes = 0
+web_search = %q
+%sproject_doc_max_bytes = 0
 check_for_update_on_startup = false
 cli_auth_credentials_store = "ephemeral"
 allow_login_shell = false
@@ -119,7 +137,7 @@ enabled = false
 
 [otel]
 exporter = "none"
-`, model, catalog, sandbox, baseURL, edit)
+`, model, catalog, sandbox, webSearch, extra, baseURL, edit)
 }
 
 // Unknown model names otherwise use Codex's fallback metadata, which omits
@@ -197,7 +215,7 @@ func runCodexWithOptions(t *testing.T, binary string, endpoint harness.Endpoint,
 	r := harness.NewRecorder(t, strings.TrimRight(endpoint.BaseURL, "/"), http.Header{"Authorization": {"Bearer " + endpoint.APIKey}}, options.maxRequests)
 	catalog := filepath.Join(configDir, "models.json")
 	writeArtifact(t, catalog, codexCatalog(t, model))
-	writeArtifact(t, filepath.Join(configDir, "config.toml"), []byte(codexConfig(r.URL, model, catalog, input != "" || options.setup != nil)))
+	writeArtifact(t, filepath.Join(configDir, "config.toml"), []byte(codexConfigWithOptions(r.URL, model, catalog, input != "" || options.setup != nil, options)))
 	ctx, cancel := context.WithTimeout(t.Context(), options.timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "exec", "--strict-config", "--json", "--ephemeral", "--ignore-rules", "--skip-git-repo-check", "--color", "never", "--", prompt)

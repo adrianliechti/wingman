@@ -27,6 +27,11 @@ List available models or get a specific model by ID.
 | `response_format`        | Object       | Response format (text, json_object, json_schema)    |
 | `reasoning_effort`       | String       | Reasoning effort (none, minimal, low, medium, high, xhigh, max) |
 | `verbosity`              | String       | Output verbosity (low, medium, high)                |
+| `prompt_cache_key`       | String       | Groups requests sharing a prefix; forwarded to backends that route caches by key |
+| `prompt_cache_retention` | String       | `24h` asks for extended cache retention where the backend offers it |
+| `prompt_cache_options`   | Object       | `mode` `implicit` (default) or `explicit`; explicit caches only at `prompt_cache_breakpoint` parts |
+
+Prompt caching is on by default on every backend that supports it: the stable prefix (instructions, tools, earlier turns) is cached automatically, as on OpenAI, and cached tokens are reported in the usage details. A `prompt_cache_breakpoint` on a content part marks the end of a reusable prefix: GPT-5.6 and later take it natively, Claude backends receive it as a cache breakpoint, and other backends keep caching implicitly.
 
 ## Responses
 
@@ -48,6 +53,11 @@ List available models or get a specific model by ID.
 | `context_management`   | Array        | Context management (compaction with threshold)      |
 | `include`              | Array        | Include options (e.g. `reasoning.encrypted_content`)|
 | `truncation`           | String       | Truncation mode (auto, disabled)                    |
+| `prompt_cache_key`     | String       | Groups requests sharing a prefix; forwarded to backends that route caches by key |
+| `prompt_cache_retention` | String     | `24h` asks for extended cache retention where the backend offers it |
+| `prompt_cache_options` | Object       | `mode` `implicit` (default) or `explicit`; explicit caches only at `prompt_cache_breakpoint` parts |
+
+Prompt caching is on by default on every backend that supports it: the stable prefix is cached automatically, as on OpenAI, and cached tokens are reported in `usage.input_tokens_details.cached_tokens`. A `prompt_cache_breakpoint` on an input content part marks the end of a reusable prefix: GPT-5.6 and later take it natively, Claude backends receive it as a cache breakpoint, and other backends keep caching implicitly.
 
 ## Embeddings
 
@@ -145,6 +155,7 @@ Anthropic-compatible endpoints. See [Anthropic API Reference](https://docs.anthr
 | `thinking`            | Object       | Thinking configuration (type, budget_tokens)   |
 | `context_management`  | Object       | Context management with compaction edits       |
 | `compaction`          | Object       | `{"type":"summarize"}` requests on-demand Claude compaction |
+| `cache_control`       | Object       | Breakpoints on system and message blocks; the prefix is cached by default on Claude backends, GPT-5.6 and later receive them as `prompt_cache_breakpoint`, and `ttl: "1h"` asks for extended retention |
 
 ## Count Tokens
 

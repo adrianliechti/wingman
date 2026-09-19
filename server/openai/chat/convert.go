@@ -100,7 +100,11 @@ func toMessages(s []ChatCompletionMessage) ([]provider.Message, error) {
 
 			for _, c := range m.Contents {
 				if c.Type == MessageContentTypeText {
-					content = append(content, provider.TextContent(c.Text))
+					part := provider.TextContent(c.Text)
+					if c.PromptCacheBreakpoint != nil {
+						part.CacheControl = &provider.CacheControl{}
+					}
+					content = append(content, part)
 				}
 
 				if c.Type == MessageContentTypeRefusal && c.Refusal != "" {

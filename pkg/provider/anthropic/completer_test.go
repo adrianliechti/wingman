@@ -351,12 +351,13 @@ func TestConvertRequest_UnsupportedForcedToolChoiceIsRejected(t *testing.T) {
 	}
 }
 
-// TestConvertRequest_UnsignedToolHistoryDisablesThinking verifies adaptive
-// thinking is turned off when the last assistant message carries tool calls
-// without a signed thinking block (e.g. signatures stripped for portability):
-// Claude rejects such requests with "Expected thinking or redacted_thinking,
-// but found tool_use".
-func TestConvertRequest_UnsignedToolHistoryDisablesThinking(t *testing.T) {
+// TestConvertRequest_UnsignedToolHistoryKeepsThinking verifies adaptive
+// thinking stays on when the last assistant message carries tool calls
+// without a signed thinking block (e.g. signatures stripped for portability).
+// The unsigned reasoning is not replayed, adaptive thinking accepts a tool
+// turn without a thinking block, and a stable thinking parameter keeps the
+// prompt cache prefix intact across turns.
+func TestConvertRequest_UnsignedToolHistoryKeepsThinking(t *testing.T) {
 	completer, _ := NewCompleter("http://localhost", "claude-opus-5")
 
 	options := &provider.CompleteOptions{
@@ -383,8 +384,8 @@ func TestConvertRequest_UnsignedToolHistoryDisablesThinking(t *testing.T) {
 	body := requestBody(t, completer, stripped, options)
 
 	thinking, _ := body["thinking"].(map[string]any)
-	if thinking["type"] != "disabled" {
-		t.Fatalf("thinking: got %v, want disabled", body["thinking"])
+	if thinking["type"] != "adaptive" {
+		t.Fatalf("thinking: got %v, want adaptive", body["thinking"])
 	}
 
 	signed := append([]provider.Message{}, stripped...)

@@ -1096,7 +1096,9 @@ func toInputContent(items []InputContent) ([]provider.Content, error) {
 	for _, c := range items {
 		switch c.Type {
 		case InputContentText, OutputContentText:
-			result = append(result, provider.TextContent(c.Text))
+			part := provider.TextContent(c.Text)
+			part.CacheControl = inputCacheControl(c.PromptCacheBreakpoint)
+			result = append(result, part)
 
 		case InputContentRefusal:
 			result = append(result, provider.RefusalContent(c.Refusal))
@@ -1107,18 +1109,31 @@ func toInputContent(items []InputContent) ([]provider.Content, error) {
 				return nil, err
 			}
 
-			result = append(result, provider.FileContent(file))
+			part := provider.FileContent(file)
+			part.CacheControl = inputCacheControl(c.PromptCacheBreakpoint)
+			result = append(result, part)
 
 		case InputContentFile:
 			file, err := fileFromInputContent(c)
 			if err != nil {
 				return nil, err
 			}
-			result = append(result, provider.FileContent(file))
+			part := provider.FileContent(file)
+			part.CacheControl = inputCacheControl(c.PromptCacheBreakpoint)
+			result = append(result, part)
 		}
 	}
 
 	return result, nil
+}
+
+// inputCacheControl turns a prompt_cache_breakpoint into the provider's
+// breakpoint marker.
+func inputCacheControl(breakpoint *PromptCacheBreakpoint) *provider.CacheControl {
+	if breakpoint == nil {
+		return nil
+	}
+	return &provider.CacheControl{}
 }
 
 func toMessageRole(r MessageRole) provider.MessageRole {

@@ -109,6 +109,15 @@ type ContentBlockParam struct {
 
 	// For compaction blocks
 	EncryptedContent string `json:"encrypted_content,omitempty"`
+
+	// Cache breakpoints are read as intent: providers cache the prefix by
+	// default, and a 1h TTL asks for extended retention.
+	CacheControl *CacheControlParam `json:"cache_control,omitempty"`
+}
+
+type CacheControlParam struct {
+	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
 }
 
 // BlockSource is the source object for image and document content blocks.
@@ -137,6 +146,8 @@ type ToolParam struct {
 
 	// For text_editor_* tool types
 	MaxCharacters int `json:"max_characters,omitempty"`
+
+	CacheControl *CacheControlParam `json:"cache_control,omitempty"`
 }
 
 type ToolChoice struct {

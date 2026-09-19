@@ -570,12 +570,18 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		return nil, fmt.Errorf("anthropic: model %s does not support compaction", c.model)
 	}
 
+	// The whole stable prefix is cached automatically unless the client
+	// caches explicitly, in which case only its breakpoints are marked.
 	req := &anthropic.BetaMessageNewParams{
 		Model: anthropic.Model(c.model),
 
-		MaxTokens:    64000,
-		CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
+		MaxTokens: 64000,
 	}
+	explicitCache := options.CacheOptions != nil && options.CacheOptions.Mode == provider.CacheModeExplicit
+	if !explicitCache {
+		req.CacheControl = cacheControl(options.CacheOptions, nil)
+	}
+	mark := cacheBreakpoints(input, explicitCache)
 
 	if !matchesModel(c.model, LegacyModels) {
 		req.MaxTokens = 128000
@@ -655,10 +661,18 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 			for _, c := range m.Content {
 				if c.Text != "" {
-					texts = append(texts, anthropic.BetaTextBlockParam{Text: c.Text})
+					block := anthropic.BetaTextBlockParam{Text: c.Text}
+					if mark(c) {
+						block.CacheControl = cacheControl(options.CacheOptions, c.CacheControl)
+					}
+					texts = append(texts, block)
 				}
 				if c.Instructions != nil {
-					texts = append(texts, anthropic.BetaTextBlockParam{Text: c.Instructions.Text})
+					block := anthropic.BetaTextBlockParam{Text: c.Instructions.Text}
+					if mark(c) {
+						block.CacheControl = cacheControl(options.CacheOptions, c.CacheControl)
+					}
+					texts = append(texts, block)
 					turnScoped = turnScoped || c.Instructions.Scope == provider.InstructionScopeTurn
 				}
 			}
@@ -702,7 +716,11 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					hasSignedCompaction = hasSignedCompaction || signed
 				}
 				if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
-					contentBlocks = append(contentBlocks, anthropic.NewBetaTextBlock(text))
+					block := anthropic.NewBetaTextBlock(text)
+					if mark(c) {
+						block.OfText.CacheControl = cacheControl(options.CacheOptions, c.CacheControl)
+					}
+					contentBlocks = append(contentBlocks, block)
 				}
 
 				if c.File != nil {
@@ -748,6 +766,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						}
 						if c.ToolResult.IsError {
 							result.IsError = anthropic.Bool(true)
+						}
+						if mark(c) {
+							result.CacheControl = cacheControl(options.CacheOptions, c.CacheControl)
 						}
 
 						blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
@@ -811,6 +832,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					}
 					if c.ToolResult.IsError {
 						result.IsError = anthropic.Bool(true)
+					}
+					if mark(c) {
+						result.CacheControl = cacheControl(options.CacheOptions, c.CacheControl)
 					}
 
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
@@ -1180,8 +1204,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 			OfDisabled: &anthropic.BetaThinkingConfigDisabledParam{},
 		}
 	}
-	// Retention is meaningful only with active thinking. Tool continuations
-	// without signed thinking and forced tool calls can disable it above.
+	// Retention is meaningful only with active thinking; a forced tool call
+	// can disable it above.
 	if options.ReasoningOptions != nil && (thinking.Enabled || matchesModel(c.model, AlwaysThinkingModels)) {
 		var keep anthropic.BetaClearThinking20251015EditKeepUnionParam
 		switch options.ReasoningOptions.Context {

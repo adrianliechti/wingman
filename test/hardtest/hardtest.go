@@ -171,3 +171,15 @@ func RequireStoppedBeforeSix(t *testing.T, label, text string) {
 		t.Errorf("[%s] stop sequence not applied: %q", label, text)
 	}
 }
+
+// CachePrefix returns a long, deterministic instruction text that exceeds
+// every backend's minimum cacheable prefix, so a conversation that keeps it
+// stable must show cache reads from the second turn on.
+func CachePrefix() string {
+	var b strings.Builder
+	b.WriteString("You are a meticulous assistant for a logistics company. Follow every policy below exactly, and use the tools when the user asks for live data.\n\n")
+	for i := 1; i <= 140; i++ {
+		fmt.Fprintf(&b, "Policy %d: Depot %d handles regional deliveries; escalate delays over %d minutes to the duty manager, record the incident code, confirm the customer notification, and archive the manifest before the shift handover.\n", i, i%12+1, 10+i%50)
+	}
+	return b.String()
+}

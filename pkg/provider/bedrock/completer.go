@@ -691,7 +691,8 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 	}
 	input, options = c.resolveInput(input, options)
 
-	messages, err := c.convertMessages(input)
+	cache := newCachePolicy(input, options)
+	messages, err := c.convertMessagesPolicy(input, cache)
 
 	if err != nil {
 		return nil, err
@@ -705,7 +706,7 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		toolOptions = nil
 	}
 
-	config, err := c.convertToolConfig(provider.FlattenTools(options.Tools), toolOptions)
+	config, err := c.convertToolConfigPolicy(provider.FlattenTools(options.Tools), toolOptions, cache)
 
 	if err != nil {
 		return nil, err
@@ -813,7 +814,7 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 
 		Messages: messages,
 
-		System:     c.convertSystem(input),
+		System:     c.convertSystemPolicy(input, cache),
 		ToolConfig: config,
 
 		InferenceConfig: inference,
@@ -838,6 +839,10 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 // resolved instructions here so a trailing system message cannot make an
 // otherwise valid user/tool-result turn fail Bedrock's last-turn validation.
 func (c *Completer) convertSystem(messages []provider.Message) []types.SystemContentBlock {
+	return c.convertSystemPolicy(messages, cachePolicy{})
+}
+
+func (c *Completer) convertSystemPolicy(messages []provider.Message, cache cachePolicy) []types.SystemContentBlock {
 	var result []types.SystemContentBlock
 
 	for _, m := range messages {
@@ -855,6 +860,9 @@ func (c *Completer) convertSystem(messages []provider.Message) []types.SystemCon
 			}
 
 			result = append(result, system)
+			if cache.marks(content) {
+				result = append(result, &types.SystemContentBlockMemberCachePoint{Value: cachePoint()})
+			}
 		}
 	}
 
@@ -863,7 +871,7 @@ func (c *Completer) convertSystem(messages []provider.Message) []types.SystemCon
 	}
 
 	// Add cache point after system messages for Claude models
-	if isClaudeModel(c.model) {
+	if isClaudeModel(c.model) && !cache.explicit {
 		result = append(result, &types.SystemContentBlockMemberCachePoint{
 			Value: types.CachePointBlock{
 				Type: types.CachePointTypeDefault,
@@ -877,6 +885,10 @@ func (c *Completer) convertSystem(messages []provider.Message) []types.SystemCon
 // convertMessages builds the conversation without system messages, whose
 // resolved instructions are collected by convertSystem.
 func (c *Completer) convertMessages(messages []provider.Message) ([]types.Message, error) {
+	return c.convertMessagesPolicy(messages, cachePolicy{})
+}
+
+func (c *Completer) convertMessagesPolicy(messages []provider.Message, cache cachePolicy) ([]types.Message, error) {
 	var result []types.Message
 
 	// Merge consecutive turns after hoisting system instructions.
@@ -903,7 +915,7 @@ func (c *Completer) convertMessages(messages []provider.Message) ([]types.Messag
 		switch m.Role {
 		case provider.MessageRoleUser:
 			role = types.ConversationRoleUser
-			content, err = convertUserContent(m)
+			content, err = convertUserContentPolicy(m, cache)
 
 		case provider.MessageRoleAssistant:
 			role = types.ConversationRoleAssistant
@@ -928,7 +940,7 @@ func (c *Completer) convertMessages(messages []provider.Message) ([]types.Messag
 	}
 
 	// Add cache point to the last user message for Claude models
-	if isClaudeModel(c.model) && len(result) > 0 {
+	if isClaudeModel(c.model) && !cache.explicit && len(result) > 0 {
 		for i := len(result) - 1; i >= 0; i-- {
 			if result[i].Role == types.ConversationRoleUser {
 				result[i].Content = append(result[i].Content, &types.ContentBlockMemberCachePoint{
@@ -945,11 +957,18 @@ func (c *Completer) convertMessages(messages []provider.Message) ([]types.Messag
 }
 
 func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
+	return convertUserContentPolicy(m, cachePolicy{})
+}
+
+func convertUserContentPolicy(m provider.Message, cache cachePolicy) ([]types.ContentBlock, error) {
 	var content []types.ContentBlock
 
 	for _, c := range m.Content {
 		if text := strings.TrimRight(c.Text, " \t\n\r"); text != "" {
 			content = append(content, &types.ContentBlockMemberText{Value: text})
+			if cache.marks(c) {
+				content = append(content, &types.ContentBlockMemberCachePoint{Value: cachePoint()})
+			}
 		}
 
 		if c.File != nil {
@@ -1001,6 +1020,9 @@ func convertUserContent(m provider.Message) ([]types.ContentBlock, error) {
 					Content: blocks,
 				},
 			})
+			if cache.marks(c) {
+				content = append(content, &types.ContentBlockMemberCachePoint{Value: cachePoint()})
+			}
 		}
 	}
 
@@ -1084,6 +1106,10 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 }
 
 func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.ToolOptions) (*types.ToolConfiguration, error) {
+	return c.convertToolConfigPolicy(tools, options, cachePolicy{})
+}
+
+func (c *Completer) convertToolConfigPolicy(tools []provider.Tool, options *provider.ToolOptions, cache cachePolicy) (*types.ToolConfiguration, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
@@ -1142,7 +1168,7 @@ func (c *Completer) convertToolConfig(tools []provider.Tool, options *provider.T
 	}
 
 	// Add cache point after tool definitions for Claude models
-	if isClaudeModel(c.model) {
+	if isClaudeModel(c.model) && !cache.explicit {
 		result.Tools = append(result.Tools, &types.ToolMemberCachePoint{
 			Value: types.CachePointBlock{
 				Type: types.CachePointTypeDefault,

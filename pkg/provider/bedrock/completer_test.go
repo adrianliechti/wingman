@@ -117,11 +117,12 @@ func TestConverseAdditionalFields_DisabledThinkingCapsEffort(t *testing.T) {
 }
 
 // TestConverseAdditionalFields_UnsignedToolHistoryDisablesThinking verifies
-// adaptive thinking is turned off when the last assistant message carries
-// tool calls without a signed thinking block (e.g. signatures stripped for
-// portability): Claude over Bedrock rejects such requests with "Expected
-// thinking or redacted_thinking, but found tool_use".
-func TestConverseAdditionalFields_UnsignedToolHistoryDisablesThinking(t *testing.T) {
+// adaptive thinking stays on when the last assistant message carries tool
+// calls without a signed thinking block (e.g. signatures stripped for
+// portability): the unsigned reasoning is not replayed, adaptive thinking
+// accepts a tool turn without a thinking block, and a stable thinking
+// parameter keeps the prompt cache prefix intact across turns.
+func TestConverseAdditionalFields_UnsignedToolHistoryKeepsThinking(t *testing.T) {
 	c := &Completer{Config: &Config{model: "eu.anthropic.claude-sonnet-5"}}
 
 	options := &provider.CompleteOptions{
@@ -147,12 +148,12 @@ func TestConverseAdditionalFields_UnsignedToolHistoryDisablesThinking(t *testing
 
 	fields, thinking := c.converseAdditionalFields(stripped, options)
 
-	if thinking.Enabled {
-		t.Error("expected thinking not enabled")
+	if !thinking.Enabled {
+		t.Error("expected thinking enabled for unsigned history")
 	}
 	got, _ := fields["thinking"].(map[string]any)
-	if got["type"] != "disabled" {
-		t.Fatalf("thinking: got %v, want disabled", fields["thinking"])
+	if got["type"] != "adaptive" {
+		t.Fatalf("thinking: got %v, want adaptive", fields["thinking"])
 	}
 
 	signed := append([]provider.Message{}, stripped...)

@@ -203,7 +203,11 @@ func (c *Completer) resolveThinking(messages []provider.Message, options *provid
 		}
 	}
 
-	if forced || (t.Enabled && provider.LastAssistantToolCallIsUnsigned(messages)) {
+	// A forced tool call is incompatible with thinking. Replayed history
+	// never is: unsigned reasoning is not sent, and adaptive thinking accepts
+	// a tool turn without a thinking block. Keeping the thinking parameter
+	// stable across turns also keeps the prompt cache prefix stable.
+	if forced {
 		t.Enabled = false
 		t.Disabled = true
 	}

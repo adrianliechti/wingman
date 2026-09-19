@@ -7,6 +7,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/server/openai/shared"
 
 	"github.com/google/uuid"
 )
@@ -86,6 +87,8 @@ func toCompleteOptions(req ChatCompletionRequest, tools []provider.Tool) *provid
 
 		MaxTokens:   maxTokens,
 		Temperature: req.Temperature,
+
+		CacheOptions: shared.CacheOptions(req.PromptCacheKey, req.PromptCacheRetention, req.PromptCacheOptions.mode()),
 	}
 
 	if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {

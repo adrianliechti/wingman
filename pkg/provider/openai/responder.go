@@ -447,6 +447,18 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 		req.Truncation = responses.ResponseNewParamsTruncationDisabled
 	}
 
+	if cache := options.CacheOptions; cache != nil {
+		if cache.Key != "" {
+			req.PromptCacheKey = openai.String(cache.Key)
+		}
+		if cache.Retention == provider.CacheRetentionExtended {
+			req.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention24h
+		}
+		if cache.Mode == provider.CacheModeExplicit && supportsCacheBreakpoints(r.model) {
+			req.PromptCacheOptions = responses.ResponseNewParamsPromptCacheOptions{Mode: "explicit"}
+		}
+	}
+
 	if options.ToolOptions != nil {
 		req.ToolChoice = convertResponsesToolChoice(options.ToolOptions)
 
@@ -647,11 +659,11 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 
 			for _, c := range m.Content {
 				if c.Text != "" {
-					message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
-						OfInputText: &responses.ResponseInputTextParam{
-							Text: c.Text,
-						},
-					})
+					part := &responses.ResponseInputTextParam{Text: c.Text}
+					if c.CacheControl != nil && supportsCacheBreakpoints(r.model) {
+						part.PromptCacheBreakpoint = inputTextBreakpoint()
+					}
+					message.Content = append(message.Content, responses.ResponseInputContentUnionParam{OfInputText: part})
 				}
 			}
 
@@ -668,11 +680,11 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 
 			for _, c := range m.Content {
 				if c.Text != "" {
-					message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
-						OfInputText: &responses.ResponseInputTextParam{
-							Text: c.Text,
-						},
-					})
+					part := &responses.ResponseInputTextParam{Text: c.Text}
+					if c.CacheControl != nil && supportsCacheBreakpoints(r.model) {
+						part.PromptCacheBreakpoint = inputTextBreakpoint()
+					}
+					message.Content = append(message.Content, responses.ResponseInputContentUnionParam{OfInputText: part})
 				}
 
 				if c.File != nil {
@@ -680,11 +692,11 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 
 					switch {
 					case isImage(c.File.ContentType):
-						message.Content = append(message.Content, responses.ResponseInputContentUnionParam{
-							OfInputImage: &responses.ResponseInputImageParam{
-								ImageURL: openai.String(url),
-							},
-						})
+						part := &responses.ResponseInputImageParam{ImageURL: openai.String(url)}
+						if c.CacheControl != nil && supportsCacheBreakpoints(r.model) {
+							part.PromptCacheBreakpoint = inputImageBreakpoint()
+						}
+						message.Content = append(message.Content, responses.ResponseInputContentUnionParam{OfInputImage: part})
 
 					default:
 						// Forward as a generic input_file — OpenAI Responses' wire

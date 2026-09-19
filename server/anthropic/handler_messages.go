@@ -51,6 +51,10 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if control := systemCacheControl(req.System); control != nil && len(messages) > 0 && messages[0].Role == provider.MessageRoleSystem && len(messages[0].Content) > 0 {
+		messages[0].Content[len(messages[0].Content)-1].CacheControl = control
+	}
+
 	options, err := toCompleteOptions(req)
 
 	if err != nil {
@@ -208,7 +212,40 @@ func toCompleteOptions(req MessageRequest) (*provider.CompleteOptions, error) {
 		}
 	}
 
+	options.CacheOptions = toCacheOptions(req)
+
 	return options, nil
+}
+
+// toCacheOptions reads the client's cache breakpoints as intent. Providers
+// cache the prefix by default; a 1h TTL on any breakpoint asks for extended
+// retention.
+func toCacheOptions(req MessageRequest) *provider.CacheOptions {
+	extended := false
+	note := func(control *CacheControlParam) {
+		if control != nil && control.TTL == "1h" {
+			extended = true
+		}
+	}
+	if blocks, err := parseContentBlocks(req.System); err == nil {
+		for _, block := range blocks {
+			note(block.CacheControl)
+		}
+	}
+	for _, tool := range req.Tools {
+		note(tool.CacheControl)
+	}
+	for _, message := range req.Messages {
+		if blocks, err := parseContentBlocks(message.Content); err == nil {
+			for _, block := range blocks {
+				note(block.CacheControl)
+			}
+		}
+	}
+	if !extended {
+		return nil
+	}
+	return &provider.CacheOptions{Retention: provider.CacheRetentionExtended}
 }
 
 func validateCompactionRequest(req MessageRequest) error {

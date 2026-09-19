@@ -90,3 +90,28 @@ API when available. It makes no paid provider calls.
 The Bedrock regression runs the CLI through Wingman's real handler and Bedrock
 adapter with a scripted Converse transport, checking trailing system instructions
 and the CLI's keep-all thinking setting.
+
+## Hard scenarios
+
+`TestClaudeCodeHard` covers what the base scenarios avoid, with the same
+reference-then-Wingman comparison:
+
+- `default_tools`: the CLI's built-in tool set instead of an explicit list.
+- `image_read`: `Read` on a PNG, so the tool result carries an image.
+- `thinking_repair`: the project repair at high effort, so thinking blocks
+  are produced and replayed on every turn; the run checks each replayed
+  block is signed.
+
+Every run logs the wire features it used (request parameters, tool types,
+betas, cache breakpoints, answered block types and stop reasons), so the
+reference and Wingman logs can be diffed for what the CLI relies on.
+
+## Upstream recording
+
+`TestClaudeCodeUpstream` runs Wingman in-process between Claude Code and
+Anthropic with both hops recorded. It reports which client features the
+gateway dropped or rewrote on the way upstream, requires the upstream
+request prefix (system, tools, thinking, replayed history) to stay
+byte-stable from turn to turn, and requires Anthropic to report a prompt
+cache read on every turn after the first. Set `CLAUDE_CODE_ARTIFACTS` to
+retain the upstream exchanges as `<test>-upstream.json`.

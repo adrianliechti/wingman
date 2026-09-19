@@ -44,11 +44,6 @@ func TestThinkingRetentionRequest(t *testing.T) {
 
 func TestThinkingRetentionOmittedWhenThinkingDisabled(t *testing.T) {
 	c, _ := NewCompleter("http://localhost", "claude-sonnet-4-6")
-	unsigned := []provider.Message{
-		provider.UserMessage("Read the file"),
-		{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "t", Name: "Read", Arguments: "{}"})}},
-		provider.ToolMessage("t", "contents"),
-	}
 	for _, tc := range []struct {
 		name    string
 		history []provider.Message
@@ -56,7 +51,6 @@ func TestThinkingRetentionOmittedWhenThinkingDisabled(t *testing.T) {
 	}{
 		{"disabled", nil, provider.CompleteOptions{ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeDisabled, Context: provider.ReasoningContextAllTurns}}},
 		{"default", nil, provider.CompleteOptions{ReasoningOptions: &provider.ReasoningOptions{Context: provider.ReasoningContextAllTurns}}},
-		{"unsigned_tool_turn", unsigned, provider.CompleteOptions{ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive, Context: provider.ReasoningContextAllTurns}}},
 		{"forced_tool", nil, provider.CompleteOptions{ReasoningOptions: &provider.ReasoningOptions{Type: provider.ReasoningTypeAdaptive, Context: provider.ReasoningContextAllTurns}, ToolOptions: &provider.ToolOptions{Choice: provider.ToolChoiceAny}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

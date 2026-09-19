@@ -73,6 +73,13 @@ type claudeRunOptions struct {
 	maxTurns     int
 	timeout      time.Duration
 	allowedTools string
+	// defaultTools runs Claude Code with its built-in tool set instead of
+	// the explicit --tools list, so requests carry everything the CLI
+	// declares by default.
+	defaultTools bool
+	// effort overrides the low default; high effort makes thinking blocks
+	// appear on every turn.
+	effort string
 }
 
 func runClaudeWithOptions(t *testing.T, binary string, endpoint harness.Endpoint, model, prompt, tools, input string, options claudeRunOptions) (string, []exchange, string) {
@@ -120,13 +127,23 @@ func runClaudeWithOptions(t *testing.T, binary string, endpoint harness.Endpoint
 	r := newRecorder(t, endpoint)
 	ctx, cancel := context.WithTimeout(t.Context(), options.timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary,
+	effort := options.effort
+	if effort == "" {
+		effort = "low"
+	}
+	args := []string{
 		"--bare", "--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
 		"--no-session-persistence", "--setting-sources", "", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`,
-		"--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", tools, "--allowedTools", options.allowedTools,
-		"--model", model, "--effort", "low", "--max-turns", strconv.Itoa(options.maxTurns), "--max-budget-usd", "1",
+		"--disable-slash-commands", "--permission-mode", "dontAsk",
+	}
+	if !options.defaultTools {
+		args = append(args, "--tools", tools, "--allowedTools", options.allowedTools)
+	}
+	args = append(args,
+		"--model", model, "--effort", effort, "--max-turns", strconv.Itoa(options.maxTurns), "--max-budget-usd", "1",
 		"--", prompt,
 	)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = fixture, claudeEnv(configDir, r.URL, model), 5*time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

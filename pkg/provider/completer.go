@@ -185,6 +185,11 @@ type Content struct {
 	MessageID string
 	Phase     MessagePhase
 
+	// CacheControl marks the end of a reusable prompt prefix. Providers honor
+	// it in explicit cache mode; with implicit caching their automatic prefix
+	// cache already covers everything before it.
+	CacheControl *CacheControl
+
 	Text    string
 	Refusal string
 
@@ -288,6 +293,7 @@ type CompleteOptions struct {
 	OutputOptions     *OutputOptions
 	ReasoningOptions  *ReasoningOptions
 	CompactionOptions *CompactionOptions
+	CacheOptions      *CacheOptions
 
 	Schema *Schema
 }
@@ -413,6 +419,42 @@ type ConfigurationUpdate struct {
 type CompactionOptions struct {
 	Trigger   bool
 	Threshold int
+}
+
+// CacheOptions refines the prompt caching a provider applies by default
+// wherever its backend offers it. Key groups requests that share a prefix on
+// backends that route caches by key, and Retention asks to keep cached
+// prefixes longer than the backend's default where that is available.
+// Neither turns caching on or off.
+type CacheOptions struct {
+	Key       string
+	Retention CacheRetention
+
+	// Mode selects how the prefix is cached: implicit, the default, lets the
+	// provider cache the stable prefix on its own; explicit caches only at
+	// the parts marked with a CacheControl.
+	Mode CacheMode
+}
+
+type CacheRetention string
+
+const (
+	CacheRetentionDefault  CacheRetention = ""
+	CacheRetentionExtended CacheRetention = "extended"
+)
+
+type CacheMode string
+
+const (
+	CacheModeImplicit CacheMode = ""
+	CacheModeExplicit CacheMode = "explicit"
+)
+
+// CacheControl marks a content part as a cache breakpoint. Retention
+// overrides the request's retention for this breakpoint where the backend
+// allows it.
+type CacheControl struct {
+	Retention CacheRetention
 }
 
 // SplitMessages restores the message items of an accumulated assistant

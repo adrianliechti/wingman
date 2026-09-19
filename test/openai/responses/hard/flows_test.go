@@ -3,6 +3,7 @@ package hard_test
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"testing"
@@ -445,4 +446,139 @@ func TestFlowInstructionsAfterToolOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFlowPromptCacheAcrossTurns keeps a long instruction prefix stable
+// across a tool loop. Backends that cache prompts must report cached input
+// tokens on every turn after the first, through Wingman as natively. The
+// gateway caches the prefix by default on backends that need markers, so
+// an OpenAI-style client gets the same behavior on every backend.
+func TestFlowPromptCacheAcrossTurns(t *testing.T) {
+	h := openai.New(t)
+
+	for _, model := range openai.DefaultModels() {
+		t.Run(model.Name, func(t *testing.T) {
+			h.SkipUnlessConfigured(t, model.Name)
+
+			body := map[string]any{
+				"store":            false,
+				"tools":            []any{weatherTool, clockTool},
+				"instructions":     hardtest.CachePrefix(),
+				"prompt_cache_key": "wingman-flow-" + strings.ReplaceAll(model.Name, ".", "-"),
+				"input":            userInput(hardtest.ChainedPrompt),
+			}
+
+			for _, tg := range targets(h, model) {
+				t.Run(tg.label, func(t *testing.T) {
+					cached := cachedTokensPerTurn(t, h, tg, body)
+					requireCachedTurns(t, tg.label, cached, model.Capabilities.Cache, tg.label == "wingman" && deterministicCache(model.Name))
+				})
+			}
+		})
+	}
+}
+
+// deterministicCache reports backends whose prompt cache answers every
+// matching prefix within its TTL. OpenAI's cache is best effort and may miss
+// a turn under load, so only one cached turn can be required there.
+func deterministicCache(model string) bool {
+	return strings.Contains(model, "claude") || strings.Contains(model, "bedrock")
+}
+
+// requireCachedTurns checks the cache reads of a tool loop: every turn after
+// the first on deterministic backends, at least one otherwise.
+func requireCachedTurns(t *testing.T, label string, cached []float64, expected, deterministic bool) {
+	t.Helper()
+
+	if len(cached) < 2 {
+		t.Fatalf("[%s] tool loop finished in %d turn(s); need at least two", label, len(cached))
+	}
+	hits := 0
+	for turn, tokens := range cached {
+		t.Logf("[%s] turn %d: cached input tokens %v", label, turn+1, tokens)
+		if turn == 0 {
+			continue
+		}
+		if tokens > 0 {
+			hits++
+		} else if expected && deterministic {
+			t.Errorf("[%s] turn %d: no cached input tokens although the prefix did not change", label, turn+1)
+		}
+	}
+	if expected && hits == 0 {
+		t.Errorf("[%s] no turn reported cached input tokens", label)
+	}
+}
+
+// cachedTokensPerTurn drives the tool loop and returns each turn's cached
+// input tokens.
+func cachedTokensPerTurn(t *testing.T, h *openai.Harness, tg target, body map[string]any) []float64 {
+	t.Helper()
+
+	input := append([]any{}, body["input"].([]any)...)
+	var cached []float64
+
+	for round := 0; round < 6; round++ {
+		req := maps.Clone(body)
+		req["input"] = input
+
+		resp := post(t, h, tg, req)
+		usage, _ := resp["usage"].(map[string]any)
+		details, _ := usage["input_tokens_details"].(map[string]any)
+		tokens, _ := details["cached_tokens"].(float64)
+		cached = append(cached, tokens)
+
+		output, _ := resp["output"].([]any)
+		results := toolOutputs(output)
+		input = append(input, output...)
+		if len(results) == 0 {
+			return cached
+		}
+		input = append(input, results...)
+	}
+
+	t.Fatalf("[%s] tool loop did not finish within 6 rounds", tg.label)
+	return nil
+}
+
+// TestFlowPromptCacheExplicitBreakpoints caches only at the client's
+// breakpoint: a developer message ending in prompt_cache_breakpoint, under
+// prompt_cache_options explicit. GPT-5.6 and later honor the mode natively,
+// Claude backends get the breakpoint as cache_control or a cache point, and
+// earlier OpenAI models fall back to implicit caching.
+func TestFlowPromptCacheExplicitBreakpoints(t *testing.T) {
+	h := openai.New(t)
+
+	for _, model := range openai.DefaultModels() {
+		t.Run(model.Name, func(t *testing.T) {
+			h.SkipUnlessConfigured(t, model.Name)
+
+			body := map[string]any{
+				"store":                false,
+				"tools":                []any{weatherTool, clockTool},
+				"prompt_cache_options": map[string]any{"mode": "explicit"},
+				"input": []any{
+					map[string]any{"type": "message", "role": "developer", "content": []any{map[string]any{"type": "input_text", "text": hardtest.CachePrefix(), "prompt_cache_breakpoint": map[string]any{"mode": "explicit"}}}},
+					userInput(hardtest.ChainedPrompt)[0],
+				},
+			}
+
+			for _, tg := range targets(h, model) {
+				t.Run(tg.label, func(t *testing.T) {
+					if tg.label == "openai" && !explicitCacheModel(tg.model) {
+						t.Skipf("reference model %s has no explicit prompt cache mode", tg.model)
+					}
+					cached := cachedTokensPerTurn(t, h, tg, body)
+					requireCachedTurns(t, tg.label, cached, model.Capabilities.Cache, tg.label == "wingman" && deterministicCache(model.Name))
+				})
+			}
+		})
+	}
+}
+
+// explicitCacheModel reports OpenAI models with explicit prompt cache
+// breakpoints (GPT-5.6 and later).
+func explicitCacheModel(model string) bool {
+	m := strings.ToLower(model)
+	return strings.HasPrefix(m, "gpt-5.6") || strings.HasPrefix(m, "gpt-6")
 }

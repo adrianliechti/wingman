@@ -33,6 +33,29 @@ type ResponsesRequest struct {
 	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
 
 	Truncation string `json:"truncation,omitempty"`
+
+	PromptCacheKey       *string             `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention *string             `json:"prompt_cache_retention,omitempty"`
+	PromptCacheOptions   *PromptCacheOptions `json:"prompt_cache_options,omitempty"`
+}
+
+// PromptCacheOptions selects implicit or explicit prompt caching. ttl is
+// accepted for compatibility; its only value is the backend default.
+type PromptCacheOptions struct {
+	Mode string `json:"mode,omitempty"`
+	TTL  string `json:"ttl,omitempty"`
+}
+
+func (o *PromptCacheOptions) mode() string {
+	if o == nil {
+		return ""
+	}
+	return o.Mode
+}
+
+// PromptCacheBreakpoint marks the end of a reusable prefix on a content part.
+type PromptCacheBreakpoint struct {
+	Mode string `json:"mode,omitempty"`
 }
 
 // ContextManagementConfig represents a context management entry
@@ -878,6 +901,8 @@ type InputContent struct {
 	Filename string `json:"filename,omitempty"`
 	FileURL  string `json:"file_url,omitempty"`
 	FileData string `json:"file_data,omitempty"`
+
+	PromptCacheBreakpoint *PromptCacheBreakpoint `json:"prompt_cache_breakpoint,omitempty"`
 }
 
 type InputContentType string
@@ -930,8 +955,9 @@ type Response struct {
 	TopP        float32 `json:"top_p"`
 	Truncation  string  `json:"truncation"`
 
-	PromptCacheKey       *string `json:"prompt_cache_key"`
-	PromptCacheRetention *string `json:"prompt_cache_retention"`
+	PromptCacheKey       *string             `json:"prompt_cache_key"`
+	PromptCacheRetention *string             `json:"prompt_cache_retention"`
+	PromptCacheOptions   *PromptCacheOptions `json:"prompt_cache_options,omitempty"`
 
 	Moderation *any `json:"moderation"`
 

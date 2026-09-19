@@ -95,3 +95,30 @@ rerun; negative validator tests reject missing or unsuccessful repair steps.
 
 The suite covers bounded, single-session workflows. Resume, compaction, and
 long-running interactive sessions are not exercised.
+
+## Hard scenarios
+
+`TestCodexHard` covers what the base scenarios avoid, with the same
+reference-then-Wingman comparison:
+
+- `parallel_shell`: two shell reads the model may issue in one turn.
+- `view_image`: the CLI attaches a PNG for the model through `view_image`.
+- `web_search`: Codex configured with `web_search = "live"`, which adds the
+  hosted `web_search` tool to every request.
+- `auto_compact`: the project repair with `model_auto_compact_token_limit`
+  low enough that Codex compacts the conversation mid-task. Compaction is
+  client-side: Codex asks for a handoff summary and continues in a fresh
+  thread, all through ordinary Responses requests.
+
+Every run logs the wire features it used (request parameters, tool types,
+input item types, answered item types and statuses).
+
+## Upstream recording
+
+`TestCodexUpstream` runs Wingman in-process between Codex and OpenAI with
+both hops recorded. It reports which client features the gateway dropped or
+rewrote on the way upstream, requires the upstream request prefix
+(instructions, tools, reasoning, replayed input) to stay byte-stable from
+turn to turn, and requires OpenAI to report cached input tokens on every
+turn after the first. Set `CODEX_ARTIFACTS` to retain the upstream
+exchanges as `<test>-upstream.json`.

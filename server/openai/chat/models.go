@@ -58,6 +58,10 @@ type ChatCompletionRequest struct {
 
 	ResponseFormat *ChatCompletionResponseFormat `json:"response_format,omitempty"`
 
+	PromptCacheKey       *string             `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention *string             `json:"prompt_cache_retention,omitempty"`
+	PromptCacheOptions   *PromptCacheOptions `json:"prompt_cache_options,omitempty"`
+
 	StreamOptions *ChatCompletionStreamOptions `json:"stream_options,omitempty"`
 
 	// frequency_penalty *float32
@@ -175,6 +179,27 @@ type MessageContent struct {
 	File  *MessageContentFile  `json:"file,omitempty"`
 	Image *MessageContentImage `json:"image_url,omitempty"`
 	Audio *MessageContentAudio `json:"input_audio,omitempty"`
+
+	PromptCacheBreakpoint *PromptCacheBreakpoint `json:"prompt_cache_breakpoint,omitempty"`
+}
+
+// PromptCacheOptions selects implicit or explicit prompt caching. ttl is
+// accepted for compatibility; its only value is the backend default.
+type PromptCacheOptions struct {
+	Mode string `json:"mode,omitempty"`
+	TTL  string `json:"ttl,omitempty"`
+}
+
+func (o *PromptCacheOptions) mode() string {
+	if o == nil {
+		return ""
+	}
+	return o.Mode
+}
+
+// PromptCacheBreakpoint marks the end of a reusable prefix on a content part.
+type PromptCacheBreakpoint struct {
+	Mode string `json:"mode,omitempty"`
 }
 
 type MessageContentImage struct {
