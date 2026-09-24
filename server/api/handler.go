@@ -32,6 +32,8 @@ func (h *Handler) Attach(r chi.Router) {
 	r.Post("/retrieve", h.handleSearch) // alias for search
 
 	r.Post("/rerank", h.handleRerank)
+	r.Post("/decisions", h.handleDecisions)
+	r.Post("/systemone", h.handleDecisions)
 	r.Post("/segment", h.handleSegment)
 
 	r.Post("/guard", h.handleGuard)

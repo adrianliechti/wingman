@@ -328,6 +328,56 @@ curl -X POST -H "Content-Type: application/json" \
   http://localhost:8080/v1/rerank
 ```
 
+## Decisions
+
+**Endpoint:** `POST /v1/decisions` (alias: `/v1/systemone`)
+
+Evaluate application state with typed questions using a configured completion or
+embedding model. Requests and responses follow the [TypeSafe System One format](https://docs.typesafe.ai/api).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model` | String | Required model ID or alias |
+| `state` | Object, string, array, or null | Required state to evaluate |
+| `questions` | Object | Required, nonempty map of question IDs to questions |
+
+Each question has a `type`, optional `instructions`, and `criteria` as required
+for its type. Instructions and criterion descriptions may be text, structured
+JSON, or null.
+
+| Type | Criteria | Answer |
+|------|----------|--------|
+| `noul` (yes/no) | Optional object with `true` and/or `false` descriptions | `noul`: probability of yes |
+| `choice` | Object of 1–255 named options with descriptions | `choice`: selected option; `probabilities`, `confidence` |
+| `score` | Array of 2–10 ordered level descriptions | `score`: weighted level index; `legend`, `probabilities`, `confidence` |
+
+Each answer also includes its `type`.
+
+```bash
+curl http://localhost:8080/v1/decisions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "your-model",
+    "state": {"ticket": "I was charged twice. Please refund the extra charge."},
+    "questions": {
+      "refund": {"type": "noul", "instructions": "Is the customer requesting a refund?"},
+      "team": {"type": "choice", "instructions": "Which team should handle this?",
+        "criteria": {"billing": "Payments and refunds", "technical": "Product faults"}},
+      "urgency": {"type": "score", "instructions": "How urgent is the request?",
+        "criteria": ["Routine", "Time-sensitive", "Immediate action required"]}
+    }
+  }'
+```
+
+The response includes `model`, `answers` keyed by question ID, and `usage`
+(`input_tokens` and `output_tokens`); `id` is included when available. Choice
+selects the highest probability, using alphabetical order for ties. Score is a
+zero-based, probability-weighted index: three levels yield a value from 0 to 2,
+including fractions. `legend` retains the input level descriptions.
+
+Probabilities and confidence are adapter estimates, not calibrated accuracy
+guarantees.
+
 ## Segment
 
 Split text into segments/chunks.

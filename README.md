@@ -72,6 +72,7 @@ The platform integrates with a wide range of LLM providers:
 - Custom tools via gRPC plugins
 
 **Additional Capabilities:**
+- Typed decisions (Noul, Choice, Score) using existing chat or embedding models
 - Text summarization (via chat models)
 - Language translation
 - Content rendering and formatting
@@ -247,7 +248,13 @@ A single ingress speaks four dialects, so existing SDKs work unchanged:
 | **Anthropic** (compatible) | `/v1` | `messages`, `messages/count_tokens` |
 | **Gemini** (compatible) | `/v1beta` | `models/{model}:generateContent`, `:streamGenerateContent`, `:countTokens` |
 | **MCP** (native) | `/v1` | `mcp/{name}` — each configured MCP server, over HTTP-stream or SSE |
-| **Wingman** (native) | `/v1` | `extract`, `segment`, `search`, `retrieve`, `research`, `rerank`, `summarize`, `translate`, `render`, `transcribe` |
+| **Wingman** (native) | `/v1` | `decisions` (`systemone` alias), `extract`, `segment`, `search`, `retrieve`, `research`, `rerank`, `summarize`, `translate`, `render`, `transcribe` |
+
+`POST /v1/decisions` accepts TypeSafe-style state and typed questions with any
+configured completer or embedder as `model`; no TypeSafe provider or key is needed.
+The `/v1/systemone` alias supports TypeSafe SDK evaluation calls when their base
+URL points at Wingman and their default model is set to a configured Wingman model.
+See [Decisions](API.md#decisions) for the request format and response fields.
 
 
 ## Integrations & Configuration
