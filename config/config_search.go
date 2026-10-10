@@ -56,10 +56,9 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Searchers.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Searchers) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue

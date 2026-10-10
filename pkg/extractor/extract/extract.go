@@ -21,6 +21,10 @@ type Extractor struct {
 	dispatcher *extract.Dispatcher
 }
 
+func (e *Extractor) Capabilities() extractor.Capabilities {
+	return extractor.Capabilities{UnknownFormats: true}
+}
+
 func New() (*Extractor, error) {
 	e := &Extractor{}
 

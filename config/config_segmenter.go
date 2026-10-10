@@ -59,10 +59,9 @@ func (cfg *Config) registerSegmenters(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Segmenters.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Segmenters) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue

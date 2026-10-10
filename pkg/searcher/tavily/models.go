@@ -11,6 +11,8 @@ type searchResult struct {
 		Title   string `json:"title"`
 		Content string `json:"content"`
 
+		PublishedDate string `json:"published_date"`
+
 		Score float64 `json:"score"`
 	} `json:"results"`
 }

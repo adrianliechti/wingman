@@ -626,6 +626,8 @@ researchers:
 
 ### Document Extraction
 
+Extraction providers implement `Capabilities()` with media types, extensions, and `UnknownFormats`. `MaySupport(file)` selects candidates; the provider validates the actual contents. `UnknownFormats` keeps unlisted files eligible for provider validation, whether the provider inspects contents or delegates to a service whose formats are unknown. The multi-extractor skips incompatible providers, tries candidates in order, and preserves failures when none succeed. Cancellation stops fallback.
+
 #### Default Extractor
 
 Built-in extraction without external services. Uses `go-extract` for PDF,
@@ -653,7 +655,7 @@ extractors:
 
 #### Docling Extractor
 
-https://github.com/DS4SD/docling
+[Docling Serve](https://github.com/docling-project/docling-serve). When API-key authentication is enabled, `token` supplies `X-Api-Key` for conversion, polling, and results.
 
 ```yaml
 extractors:
@@ -676,6 +678,8 @@ extractors:
 
 
 #### Mistral Extractor
+
+Supports PDF, DOCX, PPTX, PNG, JPEG, and AVIF using the fixed Mistral API endpoint. `model` selects the OCR model and defaults to `mistral-ocr-latest`.
 
 ```yaml
 extractors:
@@ -712,9 +716,10 @@ extractors:
 extractors:
   custom:
     type: custom
-    url: http://localhost:8080
+    url: grpc://localhost:9000
 ```
 
+Custom extractors report media types, extensions, and `unknown_formats` through the gRPC `Capabilities` RPC. Clients load this record once during construction. Servers that do not implement discovery remain eligible for all formats; other discovery failures prevent client initialization. Capability declarations belong to the service, with no YAML or Go option override.
 
 ### Text Segmentation
 
@@ -835,6 +840,19 @@ mcps:
 
 Built-in tools wrap the providers you configured elsewhere. Valid types: `search`, `scraper` (alias `crawler`), `research`, `translator`, `mcp`, `custom`.
 
+The Go search, extraction, and translation provider interfaces require their family's typed `Capabilities()` method. Search categories are part of that record. Tool schemas, routing, caching, and tracing use these records directly; custom Go implementations must supply them. Request-specific combinations, file formats, and credentials still require provider validation. Optional interfaces such as `tool.Resulter` remain separate when they add behavior.
+
+Custom searchers report category names, descriptions, and date-filter support through the gRPC `Capabilities` RPC. Search requests carry optional `since` and `until` publication timestamps (inclusive start, exclusive end). Legacy services without discovery expose no category enum or date filters. Discovery runs once at construction with a five-second deadline; errors other than `Unimplemented` fail initialization. The extractor and translator clients follow the same discovery behavior.
+
+| Tool | Model-facing contract |
+| --- | --- |
+| `web_search` | Pass `query` or up to eight independent `queries` sharing the same filters. `max_results` applies per query (1–10). Date fields are offered only when supported; a date-only `until` includes the entire UTC day. Listed provider categories use an enum; put other topic preferences in the query. Distinct excerpts from the same source are retained. |
+| `web_fetch` | Pass an absolute HTTP(S) `url`. `query` selects source passages; a positive `start_index` reads sequentially instead. Character offsets count Unicode characters, and omission notices explain how to continue. |
+| `web_research` | Delegate a self-contained question through `instructions`. Returns the configured researcher's report; use available search/fetch tools for targeted lookups. |
+| `translate` | Pass original `text` and a target language code in `lang`. Language tags are validated before calling the provider; the result is translation text. |
+| MCP | Discovers tools across all pages and preserves text, supported binary resources, and structured results. Authentication is applied to an outgoing request copy. |
+| Custom gRPC | Discovers named tools with object parameter schemas. Sends arguments as JSON and decodes JSON responses, including strings and scalars; also accepts YAML objects and plain text. |
+
 ```yaml
 tools:
   web_search:
@@ -861,7 +879,7 @@ tools:
 tools:
   custom-tool:
     type: custom
-    url: http://localhost:8080
+    url: grpc://localhost:8080
 ```
 
 
@@ -928,6 +946,12 @@ Summarization is automatically available for any chat model:
 #### Translation
 
 Translators back the `/v1/translate` endpoint and the `translator` tool. Types: `deepl`, `azure`, `google`, `llm` (use any completer), `custom`.
+
+Translation providers implement `Capabilities()` with three modes: `TextToText`, `FileToText`, and `FileToDocument`. Each reports `supported`, `unsupported`, or `unknown`; the zero value is unsupported. DeepL, Azure, and Google translate text and return translated documents for file input. The LLM adapter reads files supported by its model and returns plain text. Capabilities describe modes; providers still validate credentials, formats, and model restrictions when translating.
+
+The `translate` tool requires possible text-to-text support. The API returns text by default or with `Accept: text/plain`. It sends uploads directly to providers with confirmed file-to-text support, including the LLM adapter, and uses the configured extractor before text translation for other text providers. Request a translated document with a document MIME type such as `Accept: application/pdf`; the API checks file-to-document support before calling the provider. Providers that accept files but return only text respond with HTTP 406 for document output requests.
+
+Custom gRPC translators report all three modes through the `Capabilities` RPC using `SUPPORT_SUPPORTED`, `SUPPORT_UNSUPPORTED`, or `SUPPORT_UNKNOWN`. Omitted wire values and legacy services without discovery mean unknown support. Unknown modes allow an attempt without guaranteeing support. With unknown file-to-text support, the API prefers extraction plus text translation when text input is possible. Clients load modes during construction; services own these declarations, with no YAML or Go option override.
 
 ```yaml
 translators:

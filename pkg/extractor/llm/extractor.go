@@ -2,7 +2,10 @@ package llm
 
 import (
 	"context"
+	"maps"
+	"mime"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
@@ -22,6 +25,13 @@ var contentTypes = map[string]string{
 
 type Extractor struct {
 	completer provider.Completer
+}
+
+func (a *Extractor) Capabilities() extractor.Capabilities {
+	return extractor.Capabilities{
+		MediaTypes: slices.Compact(slices.Sorted(maps.Values(contentTypes))),
+		Extensions: slices.Sorted(maps.Keys(contentTypes)),
+	}
 }
 
 func New(completer provider.Completer) *Extractor {
@@ -71,8 +81,9 @@ func (a *Extractor) Extract(ctx context.Context, input extractor.File, options *
 }
 
 func detectContentType(file extractor.File) string {
+	mediaType, _, _ := mime.ParseMediaType(strings.TrimSpace(file.ContentType))
 	for _, contentType := range contentTypes {
-		if file.ContentType == contentType {
+		if mediaType == contentType {
 			return contentType
 		}
 	}

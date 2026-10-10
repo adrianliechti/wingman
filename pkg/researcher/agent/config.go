@@ -32,10 +32,11 @@ func WithVerbosity(verbosity researcher.Verbosity) Option {
 	}
 }
 
-func WithMaxToolCalls(n int) Option {
+// WithToolCallTarget sets an advisory efficiency target, not a hard ceiling.
+func WithToolCallTarget(n int) Option {
 	return func(c *Client) {
 		if n > 0 {
-			c.maxToolCalls = n
+			c.toolCallTarget = n
 		}
 	}
 }
@@ -48,10 +49,11 @@ func WithMaxFetchChars(n int) Option {
 	}
 }
 
-func WithMaxTotalFetchChars(n int) Option {
+// WithTotalFetchCharTarget sets an advisory target for cumulative fetched output.
+func WithTotalFetchCharTarget(n int) Option {
 	return func(c *Client) {
 		if n > 0 {
-			c.maxTotalFetchChars = n
+			c.totalFetchCharTarget = n
 		}
 	}
 }
@@ -62,4 +64,16 @@ func WithSummarizeMinChars(n int) Option {
 			c.summarizeMinChars = n
 		}
 	}
+}
+
+// WithMaxToolCalls now sets an advisory target; all requested calls can execute.
+// Deprecated: use WithToolCallTarget.
+func WithMaxToolCalls(n int) Option {
+	return WithToolCallTarget(n)
+}
+
+// WithMaxTotalFetchChars now sets an advisory target; individual fetches remain bounded.
+// Deprecated: use WithTotalFetchCharTarget.
+func WithMaxTotalFetchChars(n int) Option {
+	return WithTotalFetchCharTarget(n)
 }

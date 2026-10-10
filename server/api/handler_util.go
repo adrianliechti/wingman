@@ -3,13 +3,16 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/searcher"
 )
 
 func valueURL(r *http.Request) string {
@@ -167,6 +170,10 @@ func (h *Handler) readText(r *http.Request) (string, error) {
 		return "", err
 	}
 
+	return h.extractText(r, file)
+}
+
+func (h *Handler) extractText(r *http.Request, file *provider.File) (string, error) {
 	p, err := h.Extractor("")
 
 	if err != nil {
@@ -179,12 +186,16 @@ func (h *Handler) readText(r *http.Request) (string, error) {
 		return "", err
 	}
 
+	if result == nil {
+		return "", errors.New("extractor returned an empty response")
+	}
 	return result.Text, nil
 }
 
 func readFile(r *http.Request) (*provider.File, error) {
 	if err := r.ParseMultipartForm(32 << 20); err == nil {
 		if file, header, err := r.FormFile("file"); err == nil {
+			defer file.Close()
 			data, err := io.ReadAll(file)
 
 			if err != nil {
@@ -288,4 +299,13 @@ func readFiles(r *http.Request) ([]provider.File, error) {
 	}
 
 	return files, nil
+}
+
+// valueDate includes the whole UTC day for a date-only until bound.
+func valueDate(r *http.Request, name string) (*time.Time, error) {
+	bound, err := searcher.ParseDateBound(r.FormValue(name), name == "until")
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", name, err)
+	}
+	return bound, nil
 }

@@ -24,12 +24,18 @@ var SupportedExtensions = []string{
 	".jpeg", ".jpg",
 	".png",
 	".bmp",
-	".tiff",
-	".heif",
+	".tif", ".tiff",
+	".webp",
 
 	".docx",
 	".pptx",
 	".xlsx",
+	".html", ".htm", ".xhtml",
+	".md", ".markdown",
+	".adoc", ".asciidoc",
+	".csv",
+	".vtt",
+	".xml",
 }
 
 var SupportedMimeTypes = []string{
@@ -39,9 +45,16 @@ var SupportedMimeTypes = []string{
 	"image/png",
 	"image/bmp",
 	"image/tiff",
-	"image/heif",
+	"image/webp",
 
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"text/html",
+	"application/xhtml+xml",
+	"text/markdown",
+	"text/asciidoc",
+	"text/csv",
+	"text/vtt",
+	"application/xml", "text/xml",
 }

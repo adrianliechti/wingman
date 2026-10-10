@@ -11,7 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"path"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -29,11 +29,15 @@ type Client struct {
 	token string
 }
 
-func New(url string, options ...Option) (*Client, error) {
+func New(endpoint string, options ...Option) (*Client, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return nil, errors.New("kreuzberg: invalid http(s) URL")
+	}
 	c := &Client{
 		client: http.DefaultClient,
 
-		url: url,
+		url: endpoint,
 	}
 
 	for _, option := range options {
@@ -48,7 +52,7 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(file) {
+	if !c.Capabilities().MaySupport(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
@@ -80,9 +84,14 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		return nil, err
 	}
 
-	w.Close()
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.url, "/")+"/extract", &body)
+	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.url, "/")+"/extract", &body)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -115,28 +124,11 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 	}, nil
 }
 
-func isSupported(file extractor.File) bool {
-	if file.Name != "" {
-		ext := strings.ToLower(path.Ext(file.Name))
-
-		if slices.Contains(SupportedExtensions, ext) {
-			return true
-		}
+func (c *Client) Capabilities() extractor.Capabilities {
+	return extractor.Capabilities{
+		MediaTypes: append(slices.Clone(SupportedMimeTypes), "image/*"),
+		Extensions: slices.Clone(SupportedExtensions),
 	}
-
-	if file.ContentType != "" {
-		mediaType := strings.ToLower(strings.TrimSpace(file.ContentType))
-
-		if strings.HasPrefix(mediaType, "image/") {
-			return true
-		}
-
-		if slices.Contains(SupportedMimeTypes, mediaType) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func convertError(resp *http.Response) error {

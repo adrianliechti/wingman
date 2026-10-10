@@ -3,9 +3,10 @@ package tavily
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 func jsonReader(v any) io.Reader {
@@ -19,5 +20,10 @@ func jsonReader(v any) io.Reader {
 }
 
 func convertError(resp *http.Response) error {
-	return errors.New(http.StatusText(resp.StatusCode))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	detail := strings.TrimSpace(string(body))
+	if detail == "" {
+		detail = http.StatusText(resp.StatusCode)
+	}
+	return fmt.Errorf("tavily search: HTTP %d: %s", resp.StatusCode, detail)
 }

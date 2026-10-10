@@ -77,10 +77,9 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Researchers.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Researchers) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -91,19 +90,23 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 			Verbosity: provider.Verbosity(config.Verbosity),
 		}
 
-		if p, err := cfg.Completer(config.Model); err == nil {
-			context.Completer = p
-		}
-
-		if config.Scraper != "" {
-			if p, err := cfg.Scraper(config.Scraper); err == nil {
-				context.Scraper = p
+		if strings.EqualFold(config.Type, "agent") {
+			completer, err := cfg.Completer(config.Model)
+			if err != nil {
+				return err
 			}
-		}
-
-		if config.Searcher != "" {
-			if p, err := cfg.Searcher(config.Searcher); err == nil {
-				context.Searcher = p
+			context.Completer = completer
+			searcher, err := cfg.Searcher(config.Searcher)
+			if err != nil {
+				return err
+			}
+			context.Searcher = searcher
+			if config.Scraper != "" {
+				scraper, err := cfg.Scraper(config.Scraper)
+				if err != nil {
+					return err
+				}
+				context.Scraper = scraper
 			}
 		}
 

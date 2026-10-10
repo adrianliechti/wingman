@@ -9,6 +9,7 @@ import (
 
 type Provider interface {
 	Translate(ctx context.Context, input Input, options *TranslateOptions) (*File, error)
+	Capabilities() Capabilities
 }
 
 var (

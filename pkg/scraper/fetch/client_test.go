@@ -13,7 +13,7 @@ import (
 )
 
 func TestScrapeHTML(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<!DOCTYPE html>
 <html>
@@ -27,13 +27,12 @@ func TestScrapeHTML(t *testing.T) {
   <footer>Copyright 2026</footer>
 </body>
 </html>`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	result, err := c.Scrape(context.Background(), server.URL, nil)
+	result, err := c.Scrape(context.Background(), "https://source.test", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, result.Text, "Hello World")
@@ -42,7 +41,7 @@ func TestScrapeHTML(t *testing.T) {
 }
 
 func TestScrapeHTMLFallbackToBody(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<!DOCTYPE html>
 <html>
@@ -54,13 +53,12 @@ func TestScrapeHTMLFallbackToBody(t *testing.T) {
   </div>
 </body>
 </html>`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	result, err := c.Scrape(context.Background(), server.URL, nil)
+	result, err := c.Scrape(context.Background(), "https://source.test", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, result.Text, "Page Title")
@@ -68,7 +66,7 @@ func TestScrapeHTMLFallbackToBody(t *testing.T) {
 }
 
 func TestScrapeStripsScriptAndStyle(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<html>
 <head><style>body { color: red; }</style></head>
@@ -78,13 +76,12 @@ func TestScrapeStripsScriptAndStyle(t *testing.T) {
   <style>.hidden { display: none; }</style>
 </body>
 </html>`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	result, err := c.Scrape(context.Background(), server.URL, nil)
+	result, err := c.Scrape(context.Background(), "https://source.test", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, result.Text, "Visible text")
@@ -94,16 +91,15 @@ func TestScrapeStripsScriptAndStyle(t *testing.T) {
 }
 
 func TestScrapePlainText(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, "Just plain text content.")
-	}))
-	defer server.Close()
+	})
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	result, err := c.Scrape(context.Background(), server.URL, nil)
+	result, err := c.Scrape(context.Background(), "https://source.test", nil)
 	require.NoError(t, err)
 
 	require.Equal(t, "Just plain text content.", result.Text)
@@ -121,46 +117,43 @@ func TestScrapeFollowsRedirects(t *testing.T) {
 		fmt.Fprint(w, `<html><body><p>Final destination</p></body></html>`)
 	})
 
-	server := httptest.NewServer(mux)
-	defer server.Close()
+	handler := mux
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	result, err := c.Scrape(context.Background(), server.URL+"/redirect", nil)
+	result, err := c.Scrape(context.Background(), "https://source.test/redirect", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, result.Text, "Final destination")
 }
 
 func TestScrapeErrorStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
+	})
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	_, err = c.Scrape(context.Background(), server.URL, nil)
+	_, err = c.Scrape(context.Background(), "https://source.test", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "404")
 }
 
 func TestScrapeAriaHidden(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<html><body>
   <div aria-hidden="true">Hidden overlay</div>
   <p>Actual content</p>
 </body></html>`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	result, err := c.Scrape(context.Background(), server.URL, nil)
+	result, err := c.Scrape(context.Background(), "https://source.test", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, result.Text, "Actual content")
@@ -168,7 +161,7 @@ func TestScrapeAriaHidden(t *testing.T) {
 }
 
 func TestScrapeArticleFallback(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<html><body>
   <div class="sidebar">Sidebar junk</div>
@@ -177,16 +170,23 @@ func TestScrapeArticleFallback(t *testing.T) {
     <p>Article body.</p>
   </article>
 </body></html>`)
-	}))
-	defer server.Close()
+	})
 
-	c, err := fetch.New()
+	c, err := fetch.New(fetch.WithClient(&http.Client{Transport: handlerTransport{handler}}))
 	require.NoError(t, err)
 
-	result, err := c.Scrape(context.Background(), server.URL, nil)
+	result, err := c.Scrape(context.Background(), "https://source.test", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, result.Text, "Article Title")
 	require.Contains(t, result.Text, "Article body.")
 	require.NotContains(t, result.Text, "Sidebar junk")
+}
+
+type handlerTransport struct{ handler http.Handler }
+
+func (h handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	h.handler.ServeHTTP(w, req)
+	return w.Result(), nil
 }

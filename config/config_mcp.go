@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"maps"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -60,7 +61,8 @@ type mcpConfig struct {
 }
 
 type mcpContext struct {
-	Tools map[string]tool.Provider
+	Tools     map[string]tool.Provider
+	Transport http.RoundTripper
 }
 
 func (cfg *Config) registerMCP(f *configFile) error {
@@ -70,10 +72,9 @@ func (cfg *Config) registerMCP(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.MCPs.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.MCPs) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -81,6 +82,13 @@ func (cfg *Config) registerMCP(f *configFile) error {
 
 		context := mcpContext{
 			Tools: make(map[string]tool.Provider),
+		}
+		if config.Proxy != nil && strings.EqualFold(config.Type, "proxy") {
+			client, err := config.Proxy.proxyClient()
+			if err != nil {
+				return err
+			}
+			context.Transport = client.Transport
 		}
 
 		for _, t := range config.Tools {
@@ -129,5 +137,9 @@ func proxyMCP(cfg mcpConfig, context mcpContext) (mcp.Provider, error) {
 		return nil, err
 	}
 
-	return proxy.New(cfg.URL, cfg.Vars, exchanger)
+	var options []proxy.Option
+	if context.Transport != nil {
+		options = append(options, proxy.WithTransport(context.Transport))
+	}
+	return proxy.New(cfg.URL, cfg.Vars, exchanger, options...)
 }

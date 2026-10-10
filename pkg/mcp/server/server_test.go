@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"sync"
@@ -61,17 +62,14 @@ var _ tool.Provider = (*fakeProvider)(nil)
 func connectTo(t *testing.T, s *Server) *mcp.ClientSession {
 	t.Helper()
 
-	httpServer := httptest.NewServer(s)
-	t.Cleanup(httpServer.Close)
-
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0.0"}, nil)
 
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
-		Endpoint:   httpServer.URL,
-		HTTPClient: httpServer.Client(),
+		Endpoint:   "https://mcp.test/mcp",
+		HTTPClient: &http.Client{Transport: handlerTransport{s}},
 	}, nil)
 
 	if err != nil {
@@ -81,6 +79,14 @@ func connectTo(t *testing.T, s *Server) *mcp.ClientSession {
 	t.Cleanup(func() { session.Close() })
 
 	return session
+}
+
+type handlerTransport struct{ handler http.Handler }
+
+func (h handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	h.handler.ServeHTTP(w, req)
+	return w.Result(), nil
 }
 
 func newServer(t *testing.T, instructions string, providers ...tool.Provider) *Server {
@@ -216,19 +222,19 @@ func TestRefreshIsQuietWhenNothingChanged(t *testing.T) {
 
 	notified := make(chan struct{}, 8)
 
-	httpServer := httptest.NewServer(s)
-	t.Cleanup(httpServer.Close)
-
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0.0"}, &mcp.ClientOptions{
 		ToolListChangedHandler: func(context.Context, *mcp.ToolListChangedRequest) {
 			notified <- struct{}{}
 		},
 	})
 
-	session, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
-		Endpoint:   httpServer.URL,
-		HTTPClient: httpServer.Client(),
-	}, nil)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := s.server.Connect(t.Context(), serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { serverSession.Close() })
+	session, err := client.Connect(t.Context(), clientTransport, nil)
 
 	if err != nil {
 		t.Fatal(err)

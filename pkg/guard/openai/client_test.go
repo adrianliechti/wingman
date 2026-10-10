@@ -9,7 +9,7 @@ import (
 )
 
 func TestCheck(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/moderations" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
@@ -49,11 +49,9 @@ func TestCheck(t *testing.T) {
 				}
 			]
 		}`))
-	}))
+	})
 
-	defer server.Close()
-
-	client, err := New(server.URL + "/v1")
+	client, err := New("https://guard.test/v1", WithClient(&http.Client{Transport: handlerTransport{handler}}))
 
 	if err != nil {
 		t.Fatal(err)
@@ -80,4 +78,12 @@ func TestCheck(t *testing.T) {
 	if result.Categories[1].Name != "harassment" || result.Categories[1].Score != 0.42 {
 		t.Errorf("unexpected category: %v", result.Categories[1])
 	}
+}
+
+type handlerTransport struct{ handler http.Handler }
+
+func (h handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	h.handler.ServeHTTP(w, req)
+	return w.Result(), nil
 }

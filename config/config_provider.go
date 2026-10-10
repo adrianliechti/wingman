@@ -32,8 +32,7 @@ func (cfg *Config) registerProviders(f *configFile) error {
 			}
 		}
 
-		for _, node := range p.Models.Content {
-			id := node.Value
+		for _, id := range configIDs(&p.Models) {
 
 			if id == "" {
 				continue

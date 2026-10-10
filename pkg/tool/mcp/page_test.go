@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"testing"
 
@@ -30,14 +29,11 @@ func TestToolsFollowsPagination(t *testing.T) {
 			})
 	}
 
-	httpServer := httptest.NewServer(mcp.NewStreamableHTTPHandler(
+	handler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{Stateless: true},
-	))
-
-	t.Cleanup(httpServer.Close)
-
-	c, err := New(httpServer.URL, nil, nil)
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
+	)
+	c, err := newHTTPTestClient(t, handler, nil, nil)
 
 	if err != nil {
 		t.Fatal(err)

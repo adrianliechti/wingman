@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net/url"
 	"strings"
 	"unicode/utf8"
@@ -55,7 +54,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        ToolName,
-			Description: "Fetch a public web page (HTML/text/PDF) and return its extracted text so the assistant can quote and cite it. Long pages are truncated; a trailing notice then gives the start_index to pass to read the next part.",
+			Description: "Read an http(s) URL through the configured scraper and return extracted source text for citations and quotations. Use query to select relevant passages, or start_index to continue reading. Omission notices describe which text was left out; omitted text cannot establish absence.",
 
 			Parameters: map[string]any{
 				"type": "object",
@@ -92,7 +91,10 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, tool.ErrInvalidTool
 	}
 
-	raw, _ := parameters["url"].(string)
+	raw, err := tool.StringParameter(parameters, "url")
+	if err != nil {
+		return nil, fmt.Errorf("scrape: %w", err)
+	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, errors.New("scrape: missing url parameter")
@@ -107,20 +109,21 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, ErrURLNotAllowed
 	}
 
-	start, err := integerParameter(parameters, "start_index", 0, 0, int(^uint(0)>>1))
+	start, err := tool.IntegerParameter(parameters, "start_index", 0, 0, int(^uint(0)>>1))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scrape: %w", err)
 	}
-	maxChars, err := integerParameter(parameters, "max_chars", c.maxChars, 1, c.maxChars)
+	maxChars, err := tool.IntegerParameter(parameters, "max_chars", c.maxChars, 1, c.maxChars)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scrape: %w", err)
 	}
 
-	query, _ := parameters["query"].(string)
-	if parameters["query"] != nil {
-		if _, ok := parameters["query"].(string); !ok || utf8.RuneCountInString(query) > 500 {
-			return nil, errors.New("scrape: query must be a string of at most 500 characters")
-		}
+	query, err := tool.StringParameter(parameters, "query")
+	if err != nil {
+		return nil, fmt.Errorf("scrape: %w", err)
+	}
+	if utf8.RuneCountInString(query) > 500 {
+		return nil, errors.New("scrape: query must be a string of at most 500 characters")
 	}
 
 	doc, err := c.scraper.Scrape(ctx, raw, &scraper.ScrapeOptions{})
@@ -139,25 +142,11 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	return formatDocument(raw, text), nil
 }
 
-func integerParameter(params map[string]any, key string, fallback, minimum, maximum int) (int, error) {
-	value, exists := params[key]
-	if !exists || value == nil {
-		return fallback, nil
-	}
-	n, ok := value.(float64)
-	if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n != math.Trunc(n) || n < float64(minimum) || n >= float64(int(^uint(0)>>1)) {
-		return 0, fmt.Errorf("scrape: invalid %s", key)
-	}
-	return min(int(n), maximum), nil
-}
-
 // Result implements tool.Resulter so the agent chain sees the same markdown
 // the MCP server emits.
 func (c *Client) Result(name string, value any) provider.ToolResult {
 	text, _ := value.(string)
-	return provider.ToolResult{
-		Parts: []provider.Part{{Text: text}},
-	}
+	return tool.TextResult(text)
 }
 
 // paginate returns a window of at most max characters (runes) starting at

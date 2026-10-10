@@ -21,7 +21,7 @@ type Client struct {
 }
 
 func New(url string, options ...Option) (*Client, error) {
-	if url == "" || !strings.HasPrefix(url, "grpc://") {
+	if !strings.HasPrefix(url, "grpc://") || strings.TrimSpace(strings.TrimPrefix(url, "grpc://")) == "" {
 		return nil, errors.New("invalid url")
 	}
 

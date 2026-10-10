@@ -5,7 +5,23 @@ option go_package = "github.com/adrianliechti/wingman/pkg/translator/custom;cust
 package translator;
 
 service Translator {
+  rpc Capabilities (CapabilitiesRequest) returns (CapabilitiesResponse) {}
   rpc Translate (TranslateRequest) returns (File) {}
+}
+
+message CapabilitiesRequest {}
+
+// Omitted modes remain unknown; services should explicitly report unsupported modes.
+enum Support {
+  SUPPORT_UNKNOWN = 0;
+  SUPPORT_SUPPORTED = 1;
+  SUPPORT_UNSUPPORTED = 2;
+}
+
+message CapabilitiesResponse {
+  Support text_to_text = 1;
+  Support file_to_text = 2;
+  Support file_to_document = 3;
 }
 
 message TranslateRequest {

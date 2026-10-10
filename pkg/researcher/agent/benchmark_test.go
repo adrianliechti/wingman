@@ -59,7 +59,9 @@ type benchmarkEvidence struct {
 	observed map[string]bool
 }
 
-func (b *benchmarkEvidence) Categories() []searcher.Category { return nil }
+func (b *benchmarkEvidence) Capabilities() searcher.Capabilities {
+	return searcher.Capabilities{DateFilters: true}
+}
 
 func (b *benchmarkEvidence) Search(ctx context.Context, query string, options *searcher.SearchOptions) ([]searcher.Result, error) {
 	b.mu.Lock()

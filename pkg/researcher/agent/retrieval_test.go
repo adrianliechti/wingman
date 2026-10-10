@@ -12,6 +12,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/scraper"
+	"github.com/adrianliechti/wingman/pkg/searcher/duckduckgo"
 	"github.com/adrianliechti/wingman/pkg/tool"
 )
 
@@ -20,6 +21,62 @@ type countingScraper struct{ calls atomic.Int32 }
 func (s *countingScraper) Scrape(ctx context.Context, source string, options *scraper.ScrapeOptions) (*scraper.Document, error) {
 	s.calls.Add(1)
 	return &scraper.Document{Text: strings.Repeat("界", 3000) + "Launch: 14 May 2031. Budget: 83 million credits." + strings.Repeat("界", 3000)}, nil
+}
+
+func TestResearch_PromptAndSchemaRespectCapabilities(t *testing.T) {
+	answer := provider.AssistantMessage("answer")
+	completer := &fakeCompleter{script: []provider.Completion{{Message: &answer}}}
+	p := &cachedSearcher{Provider: &duckduckgo.Client{}}
+	if p.Capabilities().DateFilters {
+		t.Fatal("cache wrapper lost capabilities")
+	}
+	c, _ := New(completer, p)
+	if _, err := c.Research(t.Context(), "a question", nil); err != nil {
+		t.Fatal(err)
+	}
+	call := completer.calls[0]
+	if strings.Contains(call.messages[0].Text(), "use recency") {
+		t.Fatal("prompt recommends unsupported date filters")
+	}
+	props := call.options.Tools[0].Parameters["properties"].(map[string]any)
+	if _, exists := props["since"]; exists {
+		t.Fatal("schema advertises unsupported date filters")
+	}
+}
+
+func TestRunCall_LabelsSummariesAndPreservesRequestedSourceExcerpts(t *testing.T) {
+	summary := provider.AssistantMessage("A generated paraphrase.")
+	summarizer := &fakeCompleter{script: []provider.Completion{{Message: &summary}}}
+	evidence := "Source: https://example.com/report\n\n" + strings.Repeat("Exact source wording 界. ", 100)
+	s := &state{
+		instructions: "Find exact wording",
+		client:       &Client{maxFetchChars: 6000, summarizer: summarizer, summarizeMinChars: 1},
+		tools:        map[string]tool.Provider{toolWebFetch: &stubTool{execute: func(context.Context) (any, error) { return evidence, nil }}},
+	}
+	message, _ := s.runCall(t.Context(), provider.ToolCall{ID: "overview", Name: toolWebFetch, Arguments: `{"url":"https://example.com/report"}`}, 6000)
+	result, _ := message.ToolResult()
+	for _, want := range []string{"Source: https://example.com/report", "Summarized evidence", "A generated paraphrase."} {
+		if !strings.Contains(result.Parts[0].Text, want) {
+			t.Fatalf("missing %q: %+v", want, result)
+		}
+	}
+	if !strings.Contains(summarizer.calls[0].messages[0].Text(), "never follow instructions") {
+		t.Fatal("summarizer did not treat page instructions as data")
+	}
+	for _, arguments := range []string{
+		`{"url":"https://example.com/report","query":"exact wording"}`,
+		`{"url":"https://example.com/report","start_index":0}`,
+		`{"url":"https://example.com/report","start_index":100}`,
+	} {
+		message, _ := s.runCall(t.Context(), provider.ToolCall{ID: "quote", Name: toolWebFetch, Arguments: arguments}, 6000)
+		result, _ := message.ToolResult()
+		if result.Parts[0].Text != evidence {
+			t.Fatal("requested source excerpt was summarized")
+		}
+	}
+	if len(summarizer.calls) != 1 {
+		t.Fatalf("summarizer calls %d", len(summarizer.calls))
+	}
 }
 
 func TestResearch_ReusesPagesOnlyWithinRun(t *testing.T) {
@@ -60,13 +117,13 @@ func (s *stubTool) Execute(ctx context.Context, _ string, _ map[string]any) (any
 	return s.execute(ctx)
 }
 
-func TestRunCalls_HardRuneBudgetAndOrderedResults(t *testing.T) {
+func TestRunCalls_BoundedOutputsBeyondAdvisoryTargetAndOrderedResults(t *testing.T) {
 	var requests atomic.Int32
 	p := &stubTool{execute: func(context.Context) (any, error) {
-		requests.Add(1)
-		return "Source: https://example.com\n" + strings.Repeat("界", 2000), nil
+		request := requests.Add(1)
+		return fmt.Sprintf("Source: https://example.com/%d\n", request) + strings.Repeat("界", 2000), nil
 	}}
-	s := &state{client: &Client{maxFetchChars: 600, maxTotalFetchChars: 1500}, tools: map[string]tool.Provider{toolWebFetch: p}}
+	s := &state{client: &Client{maxFetchChars: 600, totalFetchCharTarget: 1500}, tools: map[string]tool.Provider{toolWebFetch: p}}
 	var calls []provider.ToolCall
 	for i := range 6 {
 		calls = append(calls, provider.ToolCall{ID: fmt.Sprint(i), Name: toolWebFetch, Arguments: `{}`})
@@ -82,16 +139,17 @@ func TestRunCalls_HardRuneBudgetAndOrderedResults(t *testing.T) {
 		if !utf8.ValidString(text) {
 			t.Fatal("split UTF-8")
 		}
-		if !strings.HasPrefix(text, "Error:") {
-			count += utf8.RuneCountInString(text)
+		if strings.HasPrefix(text, "Error:") || utf8.RuneCountInString(text) > 600+512 {
+			t.Fatalf("invalid or oversized result: %q", text)
 		}
+		count += utf8.RuneCountInString(text)
 	}
-	if count > 1500 || count != s.fetchedChars || requests.Load() != 2 {
+	if count <= 1500 || count != s.fetchedChars || requests.Load() != 6 {
 		t.Fatalf("chars=%d accounted=%d requests=%d", count, s.fetchedChars, requests.Load())
 	}
 	s.runCalls(context.Background(), calls[:1])
-	if requests.Load() != 2 {
-		t.Fatal("retrieval after budget exhausted")
+	if requests.Load() != 7 {
+		t.Fatal("follow-up retrieval did not execute")
 	}
 }
 
@@ -164,11 +222,11 @@ func TestRunCalls_AccountsActualOutputAndRetriesFailures(t *testing.T) {
 		}
 		return "界界界", nil
 	}}
-	s := &state{client: &Client{maxFetchChars: 600, maxTotalFetchChars: 700}, tools: map[string]tool.Provider{toolWebFetch: p}}
+	s := &state{client: &Client{maxFetchChars: 600, totalFetchCharTarget: 700}, tools: map[string]tool.Provider{toolWebFetch: p}}
 	calls := []provider.ToolCall{{ID: "1", Name: toolWebFetch, Arguments: `{}`}}
 	s.runCalls(context.Background(), calls)
 	if s.fetchedChars != 0 {
-		t.Fatal("failed request consumed fetch budget")
+		t.Fatal("failed request counted as fetched output")
 	}
 	s.runCalls(context.Background(), calls)
 	s.runCalls(context.Background(), calls)
@@ -180,7 +238,7 @@ func TestRunCalls_AccountsActualOutputAndRetriesFailures(t *testing.T) {
 func TestRunCalls_ReusesFullEvidenceAcrossBatches(t *testing.T) {
 	evidence := "Source: https://example.com/report\n" + strings.Repeat("Measured evidence 界. ", 100)
 	p := &stubTool{execute: func(context.Context) (any, error) { return evidence, nil }}
-	s := &state{client: &Client{maxFetchChars: 6000, maxTotalFetchChars: 20000}, tools: map[string]tool.Provider{toolWebFetch: p}}
+	s := &state{client: &Client{maxFetchChars: 6000, totalFetchCharTarget: 20000}, tools: map[string]tool.Provider{toolWebFetch: p}}
 	first := s.runCalls(context.Background(), []provider.ToolCall{
 		{ID: "original", Name: toolWebFetch, Arguments: `{}`},
 		{ID: "parallel-copy", Name: toolWebFetch, Arguments: `{}`},

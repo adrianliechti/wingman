@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -41,7 +42,7 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 	return []tool.Tool{
 		{
 			Name:        ToolName,
-			Description: "Run a deep, multi-step research investigation and return a synthesized, cited answer. SLOW (tens of seconds to minutes) — only use this for complex questions that need cross-referenced sources, multi-hop reasoning, or in-depth analysis. For quick lookups, recent facts, or a single fact-check, prefer `web_search` (and `web_fetch` for a specific URL) — they are orders of magnitude faster.",
+			Description: "Delegate a self-contained web research question requiring several searches, source comparisons, or a cited report. Returns the configured researcher's report; check its evidence before drawing further conclusions. May take seconds to minutes. When available, use web_search for targeted lookups and web_fetch to read a supplied URL.",
 
 			Parameters: map[string]any{
 				"type": "object",
@@ -62,7 +63,10 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, tool.ErrInvalidTool
 	}
 
-	instructions, _ := parameters["instructions"].(string)
+	instructions, err := tool.StringParameter(parameters, "instructions")
+	if err != nil {
+		return nil, fmt.Errorf("research: %w", err)
+	}
 	instructions = strings.TrimSpace(instructions)
 	if instructions == "" {
 		return nil, errors.New("research: missing instructions parameter")
@@ -72,6 +76,9 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 	if err != nil {
 		return nil, err
 	}
+	if data == nil {
+		return nil, errors.New("research: empty response")
+	}
 
 	return data.Content, nil
 }
@@ -80,5 +87,5 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 // as plain markdown text instead of a JSON-quoted blob.
 func (c *Client) Result(name string, value any) provider.ToolResult {
 	text, _ := value.(string)
-	return provider.ToolResult{Parts: []provider.Part{{Text: text}}}
+	return tool.TextResult(text)
 }

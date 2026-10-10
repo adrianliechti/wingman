@@ -1,11 +1,14 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,41 +25,55 @@ var (
 )
 
 type Client struct {
+	client    *http.Client
 	transport mcp.Transport
 }
 
-func New(url string, headers map[string]string, exchanger auth.TokenExchanger) (*Client, error) {
-	hc := &http.Client{
-		Transport: &rt{
-			headers:   headers,
-			exchanger: exchanger,
-			transport: http.DefaultTransport,
-		},
+func New(endpoint string, headers map[string]string, exchanger auth.TokenExchanger, options ...Option) (*Client, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return nil, errors.New("mcp: endpoint must be an absolute http(s) URL")
+	}
+	c := &Client{client: http.DefaultClient}
+	for _, option := range options {
+		option(c)
+	}
+	hc := *c.client
+	transport := hc.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	hc.Transport = &rt{
+		headers:   maps.Clone(headers),
+		exchanger: exchanger,
+		transport: transport,
 	}
 
 	var tr mcp.Transport = &mcp.StreamableClientTransport{
-		Endpoint: url,
+		Endpoint: endpoint,
 
-		HTTPClient: hc,
+		HTTPClient: &hc,
 		MaxRetries: -1,
 	}
 
-	if strings.Contains(strings.ToLower(url), "/sse") {
+	if strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/sse") {
 		tr = &mcp.SSEClientTransport{
-			Endpoint: url,
+			Endpoint: endpoint,
 
-			HTTPClient: hc,
+			HTTPClient: &hc,
 		}
 	}
 
-	c := &Client{
-		transport: tr,
-	}
+	c.transport = tr
 
 	return c, nil
 }
 
 func (c *Client) createSession(ctx context.Context) (*mcp.ClientSession, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	impl := &mcp.Implementation{
 		Name:    "wingman",
 		Version: "1.0.0",
@@ -101,12 +118,14 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 }
 
 func (c *Client) Execute(ctx context.Context, name string, parameters map[string]any) (any, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, tool.ErrInvalidTool
+	}
 	session, err := c.createSession(ctx)
 
 	if err != nil {
 		return nil, err
 	}
-
 	defer session.Close()
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -116,6 +135,9 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 
 	if err != nil {
 		return nil, err
+	}
+	if result == nil {
+		return nil, errors.New("mcp: empty tool response")
 	}
 
 	if result.IsError {
@@ -136,8 +158,15 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 func (c *Client) Result(name string, value any) provider.ToolResult {
 	result, ok := value.(*mcp.CallToolResult)
 	if !ok {
-		data, _ := json.Marshal(value)
-		return provider.ToolResult{Parts: []provider.Part{{Text: string(data)}}}
+		rendered, err := tool.RenderResult(nil, name, value)
+		if err != nil {
+			rendered = tool.TextResult("Error: " + err.Error())
+			rendered.IsError = true
+		}
+		return rendered
+	}
+	if result == nil {
+		return tool.TextResult("(no content)")
 	}
 
 	var parts []provider.Part
@@ -145,7 +174,9 @@ func (c *Client) Result(name string, value any) provider.ToolResult {
 	for _, content := range result.Content {
 		switch v := content.(type) {
 		case *mcp.TextContent:
-			parts = append(parts, provider.Part{Text: v.Text})
+			if v.Text != "" {
+				parts = append(parts, provider.Part{Text: v.Text})
+			}
 
 		case *mcp.ImageContent:
 			parts = append(parts, filePart("", v.MIMEType, v.Data))
@@ -172,16 +203,36 @@ func (c *Client) Result(name string, value any) provider.ToolResult {
 		}
 	}
 
-	if len(parts) == 0 && result.StructuredContent != nil {
-		data, _ := json.Marshal(result.StructuredContent)
-		parts = append(parts, provider.Part{Text: string(data)})
+	if result.StructuredContent != nil {
+		data, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			failure := tool.TextResult("Error: invalid structured tool result: " + err.Error())
+			failure.IsError = true
+			return failure
+		}
+		if !containsStructuredContent(parts, data) {
+			parts = append(parts, provider.Part{Text: string(data)})
+		}
 	}
 
 	if len(parts) == 0 {
 		parts = append(parts, provider.Part{Text: "(no content)"})
 	}
 
-	return provider.ToolResult{Parts: parts}
+	return provider.ToolResult{Parts: parts, IsError: result.IsError}
+}
+
+func containsStructuredContent(parts []provider.Part, data []byte) bool {
+	for _, part := range parts {
+		var value any
+		if json.Unmarshal([]byte(part.Text), &value) == nil {
+			encoded, _ := json.Marshal(value)
+			if bytes.Equal(encoded, data) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // filePart wraps binary content the completers can forward to the model
@@ -214,6 +265,10 @@ func resultText(result *mcp.CallToolResult) string {
 		}
 	}
 
+	if len(parts) == 0 && result.StructuredContent != nil {
+		data, _ := json.Marshal(result.StructuredContent)
+		return string(data)
+	}
 	return strings.Join(parts, "\n")
 }
 
@@ -224,6 +279,7 @@ type rt struct {
 }
 
 func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
 	if rt.exchanger != nil {
 		caller, _ := req.Context().Value(auth.TokenContextKey).(string)
 

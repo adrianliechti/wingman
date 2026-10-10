@@ -17,8 +17,10 @@ import (
 func TestGoogleTranslatorConfiguration(t *testing.T) {
 	t.Setenv("GOOGLE_API_KEY", "test-google-token")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/language/translate/v2" || r.Header.Get("X-Goog-Api-Key") != "test-google-token" {
+	previousClient := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: googleTranslatorRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		w := httptest.NewRecorder()
+		if r.URL.Host != "configured-translator.test" || r.URL.Path != "/language/translate/v2" || r.Header.Get("X-Goog-Api-Key") != "test-google-token" {
 			t.Error("Google translator URL or token was not configured")
 		}
 		var body struct {
@@ -31,15 +33,16 @@ func TestGoogleTranslatorConfiguration(t *testing.T) {
 			t.Errorf("target language = %q, want de", body.Target)
 		}
 		io.WriteString(w, `{"data":{"translations":[{"translatedText":"Hallo Welt"}]}}`)
-	}))
-	defer server.Close()
+		return w.Result(), nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = previousClient })
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte(`
 translators:
   google:
     type: google
-    url: ` + server.URL + `
+    url: https://configured-translator.test
     token: ${GOOGLE_API_KEY}
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {

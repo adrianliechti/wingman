@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -12,8 +13,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool/search"
 	"github.com/adrianliechti/wingman/pkg/tool/translate"
 
-	"github.com/adrianliechti/wingman/pkg/extractor"
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/searcher"
@@ -61,9 +60,6 @@ type toolConfig struct {
 	Auth  *authConfig       `yaml:"auth"`
 	Proxy *proxyConfig      `yaml:"proxy"`
 
-	Model string `yaml:"model"`
-
-	Extractor  string `yaml:"extractor"`
 	Translator string `yaml:"translator"`
 
 	Scraper    string `yaml:"scraper"`
@@ -72,11 +68,9 @@ type toolConfig struct {
 }
 
 type toolContext struct {
-	Extractor  extractor.Provider
-	Translator translator.Provider
+	Client *http.Client
 
-	Renderer    provider.Renderer
-	Synthesizer provider.Synthesizer
+	Translator translator.Provider
 
 	Scraper    scraper.Provider
 	Searcher   searcher.Provider
@@ -90,10 +84,9 @@ func (cfg *Config) registerTools(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Tools.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Tools) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -101,32 +94,23 @@ func (cfg *Config) registerTools(f *configFile) error {
 
 		context := toolContext{}
 
-		if p, err := cfg.Extractor(config.Extractor); err == nil {
-			context.Extractor = p
+		var err error
+		switch strings.ToLower(config.Type) {
+		case "scraper", "crawler":
+			context.Scraper, err = cfg.Scraper(config.Scraper)
+		case "search":
+			context.Searcher, err = cfg.Searcher(config.Searcher)
+		case "research":
+			context.Researcher, err = cfg.Researcher(config.Researcher)
+		case "translator":
+			context.Translator, err = cfg.Translator(config.Translator)
+		case "mcp":
+			if config.Proxy != nil {
+				context.Client, err = config.Proxy.proxyClient()
+			}
 		}
-
-		if p, err := cfg.Translator(config.Translator); err == nil {
-			context.Translator = p
-		}
-
-		if p, err := cfg.Renderer(config.Model); err == nil {
-			context.Renderer = p
-		}
-
-		if p, err := cfg.Synthesizer(config.Model); err == nil {
-			context.Synthesizer = p
-		}
-
-		if p, err := cfg.Scraper(config.Scraper); err == nil {
-			context.Scraper = p
-		}
-
-		if p, err := cfg.Searcher(config.Searcher); err == nil {
-			context.Searcher = p
-		}
-
-		if p, err := cfg.Researcher(config.Researcher); err == nil {
-			context.Researcher = p
+		if err != nil {
+			return err
 		}
 
 		tool, err := createTool(config, context)
@@ -202,7 +186,11 @@ func mcpTool(cfg toolConfig, context toolContext) (tool.Provider, error) {
 		return nil, err
 	}
 
-	return mcp.New(cfg.URL, cfg.Vars, exchanger)
+	var options []mcp.Option
+	if context.Client != nil {
+		options = append(options, mcp.WithClient(context.Client))
+	}
+	return mcp.New(cfg.URL, cfg.Vars, exchanger, options...)
 }
 
 func customTool(cfg toolConfig, context toolContext) (tool.Provider, error) {

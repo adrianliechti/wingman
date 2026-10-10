@@ -59,10 +59,9 @@ func (cfg *Config) registerSummarizers(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Summarizers.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Summarizers) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -80,10 +79,12 @@ func (cfg *Config) registerSummarizers(f *configFile) error {
 			context.Client = client
 		}
 
-		if config.Model != "" {
-			if p, err := cfg.Completer(config.Model); err == nil {
-				context.Completer = p
+		if strings.EqualFold(config.Type, "llm") {
+			completer, err := cfg.Completer(config.Model)
+			if err != nil {
+				return err
 			}
+			context.Completer = completer
 		}
 
 		summarizer, err := createSummarizer(config, context)

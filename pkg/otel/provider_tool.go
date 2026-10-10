@@ -3,6 +3,7 @@ package otel
 import (
 	"context"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
 
 	"go.opentelemetry.io/otel"
@@ -68,4 +69,13 @@ func (p *observableTool) Execute(ctx context.Context, tool string, parameters ma
 	}
 
 	return result, err
+}
+
+func (p *observableTool) Result(name string, value any) provider.ToolResult {
+	result, err := tool.RenderResult(p.tool, name, value)
+	if err != nil {
+		result = tool.TextResult("Error: " + err.Error())
+		result.IsError = true
+	}
+	return result
 }

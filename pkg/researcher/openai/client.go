@@ -82,8 +82,6 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 		Tools: []responses.ToolUnionParam{tool},
 	}
 
-	body.MaxToolCalls = openai.Int(10)
-
 	response, err := c.responses.New(ctx, body)
 
 	if err != nil {

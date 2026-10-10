@@ -3,7 +3,10 @@ package translate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+
+	"golang.org/x/text/language"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -24,6 +27,9 @@ type Client struct {
 func New(provider translator.Provider, options ...Option) (*Client, error) {
 	if provider == nil {
 		return nil, errors.New("translate: missing translator provider")
+	}
+	if !provider.Capabilities().TextToText.MaySupport() {
+		return nil, fmt.Errorf("translate: provider does not support text translation: %w", translator.ErrUnsupported)
 	}
 
 	c := &Client{
@@ -66,28 +72,38 @@ func (c *Client) Execute(ctx context.Context, name string, parameters map[string
 		return nil, tool.ErrInvalidTool
 	}
 
-	text, _ := parameters["text"].(string)
+	text, err := tool.StringParameter(parameters, "text")
+	if err != nil {
+		return nil, fmt.Errorf("translate: %w", err)
+	}
 	if strings.TrimSpace(text) == "" {
 		return nil, errors.New("translate: missing text parameter")
 	}
 
-	lang, _ := parameters["lang"].(string)
+	lang, err := tool.StringParameter(parameters, "lang")
+	if err != nil {
+		return nil, fmt.Errorf("translate: %w", err)
+	}
 	lang = strings.TrimSpace(lang)
 	if lang == "" {
 		return nil, errors.New("translate: missing lang parameter")
+	}
+	if _, err := language.Parse(lang); err != nil {
+		return nil, fmt.Errorf("translate: invalid language code %q", lang)
 	}
 
 	result, err := c.provider.Translate(ctx, translator.Input{Text: text}, &translator.TranslateOptions{Language: lang})
 	if err != nil {
 		return nil, err
 	}
+	if result == nil {
+		return nil, errors.New("translate: empty response")
+	}
 
 	return string(result.Content), nil
 }
 
 func (c *Client) Result(name string, value any) provider.ToolResult {
-	if s, ok := value.(string); ok {
-		return provider.ToolResult{Parts: []provider.Part{{Text: s}}}
-	}
-	return provider.ToolResult{}
+	text, _ := value.(string)
+	return tool.TextResult(text)
 }

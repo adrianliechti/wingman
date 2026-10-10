@@ -52,6 +52,7 @@ func (c *Client) Scrape(ctx context.Context, url string, options *scraper.Scrape
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, convertError(resp)

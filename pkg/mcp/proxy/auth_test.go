@@ -10,17 +10,15 @@ import (
 	"github.com/adrianliechti/wingman/pkg/auth"
 )
 
-func upstreamEcho(t *testing.T) (*httptest.Server, chan string) {
+func upstreamEcho(t *testing.T) (http.RoundTripper, chan string) {
 	t.Helper()
 
 	seen := make(chan string, 8)
 
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := handlerTransport{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen <- r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
-	}))
-
-	t.Cleanup(s.Close)
+	})}
 
 	return s, seen
 }
@@ -50,7 +48,7 @@ func (stubExchanger) Token(ctx context.Context, assertion string) (string, error
 func TestProxyExchangerReplacesCallerToken(t *testing.T) {
 	upstream, seen := upstreamEcho(t)
 
-	s, err := New(upstream.URL, nil, stubExchanger{})
+	s, err := New("https://mcp.test/mcp", nil, stubExchanger{}, WithTransport(upstream))
 
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +67,7 @@ func TestProxyExchangerReplacesCallerToken(t *testing.T) {
 func TestProxyRejectsUnauthenticatedCallerWhenExchanging(t *testing.T) {
 	upstream, seen := upstreamEcho(t)
 
-	s, err := New(upstream.URL, nil, stubExchanger{})
+	s, err := New("https://mcp.test/mcp", nil, stubExchanger{}, WithTransport(upstream))
 
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +95,7 @@ func TestProxyRejectsUnauthenticatedCallerWhenExchanging(t *testing.T) {
 func TestProxyPassthroughWithoutCallerDropsInboundToken(t *testing.T) {
 	upstream, seen := upstreamEcho(t)
 
-	s, err := New(upstream.URL, nil, auth.PassthroughExchanger{})
+	s, err := New("https://mcp.test/mcp", nil, auth.PassthroughExchanger{}, WithTransport(upstream))
 
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +114,7 @@ func TestProxyPassthroughWithoutCallerDropsInboundToken(t *testing.T) {
 func TestProxyPassthroughSendsCallerToken(t *testing.T) {
 	upstream, seen := upstreamEcho(t)
 
-	s, err := New(upstream.URL, nil, auth.PassthroughExchanger{})
+	s, err := New("https://mcp.test/mcp", nil, auth.PassthroughExchanger{}, WithTransport(upstream))
 
 	if err != nil {
 		t.Fatal(err)
@@ -127,4 +125,12 @@ func TestProxyPassthroughSendsCallerToken(t *testing.T) {
 	if got := <-seen; got != "Bearer USER-JWT" {
 		t.Errorf("upstream got %q, want the caller's token", got)
 	}
+}
+
+type handlerTransport struct{ handler http.Handler }
+
+func (h handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	w := httptest.NewRecorder()
+	h.handler.ServeHTTP(w, req)
+	return w.Result(), nil
 }

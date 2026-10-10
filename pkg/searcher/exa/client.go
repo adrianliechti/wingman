@@ -69,8 +69,24 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 	if settings.Category == "" {
 		settings.Category = c.category
 	}
+	settings.Category = strings.ToLower(strings.TrimSpace(settings.Category))
+	if settings.Category == CategoryResearchPaper {
+		settings.Category = CategoryPublication
+	}
 	if settings.Location == "" {
 		settings.Location = c.location
+	}
+	settings.Location = strings.ToUpper(strings.TrimSpace(settings.Location))
+	if settings.Location != "" && !countryCode(settings.Location) {
+		return nil, errors.New("exa search: location must be a two-letter ISO 3166-1 country code")
+	}
+	if len(settings.Include) > 1200 || len(settings.Exclude) > 1200 {
+		return nil, errors.New("exa search: at most 1200 included or excluded domains are supported")
+	}
+	if settings.Category == CategoryCompany || settings.Category == CategoryPeople {
+		if settings.Since != nil || settings.Until != nil || len(settings.Exclude) > 0 {
+			return nil, fmt.Errorf("exa search: category %q does not support date filters or excluded domains; omit those filters or use another category", settings.Category)
+		}
 	}
 
 	request := &SearchRequest{
@@ -91,6 +107,18 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 	}
 
 	request.Category = settings.Category
+
+	if settings.Since != nil && settings.Until != nil && !settings.Since.Before(*settings.Until) {
+		return nil, errors.New("exa search: since must be before until")
+	}
+
+	if settings.Since != nil {
+		request.StartPublishedDate = settings.Since.UTC().Format(time.RFC3339Nano)
+	}
+
+	if settings.Until != nil {
+		request.EndPublishedDate = settings.Until.UTC().Format(time.RFC3339Nano)
+	}
 
 	if c.mode != "" {
 		request.Type = c.mode
@@ -126,6 +154,9 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
+	if data.Results == nil {
+		return nil, errors.New("exa search: invalid response: missing results array")
+	}
 
 	var results []searcher.Result
 
@@ -149,21 +180,30 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 }
 
 const (
-	CategoryCompany         = "company"
-	CategoryPeople          = "people"
-	CategoryNews            = "news"
+	CategoryCompany     = "company"
+	CategoryPeople      = "people"
+	CategoryNews        = "news"
+	CategoryPublication = "publication"
+	// CategoryResearchPaper is a legacy alias for CategoryPublication.
 	CategoryResearchPaper   = "research paper"
 	CategoryPersonalSite    = "personal site"
 	CategoryFinancialReport = "financial report"
 )
 
-func (c *Client) Categories() []searcher.Category {
-	return []searcher.Category{
-		{Name: CategoryCompany, Description: "Specific companies or organizations (e.g. SaaS vendors, public companies). Note: domain exclusions and date filters are not supported in this category."},
-		{Name: CategoryPeople, Description: "Specific people or profile pages (e.g. LinkedIn-style biographies). Note: domain exclusions and date filters are not supported in this category."},
-		{Name: CategoryNews, Description: "News articles and current-events coverage from media outlets."},
-		{Name: CategoryResearchPaper, Description: "Academic papers and peer-reviewed research publications."},
-		{Name: CategoryPersonalSite, Description: "Personal websites, blogs, and homepages."},
-		{Name: CategoryFinancialReport, Description: "Earnings releases, 10-K/10-Q filings, and other financial reports."},
+func (c *Client) Capabilities() searcher.Capabilities {
+	return searcher.Capabilities{
+		DateFilters: true,
+		Categories: []searcher.Category{
+			{Name: CategoryCompany, Description: "Specific companies or organizations (e.g. SaaS vendors, public companies). Date filters and domain exclusions are not supported; omit those filters or choose another category."},
+			{Name: CategoryPeople, Description: "Specific people or profile pages (e.g. LinkedIn-style biographies). Date filters and domain exclusions are not supported; omit those filters or choose another category."},
+			{Name: CategoryNews, Description: "News articles and current-events coverage from media outlets."},
+			{Name: CategoryPublication, Description: "Scholarly publications, including research papers, preprints, and journal articles."},
+			{Name: CategoryPersonalSite, Description: "Personal websites, blogs, and homepages."},
+			{Name: CategoryFinancialReport, Description: "Earnings releases, 10-K/10-Q filings, and other financial reports."},
+		},
 	}
+}
+
+func countryCode(value string) bool {
+	return len(value) == 2 && value[0] >= 'A' && value[0] <= 'Z' && value[1] >= 'A' && value[1] <= 'Z'
 }

@@ -5,7 +5,17 @@ option go_package = "github.com/adrianliechti/wingman/pkg/extractor/custom;custo
 package extractor;
 
 service Extractor {
+  rpc Capabilities (CapabilitiesRequest) returns (CapabilitiesResponse) {}
   rpc Extract (ExtractRequest) returns (Document) {}
+}
+
+message CapabilitiesRequest {}
+
+message CapabilitiesResponse {
+  repeated string media_types = 1;
+  repeated string extensions = 2;
+  // Keep unlisted files eligible for content inspection or service validation.
+  bool unknown_formats = 3;
 }
 
 message File {

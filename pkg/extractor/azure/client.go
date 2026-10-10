@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -25,15 +24,16 @@ type Client struct {
 	token string
 }
 
-func New(url string, options ...Option) (*Client, error) {
-	if url == "" {
-		return nil, errors.New("invalid url")
+func New(endpoint string, options ...Option) (*Client, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return nil, errors.New("azure: invalid http(s) URL")
 	}
 
 	c := &Client{
 		client: http.DefaultClient,
 
-		url: url,
+		url: endpoint,
 	}
 
 	for _, option := range options {
@@ -48,16 +48,18 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(file) {
+	if !c.Capabilities().MaySupport(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
-	//model := "prebuilt-read"
 	model := "prebuilt-layout"
 
 	content := bytes.NewReader(file.Content)
 
-	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/documentintelligence/documentModels/" + model + ":analyze")
+	u, err := url.Parse(strings.TrimRight(c.url, "/") + "/documentintelligence/documentModels/" + model + ":analyze")
+	if err != nil {
+		return nil, err
+	}
 
 	query := u.Query()
 	query.Set("api-version", "2024-11-30")
@@ -65,7 +67,10 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 	u.RawQuery = query.Encode()
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), content)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), content)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Ocp-Apim-Subscription-Key", c.token)
 
@@ -75,11 +80,12 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		return nil, err
 	}
 
-	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusAccepted {
-		return nil, convertError(resp)
+		err := convertError(resp)
+		resp.Body.Close()
+		return nil, err
 	}
+	resp.Body.Close()
 
 	operationURL := resp.Header.Get("Operation-Location")
 
@@ -87,35 +93,20 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		return nil, errors.New("missing operation location")
 	}
 
-	var operation AnalyzeOperation
-
 	for {
-		req, _ := http.NewRequestWithContext(ctx, "GET", operationURL, nil)
-		req.Header.Set("Ocp-Apim-Subscription-Key", c.token)
-
-		resp, err := c.client.Do(req)
-
+		operation, err := c.readOperation(ctx, operationURL)
 		if err != nil {
 			return nil, err
 		}
 
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, convertError(resp)
-		}
-
-		// data, _ := io.ReadAll(resp.Body)
-		// resp.Body = io.NopCloser(bytes.NewReader(data))
-
-		// println(string(data))
-
-		if err := json.NewDecoder(resp.Body).Decode(&operation); err != nil {
-			return nil, err
-		}
-
 		if operation.Status == OperationStatusRunning || operation.Status == OperationStatusNotStarted {
-			time.Sleep(5 * time.Second)
+			timer := time.NewTimer(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
 			continue
 		}
 
@@ -184,22 +175,32 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 	}
 }
 
-func isSupported(file extractor.File) bool {
-	if file.Name != "" {
-		ext := strings.ToLower(path.Ext(file.Name))
-
-		if slices.Contains(SupportedExtensions, ext) {
-			return true
-		}
+func (c *Client) readOperation(ctx context.Context, operationURL string) (*AnalyzeOperation, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, operationURL, nil)
+	if err != nil {
+		return nil, err
 	}
-
-	if file.ContentType != "" {
-		if slices.Contains(SupportedMimeTypes, file.ContentType) {
-			return true
-		}
+	req.Header.Set("Ocp-Apim-Subscription-Key", c.token)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, convertError(resp)
+	}
+	var operation AnalyzeOperation
+	if err := json.NewDecoder(resp.Body).Decode(&operation); err != nil {
+		return nil, err
+	}
+	return &operation, nil
+}
 
-	return false
+func (c *Client) Capabilities() extractor.Capabilities {
+	return extractor.Capabilities{
+		MediaTypes: slices.Clone(SupportedMimeTypes),
+		Extensions: slices.Clone(SupportedExtensions),
+	}
 }
 
 func convertPolygon(polygon []float64) [][2]float64 {

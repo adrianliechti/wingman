@@ -54,10 +54,9 @@ func (cfg *Config) registerAgents(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Agents.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Agents) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -72,11 +71,11 @@ func (cfg *Config) registerAgents(f *configFile) error {
 			Verbosity: provider.Verbosity(config.Verbosity),
 		}
 
-		if config.Model != "" {
-			if p, err := cfg.Completer(config.Model); err == nil {
-				context.Completer = p
-			}
+		completer, err := cfg.Completer(config.Model)
+		if err != nil {
+			return err
 		}
+		context.Completer = completer
 
 		for _, t := range config.Tools {
 			tool, err := cfg.Tool(t)

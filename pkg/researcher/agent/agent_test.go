@@ -17,8 +17,8 @@ func (f *fakeSearcher) Search(ctx context.Context, q string, o *searcher.SearchO
 	return []searcher.Result{{Source: "https://example.com", Title: "Example", Content: "body"}}, nil
 }
 
-func (f *fakeSearcher) Categories() []searcher.Category {
-	return nil
+func (f *fakeSearcher) Capabilities() searcher.Capabilities {
+	return searcher.Capabilities{DateFilters: true}
 }
 
 type completerCall struct {
@@ -48,62 +48,44 @@ func assistantToolCalls(calls ...provider.ToolCall) provider.Message {
 	return m
 }
 
-func TestResearch_BudgetOverflowAndFinalize(t *testing.T) {
+func TestResearch_ContinuesBeyondAdvisoryTarget(t *testing.T) {
 	first := assistantToolCalls(
 		provider.ToolCall{ID: "1", Name: "web_search", Arguments: `{"query":"a"}`},
 		provider.ToolCall{ID: "2", Name: "web_search", Arguments: `{"query":"b"}`},
 		provider.ToolCall{ID: "3", Name: "web_search", Arguments: `{"query":"c"}`},
 	)
+	followup := assistantToolCalls(provider.ToolCall{ID: "4", Name: "web_search", Arguments: `{"query":"remaining gap"}`})
 	final := provider.AssistantMessage("final answer")
-
-	completer := &fakeCompleter{
-		script: []provider.Completion{
-			{Message: &first},
-			{Message: &final},
-		},
-	}
-
-	c, err := New(completer, &fakeSearcher{}, WithMaxToolCalls(2))
+	completer := &fakeCompleter{script: []provider.Completion{{Message: &first}, {Message: &followup}, {Message: &final}}}
+	c, err := New(completer, &fakeSearcher{}, WithToolCallTarget(2))
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatal(err)
 	}
-
-	result, err := c.Research(context.Background(), "question", nil)
+	result, err := c.Research(t.Context(), "question", nil)
 	if err != nil {
-		t.Fatalf("Research: %v", err)
+		t.Fatal(err)
 	}
-	if result.Content != "final answer" {
-		t.Errorf("content = %q", result.Content)
+	if result.Content != "final answer" || len(completer.calls) != 3 {
+		t.Fatalf("result=%+v completion calls=%d", result, len(completer.calls))
 	}
-
-	if len(completer.calls) != 2 {
-		t.Fatalf("completer calls = %d, want 2", len(completer.calls))
-	}
-
-	second := completer.calls[1]
-
 	ids := map[string]string{}
-	for _, m := range second.messages {
-		if r, ok := m.ToolResult(); ok {
+	for _, message := range completer.calls[2].messages {
+		if r, ok := message.ToolResult(); ok {
 			ids[r.ID] = r.Parts[0].Text
 		}
 	}
-	for _, id := range []string{"1", "2", "3"} {
-		if _, ok := ids[id]; !ok {
-			t.Errorf("missing tool result for call %s", id)
+	for _, id := range []string{"1", "2", "3", "4"} {
+		if !strings.Contains(ids[id], "body") || strings.Contains(ids[id], "Error:") {
+			t.Fatalf("tool %s did not execute: %q", id, ids[id])
 		}
 	}
-	if !strings.Contains(ids["3"], "budget exhausted") {
-		t.Errorf("skipped call result = %q", ids["3"])
+	if !strings.Contains(ids["3"], "Prefer answering from the evidence gathered") {
+		t.Fatal("missing efficiency hint")
 	}
-
-	last := second.messages[len(second.messages)-1]
-	if last.Role != provider.MessageRoleUser || !strings.Contains(last.Text(), "budget is exhausted") {
-		t.Errorf("expected finalize prompt as last message; got %+v", last)
-	}
-
-	if len(second.options.Tools) != 0 {
-		t.Errorf("final completion should have no tools; got %d", len(second.options.Tools))
+	for _, call := range completer.calls {
+		if len(call.options.Tools) == 0 {
+			t.Fatal("tools removed after the advisory target")
+		}
 	}
 }
 

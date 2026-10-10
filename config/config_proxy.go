@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -21,6 +22,10 @@ func (cfg *proxyConfig) proxyTransport() (*http.Transport, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	if proxyURL.Hostname() == "" || (proxyURL.Scheme != "http" && proxyURL.Scheme != "https" && proxyURL.Scheme != "socks5" && proxyURL.Scheme != "socks5h") {
+		return nil, errors.New("proxy URL must be an absolute http, https, socks5 or socks5h URL")
 	}
 
 	tr := provider.DefaultTransport()

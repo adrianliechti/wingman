@@ -33,11 +33,28 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	since, err := valueDate(r, "since")
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	until, err := valueDate(r, "until")
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	options := &searcher.SearchOptions{
 		Limit: valueLimit(r),
 
 		Category: category,
 		Location: location,
+
+		Since: since,
+		Until: until,
 	}
 
 	if values, ok := r.Form["domain"]; ok && len(values) > 0 {
@@ -67,6 +84,16 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 			Content: r.Content,
 
 			Metadata: r.Metadata,
+		}
+
+		if r.Timestamp != nil {
+			if segment.Metadata == nil {
+				segment.Metadata = map[string]string{}
+			}
+
+			if _, ok := segment.Metadata["published"]; !ok {
+				segment.Metadata["published"] = r.Timestamp.UTC().Format("2006-01-02T15:04:05Z07:00")
+			}
 		}
 
 		result = append(result, segment)

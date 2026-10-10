@@ -25,7 +25,7 @@ func TestTranslate(t *testing.T) {
 		{name: "target language", options: &translator.TranslateOptions{Language: "de"}, language: "de"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpClient := handlerClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/language/translate/v2" {
 					t.Errorf("request = %s %s", r.Method, r.URL.Path)
 				}
@@ -65,9 +65,7 @@ func TestTranslate(t *testing.T) {
 
 				io.WriteString(w, `{"data":{"translations":[{"translatedText":"Hallo <Welt> & Freunde's &amp;","detectedSourceLanguage":"en"}]}}`)
 			}))
-			defer server.Close()
-
-			client, err := google.New(server.URL+"/", google.WithToken("test-key"), google.WithClient(server.Client()))
+			client, err := google.New("https://translate.example/", google.WithToken("test-key"), google.WithClient(httpClient))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -104,13 +102,11 @@ func TestTranslateErrors(t *testing.T) {
 		{name: "missing text", status: http.StatusOK, body: `{"data":{"translations":[{}]}}`, want: "unable to translate content"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpClient := handlerClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.status)
 				io.WriteString(w, tt.body)
 			}))
-			defer server.Close()
-
-			client, err := google.New(server.URL, google.WithToken("test-key"))
+			client, err := google.New("https://translate.example", google.WithToken("test-key"), google.WithClient(httpClient))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,4 +184,19 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+// handlerClient exercises request serialization and HTTP response handling
+// without requiring a listening socket.
+func handlerClient(handler http.Handler) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := r.Context().Err(); err != nil {
+			return nil, err
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		response := w.Result()
+		response.Request = r
+		return response, nil
+	})}
 }

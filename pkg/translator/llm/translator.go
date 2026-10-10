@@ -24,6 +24,11 @@ func New(completer provider.Completer) *Translator {
 	}
 }
 
+func (a *Translator) Capabilities() translator.Capabilities {
+	// The completer reads supported attachments, but generates only text.
+	return translator.Capabilities{TextToText: translator.Supported, FileToText: translator.Supported}
+}
+
 func (a *Translator) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	if a.completer == nil {
 		return nil, errors.New("translator: no completer configured")

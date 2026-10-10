@@ -1,11 +1,26 @@
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/adrianliechti/wingman/pkg/searcher/custom;custom";
 
 package searcher;
 
 service Searcher {
+  rpc Capabilities (CapabilitiesRequest) returns (CapabilitiesResponse) {}
   rpc Search (SearchRequest) returns (SearchResponse) {}
+}
+
+message CapabilitiesRequest {}
+
+message CapabilitiesResponse {
+  bool date_filters = 1;
+  repeated Category categories = 2;
+}
+
+message Category {
+  string name = 1;
+  string description = 2;
 }
 
 message SearchRequest {
@@ -18,6 +33,10 @@ message SearchRequest {
 
   optional string category = 5;
   optional string location = 6;
+
+  // Publication time bounds: since is inclusive; until is exclusive.
+  google.protobuf.Timestamp since = 7;
+  google.protobuf.Timestamp until = 8;
 }
 
 message SearchResponse {

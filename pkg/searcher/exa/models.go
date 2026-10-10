@@ -8,6 +8,9 @@ type SearchRequest struct {
 	Category string `json:"category,omitempty"`
 	Location string `json:"userLocation,omitempty"`
 
+	StartPublishedDate string `json:"startPublishedDate,omitempty"`
+	EndPublishedDate   string `json:"endPublishedDate,omitempty"`
+
 	NumResults *int `json:"numResults,omitempty"`
 
 	IncludeDomains []string `json:"includeDomains,omitempty"`

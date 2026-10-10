@@ -44,6 +44,10 @@ func New(url string, options ...Option) (*Client, error) {
 	return c, nil
 }
 
+func (c *Client) Capabilities() translator.Capabilities {
+	return translator.Capabilities{TextToText: translator.Supported, FileToDocument: translator.Supported}
+}
+
 func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	if options == nil {
 		options = new(translator.TranslateOptions)

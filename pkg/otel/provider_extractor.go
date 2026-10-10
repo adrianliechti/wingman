@@ -44,3 +44,7 @@ func (p *observableExtractor) Extract(ctx context.Context, file extractor.File, 
 
 	return result, err
 }
+
+func (p *observableExtractor) Capabilities() extractor.Capabilities {
+	return p.extractor.Capabilities()
+}

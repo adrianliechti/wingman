@@ -155,6 +155,10 @@ type configFile struct {
 }
 
 func decodeStrict(node *yaml.Node, out any) error {
+	if node.Kind == yaml.AliasNode {
+		return decodeStrict(node.Alias, out)
+	}
+
 	if node.IsZero() {
 		return nil
 	}
@@ -166,6 +170,24 @@ func decodeStrict(node *yaml.Node, out any) error {
 	}
 
 	return yaml.Load(data, out, yaml.WithKnownFields())
+}
+
+// configIDs preserves declaration order without treating mapping values as IDs.
+// Provider model lists also accept a sequence of IDs.
+func configIDs(node *yaml.Node) []string {
+	if node.Kind == yaml.AliasNode {
+		return configIDs(node.Alias)
+	}
+
+	var ids []string
+	step := 1
+	if node.Kind == yaml.MappingNode {
+		step = 2
+	}
+	for i := 0; i < len(node.Content); i += step {
+		ids = append(ids, node.Content[i].Value)
+	}
+	return ids
 }
 
 func parseFile(path string) (*configFile, error) {

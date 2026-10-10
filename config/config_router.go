@@ -89,10 +89,9 @@ func (cfg *Config) registerRouters(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Routers.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Routers) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -140,10 +139,9 @@ func (cfg *Config) registerRouters(f *configFile) error {
 	// Classifiers register last, so their candidates can reference sibling
 	// routers (e.g. an adaptive load-balancer as a candidate) regardless of
 	// document order.
-	for _, node := range f.Routers.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Routers) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok || strings.ToLower(config.Type) != "classifier" {
 			continue

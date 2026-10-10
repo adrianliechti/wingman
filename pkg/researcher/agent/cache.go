@@ -71,6 +71,10 @@ type cachedSearcher struct {
 	cache runCache[[]searcher.Result]
 }
 
+func (c *cachedSearcher) Capabilities() searcher.Capabilities {
+	return c.Provider.Capabilities()
+}
+
 func (c *cachedSearcher) Search(ctx context.Context, query string, options *searcher.SearchOptions) ([]searcher.Result, error) {
 	query = strings.TrimSpace(query)
 	key, _ := json.Marshal(struct {

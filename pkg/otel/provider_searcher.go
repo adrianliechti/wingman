@@ -58,6 +58,6 @@ func (p *observableSearcher) Search(ctx context.Context, query string, options *
 	return result, err
 }
 
-func (p *observableSearcher) Categories() []searcher.Category {
-	return p.searcher.Categories()
+func (p *observableSearcher) Capabilities() searcher.Capabilities {
+	return p.searcher.Capabilities()
 }

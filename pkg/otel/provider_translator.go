@@ -32,6 +32,10 @@ func NewTranslator(provider, model string, p translator.Provider) Translator {
 func (p *observableTranslator) otelSetup() {
 }
 
+func (p *observableTranslator) Capabilities() translator.Capabilities {
+	return p.translator.Capabilities()
+}
+
 func (p *observableTranslator) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
 	ctx, span := otel.Tracer(instrumentationName).Start(ctx, "translate "+p.model)
 	defer span.End()

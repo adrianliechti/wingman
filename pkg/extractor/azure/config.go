@@ -25,12 +25,13 @@ var SupportedExtensions = []string{
 	".jpeg", ".jpg",
 	".png",
 	".bmp",
-	".tiff",
+	".tif", ".tiff",
 	".heif",
 
 	".docx",
 	".pptx",
 	".xlsx",
+	".html", ".htm",
 }
 
 // https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/concept-layout?view=doc-intel-4.0.0&tabs=sample-code#input-requirements
@@ -46,4 +47,5 @@ var SupportedMimeTypes = []string{
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"text/html",
 }

@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -25,27 +27,38 @@ type Server struct {
 	icon   atomic.Pointer[iconCache]
 }
 
-func New(rawURL string, headers map[string]string, exchanger auth.TokenExchanger) (*Server, error) {
+type Option func(*Server)
+
+func WithTransport(transport http.RoundTripper) Option {
+	return func(s *Server) { s.rt = transport }
+}
+
+func New(rawURL string, headers map[string]string, exchanger auth.TokenExchanger, options ...Option) (*Server, error) {
+	rawURL = strings.TrimSpace(rawURL)
 	u, err := url.Parse(rawURL)
 
-	if err != nil {
-		return nil, err
-	}
-
-	rt := &rt{
-		headers:   headers,
-		exchanger: exchanger,
-		transport: http.DefaultTransport,
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return nil, errors.New("mcp proxy: endpoint must be an absolute http(s) URL")
 	}
 
 	s := &Server{
 		url: u,
-
-		rt: rt,
+		rt:  http.DefaultTransport,
+	}
+	for _, option := range options {
+		option(s)
+	}
+	if s.rt == nil {
+		s.rt = http.DefaultTransport
+	}
+	s.rt = &rt{
+		headers:   maps.Clone(headers),
+		exchanger: exchanger,
+		transport: s.rt,
 	}
 
 	s.proxy = &httputil.ReverseProxy{
-		Transport: rt,
+		Transport: s.rt,
 
 		FlushInterval: -1,
 
@@ -81,6 +94,7 @@ type rt struct {
 }
 
 func (rt *rt) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
 	if rt.exchanger != nil {
 		caller, _ := req.Context().Value(auth.TokenContextKey).(string)
 

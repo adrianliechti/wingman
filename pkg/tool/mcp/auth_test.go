@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
@@ -12,7 +11,7 @@ import (
 
 // authEcho stands up an MCP server that records the Authorization header of
 // every request it receives.
-func authEcho(t *testing.T) (string, chan string) {
+func authEcho(t *testing.T) (http.Handler, chan string) {
 	t.Helper()
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "echo", Version: "1.0.0"}, nil)
@@ -24,19 +23,16 @@ func authEcho(t *testing.T) (string, chan string) {
 
 	handler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{Stateless: true},
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
 	)
 
 	seen := make(chan string, 8)
 
-	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen <- r.Header.Get("Authorization")
 		handler.ServeHTTP(w, r)
-	}))
-
-	t.Cleanup(httpServer.Close)
-
-	return httpServer.URL, seen
+	})
+	return echo, seen
 }
 
 func callerCtx(t *testing.T, token string) context.Context {
@@ -50,7 +46,7 @@ func callerCtx(t *testing.T, token string) context.Context {
 func TestPassthroughSendsCallerToken(t *testing.T) {
 	url, seen := authEcho(t)
 
-	c, err := New(url, nil, auth.PassthroughExchanger{})
+	c, err := newHTTPTestClient(t, url, nil, auth.PassthroughExchanger{})
 
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +66,7 @@ func TestPassthroughSendsCallerToken(t *testing.T) {
 func TestNoExchangerWithholdsCallerToken(t *testing.T) {
 	url, seen := authEcho(t)
 
-	c, err := New(url, nil, nil)
+	c, err := newHTTPTestClient(t, url, nil, nil)
 
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +86,7 @@ func TestNoExchangerWithholdsCallerToken(t *testing.T) {
 func TestStaticSendsFixedToken(t *testing.T) {
 	url, seen := authEcho(t)
 
-	c, err := New(url, nil, auth.NewStaticExchanger("SERVICE-TOKEN"))
+	c, err := newHTTPTestClient(t, url, nil, auth.NewStaticExchanger("SERVICE-TOKEN"))
 
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +106,7 @@ func TestStaticSendsFixedToken(t *testing.T) {
 func TestPassthroughWithoutCallerSendsNothing(t *testing.T) {
 	url, seen := authEcho(t)
 
-	c, err := New(url, nil, auth.PassthroughExchanger{})
+	c, err := newHTTPTestClient(t, url, nil, auth.PassthroughExchanger{})
 
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +132,7 @@ func (stubExchanger) Token(ctx context.Context, assertion string) (string, error
 func TestExchangerReplacesCallerToken(t *testing.T) {
 	url, seen := authEcho(t)
 
-	c, err := New(url, nil, stubExchanger{})
+	c, err := newHTTPTestClient(t, url, nil, stubExchanger{})
 
 	if err != nil {
 		t.Fatal(err)

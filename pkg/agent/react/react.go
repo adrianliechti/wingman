@@ -424,21 +424,12 @@ func mergeToolOptions(opts *provider.ToolOptions, agentToolNames []string) *prov
 }
 
 func renderToolResult(t tool.Provider, id, name string, value any) (provider.ToolResult, error) {
-	if r, ok := t.(tool.Resulter); ok {
-		result := r.Result(name, value)
-		if result.ID == "" {
-			result.ID = id
-		}
-		return result, nil
-	}
-
-	data, err := json.Marshal(value)
+	result, err := tool.RenderResult(t, name, value)
 	if err != nil {
 		return provider.ToolResult{}, err
 	}
-
-	return provider.ToolResult{
-		ID:    id,
-		Parts: []provider.Part{{Text: string(data)}},
-	}, nil
+	if result.ID == "" {
+		result.ID = id
+	}
+	return result, nil
 }

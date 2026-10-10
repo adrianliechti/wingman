@@ -7,8 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
-	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -38,6 +39,9 @@ func New(options ...Option) (*Client, error) {
 	for _, option := range options {
 		option(c)
 	}
+	if c.model == "" {
+		return nil, errors.New("mistral: missing OCR model")
+	}
 
 	return c, nil
 }
@@ -47,25 +51,42 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(file) {
+	mediaType, _, _ := mime.ParseMediaType(strings.TrimSpace(file.ContentType))
+	mediaType = strings.ToLower(mediaType)
+	if !slices.Contains(SupportedMimeTypes, mediaType) {
+		mediaType = supportedFormats[strings.ToLower(filepath.Ext(file.Name))]
+	}
+	if mediaType == "" {
 		return nil, extractor.ErrUnsupported
 	}
 
-	dataurl := "data:application/pdf;base64," + base64.StdEncoding.EncodeToString(file.Content)
+	dataurl := "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(file.Content)
+	document := map[string]any{
+		"type":         "document_url",
+		"document_url": dataurl,
+	}
+	if file.Name != "" {
+		document["document_name"] = file.Name
+	}
+	if strings.HasPrefix(mediaType, "image/") {
+		document = map[string]any{
+			"type":      "image_url",
+			"image_url": dataurl,
+		}
+	}
 
 	body := map[string]any{
 		"model": c.model,
 
-		"document": map[string]any{
-			"type":          "document_url",
-			"document_name": "test.pdf",
-			"document_url":  dataurl,
-		},
+		"document": document,
 	}
 
 	data, _ := json.Marshal(body)
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.url, "/")+"/ocr", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.url, "/")+"/ocr", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	if c.token != "" {
@@ -133,22 +154,11 @@ func convertResult(response *Response) *extractor.Document {
 	return result
 }
 
-func isSupported(file extractor.File) bool {
-	if file.Name != "" {
-		ext := strings.ToLower(path.Ext(file.Name))
-
-		if slices.Contains(SupportedExtensions, ext) {
-			return true
-		}
+func (c *Client) Capabilities() extractor.Capabilities {
+	return extractor.Capabilities{
+		MediaTypes: slices.Clone(SupportedMimeTypes),
+		Extensions: slices.Clone(SupportedExtensions),
 	}
-
-	if file.ContentType != "" {
-		if slices.Contains(SupportedMimeTypes, file.ContentType) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func convertError(resp *http.Response) error {

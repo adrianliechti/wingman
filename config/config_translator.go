@@ -62,10 +62,9 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Translators.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Translators) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -83,10 +82,12 @@ func (cfg *Config) registerTranslators(f *configFile) error {
 			context.Client = client
 		}
 
-		if config.Model != "" {
-			if p, err := cfg.Completer(config.Model); err == nil {
-				context.Completer = p
+		if strings.EqualFold(config.Type, "llm") {
+			completer, err := cfg.Completer(config.Model)
+			if err != nil {
+				return err
 			}
+			context.Completer = completer
 		}
 
 		translator, err := createTranslator(config, context)
@@ -190,7 +191,5 @@ func googleTranslator(cfg translatorConfig, context translatorContext) (translat
 }
 
 func customTranslator(cfg translatorConfig, context translatorContext) (translator.Provider, error) {
-	var options []custom.Option
-
-	return custom.New(cfg.URL, options...)
+	return custom.New(cfg.URL)
 }

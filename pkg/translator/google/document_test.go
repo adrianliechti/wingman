@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,7 +36,7 @@ func TestTranslateDocuments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			inputBytes := []byte{0, 255, 1, 128, 'H', 'i'}
 			outputBytes := []byte{0, 254, 2, 128, 'H', 'a', 'l', 'l', 'o'}
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpClient := handlerClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/v3/projects/test-project/locations/global:translateDocument" {
 					t.Errorf("document request = %s %s", r.Method, r.URL.Path)
 				}
@@ -78,9 +77,8 @@ func TestTranslateDocuments(t *testing.T) {
 					},
 				})
 			}))
-			defer server.Close()
 
-			client, err := google.New(server.URL, google.WithToken("text-key"), google.WithProject("test-project"),
+			client, err := google.New("https://translate.example", google.WithClient(httpClient), google.WithToken("text-key"), google.WithProject("test-project"),
 				google.WithTokenProvider(tokenProviderFunc(func(ctx context.Context) (*auth.Token, error) {
 					return &auth.Token{Value: "document-token"}, nil
 				})))
@@ -117,12 +115,11 @@ func TestTranslateDocumentErrors(t *testing.T) {
 		{name: "invalid base64", status: http.StatusOK, body: `{"documentTranslation":{"byteStreamOutputs":["!!!"]}}`, want: "invalid value for bytes field"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpClient := handlerClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.status)
 				io.WriteString(w, tt.body)
 			}))
-			defer server.Close()
-			client, err := google.New(server.URL, google.WithProject("test-project"), google.WithTokenProvider(tokenProviderFunc(func(ctx context.Context) (*auth.Token, error) {
+			client, err := google.New("https://translate.example", google.WithClient(httpClient), google.WithProject("test-project"), google.WithTokenProvider(tokenProviderFunc(func(ctx context.Context) (*auth.Token, error) {
 				return &auth.Token{Value: "document-token"}, nil
 			})))
 			if err != nil {

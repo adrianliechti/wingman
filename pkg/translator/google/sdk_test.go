@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,7 +30,7 @@ func TestTranslateOAuthText(t *testing.T) {
 		{name: "target language", options: &translator.TranslateOptions{Language: "de"}, language: "de"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpClient := handlerClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/v3/projects/test-project/locations/us-central1:translateText" {
 					t.Errorf("text request = %s %s", r.Method, r.URL.Path)
 				}
@@ -56,9 +55,7 @@ func TestTranslateOAuthText(t *testing.T) {
 				}
 				io.WriteString(w, `{"translations":[{"translatedText":"Hallo <Welt> & Freunde's &amp;","detectedLanguageCode":"en"}]}`)
 			}))
-			defer server.Close()
-
-			client, err := google.New(server.URL+"/", google.WithProject("test-project"), google.WithLocation("us-central1"), google.WithClient(server.Client()),
+			client, err := google.New("https://translate.example/", google.WithProject("test-project"), google.WithLocation("us-central1"), google.WithClient(httpClient),
 				google.WithTokenProvider(tokenProviderFunc(func(ctx context.Context) (*auth.Token, error) {
 					return &auth.Token{Value: "text-token"}, nil
 				})))
@@ -91,12 +88,11 @@ func TestTranslateOAuthTextErrors(t *testing.T) {
 		{name: "multiple translations", status: http.StatusOK, body: `{"translations":[{"translatedText":"a"},{"translatedText":"b"}]}`, want: "unable to translate content"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpClient := handlerClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.status)
 				io.WriteString(w, tt.body)
 			}))
-			defer server.Close()
-			client, err := google.New(server.URL, google.WithProject("test-project"), google.WithTokenProvider(tokenProviderFunc(func(ctx context.Context) (*auth.Token, error) {
+			client, err := google.New("https://translate.example", google.WithClient(httpClient), google.WithProject("test-project"), google.WithTokenProvider(tokenProviderFunc(func(ctx context.Context) (*auth.Token, error) {
 				return &auth.Token{Value: "text-token"}, nil
 			})))
 			if err != nil {

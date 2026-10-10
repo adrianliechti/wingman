@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
@@ -57,6 +58,8 @@ type extractorConfig struct {
 }
 
 type extractorContext struct {
+	Client *http.Client
+
 	Completer provider.Completer
 }
 
@@ -69,10 +72,9 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 
 	var extractors []extractor.Provider
 
-	for _, node := range f.Extractors.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Extractors) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
@@ -80,10 +82,20 @@ func (cfg *Config) registerExtractors(f *configFile) error {
 
 		context := extractorContext{}
 
-		if config.Model != "" {
-			if p, err := cfg.Completer(config.Model); err == nil {
-				context.Completer = p
+		if strings.EqualFold(config.Type, "llm") {
+			p, err := cfg.Completer(config.Model)
+			if err != nil {
+				return err
 			}
+			context.Completer = p
+		}
+
+		if config.Proxy != nil {
+			client, err := config.Proxy.proxyClient()
+			if err != nil {
+				return err
+			}
+			context.Client = client
 		}
 
 		extractor, err := createExtractor(config, context)
@@ -117,16 +129,16 @@ func createExtractor(cfg extractorConfig, context extractorContext) (extractor.P
 		return llmExtractor(cfg, context)
 
 	case "azure":
-		return azureExtractor(cfg)
+		return azureExtractor(cfg, context)
 
 	case "docling":
-		return doclingExtractor(cfg)
+		return doclingExtractor(cfg, context)
 
 	case "kreuzberg":
-		return kreuzbergExtractor(cfg)
+		return kreuzbergExtractor(cfg, context)
 
 	case "mistral":
-		return mistralExtractor(cfg)
+		return mistralExtractor(cfg, context)
 
 	case "custom", "wingman-extractor", "wingman-reader":
 		return customExtractor(cfg)
@@ -144,8 +156,11 @@ func llmExtractor(cfg extractorConfig, context extractorContext) (extractor.Prov
 	return llm.New(context.Completer), nil
 }
 
-func azureExtractor(cfg extractorConfig) (extractor.Provider, error) {
+func azureExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
 	var options []azure.Option
+	if context.Client != nil {
+		options = append(options, azure.WithClient(context.Client))
+	}
 
 	if cfg.Token != "" {
 		options = append(options, azure.WithToken(cfg.Token))
@@ -154,8 +169,11 @@ func azureExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	return azure.New(cfg.URL, options...)
 }
 
-func doclingExtractor(cfg extractorConfig) (extractor.Provider, error) {
+func doclingExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
 	var options []docling.Option
+	if context.Client != nil {
+		options = append(options, docling.WithClient(context.Client))
+	}
 
 	if cfg.Token != "" {
 		options = append(options, docling.WithToken(cfg.Token))
@@ -164,8 +182,11 @@ func doclingExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	return docling.New(cfg.URL, options...)
 }
 
-func kreuzbergExtractor(cfg extractorConfig) (extractor.Provider, error) {
+func kreuzbergExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
 	var options []kreuzberg.Option
+	if context.Client != nil {
+		options = append(options, kreuzberg.WithClient(context.Client))
+	}
 
 	if cfg.Token != "" {
 		options = append(options, kreuzberg.WithToken(cfg.Token))
@@ -174,8 +195,14 @@ func kreuzbergExtractor(cfg extractorConfig) (extractor.Provider, error) {
 	return kreuzberg.New(cfg.URL, options...)
 }
 
-func mistralExtractor(cfg extractorConfig) (extractor.Provider, error) {
+func mistralExtractor(cfg extractorConfig, context extractorContext) (extractor.Provider, error) {
 	var options []mistral.Option
+	if context.Client != nil {
+		options = append(options, mistral.WithClient(context.Client))
+	}
+	if cfg.Model != "" {
+		options = append(options, mistral.WithModel(cfg.Model))
+	}
 
 	if cfg.Token != "" {
 		options = append(options, mistral.WithToken(cfg.Token))
@@ -201,7 +228,5 @@ func defaultExtractor() (extractor.Provider, error) {
 }
 
 func customExtractor(cfg extractorConfig) (extractor.Provider, error) {
-	var options []custom.Option
-
-	return custom.New(cfg.URL, options...)
+	return custom.New(cfg.URL)
 }

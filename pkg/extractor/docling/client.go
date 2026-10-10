@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
-	"path"
+	"net/textproto"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -23,17 +26,21 @@ type Client struct {
 
 	url   string
 	token string
+
+	pollInterval time.Duration
 }
 
-func New(url string, options ...Option) (*Client, error) {
-	if url == "" {
-		return nil, errors.New("invalid url")
+func New(endpoint string, options ...Option) (*Client, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return nil, errors.New("docling: invalid http(s) URL")
 	}
 
 	c := &Client{
 		client: http.DefaultClient,
 
-		url: url,
+		url:          strings.TrimRight(endpoint, "/"),
+		pollInterval: 4 * time.Second,
 	}
 
 	for _, option := range options {
@@ -48,7 +55,7 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		options = new(extractor.ExtractOptions)
 	}
 
-	if !isSupported(file) {
+	if !c.Capabilities().MaySupport(file) {
 		return nil, extractor.ErrUnsupported
 	}
 
@@ -56,35 +63,42 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 	w := multipart.NewWriter(&body)
 
-	f, _ := w.CreateFormFile("files", file.Name)
+	contentType, _, _ := mime.ParseMediaType(strings.TrimSpace(file.ContentType))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	name := file.Name
+	if name == "" {
+		name = "document"
+		if extensions, _ := mime.ExtensionsByType(contentType); len(extensions) > 0 {
+			name += extensions[0]
+		}
+	}
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", multipart.FileContentDisposition("files", name))
+	header.Set("Content-Type", contentType)
+	f, err := w.CreatePart(header)
+	if err != nil {
+		return nil, err
+	}
 
 	if _, err := io.Copy(f, bytes.NewReader(file.Content)); err != nil {
 		return nil, err
 	}
 
-	w.Close()
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.url, "/")+"/v1/convert/file/async", &body)
-	req.Header.Set("Content-Type", w.FormDataContentType())
-
-	resp, err := c.client.Do(req)
-
-	if err != nil {
+	if err := w.Close(); err != nil {
 		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, convertError(resp)
 	}
 
 	var convertResult struct {
 		TaskID string `json:"task_id"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&convertResult); err != nil {
+	if err := c.request(ctx, http.MethodPost, "/v1/convert/file/async", &body, w.FormDataContentType(), &convertResult); err != nil {
 		return nil, err
+	}
+	if convertResult.TaskID == "" {
+		return nil, errors.New("docling: missing task ID")
 	}
 
 	if err := c.awaitTask(ctx, convertResult.TaskID); err != nil {
@@ -96,73 +110,57 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 func (c *Client) awaitTask(ctx context.Context, taskID string) error {
 	for {
-		time.Sleep(4 * time.Second)
-
-		req, _ := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(c.url, "/")+"/v1/status/poll/"+taskID, nil)
-
-		resp, err := c.client.Do(req)
-
-		if err != nil {
-			return err
-		}
-
-		defer resp.Body.Close()
-
 		var task TaskResult
-
-		if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		if err := c.request(ctx, http.MethodGet, "/v1/status/poll/"+url.PathEscape(taskID), nil, "", &task); err != nil {
 			return err
 		}
 
-		if task.TaskStatus == TaskStatusStarted {
-			continue
-		}
-
-		if task.TaskStatus == TaskStatusSuccess {
+		switch task.TaskStatus {
+		case TaskStatusSuccess:
 			return nil
+		case TaskStatusPending, TaskStatusStarted:
+			timer := time.NewTimer(c.pollInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		default:
+			return fmt.Errorf("docling: task status %q", task.TaskStatus)
 		}
-
-		return errors.New("task failed")
 	}
 }
 
 func (c *Client) readDocument(ctx context.Context, taskID string) (*extractor.Document, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(c.url, "/")+"/v1/result/"+taskID, nil)
-
-	resp, err := c.client.Do(req)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
 	var task TaskResult
-
-	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+	if err := c.request(ctx, http.MethodGet, "/v1/result/"+url.PathEscape(taskID), nil, "", &task); err != nil {
 		return nil, err
 	}
 
-	if task.TaskStatus != TaskStatusSuccess {
+	if task.Status != "success" && task.Status != "partial_success" && !(task.Status == "" && task.TaskStatus == TaskStatusSuccess) {
 		return nil, errors.New("task not successful")
 	}
+	if task.Document == nil {
+		return nil, errors.New("docling: missing document")
+	}
 
-	var text string
-
-	if task.Document.Html != "" {
+	text := task.Document.Markdown
+	if text == "" {
+		text = task.Document.Text
+	}
+	if text == "" {
 		text = task.Document.Html
 	}
 
-	if task.Document.Json != "" {
-		text = task.Document.Json
-	}
-
-	if task.Document.Text != "" {
-		text = task.Document.Text
-	}
-
-	if task.Document.Markdown != "" {
-		text = task.Document.Markdown
+	if text == "" && len(task.Document.Json) > 0 && string(task.Document.Json) != "null" {
+		text = string(task.Document.Json)
+		// Older servers may return serialized JSON as a string.
+		if task.Document.Json[0] == '"' {
+			if err := json.Unmarshal(task.Document.Json, &text); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if text == "" {
@@ -174,22 +172,33 @@ func (c *Client) readDocument(ctx context.Context, taskID string) (*extractor.Do
 	}, nil
 }
 
-func isSupported(file extractor.File) bool {
-	if file.Name != "" {
-		ext := strings.ToLower(path.Ext(file.Name))
-
-		if slices.Contains(SupportedExtensions, ext) {
-			return true
-		}
+func (c *Client) request(ctx context.Context, method, path string, body io.Reader, contentType string, result any) error {
+	req, err := http.NewRequestWithContext(ctx, method, c.url+path, body)
+	if err != nil {
+		return err
 	}
-
-	if file.ContentType != "" {
-		if slices.Contains(SupportedMimeTypes, file.ContentType) {
-			return true
-		}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
+	if c.token != "" {
+		req.Header.Set("X-Api-Key", c.token)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return convertError(resp)
+	}
+	return json.NewDecoder(resp.Body).Decode(result)
+}
 
-	return false
+func (c *Client) Capabilities() extractor.Capabilities {
+	return extractor.Capabilities{
+		MediaTypes: slices.Clone(SupportedMimeTypes),
+		Extensions: slices.Clone(SupportedExtensions),
+	}
 }
 
 func convertError(resp *http.Response) error {

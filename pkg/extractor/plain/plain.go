@@ -2,9 +2,7 @@ package plain
 
 import (
 	"context"
-	"path"
 	"slices"
-	"strings"
 	"unicode"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
@@ -14,6 +12,14 @@ import (
 var _ extractor.Provider = &Extractor{}
 
 type Extractor struct {
+}
+
+func (e *Extractor) Capabilities() extractor.Capabilities {
+	return extractor.Capabilities{
+		MediaTypes:     slices.Clone(SupportedMimeTypes),
+		Extensions:     slices.Clone(SupportedExtensions),
+		UnknownFormats: true,
+	}
 }
 
 func New() (*Extractor, error) {
@@ -57,19 +63,5 @@ func detectText(input extractor.File) bool {
 }
 
 func isSupported(file extractor.File) bool {
-	if file.Name != "" {
-		ext := strings.ToLower(path.Ext(file.Name))
-
-		if slices.Contains(SupportedExtensions, ext) {
-			return true
-		}
-	}
-
-	if file.ContentType != "" {
-		if slices.Contains(SupportedMimeTypes, file.ContentType) {
-			return true
-		}
-	}
-
-	return false
+	return (extractor.Capabilities{MediaTypes: SupportedMimeTypes, Extensions: SupportedExtensions}).MaySupport(file)
 }

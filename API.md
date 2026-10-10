@@ -341,14 +341,43 @@ Search for information.
 
 **Endpoint:** `POST /v1/search` (alias: `/v1/retrieve`)
 
-| Parameter   | Type   | Description            |
-|-------------|--------|------------------------|
-| `model`     | String | Model/provider to use  |
-| `query`     | String | Search query           |
+| Parameter   | Type    | Description            |
+|-------------|---------|------------------------|
+| `model`     | String  | Model/provider to use  |
+| `query`     | String  | Search query           |
+| `limit`     | Integer | Maximum results        |
+| `category`  | String  | Provider vertical (e.g. `news`, `publication`); see provider categories |
+| `location`  | String  | ISO 3166-1 alpha-2 country code to bias results |
+| `domain`    | String  | Repeatable; restrict to a domain, or exclude one with a `!` prefix |
+| `since`     | String  | Earliest publication date (RFC 3339 or `YYYY-MM-DD`) |
+| `until`     | String  | Latest publication date; `YYYY-MM-DD` includes the whole UTC day, RFC 3339 is an exclusive timestamp bound |
 
 ```bash
-curl -X POST -F "input=your query" http://localhost:8080/v1/search
+curl -X POST -F "input=your query" -F "category=news" -F "since=2026-10-01" http://localhost:8080/v1/search
 ```
+
+Search options vary by provider. Unsupported filters return an error rather than
+being silently ignored.
+
+| Provider | Categories | Location | Date filters | Result limit |
+|----------|------------|----------|--------------|--------------|
+| Exa | `company`, `people`, `news`, `publication`, `personal site`, `financial report`; other strings are hints. Legacy `research paper` maps to `publication`. | ISO country code | Supported except with `company` or `people`, which also reject domain exclusions | 1–100 |
+| Tavily | `general` (default), `news`, `finance`; legacy `financial report` maps to `finance` | Supported country code, translated to Tavily's country name; `general` only | Strict filtering by estimated publication/update dates; undated results are omitted when bounds are supplied | 0–20 |
+| DuckDuckGo | General web search only | Supported country code, translated to a documented region/locale | Not supported by the HTML adapter | Positive integer |
+| Custom | Forwarded to the gRPC provider | Forwarded to the gRPC provider | Not present in the current gRPC protocol | Positive int32 |
+
+Exa supports up to 1200 included and 1200 excluded domains. Tavily supports up
+to 300 included and 150 excluded domains. DuckDuckGo accepts hostnames, searches
+each included domain separately, combines the results, and enforces exclusions.
+Publication dates may be unavailable; Tavily dates are estimates of publication
+or the last update. Exa and Tavily preserve explicit timestamp bounds, with
+Tavily applying timestamp filtering after its calendar-date search.
+
+Provider references: [Exa Search](https://exa.ai/docs/reference/search),
+[Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search),
+[DuckDuckGo parameters](https://duckduckgo.com/duckduckgo-help-pages/settings/params),
+[DuckDuckGo search syntax](https://duckduckgo.com/duckduckgo-help-pages/results/syntax),
+and [custom searcher protocol](pkg/searcher/custom/searcher.proto).
 
 ## Research
 

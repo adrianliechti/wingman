@@ -58,10 +58,9 @@ func (cfg *Config) registerGuards(f *configFile) error {
 
 	var guards []guard.Provider
 
-	for _, node := range f.Guards.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Guards) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue

@@ -2,25 +2,22 @@ package proxy
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func headerEcho(t *testing.T) (*httptest.Server, chan string) {
+func headerEcho(t *testing.T) (http.RoundTripper, chan string) {
 	t.Helper()
 
 	seen := make(chan string, 4)
 
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := handlerTransport{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen <- r.Header.Get("Authorization")
 
 		w.Header().Set("Content-Type", "image/png")
 		w.Write([]byte{1, 2, 3})
-	}))
-
-	t.Cleanup(s.Close)
+	})}
 
 	return s, seen
 }
@@ -30,6 +27,9 @@ func headerEcho(t *testing.T) (*httptest.Server, chan string) {
 // may point anywhere.
 func TestIconFetchWithholdsCredentialsCrossOrigin(t *testing.T) {
 	foreign, seen := headerEcho(t)
+	previous := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: foreign}
+	t.Cleanup(func() { http.DefaultClient = previous })
 
 	s, err := New("http://127.0.0.1:1/mcp", map[string]string{"Authorization": "Bearer SECRET"}, nil)
 
@@ -37,7 +37,7 @@ func TestIconFetchWithholdsCredentialsCrossOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	icon := mcp.Icon{Source: foreign.URL + "/icon.png", MIMEType: "image/png"}
+	icon := mcp.Icon{Source: "https://foreign.test/icon.png", MIMEType: "image/png"}
 
 	if _, _, ok := resolveIcon(s.iconClient(icon.Source), icon); !ok {
 		t.Fatal("icon did not resolve")
@@ -53,13 +53,13 @@ func TestIconFetchWithholdsCredentialsCrossOrigin(t *testing.T) {
 func TestIconFetchSendsCredentialsSameOrigin(t *testing.T) {
 	upstream, seen := headerEcho(t)
 
-	s, err := New(upstream.URL+"/mcp", map[string]string{"Authorization": "Bearer SECRET"}, nil)
+	s, err := New("https://mcp.test/mcp", map[string]string{"Authorization": "Bearer SECRET"}, nil, WithTransport(upstream))
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	icon := mcp.Icon{Source: upstream.URL + "/icon.png", MIMEType: "image/png"}
+	icon := mcp.Icon{Source: "https://mcp.test/icon.png", MIMEType: "image/png"}
 
 	if _, _, ok := resolveIcon(s.iconClient(icon.Source), icon); !ok {
 		t.Fatal("icon did not resolve")

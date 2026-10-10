@@ -17,6 +17,8 @@ import (
 	"github.com/adrianliechti/go-extract"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/extractor/multi"
+	"github.com/adrianliechti/wingman/pkg/otel"
 )
 
 func TestExtractSupportedFormats(t *testing.T) {
@@ -80,6 +82,18 @@ func TestExtractRecursivelyRendersAttachments(t *testing.T) {
 		if !strings.Contains(document.Text, want) {
 			t.Errorf("Text does not contain %q:\n%s", want, document.Text)
 		}
+	}
+}
+
+func TestExtractUnlistedPDFThroughTracingAndMulti(t *testing.T) {
+	e := multi.New(otel.NewExtractor("extract", "documents", newExtractor(t)))
+	document, err := e.Extract(t.Context(), extractor.File{
+		Name:        "payload.bin",
+		ContentType: "application/octet-stream",
+		Content:     buildPDF("Detected PDF content"),
+	}, nil)
+	if err != nil || document == nil || !strings.Contains(document.Text, "Detected PDF content") || len(document.Pages) != 1 {
+		t.Fatalf("content detection: document %+v, error %v", document, err)
 	}
 }
 

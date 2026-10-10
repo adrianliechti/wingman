@@ -56,10 +56,9 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 		return err
 	}
 
-	for _, node := range f.Scrapers.Content {
-		id := node.Value
+	for _, id := range configIDs(&f.Scrapers) {
 
-		config, ok := configs[node.Value]
+		config, ok := configs[id]
 
 		if !ok {
 			continue
