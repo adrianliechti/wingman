@@ -85,6 +85,10 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := c.registerGuards(file); err != nil {
+		return nil, err
+	}
+
 	if err := c.registerScrapers(file); err != nil {
 		return nil, err
 	}
@@ -102,10 +106,6 @@ func Parse(path string) (*Config, error) {
 	}
 
 	if err := c.registerTranslators(file); err != nil {
-		return nil, err
-	}
-
-	if err := c.registerGuards(file); err != nil {
 		return nil, err
 	}
 

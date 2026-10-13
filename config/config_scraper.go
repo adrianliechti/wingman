@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/guard/proxy"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/scraper/custom"
@@ -40,6 +41,8 @@ type scraperConfig struct {
 
 	URL   string `yaml:"url"`
 	Token string `yaml:"token"`
+
+	Guard string `yaml:"guard"`
 
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
@@ -80,6 +83,16 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 
 		if err != nil {
 			return err
+		}
+
+		if config.Guard != "" {
+			guard, err := cfg.Guard(config.Guard)
+
+			if err != nil {
+				return err
+			}
+
+			scraper = proxy.NewScraper(guard, scraper)
 		}
 
 		if _, ok := scraper.(otel.Scraper); !ok {

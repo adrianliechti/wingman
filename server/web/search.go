@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/guard"
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/searcher"
 )
@@ -29,6 +30,11 @@ func StatusOf(err error) int {
 	var request *requestError
 	if errors.As(err, &request) {
 		return request.status
+	}
+
+	var flagged *guard.FlaggedError
+	if errors.As(err, &flagged) {
+		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
 }

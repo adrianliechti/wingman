@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/guard/proxy"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
@@ -47,6 +48,8 @@ type researcherConfig struct {
 	Token string `yaml:"token"`
 
 	Model string `yaml:"model"`
+
+	Guard string `yaml:"guard"`
 
 	Vars  map[string]string `yaml:"vars"`
 	Proxy *proxyConfig      `yaml:"proxy"`
@@ -124,6 +127,16 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 
 		if err != nil {
 			return err
+		}
+
+		if config.Guard != "" {
+			guard, err := cfg.Guard(config.Guard)
+
+			if err != nil {
+				return err
+			}
+
+			index = proxy.NewResearcher(guard, index)
 		}
 
 		if _, ok := index.(otel.Researcher); !ok {
