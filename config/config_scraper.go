@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/guard/proxy"
+	"github.com/adrianliechti/wingman/pkg/guard"
+	"github.com/adrianliechti/wingman/pkg/middleware"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/scraper/custom"
@@ -85,44 +86,51 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 			return err
 		}
 
+		scraper.Use(otel.ScraperMiddleware(config.Type, id))
+
 		if config.Guard != "" {
-			guard, err := cfg.Guard(config.Guard)
+			g, err := cfg.Guard(config.Guard)
 
 			if err != nil {
 				return err
 			}
 
-			scraper = proxy.NewScraper(guard, scraper)
+			scraper.Use(guard.ScraperMiddleware(g))
 		}
 
-		if _, ok := scraper.(otel.Scraper); !ok {
-			scraper = otel.NewScraper(config.Type, id, scraper)
-		}
-
-		cfg.RegisterScraper(id, scraper)
+		cfg.RegisterScraper(id, scraper.Build())
 	}
 
 	return nil
 }
 
-func createScraper(cfg scraperConfig, context scraperContext) (scraper.Provider, error) {
+func createScraper(cfg scraperConfig, context scraperContext) (*middleware.Builder[scraper.Provider], error) {
+	var p scraper.Provider
+	var err error
+
 	switch strings.ToLower(cfg.Type) {
 
 	case "fetch":
-		return fetchScraper(cfg, context)
+		p, err = fetchScraper(cfg, context)
 
 	case "exa":
-		return exaScraper(cfg, context)
+		p, err = exaScraper(cfg, context)
 
 	case "tavily":
-		return tavilyScraper(cfg, context)
+		p, err = tavilyScraper(cfg, context)
 
 	case "custom", "wingman-scraper":
-		return customScraper(cfg, context)
+		p, err = customScraper(cfg, context)
 
 	default:
 		return nil, errors.New("invalid scraper type: " + cfg.Type)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return middleware.NewBuilder(p), nil
 }
 
 func exaScraper(cfg scraperConfig, context scraperContext) (scraper.Provider, error) {

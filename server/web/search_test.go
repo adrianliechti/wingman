@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/guard"
-	"github.com/adrianliechti/wingman/pkg/guard/proxy"
 	"github.com/adrianliechti/wingman/server/web"
 	"github.com/adrianliechti/wingman/test/webtest"
 )
@@ -23,7 +22,7 @@ func TestSearchGuardRejectionIsClientError(t *testing.T) {
 	for _, dialect := range []string{"exa", "tavily"} {
 		t.Run(dialect, func(t *testing.T) {
 			s, providers := webtest.NewServer(t, false)
-			s.RegisterSearcher("guarded", proxy.NewSearcher(rejectingGuard{}, providers["plain"]))
+			s.RegisterSearcher("guarded", guard.SearcherMiddleware(rejectingGuard{})(providers["plain"]))
 			webtest.Response(t, webtest.Send(t, s, "/v1/"+dialect+"/search", `{"model":"guarded","query":"blocked"}`, nil), http.StatusBadRequest)
 			if providers["plain"].Searches != 0 {
 				t.Fatal("rejected request reached the search provider")

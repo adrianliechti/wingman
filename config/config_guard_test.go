@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,10 @@ import (
 	"github.com/adrianliechti/wingman/pkg/guard/custom"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 
+	api "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	sdk "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/grpc"
 )
 
@@ -135,4 +140,82 @@ func isFlagged(err error) bool {
 	}
 
 	return len(flagged.Categories) == 1 && flagged.Categories[0].Name == "test"
+}
+
+func TestWebProviderMiddlewareConfiguration(t *testing.T) {
+	guardURL := startFakeGuard(t)
+	sentinel := errors.New("upstream called")
+	for _, family := range []string{"searchers", "scrapers", "researchers"} {
+		for _, guarded := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/guarded=%v", family, guarded), func(t *testing.T) {
+				recorder := tracetest.NewSpanRecorder()
+				provider := sdk.NewTracerProvider(sdk.WithSpanProcessor(recorder))
+				previous := api.GetTracerProvider()
+				api.SetTracerProvider(provider)
+				t.Cleanup(func() {
+					api.SetTracerProvider(previous)
+					_ = provider.Shutdown(context.Background())
+				})
+				previousClient := http.DefaultClient
+				t.Cleanup(func() { http.DefaultClient = previousClient })
+				calls := 0
+				http.DefaultClient = &http.Client{Transport: googleTranslatorRoundTripFunc(func(*http.Request) (*http.Response, error) {
+					calls++
+					return nil, sentinel
+				})}
+				guardField := ""
+				if guarded {
+					guardField = ", guard: fake"
+				}
+				cfg, err := parseTestConfig(t, fmt.Sprintf("guards:\n  fake: {type: custom, url: %s}\n%s:\n  web: {type: exa, token: test%s}\n", guardURL, family, guardField))
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch family {
+				case "searchers":
+					p, e := cfg.Searcher("web")
+					if e != nil {
+						t.Fatal(e)
+					}
+					_, err = p.Search(t.Context(), "blocked", nil)
+				case "scrapers":
+					p, e := cfg.Scraper("web")
+					if e != nil {
+						t.Fatal(e)
+					}
+					_, err = p.Scrape(t.Context(), "https://example.com/blocked", nil)
+				case "researchers":
+					p, e := cfg.Researcher("web")
+					if e != nil {
+						t.Fatal(e)
+					}
+					_, err = researcher.Collect(p.Research(t.Context(), "blocked", nil))
+				}
+				wantSpans, wantCalls := 1, 1
+				if guarded {
+					wantSpans, wantCalls = 2, 0
+					var flagged *guard.FlaggedError
+					if !errors.As(err, &flagged) {
+						t.Fatalf("error = %v", err)
+					}
+				} else if !errors.Is(err, sentinel) {
+					t.Fatalf("error = %v", err)
+				}
+				spans := recorder.Ended()
+				if len(spans) != wantSpans || calls != wantCalls {
+					t.Fatalf("spans=%d calls=%d", len(spans), calls)
+				}
+				parent := spans[len(spans)-1]
+				if parent.Status().Code != codes.Error {
+					t.Fatal("provider error was not recorded")
+				}
+				if guarded {
+					child := spans[0]
+					if child.Name() != "guard fake" || child.Parent().SpanID() != parent.SpanContext().SpanID() || child.SpanContext().TraceID() != parent.SpanContext().TraceID() {
+						t.Fatal("guard span is not a child of provider span")
+					}
+				}
+			})
+		}
+	}
 }

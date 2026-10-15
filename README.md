@@ -632,6 +632,30 @@ researchers:
 ```
 
 
+### Guards (Content Moderation)
+
+Guards classify text. Types: `openai` and `custom` (gRPC).
+Use `guard:` on searchers, scrapers or researchers to check queries, URLs or
+instructions before forwarding. Flagged inputs and guard errors block requests;
+returned content and redirects are not checked.
+
+```yaml
+guards:
+  moderation:
+    type: openai
+    token: ${OPENAI_API_KEY}
+
+searchers:
+  web:
+    type: exa
+    token: ${EXA_API_KEY}
+    guard: moderation
+```
+
+`POST /v1/guard` checks text directly. Omitting `model` combines all configured
+guards and flags content if any guard does.
+
+
 ### Document Extraction
 
 Extraction providers implement `Capabilities()` with media types, extensions, and `UnknownFormats`. `MaySupport(file)` selects candidates; the provider validates the actual contents. `UnknownFormats` keeps unlisted files eligible for provider validation, whether the provider inspects contents or delegates to a service whose formats are unknown. The multi-extractor skips incompatible providers, tries candidates in order, and preserves failures when none succeed. Cancellation stops fallback.

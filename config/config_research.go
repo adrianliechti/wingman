@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/guard/proxy"
+	"github.com/adrianliechti/wingman/pkg/guard"
+	"github.com/adrianliechti/wingman/pkg/middleware"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
@@ -123,56 +124,63 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 			context.Client = client
 		}
 
-		index, err := createResearcher(config, context)
+		researcher, err := createResearcher(config, context)
 
 		if err != nil {
 			return err
 		}
 
+		researcher.Use(otel.ResearcherMiddleware(config.Type, id))
+
 		if config.Guard != "" {
-			guard, err := cfg.Guard(config.Guard)
+			g, err := cfg.Guard(config.Guard)
 
 			if err != nil {
 				return err
 			}
 
-			index = proxy.NewResearcher(guard, index)
+			researcher.Use(guard.ResearcherMiddleware(g))
 		}
 
-		if _, ok := index.(otel.Researcher); !ok {
-			index = otel.NewResearcher(config.Type, id, index)
-		}
-
-		cfg.RegisterResearcher(id, index)
+		cfg.RegisterResearcher(id, researcher.Build())
 	}
 
 	return nil
 }
 
-func createResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {
+func createResearcher(cfg researcherConfig, context researcherContext) (*middleware.Builder[researcher.Provider], error) {
+	var p researcher.Provider
+	var err error
+
 	switch strings.ToLower(cfg.Type) {
 
 	case "anthropic":
-		return anthropicResearcher(cfg, context)
+		p, err = anthropicResearcher(cfg, context)
 
 	case "exa":
-		return exaResearcher(cfg, context)
+		p, err = exaResearcher(cfg, context)
 
 	case "agent":
-		return agentResearcher(cfg, context)
+		p, err = agentResearcher(cfg, context)
 
 	case "openai":
-		return openaiResearcher(cfg, context)
+		p, err = openaiResearcher(cfg, context)
 
 	case "perplexity":
-		return perplexityResearcher(cfg, context)
+		p, err = perplexityResearcher(cfg, context)
 
 	case "custom", "wingman-researcher":
-		return customResearcher(cfg)
+		p, err = customResearcher(cfg)
 
 	default:
 		return nil, errors.New("invalid researcher type: " + cfg.Type)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return middleware.NewBuilder(p), nil
 }
 
 func anthropicResearcher(cfg researcherConfig, context researcherContext) (researcher.Provider, error) {

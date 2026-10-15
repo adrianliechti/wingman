@@ -1,4 +1,4 @@
-package proxy
+package guard_test
 
 import (
 	"context"
@@ -75,22 +75,22 @@ func (p *stubResearcher) Research(ctx context.Context, instructions string, opti
 	}
 }
 
-func TestProxyChecksBeforeForwarding(t *testing.T) {
+func TestMiddlewareChecksBeforeForwarding(t *testing.T) {
 	g := &stubGuard{flagged: true}
 
 	scrapeProvider := &stubScraper{}
 	searchProvider := &stubSearcher{}
 	researchProvider := &stubResearcher{}
 
-	if _, err := NewScraper(g, scrapeProvider).Scrape(context.Background(), "https://example.com/blocked", nil); !isFlagged(err) {
+	if _, err := guard.ScraperMiddleware(g)(scrapeProvider).Scrape(context.Background(), "https://example.com/blocked", nil); !isFlagged(err) {
 		t.Fatalf("scrape error = %v", err)
 	}
 
-	if _, err := NewSearcher(g, searchProvider).Search(context.Background(), "blocked query", nil); !isFlagged(err) {
+	if _, err := guard.SearcherMiddleware(g)(searchProvider).Search(context.Background(), "blocked query", nil); !isFlagged(err) {
 		t.Fatalf("search error = %v", err)
 	}
 
-	_, err := researcher.Collect(NewResearcher(g, researchProvider).Research(context.Background(), "blocked instructions", nil))
+	_, err := researcher.Collect(guard.ResearcherMiddleware(g)(researchProvider).Research(context.Background(), "blocked instructions", nil))
 
 	if !isFlagged(err) {
 		t.Fatalf("research error = %v", err)
@@ -113,18 +113,18 @@ func TestProxyChecksBeforeForwarding(t *testing.T) {
 	}
 }
 
-func TestProxyForwardsAllowedRequests(t *testing.T) {
+func TestMiddlewareForwardsAllowedRequests(t *testing.T) {
 	g := &stubGuard{}
 
 	scrapeProvider := &stubScraper{}
 	searchProvider := &stubSearcher{}
 	researchProvider := &stubResearcher{}
 
-	if _, err := NewScraper(g, scrapeProvider).Scrape(context.Background(), "https://example.com", nil); err != nil {
+	if _, err := guard.ScraperMiddleware(g)(scrapeProvider).Scrape(context.Background(), "https://example.com", nil); err != nil {
 		t.Fatal(err)
 	}
 
-	guardedSearcher := NewSearcher(g, searchProvider)
+	guardedSearcher := guard.SearcherMiddleware(g)(searchProvider)
 
 	if _, err := guardedSearcher.Search(context.Background(), "query", nil); err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestProxyForwardsAllowedRequests(t *testing.T) {
 		t.Fatal("capabilities not forwarded")
 	}
 
-	result, err := researcher.Collect(NewResearcher(g, researchProvider).Research(context.Background(), "instructions", nil))
+	result, err := researcher.Collect(guard.ResearcherMiddleware(g)(researchProvider).Research(context.Background(), "instructions", nil))
 
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +149,7 @@ func TestProxyForwardsAllowedRequests(t *testing.T) {
 	}
 }
 
-func TestProxyPropagatesGuardErrors(t *testing.T) {
+func TestMiddlewarePropagatesGuardErrors(t *testing.T) {
 	sentinel := errors.New("guard unavailable")
 	for _, tc := range []struct {
 		name  string
@@ -162,9 +162,9 @@ func TestProxyPropagatesGuardErrors(t *testing.T) {
 			scrapeProvider := &stubScraper{}
 			searchProvider := &stubSearcher{}
 			researchProvider := &stubResearcher{}
-			_, scrapeErr := NewScraper(tc.guard, scrapeProvider).Scrape(context.Background(), "https://example.com", nil)
-			_, searchErr := NewSearcher(tc.guard, searchProvider).Search(context.Background(), "query", nil)
-			_, researchErr := researcher.Collect(NewResearcher(tc.guard, researchProvider).Research(context.Background(), "instructions", nil))
+			_, scrapeErr := guard.ScraperMiddleware(tc.guard)(scrapeProvider).Scrape(context.Background(), "https://example.com", nil)
+			_, searchErr := guard.SearcherMiddleware(tc.guard)(searchProvider).Search(context.Background(), "query", nil)
+			_, researchErr := researcher.Collect(guard.ResearcherMiddleware(tc.guard)(researchProvider).Research(context.Background(), "instructions", nil))
 			for _, err := range []error{scrapeErr, searchErr, researchErr} {
 				if err == nil || (tc.guard.err != nil && !errors.Is(err, sentinel)) {
 					t.Fatalf("error = %v", err)
@@ -177,12 +177,12 @@ func TestProxyPropagatesGuardErrors(t *testing.T) {
 	}
 }
 
-func TestProxyChecksBlankInput(t *testing.T) {
+func TestMiddlewareChecksBlankInput(t *testing.T) {
 	for _, input := range []string{"", " \t\n"} {
 		t.Run(input, func(t *testing.T) {
 			g := &stubGuard{flagged: true}
 			p := &stubSearcher{}
-			if _, err := NewSearcher(g, p).Search(context.Background(), input, nil); !isFlagged(err) {
+			if _, err := guard.SearcherMiddleware(g)(p).Search(context.Background(), input, nil); !isFlagged(err) {
 				t.Fatalf("error = %v", err)
 			}
 			if p.called || len(g.requests) != 1 || g.requests[0] != input {
@@ -192,20 +192,20 @@ func TestProxyChecksBlankInput(t *testing.T) {
 	}
 }
 
-func TestProxyWithoutGuardReturnsProvider(t *testing.T) {
+func TestMiddlewareWithoutGuardReturnsProvider(t *testing.T) {
 	scrapeProvider := &stubScraper{}
 	searchProvider := &stubSearcher{}
 	researchProvider := &stubResearcher{}
 
-	if NewScraper(nil, scrapeProvider) != scraper.Provider(scrapeProvider) {
+	if guard.ScraperMiddleware(nil)(scrapeProvider) != scraper.Provider(scrapeProvider) {
 		t.Fatal("scraper wrapped without guard")
 	}
 
-	if NewSearcher(nil, searchProvider) != searcher.Provider(searchProvider) {
+	if guard.SearcherMiddleware(nil)(searchProvider) != searcher.Provider(searchProvider) {
 		t.Fatal("searcher wrapped without guard")
 	}
 
-	if NewResearcher(nil, researchProvider) != researcher.Provider(researchProvider) {
+	if guard.ResearcherMiddleware(nil)(researchProvider) != researcher.Provider(researchProvider) {
 		t.Fatal("researcher wrapped without guard")
 	}
 }
@@ -247,7 +247,7 @@ func TestResearcherPreservesStream(t *testing.T) {
 					yield(nil, sentinel)
 				}
 			})
-			stream := NewResearcher(g, upstream).Research(ctx, "instructions", options)
+			stream := guard.ResearcherMiddleware(g)(upstream).Research(ctx, "instructions", options)
 			if called || len(g.requests) != 0 {
 				t.Fatal("research was not lazy")
 			}

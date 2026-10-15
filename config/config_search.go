@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/guard/proxy"
+	"github.com/adrianliechti/wingman/pkg/guard"
+	"github.com/adrianliechti/wingman/pkg/middleware"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/searcher/custom"
@@ -79,50 +80,57 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 			context.Client = client
 		}
 
-		index, err := createSearcher(config, context)
+		searcher, err := createSearcher(config, context)
 
 		if err != nil {
 			return err
 		}
 
+		searcher.Use(otel.SearcherMiddleware(config.Type, id))
+
 		if config.Guard != "" {
-			guard, err := cfg.Guard(config.Guard)
+			g, err := cfg.Guard(config.Guard)
 
 			if err != nil {
 				return err
 			}
 
-			index = proxy.NewSearcher(guard, index)
+			searcher.Use(guard.SearcherMiddleware(g))
 		}
 
-		if _, ok := index.(otel.Searcher); !ok {
-			index = otel.NewSearcher(config.Type, id, index)
-		}
-
-		cfg.RegisterSearcher(id, index)
+		cfg.RegisterSearcher(id, searcher.Build())
 	}
 
 	return nil
 }
 
-func createSearcher(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {
+func createSearcher(cfg searcherConfig, context searcherContext) (*middleware.Builder[searcher.Provider], error) {
+	var p searcher.Provider
+	var err error
+
 	switch strings.ToLower(cfg.Type) {
 
 	case "duckduckgo":
-		return duckduckgoSearch(cfg, context)
+		p, err = duckduckgoSearch(cfg, context)
 
 	case "exa":
-		return exaSearch(cfg, context)
+		p, err = exaSearch(cfg, context)
 
 	case "tavily":
-		return tavilySearch(cfg, context)
+		p, err = tavilySearch(cfg, context)
 
 	case "custom", "wingman-searcher":
-		return customSearcher(cfg, context)
+		p, err = customSearcher(cfg, context)
 
 	default:
 		return nil, errors.New("invalid search type: " + cfg.Type)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return middleware.NewBuilder(p), nil
 }
 
 func duckduckgoSearch(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {

@@ -1,13 +1,11 @@
-package proxy
+package guard
 
 import (
 	"context"
 	"errors"
-
-	"github.com/adrianliechti/wingman/pkg/guard"
 )
 
-func check(ctx context.Context, provider guard.Provider, text string) error {
+func check(ctx context.Context, provider Provider, text string) error {
 	result, err := provider.Check(ctx, text, nil)
 
 	if err != nil {
@@ -19,7 +17,7 @@ func check(ctx context.Context, provider guard.Provider, text string) error {
 	}
 
 	if result.Flagged {
-		return &guard.FlaggedError{
+		return &FlaggedError{
 			Categories: result.Categories,
 		}
 	}

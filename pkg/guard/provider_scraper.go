@@ -1,28 +1,23 @@
-package proxy
+package guard
 
 import (
 	"context"
 
-	"github.com/adrianliechti/wingman/pkg/guard"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 )
 
 var _ scraper.Provider = (*guardedScraper)(nil)
 
 type guardedScraper struct {
-	guard   guard.Provider
+	guard   Provider
 	scraper scraper.Provider
 }
 
-func NewScraper(g guard.Provider, p scraper.Provider) scraper.Provider {
+func NewScraper(g Provider, next scraper.Provider) scraper.Provider {
 	if g == nil {
-		return p
+		return next
 	}
-
-	return &guardedScraper{
-		guard:   g,
-		scraper: p,
-	}
+	return &guardedScraper{guard: g, scraper: next}
 }
 
 func (p *guardedScraper) Scrape(ctx context.Context, url string, options *scraper.ScrapeOptions) (*scraper.Document, error) {
