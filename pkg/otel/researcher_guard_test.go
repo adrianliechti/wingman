@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/guard"
-	"github.com/adrianliechti/wingman/pkg/middleware"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	api "go.opentelemetry.io/otel"
@@ -47,7 +46,7 @@ func (f researchFunc) Research(ctx context.Context, input string, options *resea
 	return f(ctx, input, options)
 }
 
-func TestResearchMiddlewareStreamLifetime(t *testing.T) {
+func TestGuardedResearchStreamLifetime(t *testing.T) {
 	sentinel := errors.New("upstream failed")
 	for _, tc := range []struct {
 		name      string
@@ -68,7 +67,7 @@ func TestResearchMiddlewareStreamLifetime(t *testing.T) {
 			raw := researchFunc(func(ctx context.Context, input string, got *researcher.ResearchOptions) iter.Seq2[*researcher.Result, error] {
 				called = true
 				if input != "instructions" || got != options || ctx.Value(testContextKey{}) != "value" || !trace.SpanFromContext(ctx).IsRecording() || g.calls != 1 {
-					t.Fatal("arguments or middleware context lost")
+					t.Fatal("arguments or tracing context lost")
 				}
 				return func(yield func(*researcher.Result, error) bool) {
 					defer func() { closed = true }()
@@ -85,7 +84,7 @@ func TestResearchMiddlewareStreamLifetime(t *testing.T) {
 					yield(final, nil)
 				}
 			})
-			p := middleware.Chain[researcher.Provider](raw, otel.ResearcherMiddleware("test", "web"), guard.ResearcherMiddleware(g))
+			p := otel.NewResearcher("test", "web", researcher.NewGuard(g, raw))
 			stream := p.Research(context.WithValue(t.Context(), testContextKey{}, "value"), "instructions", options)
 			if called || g.calls != 0 || len(recorder.Started()) != 0 {
 				t.Fatal("stream was not lazy")

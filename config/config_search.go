@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/adrianliechti/wingman/pkg/guard"
-	"github.com/adrianliechti/wingman/pkg/middleware"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/searcher/custom"
@@ -80,13 +78,11 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 			context.Client = client
 		}
 
-		searcher, err := createSearcher(config, context)
+		p, err := createSearcher(config, context)
 
 		if err != nil {
 			return err
 		}
-
-		searcher.Use(otel.SearcherMiddleware(config.Type, id))
 
 		if config.Guard != "" {
 			g, err := cfg.Guard(config.Guard)
@@ -95,42 +91,33 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 				return err
 			}
 
-			searcher.Use(guard.SearcherMiddleware(g))
+			p = searcher.NewGuard(g, p)
 		}
 
-		cfg.RegisterSearcher(id, searcher.Build())
+		cfg.RegisterSearcher(id, otel.NewSearcher(config.Type, id, p))
 	}
 
 	return nil
 }
 
-func createSearcher(cfg searcherConfig, context searcherContext) (*middleware.Builder[searcher.Provider], error) {
-	var p searcher.Provider
-	var err error
-
+func createSearcher(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {
 	switch strings.ToLower(cfg.Type) {
 
 	case "duckduckgo":
-		p, err = duckduckgoSearch(cfg, context)
+		return duckduckgoSearch(cfg, context)
 
 	case "exa":
-		p, err = exaSearch(cfg, context)
+		return exaSearch(cfg, context)
 
 	case "tavily":
-		p, err = tavilySearch(cfg, context)
+		return tavilySearch(cfg, context)
 
 	case "custom", "wingman-searcher":
-		p, err = customSearcher(cfg, context)
+		return customSearcher(cfg, context)
 
 	default:
 		return nil, errors.New("invalid search type: " + cfg.Type)
 	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return middleware.NewBuilder(p), nil
 }
 
 func duckduckgoSearch(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {

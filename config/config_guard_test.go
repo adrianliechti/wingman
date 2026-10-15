@@ -142,7 +142,7 @@ func isFlagged(err error) bool {
 	return len(flagged.Categories) == 1 && flagged.Categories[0].Name == "test"
 }
 
-func TestWebProviderMiddlewareConfiguration(t *testing.T) {
+func TestWebProviderGuardConfiguration(t *testing.T) {
 	guardURL := startFakeGuard(t)
 	sentinel := errors.New("upstream called")
 	for _, family := range []string{"searchers", "scrapers", "researchers"} {
