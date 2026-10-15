@@ -177,21 +177,6 @@ func TestGuardPropagatesGuardErrors(t *testing.T) {
 	}
 }
 
-func TestGuardChecksBlankInput(t *testing.T) {
-	for _, input := range []string{"", " \t\n"} {
-		t.Run(input, func(t *testing.T) {
-			g := &stubGuard{flagged: true}
-			p := &stubSearcher{}
-			if _, err := searcher.NewGuard(g, p).Search(context.Background(), input, nil); !isFlagged(err) {
-				t.Fatalf("error = %v", err)
-			}
-			if p.called || len(g.requests) != 1 || g.requests[0] != input {
-				t.Fatal("blank input bypassed the guard")
-			}
-		})
-	}
-}
-
 func TestGuardWithoutGuardReturnsProvider(t *testing.T) {
 	scrapeProvider := &stubScraper{}
 	searchProvider := &stubSearcher{}

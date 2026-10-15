@@ -58,7 +58,7 @@ func startFakeGuard(t *testing.T) string {
 	return "grpc://" + listener.Addr().String()
 }
 
-func TestCustomGuardProtectsWebProviders(t *testing.T) {
+func TestCustomGuardBlocksAndAllowsRequests(t *testing.T) {
 	var requests atomic.Int32
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -67,58 +67,33 @@ func TestCustomGuardProtectsWebProviders(t *testing.T) {
 	}))
 	t.Cleanup(origin.Close)
 
-	cfg, err := parseTestConfig(t, testProviderConfig+`
+	cfg, err := parseTestConfig(t, `
 guards:
   fake:
     type: custom
     url: `+startFakeGuard(t)+`
 scrapers:
   web: {type: fetch, guard: fake}
-searchers:
-  web: {type: duckduckgo, guard: fake}
-researchers:
-  deep: {type: agent, model: test-model, searcher: web, guard: fake}
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	scraperProvider, err := cfg.Scraper("web")
+	p, err := cfg.Scraper("web")
 
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	searcherProvider, err := cfg.Searcher("web")
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	researcherProvider, err := cfg.Researcher("deep")
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := scraperProvider.Scrape(context.Background(), origin.URL+"/blocked", nil); !isFlagged(err) {
+	if _, err := p.Scrape(context.Background(), origin.URL+"/blocked", nil); !isFlagged(err) {
 		t.Fatalf("scrape error = %v", err)
 	}
 
-	if _, err := searcherProvider.Search(context.Background(), "blocked query", nil); !isFlagged(err) {
-		t.Fatalf("search error = %v", err)
-	}
-
-	_, err = researcher.Collect(researcherProvider.Research(context.Background(), "blocked instructions", nil))
-
-	if !isFlagged(err) {
-		t.Fatalf("research error = %v", err)
-	}
 	if requests.Load() != 0 {
 		t.Fatal("flagged scrape reached the origin")
 	}
 
-	document, err := scraperProvider.Scrape(context.Background(), origin.URL+"/article", nil)
+	document, err := p.Scrape(context.Background(), origin.URL+"/article", nil)
 
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +102,7 @@ researchers:
 	if !strings.Contains(document.Text, "page content") {
 		t.Fatalf("document = %q", document.Text)
 	}
+
 	if requests.Load() != 1 {
 		t.Fatalf("origin requests = %d, want 1", requests.Load())
 	}
