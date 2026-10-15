@@ -10,8 +10,8 @@ import (
 var _ Provider = (*guardedResearcher)(nil)
 
 type guardedResearcher struct {
-	guard      guard.Provider
 	researcher Provider
+	guard      guard.Provider
 }
 
 func WithGuard(g guard.Provider, next Provider) Provider {

@@ -9,15 +9,15 @@ import (
 var _ Provider = (*guardedSearcher)(nil)
 
 type guardedSearcher struct {
-	Provider
-	guard guard.Provider
+	searcher Provider
+	guard    guard.Provider
 }
 
 func WithGuard(g guard.Provider, next Provider) Provider {
 	if g == nil {
 		return next
 	}
-	return &guardedSearcher{guard: g, Provider: next}
+	return &guardedSearcher{guard: g, searcher: next}
 }
 
 func (p *guardedSearcher) Search(ctx context.Context, query string, options *SearchOptions) ([]Result, error) {
@@ -25,5 +25,9 @@ func (p *guardedSearcher) Search(ctx context.Context, query string, options *Sea
 		return nil, err
 	}
 
-	return p.Provider.Search(ctx, query, options)
+	return p.searcher.Search(ctx, query, options)
+}
+
+func (p *guardedSearcher) Capabilities() Capabilities {
+	return p.searcher.Capabilities()
 }

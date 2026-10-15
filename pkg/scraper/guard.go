@@ -9,8 +9,8 @@ import (
 var _ Provider = (*guardedScraper)(nil)
 
 type guardedScraper struct {
-	guard   guard.Provider
 	scraper Provider
+	guard   guard.Provider
 }
 
 func WithGuard(g guard.Provider, next Provider) Provider {
