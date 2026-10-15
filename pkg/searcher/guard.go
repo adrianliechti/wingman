@@ -13,8 +13,7 @@ type guardedSearcher struct {
 	guard guard.Provider
 }
 
-// NewGuard checks input before forwarding requests to the provider.
-func NewGuard(g guard.Provider, next Provider) Provider {
+func WithGuard(g guard.Provider, next Provider) Provider {
 	if g == nil {
 		return next
 	}

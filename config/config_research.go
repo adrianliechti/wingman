@@ -135,7 +135,7 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 				return err
 			}
 
-			p = researcher.NewGuard(g, p)
+			p = researcher.WithGuard(g, p)
 		}
 
 		cfg.RegisterResearcher(id, otel.NewResearcher(config.Type, id, p))

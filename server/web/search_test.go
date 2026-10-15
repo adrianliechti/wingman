@@ -21,7 +21,7 @@ func (rejectingGuard) Check(context.Context, string, *guard.CheckOptions) (*guar
 
 func TestSearchGuardRejectionIsClientError(t *testing.T) {
 	s, providers := webtest.NewServer(t, false)
-	s.RegisterSearcher("guarded", searcher.NewGuard(rejectingGuard{}, providers["plain"]))
+	s.RegisterSearcher("guarded", searcher.WithGuard(rejectingGuard{}, providers["plain"]))
 	webtest.Response(t, webtest.Send(t, s, "/v1/exa/search", `{"model":"guarded","query":"blocked"}`, nil), http.StatusBadRequest)
 	if providers["plain"].Searches != 0 {
 		t.Fatal("rejected request reached the search provider")

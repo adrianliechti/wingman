@@ -82,15 +82,15 @@ func TestGuardChecksBeforeForwarding(t *testing.T) {
 	searchProvider := &stubSearcher{}
 	researchProvider := &stubResearcher{}
 
-	if _, err := scraper.NewGuard(g, scrapeProvider).Scrape(context.Background(), "https://example.com/blocked", nil); !isFlagged(err) {
+	if _, err := scraper.WithGuard(g, scrapeProvider).Scrape(context.Background(), "https://example.com/blocked", nil); !isFlagged(err) {
 		t.Fatalf("scrape error = %v", err)
 	}
 
-	if _, err := searcher.NewGuard(g, searchProvider).Search(context.Background(), "blocked query", nil); !isFlagged(err) {
+	if _, err := searcher.WithGuard(g, searchProvider).Search(context.Background(), "blocked query", nil); !isFlagged(err) {
 		t.Fatalf("search error = %v", err)
 	}
 
-	_, err := researcher.Collect(researcher.NewGuard(g, researchProvider).Research(context.Background(), "blocked instructions", nil))
+	_, err := researcher.Collect(researcher.WithGuard(g, researchProvider).Research(context.Background(), "blocked instructions", nil))
 
 	if !isFlagged(err) {
 		t.Fatalf("research error = %v", err)
@@ -120,11 +120,11 @@ func TestGuardForwardsAllowedRequests(t *testing.T) {
 	searchProvider := &stubSearcher{}
 	researchProvider := &stubResearcher{}
 
-	if _, err := scraper.NewGuard(g, scrapeProvider).Scrape(context.Background(), "https://example.com", nil); err != nil {
+	if _, err := scraper.WithGuard(g, scrapeProvider).Scrape(context.Background(), "https://example.com", nil); err != nil {
 		t.Fatal(err)
 	}
 
-	guardedSearcher := searcher.NewGuard(g, searchProvider)
+	guardedSearcher := searcher.WithGuard(g, searchProvider)
 
 	if _, err := guardedSearcher.Search(context.Background(), "query", nil); err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestGuardForwardsAllowedRequests(t *testing.T) {
 		t.Fatal("capabilities not forwarded")
 	}
 
-	result, err := researcher.Collect(researcher.NewGuard(g, researchProvider).Research(context.Background(), "instructions", nil))
+	result, err := researcher.Collect(researcher.WithGuard(g, researchProvider).Research(context.Background(), "instructions", nil))
 
 	if err != nil {
 		t.Fatal(err)
@@ -162,9 +162,9 @@ func TestGuardPropagatesGuardErrors(t *testing.T) {
 			scrapeProvider := &stubScraper{}
 			searchProvider := &stubSearcher{}
 			researchProvider := &stubResearcher{}
-			_, scrapeErr := scraper.NewGuard(tc.guard, scrapeProvider).Scrape(context.Background(), "https://example.com", nil)
-			_, searchErr := searcher.NewGuard(tc.guard, searchProvider).Search(context.Background(), "query", nil)
-			_, researchErr := researcher.Collect(researcher.NewGuard(tc.guard, researchProvider).Research(context.Background(), "instructions", nil))
+			_, scrapeErr := scraper.WithGuard(tc.guard, scrapeProvider).Scrape(context.Background(), "https://example.com", nil)
+			_, searchErr := searcher.WithGuard(tc.guard, searchProvider).Search(context.Background(), "query", nil)
+			_, researchErr := researcher.Collect(researcher.WithGuard(tc.guard, researchProvider).Research(context.Background(), "instructions", nil))
 			for _, err := range []error{scrapeErr, searchErr, researchErr} {
 				if err == nil || (tc.guard.err != nil && !errors.Is(err, sentinel)) {
 					t.Fatalf("error = %v", err)
@@ -182,15 +182,15 @@ func TestGuardWithoutGuardReturnsProvider(t *testing.T) {
 	searchProvider := &stubSearcher{}
 	researchProvider := &stubResearcher{}
 
-	if scraper.NewGuard(nil, scrapeProvider) != scraper.Provider(scrapeProvider) {
+	if scraper.WithGuard(nil, scrapeProvider) != scraper.Provider(scrapeProvider) {
 		t.Fatal("scraper wrapped without guard")
 	}
 
-	if searcher.NewGuard(nil, searchProvider) != searcher.Provider(searchProvider) {
+	if searcher.WithGuard(nil, searchProvider) != searcher.Provider(searchProvider) {
 		t.Fatal("searcher wrapped without guard")
 	}
 
-	if researcher.NewGuard(nil, researchProvider) != researcher.Provider(researchProvider) {
+	if researcher.WithGuard(nil, researchProvider) != researcher.Provider(researchProvider) {
 		t.Fatal("researcher wrapped without guard")
 	}
 }
@@ -232,7 +232,7 @@ func TestResearcherPreservesStream(t *testing.T) {
 					yield(nil, sentinel)
 				}
 			})
-			stream := researcher.NewGuard(g, upstream).Research(ctx, "instructions", options)
+			stream := researcher.WithGuard(g, upstream).Research(ctx, "instructions", options)
 			if called || len(g.requests) != 0 {
 				t.Fatal("research was not lazy")
 			}

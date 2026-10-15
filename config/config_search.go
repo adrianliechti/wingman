@@ -91,7 +91,7 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 				return err
 			}
 
-			p = searcher.NewGuard(g, p)
+			p = searcher.WithGuard(g, p)
 		}
 
 		cfg.RegisterSearcher(id, otel.NewSearcher(config.Type, id, p))
