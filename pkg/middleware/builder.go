@@ -1,6 +1,5 @@
 package middleware
 
-// Builder is not safe for concurrent use.
 type Builder[T any] struct {
 	provider    T
 	middlewares []Middleware[T]
@@ -10,7 +9,6 @@ func NewBuilder[T any](provider T) *Builder[T] {
 	return &Builder[T]{provider: provider}
 }
 
-// Use registers middleware with the first running outermost.
 func (b *Builder[T]) Use(m ...Middleware[T]) {
 	b.middlewares = append(b.middlewares, m...)
 }
