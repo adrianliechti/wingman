@@ -94,7 +94,11 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 			p = searcher.WithGuard(g, p)
 		}
 
-		cfg.RegisterSearcher(id, otel.NewSearcher(config.Type, id, p))
+		if !otel.Instrumented(p) {
+			p = otel.NewSearcher(config.Type, id, p)
+		}
+
+		cfg.RegisterSearcher(id, p)
 	}
 
 	return nil

@@ -31,3 +31,7 @@ func (p *guardedResearcher) Research(ctx context.Context, instructions string, o
 		p.researcher.Research(ctx, instructions, options)(yield)
 	}
 }
+
+func (p *guardedResearcher) Unwrap() Provider {
+	return p.researcher
+}

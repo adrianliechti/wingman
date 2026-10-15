@@ -31,3 +31,7 @@ func (p *guardedSearcher) Search(ctx context.Context, query string, options *Sea
 func (p *guardedSearcher) Capabilities() Capabilities {
 	return p.searcher.Capabilities()
 }
+
+func (p *guardedSearcher) Unwrap() Provider {
+	return p.searcher
+}

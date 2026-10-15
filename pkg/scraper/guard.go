@@ -27,3 +27,7 @@ func (p *guardedScraper) Scrape(ctx context.Context, url string, options *Scrape
 
 	return p.scraper.Scrape(ctx, url, options)
 }
+
+func (p *guardedScraper) Unwrap() Provider {
+	return p.scraper
+}

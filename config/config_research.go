@@ -138,7 +138,11 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 			p = researcher.WithGuard(g, p)
 		}
 
-		cfg.RegisterResearcher(id, otel.NewResearcher(config.Type, id, p))
+		if !otel.Instrumented(p) {
+			p = otel.NewResearcher(config.Type, id, p)
+		}
+
+		cfg.RegisterResearcher(id, p)
 	}
 
 	return nil

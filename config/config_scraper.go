@@ -94,7 +94,11 @@ func (cfg *Config) registerScrapers(f *configFile) error {
 			p = scraper.WithGuard(g, p)
 		}
 
-		cfg.RegisterScraper(id, otel.NewScraper(config.Type, id, p))
+		if !otel.Instrumented(p) {
+			p = otel.NewScraper(config.Type, id, p)
+		}
+
+		cfg.RegisterScraper(id, p)
 	}
 
 	return nil
