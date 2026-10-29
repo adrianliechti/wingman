@@ -19,7 +19,7 @@ func TestScopedAliasSignatureReplay(t *testing.T) {
 	for _, alias := range []string{"my-model", "my model", "modèle", "模型"} {
 		t.Run(alias, func(t *testing.T) {
 			messages := []provider.Message{{Role: provider.MessageRoleAssistant, Content: []provider.Content{
-				provider.ReasoningContent(provider.Reasoning{Text: "thought", Signature: provider.TagSignature(alias, "SIG")}),
+				provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("thought"), Signature: provider.TagSignature(alias, "SIG")}),
 				provider.CompactionContent(provider.Compaction{Content: "summary", Signature: provider.TagSignature(alias, "BLOB")}),
 			}}}
 
@@ -60,7 +60,7 @@ func TestCompleterStripsSignatures(t *testing.T) {
 			Message: &provider.Message{
 				Role: provider.MessageRoleAssistant,
 				Content: []provider.Content{
-					provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Summary: "thinking", Signature: "fresh-blob"}),
+					provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Summary: provider.TextParts("thinking"), Signature: "fresh-blob"}),
 					provider.ToolCallContent(provider.ToolCall{ID: "call_2::lookup::ZnJlc2gtc2ln", Name: "lookup"}),
 					provider.TextContent("answer"),
 				},
@@ -75,7 +75,7 @@ func TestCompleterStripsSignatures(t *testing.T) {
 			Content: []provider.Content{
 				provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Signature: "foreign-blob"}),
 				provider.ReasoningContent(provider.Reasoning{ID: "rs_r", Signature: "redacted-blob", Redacted: true}),
-				provider.ReasoningContent(provider.Reasoning{ID: "rs_t", Text: "kept thought", Signature: "signed"}),
+				provider.ReasoningContent(provider.Reasoning{ID: "rs_t", Content: provider.TextParts("kept thought"), Signature: "signed"}),
 				provider.CompactionContent(provider.Compaction{ID: "cp_1", Signature: "compaction-blob"}),
 				provider.CompactionContent(provider.Compaction{ID: "cp_2", Content: "summary text", Signature: "signed"}),
 				provider.ToolCallContent(provider.ToolCall{ID: "call_1::search::c2ln", Name: "search"}),
@@ -107,7 +107,7 @@ func TestCompleterStripsSignatures(t *testing.T) {
 	if len(assistant.Content) != 4 {
 		t.Fatalf("assistant contents: %+v", assistant.Content)
 	}
-	if r := assistant.Content[0].Reasoning; r == nil || r.Signature != "" || r.Text != "kept thought" {
+	if r := assistant.Content[0].Reasoning; r == nil || r.Signature != "" || r.Text() != "kept thought" {
 		t.Fatalf("reasoning content: %+v", assistant.Content[0].Reasoning)
 	}
 	if c := assistant.Content[1].Compaction; c == nil || c.Signature != "" || c.Content != "summary text" {
@@ -148,7 +148,7 @@ func TestCompleterStripsSignatures(t *testing.T) {
 	if len(got.Message.Content) != 3 {
 		t.Fatalf("reply contents: %+v", got.Message.Content)
 	}
-	if r := got.Message.Content[0].Reasoning; r == nil || r.Signature != "" || r.Summary != "thinking" {
+	if r := got.Message.Content[0].Reasoning; r == nil || r.Signature != "" || r.SummaryText() != "thinking" {
 		t.Fatalf("reply reasoning: %+v", got.Message.Content[0].Reasoning)
 	}
 	if call := got.Message.Content[1].ToolCall; call == nil || call.ID != "call_2::lookup" {
@@ -179,7 +179,7 @@ func TestScopedTagsAndResolves(t *testing.T) {
 			Message: &provider.Message{
 				Role: provider.MessageRoleAssistant,
 				Content: []provider.Content{
-					provider.ReasoningContent(provider.Reasoning{Text: "thinking", Signature: "SIG"}),
+					provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("thinking"), Signature: "SIG"}),
 					provider.CompactionContent(provider.Compaction{ID: "cp", Signature: "BLOB"}),
 					provider.TextContent("answer"),
 				},
@@ -192,10 +192,10 @@ func TestScopedTagsAndResolves(t *testing.T) {
 	messages := []provider.Message{
 		provider.UserMessage("hi"),
 		{Role: provider.MessageRoleAssistant, Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Text: "own", Signature: "@claude-sonnet-4-6:OWN"}),
-			provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "foreign", Signature: "@gpt-5.4:ENC"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("own"), Signature: "@claude-sonnet-4-6:OWN"}),
+			provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("foreign"), Signature: "@gpt-5.4:ENC"}),
 			provider.ReasoningContent(provider.Reasoning{Redacted: true, Signature: "@gpt-5.4:RED"}),
-			provider.ReasoningContent(provider.Reasoning{Text: "legacy", Signature: "RAW"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("legacy"), Signature: "RAW"}),
 			provider.CompactionContent(provider.Compaction{Content: "summary", Signature: "@gpt-5.4:CMP"}),
 			provider.ToolCallContent(provider.ToolCall{ID: "call_1::search::c2ln", Name: "search", Arguments: "{}"}),
 		}},
@@ -222,7 +222,7 @@ func TestScopedTagsAndResolves(t *testing.T) {
 	if replayed[0].Reasoning.Signature != "OWN" {
 		t.Errorf("own signature must be unwrapped: %q", replayed[0].Reasoning.Signature)
 	}
-	if replayed[1].Reasoning.Signature != "" || replayed[1].Reasoning.Summary != "foreign" {
+	if replayed[1].Reasoning.Signature != "" || replayed[1].Reasoning.SummaryText() != "foreign" {
 		t.Errorf("foreign signature must be stripped, text kept: %+v", replayed[1].Reasoning)
 	}
 	if replayed[2].Reasoning.Signature != "RAW" {

@@ -30,6 +30,53 @@ func completeAll(t *testing.T, handler http.HandlerFunc, options *provider.Compl
 
 func sseEvent(data string) string { return "data: " + data + "\n\n" }
 
+func TestThoughtSummaryPartsSurviveStreamingAndReplay(t *testing.T) {
+	deltas, err := completeAll(t, interactionEvents(
+		`{"event_type":"interaction.created","interaction":{"id":"i_parts","model":"gemini-test","status":"in_progress"}}`,
+		`{"event_type":"step.start","index":0,"step":{"type":"thought","signature":"sig","summary":[{"type":"text","text":"first"},{"type":"text","text":"second"}]}}`,
+		`{"event_type":"step.delta","index":0,"delta":{"type":"thought_summary","content":{"type":"text","text":" continued"}}}`,
+		`{"event_type":"step.stop","index":0}`,
+		`{"event_type":"interaction.completed","interaction":{"id":"i_parts","status":"completed"}}`,
+	), &provider.CompleteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acc provider.CompletionAccumulator
+	for _, delta := range deltas {
+		acc.Add(*delta)
+	}
+	result := acc.Result()
+	r := result.Message.Content[0].Reasoning
+	if len(r.Summary) != 2 || r.Summary[0].Text != "first" || r.Summary[1].Text != "second continued" {
+		t.Fatalf("summary parts changed: %+v", r)
+	}
+	req, err := convertInteraction("gemini-test", []provider.Message{*result.Message}, &provider.CompleteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thought := req.Input.ArrayOfStep[0].ThoughtStep
+	if thought == nil || len(thought.Summary) != 2 || thought.Summary[0].TextContent.Text != "first" || thought.Summary[1].TextContent.Text != "second continued" {
+		t.Fatalf("replayed summary changed: %+v", thought)
+	}
+}
+
+func TestEmptySummaryDoesNotHideReasoningContentOnReplay(t *testing.T) {
+	message := provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{
+		provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("A", "B"), Summary: []provider.Part{{Text: ""}}, Signature: "sig"}),
+	}}
+	req, err := convertInteraction("gemini-test", []provider.Message{message}, &provider.CompleteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thought := req.Input.ArrayOfStep[0].ThoughtStep
+	if thought == nil || len(thought.Summary) != 2 || thought.Summary[0].TextContent.Text != "A" || thought.Summary[1].TextContent.Text != "B" {
+		t.Fatalf("placeholder summary hid raw thinking: %+v", thought)
+	}
+	if message.Content[0].Reasoning.Summary[0].Text != "" {
+		t.Fatal("replay mutated the input message")
+	}
+}
+
 func interactionEvents(events ...string) http.HandlerFunc {
 	chunks := make([]string, len(events))
 	for i, event := range events {
@@ -74,7 +121,7 @@ func TestComplete_InteractionsTextReasoningAndUsage(t *testing.T) {
 		t.Fatalf("incorrect inclusive/cumulative usage: %+v", result.Usage)
 	}
 	reasoning := result.Message.Content[0].Reasoning
-	if reasoning == nil || reasoning.Summary != "Let me think." || reasoning.Signature != "Ev8BAA==" {
+	if reasoning == nil || reasoning.SummaryText() != "Let me think." || reasoning.Signature != "Ev8BAA==" {
 		t.Fatalf("lost thought: %+v", result.Message.Content)
 	}
 	steps, err := convertMessages([]provider.Message{*result.Message})

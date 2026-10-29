@@ -119,7 +119,7 @@ func TestStreamThinkingSignaturesStayWithTheirBlock(t *testing.T) {
 			}
 			for i, want := range []string{"first thought", "second thought"} {
 				r := content[i].Reasoning
-				if r.ID != "" || r.Summary != "" || r.Text != want || r.Signature != fmt.Sprintf("SIG_%d", i+1) {
+				if r.ID != "" || r.SummaryText() != "" || r.Text() != want || r.Signature != fmt.Sprintf("SIG_%d", i+1) {
 					t.Errorf("block %d: %+v", i, r)
 				}
 			}

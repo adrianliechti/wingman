@@ -210,7 +210,7 @@ func hasContent(completion *provider.Completion) bool {
 		if part.Text != "" || part.Refusal != "" || part.File != nil || part.ToolCall != nil || part.ToolResult != nil {
 			return true
 		}
-		if r := part.Reasoning; r != nil && (r.Text != "" || r.Summary != "" || r.Signature != "") {
+		if r := part.Reasoning; r != nil && (r.Text() != "" || r.SummaryText() != "" || r.Signature != "") {
 			return true
 		}
 		if c := part.Compaction; c != nil && (c.Content != "" || c.Signature != "") {

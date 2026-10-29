@@ -512,7 +512,7 @@ func TestStreamKeepsMetadataWithoutFallback(t *testing.T) {
 		"only candidate": {},
 		"text":           provider.TextContent("partial"),
 		"refusal":        {Refusal: "declined"},
-		"reasoning":      provider.ReasoningContent(provider.Reasoning{Text: "thinking"}),
+		"reasoning":      provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("thinking")}),
 		"tool call":      provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "lookup"}),
 	} {
 		t.Run(name, func(t *testing.T) {

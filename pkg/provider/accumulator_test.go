@@ -174,14 +174,14 @@ func TestCompletionAccumulatorPreservesDistinctReasoningItems(t *testing.T) {
 	acc := CompletionAccumulator{}
 
 	// Item 1 — interleaved deltas with the same ID, then signature.
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_1", Text: "thinking "})}}})
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_1", Summary: "sum1 "})}}})
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_1", Text: "step a"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_1", Content: TextParts("thinking ")})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_1", Summary: TextParts("sum1 ")})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_1", Content: TextParts("step a")})}}})
 	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_1", Signature: "ENC_1"})}}})
 
 	// Item 2 — same delta pattern, different ID.
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_2", Text: "more "})}}})
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_2", Summary: "sum2"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_2", Content: TextParts("more ")})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_2", Summary: TextParts("sum2")})}}})
 	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{ID: "rs_2", Signature: "ENC_2"})}}})
 
 	result := acc.Result()
@@ -207,17 +207,17 @@ func TestCompletionAccumulatorPreservesDistinctReasoningItems(t *testing.T) {
 		t.Errorf("item 1: expected (rs_2, ENC_2), got (%s, %s)", reasonings[1].ID, reasonings[1].Signature)
 	}
 
-	if !strings.Contains(reasonings[0].Text, "thinking") || !strings.Contains(reasonings[0].Text, "step a") {
-		t.Errorf("item 0 text wrong: %q", reasonings[0].Text)
+	if !strings.Contains(reasonings[0].Text(), "thinking") || !strings.Contains(reasonings[0].Text(), "step a") {
+		t.Errorf("item 0 text wrong: %q", reasonings[0].Text())
 	}
-	if strings.Contains(reasonings[0].Text, "more") {
-		t.Errorf("item 0 text leaked from item 1: %q", reasonings[0].Text)
+	if strings.Contains(reasonings[0].Text(), "more") {
+		t.Errorf("item 0 text leaked from item 1: %q", reasonings[0].Text())
 	}
-	if reasonings[0].Summary != "sum1 " {
-		t.Errorf("item 0 summary wrong: %q", reasonings[0].Summary)
+	if reasonings[0].SummaryText() != "sum1 " {
+		t.Errorf("item 0 summary wrong: %q", reasonings[0].SummaryText())
 	}
-	if reasonings[1].Summary != "sum2" {
-		t.Errorf("item 1 summary wrong: %q", reasonings[1].Summary)
+	if reasonings[1].SummaryText() != "sum2" {
+		t.Errorf("item 1 summary wrong: %q", reasonings[1].SummaryText())
 	}
 }
 
@@ -226,8 +226,8 @@ func TestCompletionAccumulatorPreservesDistinctReasoningItems(t *testing.T) {
 func TestCompletionAccumulatorMergesIDLessReasoning(t *testing.T) {
 	acc := CompletionAccumulator{}
 
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "hello "})}}})
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "world"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Content: TextParts("hello ")})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Content: TextParts("world")})}}})
 	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Signature: "SIG"})}}})
 
 	result := acc.Result()
@@ -242,8 +242,8 @@ func TestCompletionAccumulatorMergesIDLessReasoning(t *testing.T) {
 	if len(reasonings) != 1 {
 		t.Fatalf("expected 1 reasoning, got %d", len(reasonings))
 	}
-	if reasonings[0].Text != "hello world" {
-		t.Errorf("text: got %q, want %q", reasonings[0].Text, "hello world")
+	if reasonings[0].Text() != "hello world" {
+		t.Errorf("text: got %q, want %q", reasonings[0].Text(), "hello world")
 	}
 	if reasonings[0].Signature != "SIG" {
 		t.Errorf("signature: got %q, want SIG", reasonings[0].Signature)
@@ -255,10 +255,10 @@ func TestCompletionAccumulatorMergesIDLessReasoning(t *testing.T) {
 func TestCompletionAccumulatorSplitsSignedReasoningBlocks(t *testing.T) {
 	acc := CompletionAccumulator{}
 
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "first"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Content: TextParts("first")})}}})
 	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Signature: "SIG_1"})}}})
 	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Signature: "BLOB", Redacted: true})}}})
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "second"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Content: TextParts("second")})}}})
 	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Signature: "SIG_2"})}}})
 
 	var reasonings []Reasoning
@@ -271,13 +271,13 @@ func TestCompletionAccumulatorSplitsSignedReasoningBlocks(t *testing.T) {
 	if len(reasonings) != 3 {
 		t.Fatalf("expected 3 reasoning entries, got %d: %+v", len(reasonings), reasonings)
 	}
-	if reasonings[0].Text != "first" || reasonings[0].Signature != "SIG_1" {
+	if reasonings[0].Text() != "first" || reasonings[0].Signature != "SIG_1" {
 		t.Errorf("block 0: %+v", reasonings[0])
 	}
 	if !reasonings[1].Redacted || reasonings[1].Signature != "BLOB" {
 		t.Errorf("block 1: %+v", reasonings[1])
 	}
-	if reasonings[2].Text != "second" || reasonings[2].Signature != "SIG_2" {
+	if reasonings[2].Text() != "second" || reasonings[2].Signature != "SIG_2" {
 		t.Errorf("block 2: %+v", reasonings[2])
 	}
 }
@@ -414,22 +414,22 @@ func TestCompletionAccumulatorRepeatedMessageIDJoinsItem(t *testing.T) {
 
 func TestCompletionAccumulatorSeparatesInterruptedUnsignedReasoning(t *testing.T) {
 	var acc CompletionAccumulator
-	acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{ReasoningContent(Reasoning{Text: "first "})}}})
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "thought"})}}})
+	acc.Add(Completion{Message: &Message{Role: MessageRoleAssistant, Content: []Content{ReasoningContent(Reasoning{Content: TextParts("first ")})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Content: TextParts("thought")})}}})
 	acc.Add(Completion{Message: &Message{Content: []Content{ToolCallContent(ToolCall{ID: "call_1", Name: "lookup", Arguments: "{}"})}}})
-	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Text: "second thought"})}}})
+	acc.Add(Completion{Message: &Message{Content: []Content{ReasoningContent(Reasoning{Content: TextParts("second thought")})}}})
 
 	content := acc.Result().Message.Content
 	if len(content) != 3 {
 		t.Fatalf("expected 3 content items (reasoning, tool_call, reasoning), got %d: %+v", len(content), content)
 	}
-	if content[0].Reasoning == nil || content[0].Reasoning.Text != "first thought" {
+	if content[0].Reasoning == nil || content[0].Reasoning.Text() != "first thought" {
 		t.Fatalf("unexpected first reasoning: %+v", content[0])
 	}
 	if content[1].ToolCall == nil || content[1].ToolCall.ID != "call_1" {
 		t.Fatalf("unexpected tool call: %+v", content[1])
 	}
-	if content[2].Reasoning == nil || content[2].Reasoning.Text != "second thought" {
+	if content[2].Reasoning == nil || content[2].Reasoning.Text() != "second thought" {
 		t.Fatalf("unexpected second reasoning: %+v", content[2])
 	}
 }

@@ -285,12 +285,12 @@ func TestConvertResponsesRequest_SkipsUnsignedReasoning(t *testing.T) {
 			Content: []provider.Content{
 				provider.ReasoningContent(provider.Reasoning{
 					ID:      "rs_unsigned",
-					Summary: "visible summary",
-					Text:    "visible reasoning",
+					Summary: provider.TextParts("visible summary"),
+					Content: provider.TextParts("visible reasoning"),
 				}),
 				provider.ReasoningContent(provider.Reasoning{
 					ID:        "rs_signed",
-					Summary:   "signed summary",
+					Summary:   provider.TextParts("signed summary"),
 					Signature: "ENC_123",
 				}),
 			},
@@ -320,8 +320,8 @@ func TestConvertResponsesRequest_OmitsReasoningTextForOpenAI(t *testing.T) {
 			Content: []provider.Content{
 				provider.ReasoningContent(provider.Reasoning{
 					ID:        "rs_signed",
-					Summary:   "signed summary",
-					Text:      "signed reasoning",
+					Summary:   provider.TextParts("signed summary"),
+					Content:   provider.TextParts("signed reasoning", "second part"),
 					Signature: "ENC_123",
 				}),
 			},
@@ -356,7 +356,7 @@ func TestConvertResponsesRequest_OmitsReasoningTextForOpenAI(t *testing.T) {
 			t.Fatalf("request for %q lost reasoning summary: %+v", tt.endpoint, reasoning[0])
 		}
 		content, _ := reasoning[0]["content"].([]any)
-		if (len(content) > 0) != tt.content {
+		if (len(content) > 0) != tt.content || tt.content && len(content) != 2 {
 			t.Fatalf("request for %q reasoning content = %+v, want present=%v", tt.endpoint, reasoning[0]["content"], tt.content)
 		}
 	}

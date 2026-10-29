@@ -185,7 +185,7 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 			id, signature := decodeSignature(block.Signature)
 
 			r := provider.Reasoning{
-				Text:      block.Thinking,
+				Content:   provider.TextParts(block.Thinking),
 				Signature: signature,
 			}
 
@@ -193,7 +193,7 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 			// the summary, and replayed content parts would be rejected.
 			if id != "" {
 				r.ID = id
-				r.Text, r.Summary = "", block.Thinking
+				r.Content, r.Summary = nil, provider.TextParts(block.Thinking)
 			}
 
 			content = append(content, provider.ReasoningContent(r))
@@ -535,16 +535,16 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 	result := make([]ContentBlock, 0, len(content))
 
 	for _, c := range content {
-		if c.Reasoning != nil && (c.Reasoning.Text != "" || c.Reasoning.Summary != "" || c.Reasoning.Signature != "") {
+		if c.Reasoning != nil && (c.Reasoning.Text() != "" || c.Reasoning.SummaryText() != "" || c.Reasoning.Signature != "") {
 			if c.Reasoning.Redacted {
 				result = append(result, ContentBlock{
 					Type: "redacted_thinking",
 					Data: c.Reasoning.Signature,
 				})
 			} else {
-				thinking := c.Reasoning.Text
+				thinking := c.Reasoning.Text()
 				if thinking == "" {
-					thinking = c.Reasoning.Summary
+					thinking = c.Reasoning.SummaryText()
 				}
 
 				result = append(result, ContentBlock{

@@ -1,10 +1,56 @@
 package anthropic
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
+
+func TestEmptyThinkingReplaysWithoutSyntheticOpenAISummary(t *testing.T) {
+	requests := 0
+	c, err := openai.NewResponder("https://api.openai.com", "gpt-test", openai.WithToken("test"), openai.WithClient(featureClient(t, responsesFeatureStream, func(_ *http.Request, sent map[string]any) {
+		requests++
+		found := false
+		for _, raw := range sent["input"].([]any) {
+			item := raw.(map[string]any)
+			if item["type"] != "reasoning" {
+				continue
+			}
+			found = true
+			summary, ok := item["summary"].([]any)
+			if !ok || len(summary) != 0 || item["encrypted_content"] != "opaque" || item["id"] != "rs_original" {
+				t.Errorf("signature-only thinking gained a placeholder: %v", item)
+			}
+		}
+		if !found {
+			t.Error("reasoning disappeared from replay")
+		}
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stream := range []bool{false, true} {
+		rec := featurePost(t, featureRouter(c), "/messages", map[string]any{
+			"model": "target", "max_tokens": 1000, "stream": stream,
+			"messages": []any{
+				map[string]any{"role": "user", "content": "hello"},
+				map[string]any{"role": "assistant", "content": []any{
+					map[string]any{"type": "thinking", "thinking": "", "signature": encodeSignature("rs_original", "@target:opaque")},
+					map[string]any{"type": "text", "text": "hello"},
+				}},
+				map[string]any{"role": "user", "content": "continue"},
+			},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+		}
+	}
+	if requests != 2 {
+		t.Fatalf("upstream requests = %d", requests)
+	}
+}
 
 func TestSignatureCodec(t *testing.T) {
 	if got := encodeSignature("", "SIG"); got != "SIG" {
@@ -77,7 +123,7 @@ func TestThinkingBlockRoundTrip(t *testing.T) {
 	blocks := toContentBlocks([]provider.Content{
 		provider.ReasoningContent(provider.Reasoning{
 			ID:        "rs_1",
-			Summary:   "the summary",
+			Summary:   provider.TextParts("the summary"),
 			Signature: "BLOB",
 		}),
 	})
@@ -117,7 +163,7 @@ func TestThinkingBlockRoundTrip(t *testing.T) {
 		t.Fatal("expected reasoning content")
 	}
 
-	if reasoning.ID != "rs_1" || reasoning.Signature != "BLOB" || reasoning.Summary != "the summary" || reasoning.Text != "" {
+	if reasoning.ID != "rs_1" || reasoning.Signature != "BLOB" || reasoning.SummaryText() != "the summary" || reasoning.Text() != "" {
 		t.Fatalf("unexpected reasoning: %+v", reasoning)
 	}
 }

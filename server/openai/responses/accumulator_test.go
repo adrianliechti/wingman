@@ -173,13 +173,13 @@ func TestStreamingAccumulatorPreservesDistinctReasoningItems(t *testing.T) {
 	}
 
 	// Item 1
-	addReasoning(provider.Reasoning{ID: "rs_1", Text: "thinking-1"})
-	addReasoning(provider.Reasoning{ID: "rs_1", Summary: "summary-1"})
+	addReasoning(provider.Reasoning{ID: "rs_1", Content: provider.TextParts("thinking-1")})
+	addReasoning(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("summary-1")})
 	addReasoning(provider.Reasoning{ID: "rs_1", Signature: "ENC_1"})
 
 	// Item 2 (different ID) — should close item 1 first
-	addReasoning(provider.Reasoning{ID: "rs_2", Text: "thinking-2"})
-	addReasoning(provider.Reasoning{ID: "rs_2", Summary: "summary-2"})
+	addReasoning(provider.Reasoning{ID: "rs_2", Content: provider.TextParts("thinking-2")})
+	addReasoning(provider.Reasoning{ID: "rs_2", Summary: provider.TextParts("summary-2")})
 	addReasoning(provider.Reasoning{ID: "rs_2", Signature: "ENC_2"})
 
 	if err := acc.Complete(); err != nil {
@@ -698,7 +698,7 @@ func TestStreamingAccumulatorSeparatesRepeatedPhaseItems(t *testing.T) {
 func TestStreamingAccumulatorFilteredItemStatus(t *testing.T) {
 	for _, content := range []provider.Content{
 		provider.TextContent("I cannot help with that."),
-		provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Text: "checking"}),
+		provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Content: provider.TextParts("checking")}),
 		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "example", Arguments: `{}`}),
 	} {
 		var done []StreamEvent
@@ -792,12 +792,12 @@ func TestStreamingAccumulatorSnapshotPreservesMixedItemOrder(t *testing.T) {
 	})
 	for _, part := range []provider.Content{
 		provider.CompactionContent(provider.Compaction{ID: "cmp_1", Signature: "CMP_1"}),
-		provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "start", Signature: "SIG_1"}),
+		provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("start"), Signature: "SIG_1"}),
 		{MessageID: "msg_1", Text: "first"},
 		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "search", Arguments: "{}"}),
 		{MessageID: "msg_2", Text: "second"},
 		{MessageID: "msg_3"}, // Flush the withheld second message before reasoning resumes.
-		provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Summary: "resume", Signature: "SIG_2"}),
+		provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Summary: provider.TextParts("resume"), Signature: "SIG_2"}),
 		provider.ToolCallContent(provider.ToolCall{ID: "call_2", Name: "search", Arguments: "{}"}),
 		{MessageID: "msg_3", Text: "third"},
 	} {

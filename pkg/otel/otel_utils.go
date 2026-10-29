@@ -403,9 +403,9 @@ func toChatMessage(m provider.Message) chatMessage {
 		}
 
 		if c.Reasoning != nil {
-			text := c.Reasoning.Text
+			text := c.Reasoning.Text()
 			if text == "" {
-				text = c.Reasoning.Summary
+				text = c.Reasoning.SummaryText()
 			}
 			if text != "" {
 				msg.Parts = append(msg.Parts, messagePart{Type: "reasoning", Content: text})

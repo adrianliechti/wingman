@@ -109,7 +109,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessageNewParams, options *provider.CompleteOptions, continuations []assistantContinuation) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
 		toolAliases := provider.ToolAliases(options.Tools)
-		notes := progressNotes(req.Thinking)
+		notes := progressNotes(req.Thinking) || (options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary)
 
 		message := anthropic.BetaMessage{}
 		var requestOptions []option.RequestOption
@@ -930,9 +930,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 					} else {
 						// Responses-style clients replay the visible thinking as
 						// a summary part; that text is what the signature covers.
-						thinking := c.Reasoning.Text
+						thinking := c.Reasoning.Text()
 						if thinking == "" {
-							thinking = c.Reasoning.Summary
+							thinking = c.Reasoning.SummaryText()
 						}
 
 						blocks = append(blocks, anthropic.NewBetaThinkingBlock(signature, thinking))

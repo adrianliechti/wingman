@@ -175,12 +175,15 @@ func convertMessages(messages []provider.Message) ([]interactions.Step, error) {
 				if reasoning.Signature != "" {
 					thought.Signature = new(reasoning.Signature)
 				}
-				text := reasoning.Summary
-				if text == "" {
-					text = reasoning.Text
+				parts := reasoning.Summary
+				if reasoning.SummaryText() == "" {
+					parts = reasoning.Content
 				}
-				if text != "" {
-					thought.Summary = []interactions.ThoughtSummaryContent{interactions.NewThoughtSummaryContent(interactions.TextContent{Text: text})}
+				for _, part := range parts {
+					if part.Text == "" {
+						continue
+					}
+					thought.Summary = append(thought.Summary, interactions.NewThoughtSummaryContent(interactions.TextContent{Text: part.Text}))
 				}
 				if thought.Signature != nil || len(thought.Summary) > 0 {
 					if thought.Signature == nil {

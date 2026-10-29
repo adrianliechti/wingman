@@ -115,8 +115,8 @@ func TestResponsesPreserveReasoningMetadata(t *testing.T) {
 }
 
 func TestResponsesPreserveReasoningStatus(t *testing.T) {
-	reasoning := provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "First summary"})
-	secondReasoning := provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Summary: "Second summary"})
+	reasoning := provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("First summary")})
+	secondReasoning := provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Summary: provider.TextParts("Second summary")})
 
 	cases := []struct {
 		name    string

@@ -244,7 +244,7 @@ func TestConvertConverseInput_UnsignedToolHistoryKeepsThinking(t *testing.T) {
 		{
 			Role: provider.MessageRoleAssistant,
 			Content: []provider.Content{
-				provider.ReasoningContent(provider.Reasoning{Text: "unsigned thought"}),
+				provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("unsigned thought")}),
 				provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
 			},
 		},
@@ -281,7 +281,7 @@ func TestConvertConverseInput_UnsignedToolHistoryKeepsThinking(t *testing.T) {
 	signed[1] = provider.Message{
 		Role: provider.MessageRoleAssistant,
 		Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Text: "thought", Signature: "SIG"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("thought"), Signature: "SIG"}),
 			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
 		},
 	}
@@ -300,13 +300,13 @@ func TestConvertAssistantContent_KeepsOrder(t *testing.T) {
 		{"text after calls", []provider.Content{
 			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "step_one", Arguments: "{}"}),
 			provider.TextContent("halfway update"),
-			provider.ReasoningContent(provider.Reasoning{Text: "thought", Signature: "SIG"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("thought"), Signature: "SIG"}),
 			provider.ToolCallContent(provider.ToolCall{ID: "call_2", Name: "step_two", Arguments: "{}"}),
 		}, []string{"tool_use", "text", "reasoning:thought", "tool_use"}},
 		{"interleaved thinking", []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Text: "plan", Signature: "SIG1"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("plan"), Signature: "SIG1"}),
 			provider.TextContent("first"),
-			provider.ReasoningContent(provider.Reasoning{Text: "check", Signature: "SIG2"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("check"), Signature: "SIG2"}),
 			provider.TextContent("second"),
 			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "step_one", Arguments: "{}"}),
 		}, []string{"reasoning:plan", "text", "reasoning:check", "text", "tool_use"}},
@@ -348,7 +348,7 @@ func TestConvertAssistantContent_Reasoning(t *testing.T) {
 	content, err := convertAssistantContent(provider.Message{
 		Role: provider.MessageRoleAssistant,
 		Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Text: "step", Signature: "SIG"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("step"), Signature: "SIG"}),
 			provider.ReasoningContent(provider.Reasoning{Signature: base64.StdEncoding.EncodeToString(blob), Redacted: true}),
 			provider.TextContent("answer"),
 		},

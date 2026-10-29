@@ -104,7 +104,7 @@ func TestThinkingSignatureFragments(t *testing.T) {
 				t.Fatalf("expected 2 thinking blocks, got %+v", parts)
 			}
 			for i, want := range []string{"first", "second"} {
-				if r := parts[i].Reasoning; r == nil || r.ID != "" || r.Summary != "" || r.Text != want || r.Signature != fmt.Sprintf("SIG_%d", i+1) {
+				if r := parts[i].Reasoning; r == nil || r.ID != "" || r.SummaryText() != "" || r.Text() != want || r.Signature != fmt.Sprintf("SIG_%d", i+1) {
 					t.Errorf("block %d: %+v", i, r)
 				}
 			}

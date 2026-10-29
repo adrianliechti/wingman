@@ -907,8 +907,8 @@ func TestComplete_Reasoning(t *testing.T) {
 								{
 									Reasoning: &provider.Reasoning{
 										ID:      "reasoning-1",
-										Text:    "Let me think about this step by step...",
-										Summary: "Thinking through the problem",
+										Content: provider.TextParts("Let me think about this step by step..."),
+										Summary: provider.TextParts("Thinking through the problem"),
 									},
 								},
 								{Text: "The answer is 42."},
@@ -932,8 +932,8 @@ func TestComplete_Reasoning(t *testing.T) {
 		reasoningContent := completions[0].Message.Content[0]
 		require.NotNil(t, reasoningContent.Reasoning)
 		require.Equal(t, "reasoning-1", reasoningContent.Reasoning.ID)
-		require.Equal(t, "Let me think about this step by step...", reasoningContent.Reasoning.Text)
-		require.Equal(t, "Thinking through the problem", reasoningContent.Reasoning.Summary)
+		require.Equal(t, "Let me think about this step by step...", reasoningContent.Reasoning.Text())
+		require.Equal(t, "Thinking through the problem", reasoningContent.Reasoning.SummaryText())
 
 		textContent := completions[0].Message.Content[1]
 		require.Equal(t, "The answer is 42.", textContent.Text)
@@ -948,7 +948,7 @@ func TestComplete_Reasoning(t *testing.T) {
 						Message: &provider.Message{
 							Role: provider.MessageRoleAssistant,
 							Content: []provider.Content{
-								{Reasoning: &provider.Reasoning{ID: "r1", Text: "First, "}},
+								{Reasoning: &provider.Reasoning{ID: "r1", Content: provider.TextParts("First, ")}},
 							},
 						},
 					},
@@ -957,7 +957,7 @@ func TestComplete_Reasoning(t *testing.T) {
 						Message: &provider.Message{
 							Role: provider.MessageRoleAssistant,
 							Content: []provider.Content{
-								{Reasoning: &provider.Reasoning{ID: "r1", Text: "I need to consider..."}},
+								{Reasoning: &provider.Reasoning{ID: "r1", Content: provider.TextParts("I need to consider...")}},
 							},
 						},
 					},
@@ -983,11 +983,11 @@ func TestComplete_Reasoning(t *testing.T) {
 
 		// First chunk has reasoning
 		require.NotNil(t, completions[0].Message.Content[0].Reasoning)
-		require.Equal(t, "First, ", completions[0].Message.Content[0].Reasoning.Text)
+		require.Equal(t, "First, ", completions[0].Message.Content[0].Reasoning.Text())
 
 		// Second chunk has reasoning
 		require.NotNil(t, completions[1].Message.Content[0].Reasoning)
-		require.Equal(t, "I need to consider...", completions[1].Message.Content[0].Reasoning.Text)
+		require.Equal(t, "I need to consider...", completions[1].Message.Content[0].Reasoning.Text())
 
 		// Third chunk has text
 		require.Equal(t, "Here's my answer.", completions[2].Message.Content[0].Text)

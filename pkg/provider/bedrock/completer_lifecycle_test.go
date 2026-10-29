@@ -100,7 +100,7 @@ func TestCompleterTextItemsFollowBlocks(t *testing.T) {
 		for _, part := range message.Content {
 			switch {
 			case part.Reasoning != nil:
-				parts = append(parts, "reasoning:"+part.Reasoning.Text)
+				parts = append(parts, "reasoning:"+part.Reasoning.Text())
 			case part.ToolCall != nil:
 				parts = append(parts, "call:"+part.ToolCall.ID)
 			case part.Text != "":

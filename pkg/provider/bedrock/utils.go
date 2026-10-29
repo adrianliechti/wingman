@@ -64,9 +64,9 @@ func (c *Completer) progressNotes(t thinking) bool {
 // them without the caller asking for reasoning summaries.
 func thinkingReasoning(text string, notes bool) provider.Reasoning {
 	if notes {
-		return provider.Reasoning{Summary: text}
+		return provider.Reasoning{Summary: provider.TextParts(text)}
 	}
-	return provider.Reasoning{Text: text}
+	return provider.Reasoning{Content: provider.TextParts(text)}
 }
 
 // schemaToolInstruction steers schema mode toward the schema tool on models

@@ -11,7 +11,7 @@ import (
 func TestThoughtSignatureSurvivesJSON(t *testing.T) {
 	raw := []byte{0x12, 0xff, 0x01, '\n', 0xe2, 0x82, 0x00, 0xc3}
 	signature := EncodeThoughtSignature(raw)
-	message := provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Summary: "why", Signature: signature})}}
+	message := provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("why"), Signature: signature})}}
 	data, err := json.Marshal(message)
 	if err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package responses
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -94,12 +95,15 @@ type StreamEvent struct {
 	Incomplete bool
 
 	// For reasoning events
-	ReasoningID        string
-	ReasoningText      string
-	ReasoningSummary   string
-	ReasoningSignature string
-	SummaryIndex       int
-	ContentIndex       int
+	ReasoningID           string
+	ReasoningText         string
+	ReasoningSummary      string
+	ReasoningSignature    string
+	ReasoningRedacted     bool
+	ReasoningSummaryParts []provider.Part
+	ReasoningContentParts []provider.Part
+	SummaryIndex          int
+	ContentIndex          int
 
 	// For compaction events
 	CompactionID               string
@@ -135,7 +139,11 @@ type accumulatedToolCall struct {
 // Responses API SSE events. It is self-contained — there is no separate
 // inner accumulator that could get out of sync.
 type StreamingAccumulator struct {
-	handler StreamEventHandler
+	// Items are emitted in output order. Later items wait behind an unfinished
+	// tool call, while that call's argument fragments continue streaming.
+	nextEventIndex int
+	pendingEvents  map[int][]StreamEvent
+	handler        StreamEventHandler
 	// When true, incoming Reasoning.Text is emitted as summary events instead of text events.
 	ReasoningAsSummary bool
 	// When true, reasoning output is silently dropped (client didn't request reasoning).
@@ -166,17 +174,16 @@ type StreamingAccumulator struct {
 	// In-flight reasoning state. Closed items archive into completedReasonings
 	// before a new ID starts so each item's ID stays paired with its own
 	// encrypted_content (otherwise OpenAI rejects the next turn).
-	reasoningID             string
-	reasoningSignature      string
-	reasoningOutputIndex    int
-	reasoningClosed         bool
-	hasReasoningItem        bool
-	hasReasoningTextPart    bool
-	hasReasoningSummaryPart bool
+	reasoningID          string
+	reasoningSignature   string
+	reasoningRedacted    bool
+	reasoningOutputIndex int
+	reasoningClosed      bool
+	hasReasoningItem     bool
 
-	streamedReasoningText    strings.Builder
-	streamedReasoningSummary strings.Builder
-	completedReasonings      []provider.Reasoning
+	reasoningContent    reasoningParts
+	reasoningSummary    reasoningParts
+	completedReasonings []provider.Reasoning
 
 	compactionID        string
 	compactionIndex     int
@@ -236,20 +243,7 @@ func mergeUsage(dst **provider.Usage, src *provider.Usage) {
 	if *dst == nil {
 		*dst = &provider.Usage{}
 	}
-
-	if src.InputTokens > (*dst).InputTokens {
-		(*dst).InputTokens = src.InputTokens
-	}
-	if src.OutputTokens > (*dst).OutputTokens {
-		(*dst).OutputTokens = src.OutputTokens
-	}
-	if tokens := src.ReasoningTokens; tokens != nil && ((*dst).ReasoningTokens == nil || *tokens > *(*dst).ReasoningTokens) {
-		(*dst).ReasoningTokens = new(*tokens)
-	}
-	if src.CacheReadInputTokens > (*dst).CacheReadInputTokens {
-		(*dst).CacheReadInputTokens = src.CacheReadInputTokens
-	}
-	(*dst).MergeCacheWrites(src.CacheCreationInputTokens, src.CacheWriteTokensDetails)
+	(*dst).Merge(src)
 }
 
 func (s *StreamingAccumulator) reserveOutputIndex(kind streamItemKind, index int) int {
@@ -279,10 +273,6 @@ func (s *StreamingAccumulator) ensureMessageItem() error {
 	}
 
 	if err := s.closeCompaction(); err != nil {
-		return err
-	}
-
-	if err := s.closeCompletedToolCalls(); err != nil {
 		return err
 	}
 
@@ -483,57 +473,27 @@ func (s *StreamingAccumulator) closeToolCall(callID string) error {
 // in a truncated response. A normally completed response never marks a call
 // incomplete, including custom tools whose input isn't JSON.
 func (s *StreamingAccumulator) toolCallIncomplete(callID string) bool {
-	if s.contentFiltered() {
+	idx, ok := s.toolCallByID[callID]
+	if !ok {
+		return false
+	}
+	call := s.toolCalls[idx]
+	// A hosted result has already completed this operation; a later refusal
+	// concerns the remaining response, not a call the client could execute.
+	if call.Kind == provider.ToolKindToolSearch && call.Execution != "client" {
+		return false
+	}
+	if s.status == provider.CompletionStatusRefused || s.status == provider.CompletionStatusFailed {
 		return true
 	}
 
-	if s.status != provider.CompletionStatusIncomplete && s.status != provider.CompletionStatusFailed {
+	if s.status != provider.CompletionStatusIncomplete {
 		return false
 	}
 
-	idx, ok := s.toolCallByID[callID]
-	if !ok {
-		return false
-	}
-
-	args := strings.TrimSpace(s.toolCalls[idx].Arguments)
+	args := strings.TrimSpace(call.Arguments)
 
 	return args == "" || !json.Valid([]byte(args))
-}
-
-func (s *StreamingAccumulator) toolCallArgumentsComplete(callID string) bool {
-	idx, ok := s.toolCallByID[callID]
-	if !ok {
-		return false
-	}
-
-	args := strings.TrimSpace(s.toolCalls[idx].Arguments)
-	return args != "" && json.Valid([]byte(args))
-}
-
-func (s *StreamingAccumulator) shouldClosePreviousToolCall(nextID string) bool {
-	return nextID != "" &&
-		nextID != s.lastToolCallID &&
-		s.lastToolCallID != "" &&
-		s.toolCallArgumentsComplete(s.lastToolCallID)
-}
-
-// Completed calls may be followed by native message or reasoning items.
-// Keep unfinished calls open so later argument fragments remain valid.
-func (s *StreamingAccumulator) closeCompletedToolCalls() error {
-	for i := range s.toolCalls {
-		call := &s.toolCalls[i]
-		if call.Closed {
-			continue
-		}
-		id := call.ID
-		if s.toolCallArgumentsComplete(id) {
-			if err := s.closeToolCall(id); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (s *StreamingAccumulator) ensureReasoningItem() error {
@@ -546,9 +506,6 @@ func (s *StreamingAccumulator) ensureReasoningItem() error {
 	}
 
 	if err := s.closeMessage(); err != nil {
-		return err
-	}
-	if err := s.closeCompletedToolCalls(); err != nil {
 		return err
 	}
 
@@ -566,123 +523,105 @@ func (s *StreamingAccumulator) ensureReasoningItem() error {
 	})
 }
 
-func (s *StreamingAccumulator) ensureReasoningTextPart() error {
-	if s.hasReasoningTextPart {
-		return nil
-	}
-
-	s.hasReasoningTextPart = true
-
-	return s.emitEvent(StreamEvent{
-		Type:         StreamEventReasoningContentPartAdded,
-		ReasoningID:  s.reasoningID,
-		OutputIndex:  s.reasoningOutputIndex,
-		ContentIndex: 0,
-	})
+// Reasoning content and summaries have separate index spaces. Buffer raw
+// content in summary mode until a native summary appears or the item ends.
+// This prevents a later summary from being mixed with a speculative fallback.
+type reasoningParts struct {
+	provider.PartAccumulator
+	offsets []int
 }
 
-func (s *StreamingAccumulator) ensureReasoningSummaryPart() error {
-	if s.hasReasoningSummaryPart {
-		return nil
-	}
-
-	s.hasReasoningSummaryPart = true
-
-	return s.emitEvent(StreamEvent{
-		Type:         StreamEventReasoningSummaryPartAdded,
-		ReasoningID:  s.reasoningID,
-		OutputIndex:  s.reasoningOutputIndex,
-		SummaryIndex: 0,
-	})
+func (p *reasoningParts) add(part provider.Part) error {
+	p.PartAccumulator.Add(part)
+	return nil
 }
 
-// closeReasoning emits all the "done" events for reasoning if it was in progress.
-// On success it archives the reasoning state into completedReasonings and
-// resets the in-flight fields, so a subsequent reasoning item with a new ID
-// can be started cleanly.
+func (s *StreamingAccumulator) emitReasoningArray(state *reasoningParts, summary, finish bool) error {
+	for index := 0; index < state.Len(); index++ {
+		part := state.Part(index)
+		// An unseen lower index may still arrive. Stream the contiguous prefix;
+		// compact any remaining sparse indexes when the reasoning item ends.
+		if !finish && part.Index != index {
+			break
+		}
+		if index == len(state.offsets) {
+			kind := StreamEventReasoningContentPartAdded
+			if summary {
+				kind = StreamEventReasoningSummaryPartAdded
+			}
+			if err := s.emitEvent(StreamEvent{Type: kind, ReasoningID: s.reasoningID, OutputIndex: s.reasoningOutputIndex, ContentIndex: index, SummaryIndex: index}); err != nil {
+				return err
+			}
+			state.offsets = append(state.offsets, 0)
+		}
+		if offset := state.offsets[index]; offset < len(part.Text) {
+			kind := StreamEventReasoningTextDelta
+			if summary {
+				kind = StreamEventReasoningSummaryDelta
+			}
+			if err := s.emitEvent(StreamEvent{Type: kind, ReasoningID: s.reasoningID, OutputIndex: s.reasoningOutputIndex, ContentIndex: index, SummaryIndex: index, Delta: part.Text[offset:]}); err != nil {
+				return err
+			}
+			state.offsets[index] = len(part.Text)
+		}
+		// Keep parts open for later deltas at an earlier native index.
+		if !finish {
+			continue
+		}
+		kinds := []StreamEventType{StreamEventReasoningTextDone, StreamEventReasoningContentPartDone}
+		if summary {
+			kinds = []StreamEventType{StreamEventReasoningSummaryDone, StreamEventReasoningSummaryPartDone}
+		}
+		for _, kind := range kinds {
+			if err := s.emitEvent(StreamEvent{Type: kind, ReasoningID: s.reasoningID, OutputIndex: s.reasoningOutputIndex, ContentIndex: index, SummaryIndex: index, ReasoningText: part.Text, ReasoningSummary: part.Text, Incomplete: s.itemIncomplete()}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *StreamingAccumulator) emitReasoningParts(finish bool) error {
+	if s.ReasoningAsSummary && !s.reasoningSummary.HasText() {
+		if !finish {
+			return nil
+		}
+		if s.reasoningContent.HasText() {
+			return s.emitReasoningArray(&s.reasoningContent, true, true)
+		}
+	}
+	if err := s.emitReasoningArray(&s.reasoningContent, false, finish); err != nil {
+		return err
+	}
+	return s.emitReasoningArray(&s.reasoningSummary, true, finish)
+}
+
+func (s *StreamingAccumulator) currentReasoning() provider.Reasoning {
+	return provider.Reasoning{ID: s.reasoningID, Signature: s.reasoningSignature, Redacted: s.reasoningRedacted,
+		Content: s.reasoningContent.Parts(), Summary: s.reasoningSummary.Parts()}
+}
+
 func (s *StreamingAccumulator) closeReasoning() error {
 	if !s.hasReasoningItem || s.reasoningClosed {
 		return nil
 	}
 	s.reasoningClosed = true
-
-	reasoningText := s.streamedReasoningText.String()
-	reasoningSummary := s.streamedReasoningSummary.String()
-	incomplete := s.status == provider.CompletionStatusIncomplete || s.status == provider.CompletionStatusFailed || s.contentFiltered()
-
-	if s.streamedReasoningText.Len() > 0 {
-		if err := s.emitEvent(StreamEvent{
-			Type:          StreamEventReasoningTextDone,
-			ReasoningID:   s.reasoningID,
-			ReasoningText: reasoningText,
-			OutputIndex:   s.reasoningOutputIndex,
-			ContentIndex:  0,
-		}); err != nil {
-			return err
-		}
-
-		if err := s.emitEvent(StreamEvent{
-			Type:          StreamEventReasoningContentPartDone,
-			ReasoningID:   s.reasoningID,
-			ReasoningText: reasoningText,
-			OutputIndex:   s.reasoningOutputIndex,
-			ContentIndex:  0,
-		}); err != nil {
-			return err
-		}
-	}
-
-	if s.streamedReasoningSummary.Len() > 0 {
-		if err := s.emitEvent(StreamEvent{
-			Type:             StreamEventReasoningSummaryDone,
-			ReasoningID:      s.reasoningID,
-			ReasoningSummary: reasoningSummary,
-			OutputIndex:      s.reasoningOutputIndex,
-			SummaryIndex:     0,
-		}); err != nil {
-			return err
-		}
-
-		if err := s.emitEvent(StreamEvent{
-			Type:             StreamEventReasoningSummaryPartDone,
-			ReasoningID:      s.reasoningID,
-			ReasoningSummary: reasoningSummary,
-			OutputIndex:      s.reasoningOutputIndex,
-			SummaryIndex:     0,
-			Incomplete:       incomplete,
-		}); err != nil {
-			return err
-		}
-	}
-
-	if err := s.emitEvent(StreamEvent{
-		Type:               StreamEventReasoningItemDone,
-		ReasoningID:        s.reasoningID,
-		ReasoningText:      reasoningText,
-		ReasoningSummary:   reasoningSummary,
-		ReasoningSignature: s.reasoningSignature,
-		OutputIndex:        s.reasoningOutputIndex,
-		Incomplete:         incomplete,
-	}); err != nil {
+	if err := s.emitReasoningParts(true); err != nil {
 		return err
 	}
-
-	s.completedReasonings = append(s.completedReasonings, provider.Reasoning{
-		ID:        s.reasoningID,
-		Text:      reasoningText,
-		Summary:   reasoningSummary,
-		Signature: s.reasoningSignature,
-	})
-
-	s.reasoningID = ""
-	s.reasoningSignature = ""
-	s.hasReasoningItem = false
-	s.hasReasoningTextPart = false
-	s.hasReasoningSummaryPart = false
-	s.reasoningClosed = false
-	s.streamedReasoningText.Reset()
-	s.streamedReasoningSummary.Reset()
-
+	native := s.currentReasoning()
+	output := reasoningForOutput(native, s.ReasoningAsSummary)
+	if err := s.emitEvent(StreamEvent{Type: StreamEventReasoningItemDone,
+		ReasoningID: output.ID, ReasoningText: output.Text(), ReasoningSummary: output.SummaryText(),
+		ReasoningContentParts: output.Content, ReasoningSummaryParts: output.Summary,
+		ReasoningSignature: output.Signature, ReasoningRedacted: output.Redacted,
+		OutputIndex: s.reasoningOutputIndex, Incomplete: s.itemIncomplete()}); err != nil {
+		return err
+	}
+	s.completedReasonings = append(s.completedReasonings, native)
+	s.reasoningID, s.reasoningSignature = "", ""
+	s.reasoningRedacted, s.hasReasoningItem, s.reasoningClosed = false, false, false
+	s.reasoningContent, s.reasoningSummary = reasoningParts{}, reasoningParts{}
 	return nil
 }
 
@@ -743,7 +682,7 @@ func (s *StreamingAccumulator) closeMessage() error {
 		RefusalText:  refusal,
 		RefusalFirst: s.message.refusalFirst,
 		OutputIndex:  s.message.messageOutputIndex,
-		Incomplete:   s.status == provider.CompletionStatusIncomplete || s.status == provider.CompletionStatusFailed || s.contentFiltered(),
+		Incomplete:   s.itemIncomplete(),
 		MessagePhase: s.message.phase,
 	})
 }
@@ -884,7 +823,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			// IDs, but a signature ends the previous block; the next delta must
 			// start a new item so each block retains its own signed state.
 			newID := r.ID != "" && s.reasoningID != "" && r.ID != s.reasoningID
-			if s.hasReasoningItem && (newID || (r.ID == "" && s.reasoningSignature != "")) {
+			if s.hasReasoningItem && (newID || r.Redacted || s.reasoningRedacted || (r.ID == "" && s.reasoningSignature != "")) {
 				if err := s.closeReasoning(); err != nil {
 					return err
 				}
@@ -900,6 +839,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				}
 			}
 
+			s.reasoningRedacted = r.Redacted
 			if r.Signature != "" {
 				s.reasoningSignature = r.Signature
 
@@ -908,52 +848,23 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				}
 			}
 
-			if r.Text != "" && s.ReasoningAsSummary {
-				// Redirect reasoning text to summary events when summary mode is active
-				r.Summary = r.Text
-				r.Text = ""
-			}
-
-			if r.Text != "" {
-				if err := s.ensureReasoningItem(); err != nil {
-					return err
-				}
-				if err := s.ensureReasoningTextPart(); err != nil {
-					return err
-				}
-
-				s.streamedReasoningText.WriteString(r.Text)
-
-				if err := s.emitEvent(StreamEvent{
-					Type:         StreamEventReasoningTextDelta,
-					ReasoningID:  s.reasoningID,
-					Delta:        r.Text,
-					OutputIndex:  s.reasoningOutputIndex,
-					ContentIndex: 0,
-				}); err != nil {
+			for _, part := range r.Content {
+				if err := s.reasoningContent.add(part); err != nil {
 					return err
 				}
 			}
-
-			if r.Summary != "" {
+			for _, part := range r.Summary {
+				if err := s.reasoningSummary.add(part); err != nil {
+					return err
+				}
+			}
+			if len(r.Content) > 0 || len(r.Summary) > 0 {
 				if err := s.ensureReasoningItem(); err != nil {
 					return err
 				}
-				if err := s.ensureReasoningSummaryPart(); err != nil {
-					return err
-				}
-
-				s.streamedReasoningSummary.WriteString(r.Summary)
-
-				if err := s.emitEvent(StreamEvent{
-					Type:         StreamEventReasoningSummaryDelta,
-					ReasoningID:  s.reasoningID,
-					Delta:        r.Summary,
-					OutputIndex:  s.reasoningOutputIndex,
-					SummaryIndex: 0,
-				}); err != nil {
-					return err
-				}
+			}
+			if err := s.emitReasoningParts(false); err != nil {
+				return err
 			}
 		}
 
@@ -991,16 +902,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				return err
 			}
 
-			// If this chunk introduces a new tool call ID and the previous
-			// call's arguments are complete, close the previous item before
-			// starting the next one. If the JSON is still incomplete, leave it
-			// open so later fragments cannot arrive after arguments.done.
-			if s.shouldClosePreviousToolCall(tc.ID) {
-				if err := s.closeToolCall(s.lastToolCallID); err != nil {
-					return err
-				}
-			}
-
 			currentID, outputIndex, ok := s.trackToolCall(*tc)
 			if !ok {
 				continue
@@ -1012,6 +913,12 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 			// Accumulate name and arguments
 			entry := &s.toolCalls[s.toolCallByID[currentID]]
+			if entry.Closed {
+				if tc.Arguments != "" {
+					return fmt.Errorf("tool call %s received arguments after completion", currentID)
+				}
+				continue
+			}
 
 			if tc.Kind != "" {
 				entry.Kind = tc.Kind
@@ -1056,6 +963,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 // Complete signals that streaming is done and emits final events.
 func (s *StreamingAccumulator) Complete() error {
+	if s.status == provider.CompletionStatusFailed {
+		return s.Error(completionFailure(s.Result()))
+	}
+
 	if err := s.start(); err != nil {
 		return err
 	}
@@ -1064,16 +975,24 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
+	if err := s.closeReasoning(); err != nil {
+		return err
+	}
+	// Caller-owned calls become executable only after an accepted turn.
+	// Hosted calls may already have closed when their result arrived.
+	for _, call := range s.toolCalls {
+		if err := s.closeToolCall(call.ID); err != nil {
+			return err
+		}
+	}
+
 	if err := s.flushMessage(); err != nil {
 		return err
 	}
 
 	result := s.Result()
-	if s.status == provider.CompletionStatusFailed {
-		return s.Error(completionFailure(result))
-	}
 	terminalType := StreamEventResponseCompleted
-	if s.status == provider.CompletionStatusIncomplete || s.contentFiltered() {
+	if s.itemIncomplete() {
 		terminalType = StreamEventResponseIncomplete
 	}
 
@@ -1083,7 +1002,8 @@ func (s *StreamingAccumulator) Complete() error {
 	})
 }
 
-// contentFiltered reports a refusal that arrived as ordinary text. Native stop
+// contentFiltered reports a refusal that cannot be represented as a completed
+// refusal message, including any turn containing caller-owned tool calls. Native stop
 // reasons such as Anthropic's refusal or a Bedrock guardrail halt the output
 // after text was streamed, without a refusal part. OpenAI expresses that as
 // an incomplete response with the content_filter reason, which clients
@@ -1092,19 +1012,27 @@ func contentFiltered(c *provider.Completion) bool {
 	if c == nil || c.Status != provider.CompletionStatusRefused {
 		return false
 	}
-	return c.Message == nil || c.Message.Refusal() == ""
+	return c.Message == nil || len(c.Message.ToolCalls()) > 0 || c.Message.Refusal() == ""
 }
 
 func (s *StreamingAccumulator) contentFiltered() bool {
 	if s.status != provider.CompletionStatusRefused {
 		return false
 	}
+	if len(s.toolCalls) > 0 {
+		return true
+	}
+
 	for _, message := range s.messages {
 		if message.streamedRefusal.Len() > 0 {
 			return false
 		}
 	}
 	return true
+}
+
+func (s *StreamingAccumulator) itemIncomplete() bool {
+	return s.status == provider.CompletionStatusIncomplete || s.status == provider.CompletionStatusFailed || s.contentFiltered()
 }
 
 // beginMessage makes the item with the given ID current. A new ID starts an
@@ -1167,7 +1095,7 @@ func (s *StreamingAccumulator) addMessagePart(part messagePart, delta string) er
 		s.message.streamedText.WriteString(delta)
 	}
 
-	if len(s.toolCalls) > 0 && s.message.id == "" {
+	if s.hasOpenToolCall() && s.message.id == "" {
 		return nil
 	}
 
@@ -1227,16 +1155,6 @@ func (s *StreamingAccumulator) flushMessage() error {
 		return err
 	}
 
-	// Close open tool calls before flushing withheld trailing text: items must
-	// stream strictly sequentially, and the message item's output index (assigned
-	// below) follows the calls it trailed. closeToolCall is idempotent, so calls
-	// already closed inline (when a later call started) are no-ops here.
-	for i := range s.toolCalls {
-		if err := s.closeToolCall(s.toolCalls[i].ID); err != nil {
-			return err
-		}
-	}
-
 	if !s.message.hasOutputItem {
 		text, refusal := s.message.streamedText.String(), s.message.streamedRefusal.String()
 
@@ -1273,6 +1191,9 @@ func (s *StreamingAccumulator) flushMessage() error {
 func (s *StreamingAccumulator) Error(err error) error {
 	_ = s.start()
 	s.status = provider.CompletionStatusFailed
+	// Never finalize open calls after a failed turn. Callers may execute them
+	// immediately on output_item.done, before seeing response.failed.
+	s.pendingEvents = nil
 
 	if e := s.emitEvent(StreamEvent{
 		Type:  StreamEventResponseError,
@@ -1305,7 +1226,10 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 		}
 	}
 
-	for _, ref := range s.outputOrder {
+	for i, ref := range s.outputOrder {
+		if s.status == provider.CompletionStatusFailed && s.outputStatuses[i] == "" {
+			break // This item was queued and never announced to the client.
+		}
 		switch ref.kind {
 		case streamItemMessage:
 			appendMessage(s.messages[ref.index])
@@ -1314,12 +1238,7 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 			if ref.index < len(s.completedReasonings) {
 				content = append(content, provider.ReasoningContent(s.completedReasonings[ref.index]))
 			} else {
-				content = append(content, provider.ReasoningContent(provider.Reasoning{
-					ID:        s.reasoningID,
-					Text:      s.streamedReasoningText.String(),
-					Summary:   s.streamedReasoningSummary.String(),
-					Signature: s.reasoningSignature,
-				}))
+				content = append(content, provider.ReasoningContent(s.currentReasoning()))
 			}
 
 		case streamItemCompaction:
@@ -1347,7 +1266,7 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 			// A truncated call keeps its empty arguments — fabricating "{}"
 			// would disguise an aborted call as a valid zero-argument one.
-			if s.status != provider.CompletionStatusIncomplete && s.status != provider.CompletionStatusFailed && !s.contentFiltered() {
+			if !s.itemIncomplete() {
 				call = provider.NormalizeToolCallArguments(call)
 			}
 
@@ -1359,7 +1278,7 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 	// Before Complete, trailing text may still be waiting for tool calls to
 	// finish. Include it in partial snapshots without assigning an index early.
-	if !s.message.hasOutputItem {
+	if !s.message.hasOutputItem && s.status != provider.CompletionStatusFailed {
 		appendMessage(s.message)
 	}
 
@@ -1384,20 +1303,70 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 
 func (s *StreamingAccumulator) emitEvent(event StreamEvent) error {
 	switch event.Type {
-	case StreamEventOutputItemDone, StreamEventReasoningItemDone, StreamEventCompactionItemDone, StreamEventFunctionCallDone, StreamEventToolSearchResult:
-		s.outputStatuses[event.OutputIndex] = itemStatus(event.Incomplete)
 	case StreamEventResponseCompleted, StreamEventResponseIncomplete, StreamEventResponseFailed:
 		event.OutputStatuses = append([]string(nil), s.outputStatuses...)
 		for i, status := range event.OutputStatuses {
-			if status == "" {
+			if status == "" || status == "in_progress" {
 				event.OutputStatuses[i] = itemStatus(event.Type != StreamEventResponseCompleted)
 			}
 		}
 	}
 	event.MessageIndex = len(s.messages) - 1
 	event.MessageID = s.message.id
-	if s.handler != nil {
-		return s.handler(event)
+	if strings.HasPrefix(string(event.Type), "response.") {
+		if s.handler != nil {
+			return s.handler(event)
+		}
+		return nil
+	}
+	if event.OutputIndex == s.nextEventIndex && len(s.pendingEvents[s.nextEventIndex]) == 0 {
+		if err := s.deliverEvent(event); err != nil {
+			return err
+		}
+	} else {
+		if s.pendingEvents == nil {
+			s.pendingEvents = make(map[int][]StreamEvent)
+		}
+		s.pendingEvents[event.OutputIndex] = append(s.pendingEvents[event.OutputIndex], event)
+	}
+
+	for len(s.pendingEvents[s.nextEventIndex]) > 0 {
+		events := s.pendingEvents[s.nextEventIndex]
+		next := events[0]
+		if len(events) == 1 {
+			delete(s.pendingEvents, s.nextEventIndex)
+		} else {
+			s.pendingEvents[s.nextEventIndex] = events[1:]
+		}
+		if err := s.deliverEvent(next); err != nil {
+			return err
+		}
+
 	}
 	return nil
+}
+
+func (s *StreamingAccumulator) deliverEvent(event StreamEvent) error {
+	if s.handler != nil {
+		if err := s.handler(event); err != nil {
+			return err
+		}
+	}
+	switch event.Type {
+	case StreamEventOutputItemAdded, StreamEventReasoningItemAdded, StreamEventCompactionItemAdded, StreamEventFunctionCallAdded:
+		s.outputStatuses[event.OutputIndex] = "in_progress"
+	case StreamEventOutputItemDone, StreamEventReasoningItemDone, StreamEventCompactionItemDone, StreamEventFunctionCallDone, StreamEventToolSearchResult:
+		s.outputStatuses[event.OutputIndex] = itemStatus(event.Incomplete)
+		s.nextEventIndex++
+	}
+	return nil
+}
+
+func (s *StreamingAccumulator) hasOpenToolCall() bool {
+	for _, call := range s.toolCalls {
+		if !call.Closed {
+			return true
+		}
+	}
+	return false
 }

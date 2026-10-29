@@ -17,7 +17,7 @@ func TestReasoningOutputInResponseCompletedShape(t *testing.T) {
 		Content: []provider.Content{
 			provider.ReasoningContent(provider.Reasoning{
 				ID:        "rs_1",
-				Text:      "let me think",
+				Content:   provider.TextParts("let me think"),
 				Signature: "ENC_1",
 			}),
 		},
@@ -133,8 +133,8 @@ func TestParallelToolCallsStreamSerially(t *testing.T) {
 		return nil
 	})
 
-	// Three tool calls arriving in three chunks, simulating an upstream
-	// that streams them one after another (the HAR pattern).
+	// Three calls arriving without per-call completion signals, as with
+	// Chat Completions. The output must still complete each item in order.
 	for _, call := range []provider.ToolCall{
 		{ID: "c1", Name: "shell_command", Arguments: `{"command":"a"}`},
 		{ID: "c2", Name: "shell_command", Arguments: `{"command":"b"}`},
@@ -462,7 +462,7 @@ func TestEmptyIDOnlyReasoningIsSkipped(t *testing.T) {
 	if len(reasonings) != 1 {
 		t.Fatalf("expected only the non-empty reasoning item, got %+v", reasonings)
 	}
-	if reasonings[0].ID != "rs_visible" || reasonings[0].Summary != "visible reasoning" {
+	if reasonings[0].ID != "rs_visible" || reasonings[0].SummaryText() != "visible reasoning" {
 		t.Fatalf("unexpected preserved reasoning item: %+v", reasonings[0])
 	}
 }
@@ -516,7 +516,7 @@ func TestParallelFunctionCallsCollapseIntoOneAssistant(t *testing.T) {
 }
 
 // closeToolCall must be idempotent — Complete() calls it for every entry,
-// including ones that were already closed inline when a later call started.
+// including calls whose later siblings were buffered during streaming.
 // Double-closing must not emit duplicate arguments.done / output_item.done.
 func TestCloseToolCallIsIdempotent(t *testing.T) {
 	var dones int
@@ -600,9 +600,8 @@ func TestIncompleteJSONKeepsPreviousToolCallOpen(t *testing.T) {
 		t.Fatalf("Add B: %v", err)
 	}
 
-	// After two chunks, A should still be open. B's added arrives without
-	// A having been closed inline.
-	wantAfterAdds := []string{"added:a", "added:b"}
+	// A remains open; B is buffered behind it until the turn boundary.
+	wantAfterAdds := []string{"added:a"}
 	if len(order) != len(wantAfterAdds) {
 		t.Fatalf("after 2 Adds, expected %v, got %v", wantAfterAdds, order)
 	}
@@ -612,17 +611,21 @@ func TestIncompleteJSONKeepsPreviousToolCallOpen(t *testing.T) {
 		}
 	}
 
-	// Complete then flushes both. closeToolCall always emits args.done
-	// (even on invalid JSON) — this is the safe fallback.
+	// A's remaining arguments can arrive after B without being lost.
+	if err := acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{
+		provider.ToolCallContent(provider.ToolCall{ID: "a", Arguments: `"pwd"}`}),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	// Complete flushes both calls in order.
 	if err := acc.Complete(); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
 
-	// Final sequence after Complete: both calls closed, B first (still
-	// open at Complete time, iterated in slice order: a, b → close a, close b).
 	want := []string{
-		"added:a", "added:b",
+		"added:a",
 		"args_done:a", "item_done:a",
+		"added:b",
 		"args_done:b", "item_done:b",
 	}
 	if len(order) != len(want) {

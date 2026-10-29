@@ -48,15 +48,15 @@ func TestToMessage_ThinkingBlocks(t *testing.T) {
 		t.Fatalf("expected 2 reasoning entries, got %d: %+v", len(reasonings), reasonings)
 	}
 
-	if reasonings[0].Text != "thinking step by step" || reasonings[0].Signature != "SIG_ABC" {
+	if reasonings[0].Text() != "thinking step by step" || reasonings[0].Signature != "SIG_ABC" {
 		t.Errorf("thinking block: got (text=%q, sig=%q), want (\"thinking step by step\", \"SIG_ABC\")",
-			reasonings[0].Text, reasonings[0].Signature)
+			reasonings[0].Text(), reasonings[0].Signature)
 	}
 
 	// redacted_thinking carries only the opaque data blob.
-	if reasonings[1].Text != "" || reasonings[1].Signature != "REDACTED_BLOB" || !reasonings[1].Redacted {
+	if reasonings[1].Text() != "" || reasonings[1].Signature != "REDACTED_BLOB" || !reasonings[1].Redacted {
 		t.Errorf("redacted_thinking block: got (text=%q, sig=%q, redacted=%v), want (\"\", \"REDACTED_BLOB\", true)",
-			reasonings[1].Text, reasonings[1].Signature, reasonings[1].Redacted)
+			reasonings[1].Text(), reasonings[1].Signature, reasonings[1].Redacted)
 	}
 
 	if reasonings[0].Redacted {
@@ -370,7 +370,7 @@ func TestToTools_PassesThroughRegular(t *testing.T) {
 // as a redacted_thinking block with the opaque blob in `data`.
 func TestToContentBlocks_RedactedThinking(t *testing.T) {
 	content := []provider.Content{
-		provider.ReasoningContent(provider.Reasoning{Text: "step", Signature: "SIG"}),
+		provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("step"), Signature: "SIG"}),
 		provider.ReasoningContent(provider.Reasoning{Signature: "BLOB", Redacted: true}),
 		provider.TextContent("answer"),
 	}

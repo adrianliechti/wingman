@@ -1,9 +1,11 @@
 package config
 
 import (
+	"io"
 	"os"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
+	"github.com/adrianliechti/wingman/pkg/budget"
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/guard"
 	"github.com/adrianliechti/wingman/pkg/mcp"
@@ -25,6 +27,7 @@ type Config struct {
 
 	Policy      policy.Provider
 	Authorizers []auth.Provider
+	Budget      budget.Provider
 
 	models map[string]provider.Model
 
@@ -54,6 +57,14 @@ type Config struct {
 	mcps map[string]mcp.Provider
 }
 
+// Close drains accepted budget reports and releases the budget connection.
+func (c *Config) Close() error {
+	if closer, ok := c.Budget.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
 func Parse(path string) (*Config, error) {
 	file, err := parseFile(path)
 
@@ -72,6 +83,16 @@ func Parse(path string) (*Config, error) {
 	if err := c.registerPolicies(file); err != nil {
 		return nil, err
 	}
+
+	if err := c.registerBudget(file); err != nil {
+		return nil, err
+	}
+	ready := false
+	defer func() {
+		if !ready {
+			_ = c.Close()
+		}
+	}()
 
 	if err := c.registerProviders(file); err != nil {
 		return nil, err
@@ -129,6 +150,7 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
+	ready = true
 	return c, nil
 }
 
@@ -136,6 +158,7 @@ type configFile struct {
 	Authorizers []authorizerConfig `yaml:"authorizers"`
 
 	Policy *policyConfig `yaml:"policy"`
+	Budget *budgetConfig `yaml:"budget"`
 
 	Providers []providerConfig `yaml:"providers"`
 	Deciders  yaml.Node        `yaml:"deciders"`

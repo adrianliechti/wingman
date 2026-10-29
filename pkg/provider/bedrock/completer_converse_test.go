@@ -296,7 +296,7 @@ func TestConvertConverseInput_ToolResultsPrecedeUserText(t *testing.T) {
 		{
 			Role: provider.MessageRoleAssistant,
 			Content: []provider.Content{
-				provider.ReasoningContent(provider.Reasoning{Summary: "unsigned foreign summary"}),
+				provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("unsigned foreign summary")}),
 			},
 		},
 		{
@@ -338,5 +338,52 @@ func TestConvertConverseInput_ToolResultsPrecedeUserText(t *testing.T) {
 	spec, ok := req.ToolConfig.Tools[0].(*types.ToolMemberToolSpec)
 	if !ok || aws.ToString(spec.Value.Name) != "get_weather" {
 		t.Fatalf("tool[0] = %T %+v, want get_weather spec", req.ToolConfig.Tools[0], req.ToolConfig.Tools[0])
+	}
+}
+
+func TestConvertConverseInput_DisableParallelTools(t *testing.T) {
+	for _, choice := range []provider.ToolChoice{"", provider.ToolChoiceAuto, provider.ToolChoiceAny, provider.ToolChoiceNone} {
+		t.Run(string(choice), func(t *testing.T) {
+			c := &Completer{Config: &Config{model: "eu.anthropic.claude-sonnet-4-6"}}
+			req, err := c.convertConverseInput([]provider.Message{provider.UserMessage("check")}, &provider.CompleteOptions{
+				Tools:       []provider.Tool{{Kind: provider.ToolKindFunction, Name: "lookup"}},
+				ToolOptions: &provider.ToolOptions{Choice: choice, Allowed: []string{"lookup"}, DisableParallelToolCalls: true},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if choice == provider.ToolChoiceNone {
+				if req.ToolConfig != nil {
+					t.Fatal("none enabled tools")
+				}
+				return
+			}
+			data, err := req.AdditionalModelRequestFields.MarshalSmithyDocument()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(data, &fields); err != nil {
+				t.Fatal(err)
+			}
+			tool, ok := fields["tool_choice"].(map[string]any)
+			if !ok || len(tool) != 1 || tool["disable_parallel_tool_use"] != true {
+				t.Fatalf("incorrect native control: %s", data)
+			}
+			if choice == provider.ToolChoiceAny {
+				if _, ok := req.ToolConfig.ToolChoice.(*types.ToolChoiceMemberTool); !ok {
+					t.Fatal("forced tool choice lost")
+				}
+			} else if req.ToolConfig.ToolChoice == nil {
+				t.Fatal("default tool choice must supply auto alongside the Claude parallel control")
+			}
+		})
+	}
+	c := &Completer{Config: &Config{model: "amazon.nova-pro-v1:0"}}
+	_, err := c.convertConverseInput([]provider.Message{provider.UserMessage("check")}, &provider.CompleteOptions{
+		Tools: []provider.Tool{{Kind: provider.ToolKindFunction, Name: "lookup"}}, ToolOptions: &provider.ToolOptions{DisableParallelToolCalls: true},
+	})
+	if err != nil {
+		t.Fatalf("unsupported controls must not reject non-Claude models: %v", err)
 	}
 }

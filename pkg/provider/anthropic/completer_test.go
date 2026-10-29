@@ -81,7 +81,7 @@ func TestCompleterStreaming(t *testing.T) {
 	if len(reasonings) != 2 {
 		t.Fatalf("expected 2 reasoning entries, got %d: %+v", len(reasonings), reasonings)
 	}
-	if reasonings[0].Text != "let me think" || reasonings[0].Signature != "SIG_1" || reasonings[0].Redacted {
+	if reasonings[0].Text() != "let me think" || reasonings[0].Signature != "SIG_1" || reasonings[0].Redacted {
 		t.Errorf("thinking: %+v", reasonings[0])
 	}
 	if reasonings[1].Signature != "BLOB" || !reasonings[1].Redacted {
@@ -197,7 +197,7 @@ func TestConvertRequest_RedactedThinking(t *testing.T) {
 		{
 			Role: provider.MessageRoleAssistant,
 			Content: []provider.Content{
-				provider.ReasoningContent(provider.Reasoning{Text: "step", Signature: "SIG"}),
+				provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("step"), Signature: "SIG"}),
 				provider.ReasoningContent(provider.Reasoning{Signature: "BLOB", Redacted: true}),
 				provider.TextContent("answer"),
 			},
@@ -418,7 +418,7 @@ func TestConvertRequest_UnsignedToolHistoryKeepsThinking(t *testing.T) {
 		{
 			Role: provider.MessageRoleAssistant,
 			Content: []provider.Content{
-				provider.ReasoningContent(provider.Reasoning{Text: "unsigned thought"}),
+				provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("unsigned thought")}),
 				provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
 			},
 		},
@@ -441,7 +441,7 @@ func TestConvertRequest_UnsignedToolHistoryKeepsThinking(t *testing.T) {
 	signed[1] = provider.Message{
 		Role: provider.MessageRoleAssistant,
 		Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Text: "thought", Signature: "SIG"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("thought"), Signature: "SIG"}),
 			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "ls", Arguments: "{}"}),
 		},
 	}
@@ -985,7 +985,7 @@ func TestCompleterReplaysSummaryAsThinking(t *testing.T) {
 	messages := []provider.Message{
 		provider.UserMessage("hi"),
 		{Role: provider.MessageRoleAssistant, Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "summarized thought", Signature: "SIG"}),
+			provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("summarized thought"), Signature: "SIG"}),
 			provider.ToolCallContent(provider.ToolCall{ID: "t1", Name: "f", Arguments: "{}"}),
 		}},
 		provider.ToolMessage("t1", "ok"),
@@ -1033,7 +1033,7 @@ func TestProgressNotesReturnedAsSummary(t *testing.T) {
 				t.Fatalf("progressNotes = %v, want %v", got, tc.want)
 			}
 			r := thinkingReasoning("note", "sig", tc.want)
-			if tc.want && (r.Summary != "note" || r.Text != "") || !tc.want && r.Text != "note" {
+			if tc.want && (r.SummaryText() != "note" || r.Text() != "") || !tc.want && r.Text() != "note" {
 				t.Errorf("reasoning = %+v", r)
 			}
 		})

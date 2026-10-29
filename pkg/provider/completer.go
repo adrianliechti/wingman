@@ -254,6 +254,8 @@ type ToolOptions struct {
 
 	Choice ToolChoice
 
+	// Forward the native single-call control where available. Backends without
+	// that capability retain best-effort behavior, including agent tool loops.
 	DisableParallelToolCalls bool
 }
 
@@ -401,14 +403,43 @@ const (
 type Reasoning struct {
 	ID string
 
-	Text    string
-	Summary string
+	Content []Part
+	Summary []Part
 
 	Signature string
 
 	// Redacted marks an encrypted reasoning item (e.g. Anthropic
 	// redacted_thinking); Signature carries the opaque data blob.
 	Redacted bool
+}
+
+// TextParts wraps non-empty scalar text. Empty native parts must be represented
+// explicitly as Part values; an absent scalar must not create a replay placeholder.
+func TextParts(texts ...string) []Part {
+	var parts []Part
+	for _, text := range texts {
+		if text != "" {
+			parts = append(parts, Part{Index: len(parts), Text: text})
+		}
+	}
+	return parts
+}
+
+func (r Reasoning) Text() string        { return textPartsText(r.Content) }
+func (r Reasoning) SummaryText() string { return textPartsText(r.Summary) }
+
+func textPartsText(parts []Part) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return parts[0].Text
+	}
+	var text strings.Builder
+	for _, part := range parts {
+		text.WriteString(part.Text)
+	}
+	return text.String()
 }
 
 type Compaction struct {
