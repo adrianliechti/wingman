@@ -6,6 +6,7 @@ import (
 	"iter"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
@@ -23,10 +24,69 @@ func SystemContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, systemUsageKey{}, true)
 }
 
+type admissionKey struct{}
+
+type admission struct {
+	once sync.Once
+	err  error
+}
+
+// WithAdmission shares one admission decision across every model call of an
+// inbound request, including nested routers, agents and fallbacks.
+func WithAdmission(ctx context.Context) context.Context {
+	return context.WithValue(ctx, admissionKey{}, &admission{})
+}
+
+// tracker is implemented by report queues that drain in-flight operations
+// on shutdown.
+type tracker interface {
+	begin() error
+	end()
+}
+
 type reporter struct {
 	budget Provider
 	name   string
 	model  string
+}
+
+// rejected builds an error that routers surface without failover or health
+// penalties, since every candidate would refuse the same request.
+func rejected(code int, kind, message string, err error) error {
+	return &provider.ProviderError{Code: code, Type: kind, Message: message, Err: errors.Join(provider.ErrRejected, err)}
+}
+
+// denial maps a negative admission decision to the error returned to users.
+func denial(result *Result) error {
+	if result.Allowed {
+		return nil
+	}
+	message := result.Message
+	if message == "" {
+		message = "user budget exhausted"
+	}
+	e := rejected(http.StatusTooManyRequests, "insufficient_quota", message, nil).(*provider.ProviderError)
+	e.RetryAfter = max(0, time.Until(result.ResetsAt))
+	return e
+}
+
+func (p reporter) admit(ctx context.Context, user string) error {
+	check := func() error {
+		// A canceled caller must not decide the outcome shared by the request.
+		result, err := p.budget.Check(context.WithoutCancel(ctx), user)
+		if err != nil {
+			return rejected(http.StatusServiceUnavailable, "budget_unavailable", "budget service unavailable", err)
+		}
+		if result == nil {
+			return rejected(http.StatusServiceUnavailable, "budget_unavailable", "budget service returned no admission decision", nil)
+		}
+		return denial(result)
+	}
+	if a, ok := ctx.Value(admissionKey{}).(*admission); ok {
+		a.once.Do(func() { a.err = check() })
+		return a.err
+	}
+	return check()
 }
 
 func (p reporter) start(ctx context.Context) (*Report, error) {
@@ -35,42 +95,30 @@ func (p reporter) start(ctx context.Context) (*Report, error) {
 	}
 	user, _ := ctx.Value(auth.UserContextKey).(string)
 	if user == "" {
-		return nil, &provider.ProviderError{Code: http.StatusUnauthorized, Type: "authentication_error", Message: ErrMissingUser.Error(), Err: ErrMissingUser}
+		return nil, rejected(http.StatusUnauthorized, "authentication_error", ErrMissingUser.Error(), ErrMissingUser)
 	}
-	report := &Report{OperationID: uuid.NewString(), UserID: user, Provider: p.name, Model: p.model}
-	admitted := false
-	if queue, ok := p.budget.(*Async); ok {
-		if err := queue.reserve(report.OperationID); err != nil {
-			return nil, &provider.ProviderError{Code: http.StatusServiceUnavailable, Type: "budget_unavailable", Message: err.Error(), Err: err}
+	if err := p.admit(ctx, user); err != nil {
+		return nil, err
+	}
+	if t, ok := p.budget.(tracker); ok {
+		if err := t.begin(); err != nil {
+			return nil, rejected(http.StatusServiceUnavailable, "budget_unavailable", err.Error(), err)
 		}
-		defer func() {
-			if !admitted {
-				queue.release(report.OperationID)
-			}
-		}()
 	}
-	result, err := p.budget.Check(ctx, user)
-	if err != nil {
-		return nil, &provider.ProviderError{Code: http.StatusServiceUnavailable, Type: "budget_unavailable", Message: "budget service unavailable", Err: err}
-	}
-	if result == nil {
-		return nil, &provider.ProviderError{Code: http.StatusServiceUnavailable, Type: "budget_unavailable", Message: "budget service returned no admission decision"}
-	}
-	if !result.Allowed {
-		message := result.Message
-		if message == "" {
-			message = "user budget exhausted"
-		}
-		return nil, &provider.ProviderError{Code: http.StatusTooManyRequests, Type: "insufficient_quota", Message: message, RetryAfter: max(0, time.Until(result.ResetsAt))}
-	}
-	admitted = true
-	return report, nil
+	return &Report{OperationID: uuid.NewString(), UserID: user, Provider: p.name, Model: p.model}, nil
 }
 
 func (p reporter) finish(ctx context.Context, report *Report) {
 	if report == nil {
 		return
 	}
+	p.deliver(ctx, report)
+	if t, ok := p.budget.(tracker); ok {
+		t.end()
+	}
+}
+
+func (p reporter) deliver(ctx context.Context, report *Report) {
 	report.CompletedAt = time.Now().UTC()
 	// A disconnected caller must not cancel accounting. The budget transport
 	// bounds delivery with its own timeout, including any report retries.

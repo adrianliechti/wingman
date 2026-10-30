@@ -153,6 +153,12 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			// A hard failure before any output is produced falls back once, so
 			// a single bad backend can't break the request. Once output has
 			// streamed, errors propagate normally.
+			// A rejected request would be rejected by the fallback as well.
+			if err != nil && !emitted && errors.Is(err, provider.ErrRejected) {
+				yield(nil, err)
+				return
+			}
+
 			if err != nil && !emitted && d.fallback != d.index {
 				break
 			}

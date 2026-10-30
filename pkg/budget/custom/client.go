@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"net"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/budget"
@@ -39,6 +41,11 @@ func New(target string, options ...Option) (*Client, error) {
 	if c.timeout <= 0 {
 		return nil, errors.New("budget timeout must be positive")
 	}
+	// The token travels as plain metadata, so it needs TLS unless the budget
+	// service is a local sidecar.
+	if c.token != "" && u.Scheme == "grpc" && !isLoopback(u.Hostname()) {
+		return nil, errors.New("budget token requires grpcs:// for non-local hosts")
+	}
 	var transport credentials.TransportCredentials = insecure.NewCredentials()
 	if u.Scheme == "grpcs" {
 		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
@@ -52,6 +59,14 @@ func New(target string, options ...Option) (*Client, error) {
 }
 
 func (c *Client) Close() error { return c.conn.Close() }
+
+func isLoopback(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
 func (c *Client) context(ctx context.Context) (context.Context, context.CancelFunc) {
 	if c.token != "" {

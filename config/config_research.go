@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/budget"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/researcher"
@@ -126,6 +127,10 @@ func (cfg *Config) registerResearchers(f *configFile) error {
 
 		if err != nil {
 			return err
+		}
+
+		if cfg.Budget != nil && !strings.EqualFold(config.Type, "agent") {
+			p = budget.NewResearcher(config.Type, config.Model, p, cfg.Budget)
 		}
 
 		if config.Guard != "" {

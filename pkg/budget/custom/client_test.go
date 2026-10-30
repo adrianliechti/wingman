@@ -83,3 +83,27 @@ func TestLocalPluginTokenUsageAndRetry(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenRequiresTLSOutsideLoopback(t *testing.T) {
+	for target, ok := range map[string]bool{
+		"grpc://budget.internal:9000":  false,
+		"grpc://10.0.0.5:9000":         false,
+		"grpc://localhost:9000":        true,
+		"grpc://127.0.0.1:9000":        true,
+		"grpc://[::1]:9000":            true,
+		"grpcs://budget.internal:9000": true,
+	} {
+		client, err := New(target, WithToken("secret"))
+		if (err == nil) != ok {
+			t.Errorf("%s: err=%v, want ok=%t", target, err, ok)
+		}
+		if client != nil {
+			client.Close()
+		}
+	}
+	client, err := New("grpc://budget.internal:9000")
+	if err != nil {
+		t.Fatalf("tokenless plaintext rejected: %v", err)
+	}
+	client.Close()
+}

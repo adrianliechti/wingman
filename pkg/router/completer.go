@@ -301,6 +301,10 @@ func (c *Completer) attempt(ctx context.Context, index int, probe bool, messages
 // keys, deployments and quotas are per-provider configuration, so those must
 // fail over and count against the failing provider's health.
 func isRequestError(err error) bool {
+	if errors.Is(err, provider.ErrRejected) {
+		return true
+	}
+
 	code := provider.CodeFromError(err, 0)
 
 	if code < 400 || code >= 500 {

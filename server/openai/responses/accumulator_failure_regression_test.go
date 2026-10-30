@@ -195,6 +195,39 @@ func TestRefusalWithToolsIsIncompleteInHTTPAndSSE(t *testing.T) {
 	}
 }
 
+func TestRefusalAfterHostedToolSearchIsCompletedInHTTPAndSSE(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			c := responsesContractCompleter{chunks: []provider.Completion{
+				completionParts(provider.ToolCallContent(provider.ToolCall{ID: "search", Kind: provider.ToolKindToolSearch, Name: "tool_search", Execution: "server", Arguments: `{"query":"lookup"}`})),
+				completionParts(provider.ToolResultContent(provider.ToolResult{ID: "search", Kind: provider.ToolKindToolSearch, Execution: "server"})),
+				completionParts(provider.RefusalContent("Cannot perform that action.")),
+				{Status: provider.CompletionStatusRefused},
+			}}
+			payload, wire := reviewRequest(t, c, stream)
+			var result struct {
+				Status            string
+				IncompleteDetails *struct{ Reason string } `json:"incomplete_details"`
+				Output            []struct{ Type, Status string }
+			}
+			if err := json.Unmarshal(payload, &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != "completed" || result.IncompleteDetails != nil {
+				t.Fatalf("hosted call turned a refusal into content_filter: %s", payload)
+			}
+			for _, item := range result.Output {
+				if item.Status != "completed" {
+					t.Fatalf("%s item = %s, want completed: %s", item.Type, item.Status, payload)
+				}
+			}
+			if stream && !strings.Contains(wire, "response.completed") {
+				t.Fatalf("stream did not complete: %s", wire)
+			}
+		})
+	}
+}
+
 func TestOutOfOrderReasoningPartsMatchHTTPAndSSE(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {

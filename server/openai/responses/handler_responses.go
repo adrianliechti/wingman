@@ -1518,7 +1518,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 			case ResponseOutputTypeFunctionCall, ResponseOutputTypeCustomToolCall, ResponseOutputTypeApplyPatchCall, ResponseOutputTypeComputerCall, ResponseOutputTypeShellCall, ResponseOutputTypeLocalShellCall:
 				setOutputStatus(item, "incomplete")
 			case ResponseOutputTypeToolSearchCall:
-				if item.ToolSearchCallItem.Execution == "client" {
+				if callerOwned(provider.ToolKindToolSearch, item.ToolSearchCallItem.Execution) {
 					setOutputStatus(item, "incomplete")
 				}
 			}

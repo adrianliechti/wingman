@@ -333,6 +333,33 @@ func TestRealtimeProviderDiagnosticErrorIsNotExposed(t *testing.T) {
 	}
 }
 
+type rejectingRealtime struct{ *fakeRealtime }
+
+func (rejectingRealtime) Connect(context.Context, *provider.RealtimeOptions) (provider.RealtimeSession, error) {
+	return nil, &provider.ProviderError{Code: 429, Type: "insufficient_quota", Message: "monthly budget exhausted", Err: provider.ErrRejected}
+}
+
+func TestRealtimeRejectedConnectionEndsSession(t *testing.T) {
+	conn := openTestRealtime(t, rejectingRealtime{newFakeRealtime()})
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+
+	writeWireEvent(t, conn, map[string]any{"type": "response.create", "event_id": "evt_1"})
+
+	event := readWireEvent(t, conn)
+	assertEventType(t, event, "error")
+	apiError := event["error"].(map[string]any)
+	if apiError["type"] != "insufficient_quota" || apiError["code"] != "insufficient_quota" || apiError["message"] != "monthly budget exhausted" || apiError["event_id"] != "evt_1" {
+		t.Fatalf("error = %v", apiError)
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := conn.ReadMessage(); err == nil || strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("session stayed open after a rejected connection: %v", err)
+	}
+}
+
 func TestRealtimeFailedResponseAndMetadataContract(t *testing.T) {
 	upstream := newFakeRealtime()
 	conn := openTestRealtime(t, upstream)

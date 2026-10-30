@@ -480,7 +480,7 @@ func (s *StreamingAccumulator) toolCallIncomplete(callID string) bool {
 	call := s.toolCalls[idx]
 	// A hosted result has already completed this operation; a later refusal
 	// concerns the remaining response, not a call the client could execute.
-	if call.Kind == provider.ToolKindToolSearch && call.Execution != "client" {
+	if !callerOwned(call.Kind, call.Execution) {
 		return false
 	}
 	if s.status == provider.CompletionStatusRefused || s.status == provider.CompletionStatusFailed {
@@ -529,11 +529,6 @@ func (s *StreamingAccumulator) ensureReasoningItem() error {
 type reasoningParts struct {
 	provider.PartAccumulator
 	offsets []int
-}
-
-func (p *reasoningParts) add(part provider.Part) error {
-	p.PartAccumulator.Add(part)
-	return nil
 }
 
 func (s *StreamingAccumulator) emitReasoningArray(state *reasoningParts, summary, finish bool) error {
@@ -849,14 +844,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 
 			for _, part := range r.Content {
-				if err := s.reasoningContent.add(part); err != nil {
-					return err
-				}
+				s.reasoningContent.Add(part)
 			}
 			for _, part := range r.Summary {
-				if err := s.reasoningSummary.add(part); err != nil {
-					return err
-				}
+				s.reasoningSummary.Add(part)
 			}
 			if len(r.Content) > 0 || len(r.Summary) > 0 {
 				if err := s.ensureReasoningItem(); err != nil {
@@ -1012,15 +1003,25 @@ func contentFiltered(c *provider.Completion) bool {
 	if c == nil || c.Status != provider.CompletionStatusRefused {
 		return false
 	}
-	return c.Message == nil || len(c.Message.ToolCalls()) > 0 || c.Message.Refusal() == ""
+	if c.Message == nil {
+		return true
+	}
+	for _, call := range c.Message.ToolCalls() {
+		if callerOwned(call.Kind, call.Execution) {
+			return true
+		}
+	}
+	return c.Message.Refusal() == ""
 }
 
 func (s *StreamingAccumulator) contentFiltered() bool {
 	if s.status != provider.CompletionStatusRefused {
 		return false
 	}
-	if len(s.toolCalls) > 0 {
-		return true
+	for _, call := range s.toolCalls {
+		if callerOwned(call.Kind, call.Execution) {
+			return true
+		}
 	}
 
 	for _, message := range s.messages {
@@ -1029,6 +1030,12 @@ func (s *StreamingAccumulator) contentFiltered() bool {
 		}
 	}
 	return true
+}
+
+// callerOwned reports whether the client executes the call. Hosted tool search
+// runs server side and has already finished when its result arrives.
+func callerOwned(kind provider.ToolKind, execution string) bool {
+	return kind != provider.ToolKindToolSearch || execution == "client"
 }
 
 func (s *StreamingAccumulator) itemIncomplete() bool {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"io"
 	"os"
 
@@ -63,6 +64,14 @@ func (c *Config) Close() error {
 		return closer.Close()
 	}
 	return nil
+}
+
+// Shutdown is Close bounded by ctx.
+func (c *Config) Shutdown(ctx context.Context) error {
+	if s, ok := c.Budget.(interface{ Shutdown(context.Context) error }); ok {
+		return s.Shutdown(ctx)
+	}
+	return c.Close()
 }
 
 func Parse(path string) (*Config, error) {
