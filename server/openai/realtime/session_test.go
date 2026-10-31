@@ -24,6 +24,31 @@ import (
 // the protocol contract every native provider (OpenAI, Gemini Live, Nova Sonic)
 // must satisfy after translation.
 
+func TestSessionUsageDoesNotCreateResponse(t *testing.T) {
+	upstream := newFakeRealtime()
+	conn := openTestRealtime(t, upstream)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+	writeWireEvent(t, conn, map[string]any{"type": "response.create"})
+	waitSignal(t, upstream.session.responded, "response.create")
+
+	for _, id := range []string{"resp_first", "resp_after_tool"} {
+		upstream.session.emit(provider.RealtimeEvent{Type: provider.RealtimeEventUsage, Usage: &provider.RealtimeUsage{InputTokens: 12, OutputTokens: 3}})
+		emitAudioResponse(upstream.session, id, "item_"+id, "content_"+id, "Hello.")
+		trace := readThrough(t, conn, "response.done")
+		if countEvents(trace, "response.created") != 1 {
+			t.Fatal("session usage created an extra response")
+		}
+		response := findEvent(t, trace, "response.done")["response"].(map[string]any)
+		if response["id"] != id || response["status"] != "completed" {
+			t.Fatalf("response = %#v", response)
+		}
+		if total := response["usage"].(map[string]any)["total_tokens"]; total != float64(5) {
+			t.Fatalf("response usage = %v, want 5 (excluding session usage)", total)
+		}
+	}
+}
+
 func TestWingmanChatRealtimeNormalAndMixedInputContract(t *testing.T) {
 	upstream := newFakeRealtime()
 	conn := openTestRealtime(t, upstream)

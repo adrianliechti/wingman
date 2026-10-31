@@ -89,7 +89,7 @@ func TestNovaSonicLiveE2E(t *testing.T) {
 	})...)
 	validateLiveTrace(t, "Nova opening", opening)
 
-	streamNovaPCM(t, target.name, conn, hiAudio)
+	streamLivePCM(t, target.name, conn, hiAudio)
 	voice := readNovaUntil(t, target.name, conn, 45*time.Second, func(events []map[string]any) bool {
 		return hasLiveEvent(events, "conversation.item.input_audio_transcription.completed") && hasLiveEvent(events, "response.done")
 	})
@@ -99,7 +99,7 @@ func TestNovaSonicLiveE2E(t *testing.T) {
 
 	// Keep the audio channel active before exercising Nova's cross-modal text
 	// input. Sonic requires an active streaming session even for typed turns.
-	streamNovaSilence(t, target.name, conn, 500*time.Millisecond)
+	streamLiveSilence(t, target.name, conn, 500*time.Millisecond)
 	writeLive(t, target.name, conn, map[string]any{
 		"type": "conversation.item.create",
 		"item": map[string]any{
@@ -114,7 +114,7 @@ func TestNovaSonicLiveE2E(t *testing.T) {
 	validateLiveTrace(t, "Nova text", textTurn)
 	assertNovaAudioResponse(t, "Nova text", textTurn)
 
-	streamNovaPCM(t, target.name, conn, weatherAudio)
+	streamLivePCM(t, target.name, conn, weatherAudio)
 	toolTurn := readNovaUntil(t, target.name, conn, 45*time.Second, func(events []map[string]any) bool {
 		return hasLiveEvent(events, "response.function_call_arguments.done") && hasLiveEvent(events, "response.done")
 	})
@@ -159,29 +159,6 @@ func startNovaAdapter(t *testing.T) (liveTarget, func()) {
 	server := httptest.NewServer(router)
 	target := "ws" + strings.TrimPrefix(server.URL, "http") + "/realtime?model=" + url.QueryEscape(alias)
 	return liveTarget{name: "nova-adapter", url: target}, server.Close
-}
-
-func streamNovaPCM(t *testing.T, name string, conn *websocket.Conn, audio []byte) {
-	t.Helper()
-	const frameBytes = 1536 // 32 ms at PCM16LE/24 kHz/mono.
-	for offset := 0; offset < len(audio); offset += frameBytes {
-		end := min(offset+frameBytes, len(audio))
-		writeLive(t, name, conn, map[string]any{
-			"type": "input_audio_buffer.append", "audio": base64.StdEncoding.EncodeToString(audio[offset:end]),
-		})
-		time.Sleep(32 * time.Millisecond)
-	}
-	streamNovaSilence(t, name, conn, 2*time.Second)
-}
-
-func streamNovaSilence(t *testing.T, name string, conn *websocket.Conn, duration time.Duration) {
-	t.Helper()
-	const frameBytes = 1536
-	encoded := base64.StdEncoding.EncodeToString(make([]byte, frameBytes))
-	for elapsed := time.Duration(0); elapsed < duration; elapsed += 32 * time.Millisecond {
-		writeLive(t, name, conn, map[string]any{"type": "input_audio_buffer.append", "audio": encoded})
-		time.Sleep(32 * time.Millisecond)
-	}
 }
 
 // Nova Sonic expects audioInput events to remain continuous for the lifetime

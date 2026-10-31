@@ -43,7 +43,7 @@ func NewRealtime(rawURL, model string, options ...Option) (*Realtime, error) {
 	for _, option := range options {
 		option(cfg)
 	}
-	if cfg.affectiveDialog && !supportsGeminiAffectiveDialog(model) {
+	if cfg.affectiveDialog && !matchesModel(model, AffectiveDialogModels) {
 		return nil, fmt.Errorf("gemini live: affective dialog is not supported by model %q", model)
 	}
 	if cfg.token == "" {
@@ -83,7 +83,7 @@ func (r *Realtime) Defaults() provider.RealtimeOptions {
 		},
 		OutputTranscription: true,
 	}
-	if isGeminiLiveTranscriptionModel(r.model) {
+	if matchesModel(r.model, LiveTranscriptionModels) {
 		defaults.OutputModalities = []provider.RealtimeModality{provider.RealtimeModalityText}
 		defaults.InputTranscription = &provider.RealtimeTranscription{}
 		defaults.OutputTranscription = false
@@ -96,10 +96,7 @@ func (r *Realtime) RealtimeCapabilities() provider.RealtimeCapabilities {
 		// Gemini reports automatic and manually-signaled activity using native
 		// voiceActivity messages.
 		InputActivityEvents: true,
-		// Gemini 3.1 only accepts clientContent while seeding initial history;
-		// unlike 2.5 it cannot use an empty clientContent update as an explicit
-		// response.cancel. Native voice activity still supports barge-in.
-		Interruption: supportsGeminiClientContentInterrupt(r.model),
+		Interruption:        matchesModel(r.model, ClientContentInterruptModels),
 	}
 }
 
@@ -137,7 +134,7 @@ func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 		ready:                  make(chan error, 1),
 		options:                resolved,
 		toolNames:              make(map[string]string),
-		clientContentInterrupt: supportsGeminiClientContentInterrupt(r.model),
+		clientContentInterrupt: matchesModel(r.model, ClientContentInterruptModels),
 	}
 	go session.receive()
 
@@ -189,23 +186,6 @@ func (r *Realtime) setup(options provider.RealtimeOptions) map[string]any {
 		message["setup"].(map[string]any)["enableAffectiveDialog"] = true
 	}
 	return message
-}
-
-func supportsGeminiAffectiveDialog(model string) bool {
-	model = strings.ToLower(strings.TrimPrefix(model, "models/"))
-	return strings.Contains(model, "gemini-2.5-flash") &&
-		(strings.Contains(model, "live") || strings.Contains(model, "native-audio"))
-}
-
-func supportsGeminiClientContentInterrupt(model string) bool {
-	// The Gemini 3.1 capability table limits clientContent to initial history.
-	// Only the documented 2.5 Live family supports it throughout a session.
-	return supportsGeminiAffectiveDialog(model)
-}
-
-func isGeminiLiveTranscriptionModel(model string) bool {
-	model = strings.ToLower(strings.TrimPrefix(model, "models/"))
-	return strings.Contains(model, "transcribe-live")
 }
 
 func (r *Realtime) websocketURL() (string, error) {
@@ -304,7 +284,7 @@ func validateGeminiRealtimeOptions(options provider.RealtimeOptions) error {
 }
 
 func validateGeminiRealtimeModelOptions(model string, options provider.RealtimeOptions) error {
-	if !isGeminiLiveTranscriptionModel(model) {
+	if !matchesModel(model, LiveTranscriptionModels) {
 		return nil
 	}
 	if len(options.OutputModalities) != 1 || options.OutputModalities[0] != provider.RealtimeModalityText {
@@ -325,6 +305,11 @@ func geminiSetup(model string, options provider.RealtimeOptions) map[string]any 
 		modalities[i] = strings.ToUpper(string(modality))
 	}
 	generation := map[string]any{"responseModalities": modalities}
+	if matchesModel(model, LiveThinkingModels) {
+		// Extended Thinking requires an explicit level; standard 3.8 Live
+		// rejects thinkingConfig. LOW keeps the default voice latency modest.
+		generation["thinkingConfig"] = map[string]any{"thinkingLevel": "LOW"}
+	}
 	if options.MaxTokens != nil {
 		generation["maxOutputTokens"] = *options.MaxTokens
 	}
@@ -445,6 +430,7 @@ type geminiRealtimeSession struct {
 	inputActivity      bool
 	pendingInputText   string
 	interrupted        bool
+	interactionStatus  string
 }
 
 var _ provider.RealtimeSession = (*geminiRealtimeSession)(nil)
@@ -487,24 +473,10 @@ func (s *geminiRealtimeSession) SendMessage(ctx context.Context, message provide
 	if message.Role != provider.MessageRoleUser {
 		return fmt.Errorf("gemini live: interactive message role %q is unsupported", message.Role)
 	}
-	startedActivity := false
-	if s.options.TurnDetection == nil {
-		s.stateMu.Lock()
-		startedActivity = !s.manualActivity
-		s.stateMu.Unlock()
-		if startedActivity {
-			if err := s.beginManualActivity(ctx); err != nil {
-				return err
-			}
-		}
-	}
-	if err := s.send(ctx, map[string]any{"realtimeInput": map[string]any{"text": text}}); err != nil {
-		return err
-	}
-	if startedActivity {
-		return s.endManualActivity(ctx)
-	}
-	return nil
+	// Text triggers its own turn even when audio VAD is disabled. Activity
+	// markers belong to audio; wrapping text in them closes Gemini sessions
+	// with a failed-precondition error.
+	return s.send(ctx, map[string]any{"realtimeInput": map[string]any{"text": text}})
 }
 
 func (s *geminiRealtimeSession) beginManualActivity(ctx context.Context) error {
@@ -669,9 +641,9 @@ type geminiServerMessage struct {
 				} `json:"inlineData"`
 			} `json:"parts"`
 		} `json:"modelTurn"`
-		GenerationComplete        bool                 `json:"generationComplete"`
 		TurnComplete              bool                 `json:"turnComplete"`
 		Interrupted               bool                 `json:"interrupted"`
+		InteractionStatus         string               `json:"interactionStatus"`
 		InputTranscription        *geminiTranscription `json:"inputTranscription"`
 		InterimInputTranscription *geminiTranscription `json:"interimInputTranscription"`
 		OutputTranscription       *geminiTranscription `json:"outputTranscription"`
@@ -740,6 +712,9 @@ func (s *geminiRealtimeSession) translate(message geminiServerMessage) []provide
 	}
 	if message.ServerContent != nil {
 		content := message.ServerContent
+		if content.InteractionStatus != "" {
+			s.interactionStatus = content.InteractionStatus
+		}
 		if content.InterimInputTranscription != nil && content.InterimInputTranscription.Text != "" {
 			events = append(events, provider.RealtimeEvent{
 				Type: provider.RealtimeEventInputTranscriptionPreview,
@@ -782,30 +757,36 @@ func (s *geminiRealtimeSession) translate(message geminiServerMessage) []provide
 			s.interrupted = true
 			events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventInterrupted, ResponseID: s.responseID})
 		}
-		if content.GenerationComplete || content.Interrupted {
+		if content.Interrupted {
 			events = append(events, s.finishAssistant()...)
 		}
-		if content.TurnComplete {
+		if content.TurnComplete || content.InteractionStatus == "IDLE" {
 			if s.inputActivity {
 				events = append(events, s.translateVoiceActivity("ACTIVITY_END")...)
 			} else {
 				events = append(events, s.flushPendingInput()...)
 			}
 			events = append(events, s.finishInput()...)
-			events = append(events, s.finishAssistant()...)
-			if s.responseID != "" {
-				appendUsage()
-				stopReason := "completed"
-				if s.interrupted {
-					stopReason = "interrupted"
+			// Thinking models can finish an utterance while background work
+			// continues. Only IDLE (or interruption) finishes that response.
+			// Models without interactionStatus retain turnComplete semantics.
+			if s.interactionStatus != "IN_PROGRESS" || s.interrupted {
+				events = append(events, s.finishAssistant()...)
+				if s.responseID != "" {
+					appendUsage()
+					stopReason := "completed"
+					if s.interrupted {
+						stopReason = "interrupted"
+					}
+					events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: s.responseID, StopReason: stopReason})
 				}
-				events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: s.responseID, StopReason: stopReason})
+				s.resetResponse()
 			}
-			s.resetResponse()
 		}
 	}
 
 	if message.ToolCall != nil {
+		events = append(events, s.finishAssistant()...)
 		events = append(events, s.ensureResponse()...)
 		for _, call := range message.ToolCall.FunctionCalls {
 			args := call.Args

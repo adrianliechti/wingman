@@ -71,6 +71,112 @@ func TestGeminiOpenAIVoiceAliases(t *testing.T) {
 	}
 }
 
+func TestGeminiLiveThinkingSetup(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		level string
+	}{
+		{"gemini-3.8-live", ""},
+		{"gemini-3.8-live-extended-thinking", "LOW"},
+		{"models/gemini-3.8-live-extended-thinking", "LOW"},
+		{"MODELS/GEMINI-3.8-LIVE-EXTENDED-THINKING", "LOW"},
+		{"gemini-3.8-live-extended-thinking-2026-09", "LOW"},
+		{"gemini-3.1-flash-live-preview", ""},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			realtime, err := NewRealtime("", tc.model, WithToken("test"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			setup := realtime.setup(realtime.Defaults())["setup"].(map[string]any)
+			generation := setup["generationConfig"].(map[string]any)
+			thinking, present := generation["thinkingConfig"]
+			if tc.level != "" {
+				config, ok := thinking.(map[string]any)
+				if !ok || config["thinkingLevel"] != tc.level {
+					t.Fatalf("thinkingConfig = %#v, want level %s", thinking, tc.level)
+				}
+			} else if present {
+				t.Fatalf("unexpected thinkingConfig for %s: %#v", tc.model, thinking)
+			}
+		})
+	}
+}
+
+func TestGeminiThinkingWaitsForIdle(t *testing.T) {
+	session := newGeminiTranslationTestSession()
+	first := session.translate(decodeGeminiMessage(t, `{"serverContent":{"outputTranscription":{"text":"Let me check."}}}`))
+	assertGeminiEventTypes(t, first, provider.RealtimeEventResponseStarted, provider.RealtimeEventContentStarted, provider.RealtimeEventTextDelta)
+	responseID := first[0].ResponseID
+
+	// generationComplete can precede the status-bearing turn boundary.
+	assertGeminiEventTypes(t, session.translate(decodeGeminiMessage(t, `{"serverContent":{"generationComplete":true}}`)))
+	// A completed spoken utterance does not finish background reasoning.
+	progress := session.translate(decodeGeminiMessage(t, `{"serverContent":{"turnComplete":true,"interactionStatus":"IN_PROGRESS"}}`))
+	assertGeminiEventTypes(t, progress)
+	// Status is retained when a subsequent event omits it.
+	assertGeminiEventTypes(t, session.translate(decodeGeminiMessage(t, `{"serverContent":{"turnComplete":true}}`)))
+
+	answer := session.translate(decodeGeminiMessage(t, `{"serverContent":{"outputTranscription":{"text":"The answer is 42."}}}`))
+	assertGeminiEventTypes(t, answer, provider.RealtimeEventTextDelta)
+	if answer[0].ResponseID != responseID {
+		t.Fatal("background reasoning started a second response")
+	}
+	if answer[0].ContentID != first[1].ContentID {
+		t.Fatal("background reasoning split the spoken transcript")
+	}
+	// IDLE is authoritative even without another turnComplete flag.
+	done := session.translate(decodeGeminiMessage(t, `{"serverContent":{"interactionStatus":"IDLE"}}`))
+	assertGeminiEventTypes(t, done, provider.RealtimeEventContentDone, provider.RealtimeEventResponseDone)
+	if done[1].ResponseID != responseID || done[1].StopReason != "completed" {
+		t.Fatalf("completion = %#v", done[1])
+	}
+}
+
+func TestGeminiThinkingToolHandoff(t *testing.T) {
+	session := newGeminiTranslationTestSession()
+	first := session.translate(decodeGeminiMessage(t, `{"serverContent":{"outputTranscription":{"text":"Checking."},"turnComplete":true,"interactionStatus":"IN_PROGRESS"}}`))
+	assertGeminiEventTypes(t, first, provider.RealtimeEventResponseStarted, provider.RealtimeEventContentStarted, provider.RealtimeEventTextDelta)
+	responseID := first[0].ResponseID
+	called := session.translate(decodeGeminiMessage(t, `{"toolCall":{"functionCalls":[{"id":"call-1","name":"get_weather"}]}}`))
+	assertGeminiEventTypes(t, called, provider.RealtimeEventContentDone, provider.RealtimeEventContentStarted, provider.RealtimeEventToolCall, provider.RealtimeEventContentDone, provider.RealtimeEventResponseDone)
+	if called[4].ResponseID != responseID || called[4].StopReason != "tool_call" {
+		t.Fatalf("tool handoff = %#v", called[4])
+	}
+
+	// The next spoken response must still wait for the background task.
+	after := session.translate(decodeGeminiMessage(t, `{"serverContent":{"outputTranscription":{"text":"Still working."},"turnComplete":true}}`))
+	assertGeminiEventTypes(t, after, provider.RealtimeEventResponseStarted, provider.RealtimeEventContentStarted, provider.RealtimeEventTextDelta)
+	done := session.translate(decodeGeminiMessage(t, `{"serverContent":{"interactionStatus":"IDLE"}}`))
+	assertGeminiEventTypes(t, done, provider.RealtimeEventContentDone, provider.RealtimeEventResponseDone)
+}
+
+func TestGeminiThinkingInterruptionCompletesResponse(t *testing.T) {
+	session := newGeminiTranslationTestSession()
+	events := session.translate(decodeGeminiMessage(t, `{"serverContent":{"interactionStatus":"IN_PROGRESS","interrupted":true,"turnComplete":true}}`))
+	assertGeminiEventTypes(t, events, provider.RealtimeEventResponseStarted, provider.RealtimeEventInterrupted, provider.RealtimeEventResponseDone)
+	if events[2].StopReason != "interrupted" {
+		t.Fatalf("stop reason = %q", events[2].StopReason)
+	}
+}
+
+func TestGeminiUsageAfterToolHandoff(t *testing.T) {
+	session := newGeminiTranslationTestSession()
+	session.translate(decodeGeminiMessage(t, `{"toolCall":{"functionCalls":[{"id":"call-1","name":"get_weather"}]}}`))
+	// Live sends this after toolCall, when the OpenAI tool turn is already
+	// complete. It remains available for session accounting without opening
+	// an otherwise empty response.
+	usage := session.translate(decodeGeminiMessage(t, `{"usageMetadata":{"promptTokenCount":12,"responseTokenCount":3}}`))
+	assertGeminiEventTypes(t, usage, provider.RealtimeEventUsage)
+	if usage[0].ResponseID != "" || usage[0].Usage.InputTokens != 12 || usage[0].Usage.OutputTokens != 3 {
+		t.Fatalf("session usage = %#v", usage[0])
+	}
+	answer := session.translate(decodeGeminiMessage(t, `{"serverContent":{"outputTranscription":{"text":"It is sunny."}}}`))
+	assertGeminiEventTypes(t, answer, provider.RealtimeEventResponseStarted, provider.RealtimeEventContentStarted, provider.RealtimeEventTextDelta)
+	done := session.translate(decodeGeminiMessage(t, `{"serverContent":{"turnComplete":true}}`))
+	assertGeminiEventTypes(t, done, provider.RealtimeEventContentDone, provider.RealtimeEventResponseDone)
+}
+
 func TestGeminiSetupMapsTranscriptionAndVAD(t *testing.T) {
 	realtime, err := NewRealtime("", "gemini-3.1-flash-live-preview", WithToken("test"))
 	if err != nil {
@@ -284,7 +390,7 @@ func TestGeminiToolCancellationRejectsLateResults(t *testing.T) {
 	}
 }
 
-func TestGeminiManualActivityFramesAudioAndText(t *testing.T) {
+func TestGeminiManualActivityFramesOnlyAudio(t *testing.T) {
 	session, messages, closeCapture := newGeminiWireCapture(t)
 	defer closeCapture()
 
@@ -299,7 +405,18 @@ func TestGeminiManualActivityFramesAudioAndText(t *testing.T) {
 	if err := session.SendMessage(context.Background(), provider.UserMessage("hello")); err != nil {
 		t.Fatal(err)
 	}
-	assertGeminiRealtimeInputKeys(t, messages, "activityStart", "text", "activityEnd")
+	// A text turn must not create an empty audio activity. Use the next audio
+	// turn as a wire barrier to catch stray activityEnd frames as well.
+	if err := session.SendAudio(context.Background(), []byte{1, 2, 3, 4}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SendMessage(context.Background(), provider.UserMessage("while speaking")); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.CommitAudio(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertGeminiRealtimeInputKeys(t, messages, "text", "activityStart", "audio", "text", "activityEnd")
 }
 
 func newGeminiTranslationTestSession() *geminiRealtimeSession {
