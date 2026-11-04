@@ -12,7 +12,18 @@ type Renderer interface {
 }
 
 type RenderOptions struct {
+	// Images are the source and reference images of an edit. Mask and Markup
+	// always refer to the first one.
 	Images []File
+
+	// Mask marks where the first image may change: fully transparent pixels
+	// are editable, everything else is kept.
+	Mask *File
+
+	// Markup is a transparent PNG with annotations (circles, arrows, notes)
+	// drawn over the first image. The annotations are editing instructions,
+	// not content.
+	Markup *File
 
 	Aspect     AspectRatio
 	Quality    Quality
@@ -43,6 +54,10 @@ const (
 	AspectRatio9x16 AspectRatio = "9:16"
 	AspectRatio16x9 AspectRatio = "16:9"
 	AspectRatio21x9 AspectRatio = "21:9"
+	AspectRatio1x4  AspectRatio = "1:4"
+	AspectRatio4x1  AspectRatio = "4:1"
+	AspectRatio1x8  AspectRatio = "1:8"
+	AspectRatio8x1  AspectRatio = "8:1"
 )
 
 type Quality string

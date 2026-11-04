@@ -53,6 +53,10 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		Model: r.model,
 	}
 
+	if err := provider.ValidateEditGuides(options.Images, options.Mask, options.Markup); err != nil {
+		return nil, err
+	}
+
 	transparent := r.supportsTransparent()
 	var image *openai.ImagesResponse
 	var err error
@@ -83,9 +87,24 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 
 		image, err = r.images.Generate(ctx, params)
 	} else {
+		// Native markup is rejected by the live API; keep the fallback until
+		// support is verified (see DELTA_OAI.md).
+		prompt, images, guideErr := provider.EmulateEditGuides(input, options.Images, nil, options.Markup)
+		if guideErr != nil {
+			return nil, guideErr
+		}
+
+		if options.Mask != nil && options.Markup != nil {
+			// Keep annotations out of regions protected by the native mask.
+			marked := images[0]
+			images[0] = options.Images[0]
+			images = append(images, marked)
+			prompt = provider.MarkupReferenceInstruction(len(images)) + "\n\n" + input
+		}
+
 		var files []io.Reader
 
-		for n, i := range options.Images {
+		for n, i := range images {
 			var imageName string
 			var imageType string
 
@@ -144,11 +163,15 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 
 		params := openai.ImageEditParams{
 			Model:  r.model,
-			Prompt: input,
+			Prompt: prompt,
 
 			Image: openai.ImageEditParamsImageUnion{
 				OfFileArray: files,
 			},
+		}
+
+		if mask := options.Mask; mask != nil {
+			params.Mask = openai.File(bytes.NewReader(mask.Content), "mask.png", "image/png")
 		}
 
 		if size := r.sizeFor(options.Aspect, options.Resolution); size != "" {

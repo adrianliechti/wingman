@@ -181,8 +181,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/open-policy-agent/opa v1.21.4 h1:zTVuy8yd8BM715t8WxMzAIkIX4w1x3MMHEv99IGUY2w=
 github.com/open-policy-agent/opa v1.21.4/go.mod h1:mHDS61rXyiZ+9bLINSK634BcbPZcsZChPvSwFVMj88g=
-github.com/openai/openai-go/v3 v3.88.0 h1:+MP/4aDHhWfg6Hw/EPcmv4vKEyOwrYElrqyjfyGsX9s=
-github.com/openai/openai-go/v3 v3.88.0/go.mod h1:i+lM+NFmWP+Yd+fYKEaPxUINBx+vZtRmY5gaszSfsiQ=
+github.com/openai/openai-go/v3 v3.94.0 h1:i6g80zPCgwYRLf5lXyGnvhjXDs/2hXt7nDE7n7opevQ=
+github.com/openai/openai-go/v3 v3.94.0/go.mod h1:uMht5xIbHFTRAD05AiQXzNT9hJGklZHsCnyzeWiteGo=
 github.com/pb33f/go-yaml v0.1.1 h1:yWGmhVdwzionRnSc/hEJwcfq6PaZL2QdYzyReXBbX7Q=
 github.com/pb33f/go-yaml v0.1.1/go.mod h1:QvWdkHP5VjFYAeHMQUkaPQqREaQnBNOXmWzAjNrnSdo=
 github.com/pb33f/ordered-map/v2 v2.3.2 h1:wDyaZ2Pv9QLh64X4utCeD5Zoi9nIv2aW3lwv172O5PQ=

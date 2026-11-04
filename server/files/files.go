@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"regexp"
 	"strings"
@@ -13,6 +14,37 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ContentType normalizes an explicit MIME type and sniffs the bytes when the
+// caller supplies no type or the generic application/octet-stream type.
+func ContentType(value string, data []byte) string {
+	if mediatype, _, err := mime.ParseMediaType(value); err == nil {
+		value = mediatype
+	}
+	if value == "" || value == "application/octet-stream" {
+		return http.DetectContentType(data)
+	}
+	return value
+}
+
+// FromMultipart reads an uploaded file and resolves its content type.
+func FromMultipart(header *multipart.FileHeader) (*provider.File, error) {
+	file, err := header.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+	return &provider.File{
+		Name:        header.Filename,
+		Content:     data,
+		ContentType: ContentType(header.Header.Get("Content-Type"), data),
+	}, nil
+}
 
 // FromURL loads a file from an HTTP(S) or base64 data URL for any API format.
 func FromURL(url string) (*provider.File, error) {

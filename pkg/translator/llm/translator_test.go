@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"iter"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -34,6 +35,11 @@ func TestTranslateInputModesReturnText(t *testing.T) {
 		content := c.messages[1].Content[0]
 		if content.Text != input.Text || content.File != input.File {
 			t.Fatalf("input changed: %+v", content)
+		}
+		// Extracted documents may carry page markers; only a document prompt mentions them.
+		system := c.messages[0].Content[0].Text
+		if strings.Contains(system, "EXTRACTED TEXT") != (input.File != nil) {
+			t.Fatalf("unexpected extraction guidance for %+v: %s", input, system)
 		}
 		caps := p.TranslateCapabilities()
 		if caps.TextToText != translator.Supported || caps.FileToText != translator.Supported || caps.FileToDocument.MaySupport() {

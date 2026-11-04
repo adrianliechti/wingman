@@ -103,6 +103,26 @@ belong.
       `batchEmbedContents`, the `/v1` prefix, `tunedModels/*` / `dynamic/*`;
       `fields`, `prettyPrint`, `$.xgafv`, `alt=proto`.
 
+### Image generation
+
+- [ ] **Serving.** `responseModalities: [IMAGE]` plus `imageConfig` on
+      `generateContent` is not routed to a renderer; image models are only
+      reachable through the OpenAI images endpoints and `/v1/render`.
+- [ ] **Output format.** `Format` (png / jpeg / webp) is ignored; the
+      Interactions API takes `response_format.image.mime_type`, the legacy
+      `responseFormat.image.mimeType` is JPEG-only and not in the Go SDK's
+      `GenerateContentConfig`.
+- [ ] **Grounding and thinking.** Google Search grounding
+      (`google_search`, `image_search`) and `thinking_level` for image
+      models are not exposed.
+- [ ] **Interleaved output.** Only the first image part is returned; text
+      parts and further images are dropped.
+- [ ] **Reference limits.** Up to 14 input images (3 on 2.5 Flash Image,
+      object / character / style roles are prompt-only) are not checked
+      before the request.
+- [ ] **Mask / markup.** No native field exists; both are emulated
+      (`provider.EmulateEditGuides`). Revisit if Gemini adds one.
+
 ## Tests
 
 - [ ] Stop ignoring `finishReason`, `finishMessage`, `safetyRatings`,

@@ -236,14 +236,14 @@ To start an isolated server instead, append
 | `model`            | String | Model ID                                              |
 | `prompt`           | String | Image description                                     |
 | `size`             | String | Pixel size (e.g. `1024x1536`) or `auto`               |
-| `aspect_ratio`     | String | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size`   |
+| `aspect_ratio`     | String | Aspect ratio (e.g. `1:1`, `16:9`, `1:4`); overrides `size` |
 | `quality`          | String | `low`, `medium`, `high`, `xhigh`, `max` (`standard`/`hd` accepted) |
 | `resolution`       | String | `512`, `1K`, `2K`, `4K`                                |
 | `background`       | String | `transparent` or `opaque`                             |
 | `output_format`    | String | `png`, `jpeg`, or `webp`                              |
 | `response_format`  | String | url or b64_json                                       |
 
-Geometry and quality are provider-neutral: `size`/`aspect_ratio`/`quality`/`resolution` are mapped to each model's supported values (aspect ratios snap to the nearest available, unsupported options are dropped), so the same request works across providers.
+Geometry and quality are provider-neutral: `size`/`aspect_ratio`/`quality`/`resolution` are mapped to each model's supported values (aspect ratios snap to the nearest available, unsupported options are dropped), so the same request works across providers. The extreme ratios `1:4`, `4:1`, `1:8` and `8:1` are native on Nano Banana 2.1 and Gemini 3.1 Flash Image; other models snap to their nearest ratio (GPT Image 2.5 clamps to 1:3 / 3:1).
 
 ## Image Edit
 
@@ -253,7 +253,9 @@ Geometry and quality are provider-neutral: `size`/`aspect_ratio`/`quality`/`reso
 |--------------------|--------|-------------------------------------------------------|
 | `model`            | String | Model ID                                              |
 | `prompt`           | String | Edit instructions                                    |
-| `image`            | File   | Image to edit                                         |
+| `image`            | File   | Image(s) to edit; `image[]` for several              |
+| `mask`             | File   | Optional alpha mask: transparent pixels mark where the first image may change |
+| `markup`           | File   | Optional transparent PNG with annotations (circles, arrows, notes) drawn over the first image |
 | `size`             | String | Pixel size (e.g. `1024x1536`) or `auto`               |
 | `aspect_ratio`     | String | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size`   |
 | `quality`          | String | `low`, `medium`, `high`, `xhigh`, `max` (`standard`/`hd` accepted) |
@@ -261,6 +263,8 @@ Geometry and quality are provider-neutral: `size`/`aspect_ratio`/`quality`/`reso
 | `background`       | String | `transparent` or `opaque`                             |
 | `output_format`    | String | `png`, `jpeg`, or `webp`                              |
 | `response_format`  | String | url or b64_json                                       |
+
+`mask` and `markup` must be PNG files matching the first image's dimensions. Only fully transparent mask pixels (alpha = 0) mark editable regions. OpenAI sends masks natively. Google and OpenRouter emulate masks with a black-and-white reference and prompt instructions; adherence is best effort. xAI rejects masks because this adapter sends only one edit image. Markup is composited onto the first image; when combined with a mask, it is sent as a separate annotated reference so the original stays intact. Native OpenAI markup remains disabled after the endpoint rejected the field on 2026-11-04.
 
 ---
 
@@ -399,6 +403,8 @@ Generate images from text descriptions.
 | `model`         | String   | Model/provider to use                               |
 | `input`         | String   | Text description to render                          |
 | `file`          | File(s)  | Optional reference images                           |
+| `mask`          | File     | Optional alpha mask for the first image (see [Image Edit](#image-edit)) |
+| `markup`        | File     | Optional annotated overlay for the first image (see [Image Edit](#image-edit)) |
 | `size`          | String   | Pixel size (e.g. `1024x1536`) or `auto`             |
 | `aspect_ratio`  | String   | Aspect ratio (e.g. `1:1`, `16:9`); overrides `size` |
 | `quality`       | String   | `low`, `medium`, `high`, `xhigh`, `max`             |

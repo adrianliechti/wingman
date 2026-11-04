@@ -117,6 +117,24 @@ format) → `pkg/provider` (shared types) → `pkg/provider/*` (backends).
 - [ ] **Endpoints.** Retrieve / update / list / delete / messages, together
       with `store`.
 
+### Images (`/images/generations`, `/images/edits`)
+
+- [ ] **Native `markup`.** The spec, the Go SDK (v3.91+) and the reference
+      list `markup` for GPT Image 2.5, but the live edits endpoint answered
+      `Unknown parameter: 'markup'` on 2026-11-04 (multipart and JSON). The
+      adapter emulates markup for every model. Add native forwarding in
+      `pkg/provider/openai/renderer.go` once live support is verified.
+- [ ] **JSON edit body.** Accept `images[].image_url` / `file_id`,
+      `mask` and `markup` objects (multipart only today).
+- [ ] **Unsupported fields.** Honor or reject `input_fidelity` (1.x models
+      only), `moderation`, `output_compression`, `n` (always one image),
+      `stream` / `partial_images`, `safety_identifier` / `user`.
+- [ ] **Response envelope.** Return `created`, `background`, `output_format`,
+      `quality`, `size` and `usage` (image / text token details); carry
+      `usage` on `provider.Rendering` so the budget service can bill renders.
+- [ ] **Model list.** `gpt-image-1` shut down 2026-10-23; the size table in
+      the adapter still special-cases it.
+
 ## Tests
 
 - [ ] Update when the items above land:

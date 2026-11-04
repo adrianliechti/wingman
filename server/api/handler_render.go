@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
@@ -8,6 +9,11 @@ import (
 )
 
 func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	model := valueModel(r)
 
 	p, err := h.Renderer(model)
@@ -25,7 +31,7 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 	input := valueInput(r)
 
 	if input == "" {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, http.StatusBadRequest, errors.New("input is required"))
 		return
 	}
 
@@ -38,14 +44,28 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 		Format:     acceptFormat(r),
 	}
 
-	if files, err := readFiles(r); err == nil {
-		options.Images = append(options.Images, files...)
+	options.Images, err = readFiles(r, "mask", "markup")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	options.Mask, err = readNamedFile(r, "mask")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	options.Markup, err = readNamedFile(r, "markup")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
 
 	result, err := p.Render(r.Context(), input, options)
 
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, provider.CodeFromError(err, http.StatusBadRequest), err)
 		return
 	}
 

@@ -3,6 +3,8 @@ package google
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"google.golang.org/genai"
@@ -33,17 +35,24 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		options = new(provider.RenderOptions)
 	}
 
-	client, err := r.newClient(ctx)
+	// Gemini has no mask or markup field (inpainting is prompt-driven), so
+	// both guides become input images with an instruction.
+	prompt, images, err := provider.EmulateEditGuides(input, options.Images, options.Mask, options.Markup)
 
 	if err != nil {
 		return nil, err
 	}
 
-	parts := []*genai.Part{
-		genai.NewPartFromText(input),
+	client, err := r.newClient(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	for _, i := range options.Images {
+	parts := []*genai.Part{
+		genai.NewPartFromText(prompt),
+	}
+
+	for _, i := range images {
 		parts = append(parts, &genai.Part{
 			InlineData: &genai.Blob{
 				MIMEType: i.ContentType,
@@ -56,7 +65,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		genai.NewContentFromParts(parts, genai.RoleUser),
 	}
 
-	image, err := client.Models.GenerateContent(ctx, r.model, contents, imageConfig(options))
+	image, err := client.Models.GenerateContent(ctx, r.model, contents, imageConfig(options, r.aspects()))
 
 	if err != nil {
 		return nil, convertError(err)
@@ -94,24 +103,46 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 	return nil, errors.New("gemini: " + reason)
 }
 
-var googleAspects = []provider.AspectRatio{
-	provider.AspectRatio1x1,
-	provider.AspectRatio2x3,
-	provider.AspectRatio3x2,
-	provider.AspectRatio3x4,
-	provider.AspectRatio4x3,
-	provider.AspectRatio4x5,
-	provider.AspectRatio5x4,
-	provider.AspectRatio9x16,
-	provider.AspectRatio16x9,
-	provider.AspectRatio21x9,
+// googleAspects are the ratios every Gemini image model accepts.
+// googleAspectsExtended adds the extreme ratios of Nano Banana 2.1 and
+// Gemini 3.1 Flash Image, which Gemini 3 Pro Image and 2.5 Flash Image reject.
+var (
+	googleAspects = []provider.AspectRatio{
+		provider.AspectRatio1x1,
+		provider.AspectRatio2x3,
+		provider.AspectRatio3x2,
+		provider.AspectRatio3x4,
+		provider.AspectRatio4x3,
+		provider.AspectRatio4x5,
+		provider.AspectRatio5x4,
+		provider.AspectRatio9x16,
+		provider.AspectRatio16x9,
+		provider.AspectRatio21x9,
+	}
+
+	googleAspectsExtended = append(slices.Clone(googleAspects),
+		provider.AspectRatio1x4,
+		provider.AspectRatio4x1,
+		provider.AspectRatio1x8,
+		provider.AspectRatio8x1,
+	)
+)
+
+func (r *Renderer) aspects() []provider.AspectRatio {
+	model := strings.ToLower(r.model)
+
+	if strings.Contains(model, "nano-banana-2.1") || strings.Contains(model, "3.1-flash-image") || strings.Contains(model, "3.1-flash-lite-image") {
+		return googleAspectsExtended
+	}
+
+	return googleAspects
 }
 
-func imageConfig(options *provider.RenderOptions) *genai.GenerateContentConfig {
+func imageConfig(options *provider.RenderOptions, aspects []provider.AspectRatio) *genai.GenerateContentConfig {
 	config := &genai.ImageConfig{}
 
 	if options.Aspect != "" {
-		config.AspectRatio = string(options.Aspect.Nearest(googleAspects))
+		config.AspectRatio = string(options.Aspect.Nearest(aspects))
 	}
 
 	switch options.Resolution {
@@ -126,10 +157,11 @@ func imageConfig(options *provider.RenderOptions) *genai.GenerateContentConfig {
 	}
 
 	if config.AspectRatio == "" && config.ImageSize == "" {
-		return nil
+		config = nil
 	}
 
 	return &genai.GenerateContentConfig{
-		ImageConfig: config,
+		ResponseModalities: []string{"IMAGE"},
+		ImageConfig:        config,
 	}
 }
