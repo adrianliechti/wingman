@@ -1,7 +1,7 @@
 package bedrock
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
 	"reflect"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
@@ -12,11 +12,11 @@ func newDocument(value any) document.Interface {
 	return document.NewLazyDocument(documentValue(value))
 }
 
-// Smithy's encoder treats json.Number as a string. Translate numbers at the
+// Smithy's encoder treats jsonv1.Number as a string. Translate numbers at the
 // SDK boundary, including nested schema values, without mutating caller data.
 func documentValue(value any) any {
 	switch value := value.(type) {
-	case json.Number:
+	case jsonv1.Number:
 		return smithydocument.Number(value)
 	case map[string]any:
 		if value == nil {
@@ -38,7 +38,7 @@ func documentValue(value any) any {
 		return result
 	default:
 		// Programmatic callers can supply typed maps/slices in a schema too,
-		// for example []json.Number or []map[string]any inside an enum/anyOf.
+		// for example []jsonv1.Number or []map[string]any inside an enum/anyOf.
 		rv := reflect.ValueOf(value)
 		if !rv.IsValid() {
 			return value

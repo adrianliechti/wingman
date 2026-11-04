@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"net/http"
 
@@ -17,7 +17,7 @@ func responseError(code int, err error) Error {
 	}
 	if apierr, ok := errors.AsType[*claude.Error](err); ok {
 		if details := apierr.Details.RawJSON(); details != "" && details != "null" {
-			result.Details = json.RawMessage(details)
+			result.Details = jsontext.Value(details)
 		}
 	}
 	return result

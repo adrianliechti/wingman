@@ -3,7 +3,7 @@ package exa
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -155,7 +155,7 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 
 	var data SearchResponse
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &data); err != nil {
 		return nil, err
 	}
 	if data.Results == nil {

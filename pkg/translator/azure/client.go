@@ -3,7 +3,7 @@ package azure
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -82,7 +82,14 @@ func (c *Client) translateText(ctx context.Context, input, language string) (*tr
 
 	u.RawQuery = query.Encode()
 
-	r, _ := http.NewRequestWithContext(ctx, "POST", u.String(), jsonReader(body))
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	r, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
 	r.Header.Add("Content-Type", "application/json")
 
 	if c.token != "" {
@@ -119,7 +126,7 @@ func (c *Client) translateText(ctx context.Context, input, language string) (*tr
 
 	var result []resultType
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return nil, err
 	}
 

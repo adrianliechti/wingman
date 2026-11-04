@@ -1,11 +1,9 @@
 package responses
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/server/openai/shared"
@@ -39,23 +37,12 @@ func writeError(w http.ResponseWriter, code int, err error) {
 }
 
 func writeEvent(w http.ResponseWriter, eventType string, v any) error {
-	rc := http.NewResponseController(w)
-
-	var data bytes.Buffer
-
-	enc := json.NewEncoder(&data)
-	enc.SetEscapeHTML(false)
-	enc.Encode(v)
-
-	event := strings.TrimSpace(data.String())
-
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, event); err != nil {
+	data, err := json.Marshal(v)
+	if err != nil {
 		return err
 	}
-
-	if err := rc.Flush(); err != nil {
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data); err != nil {
 		return err
 	}
-
-	return nil
+	return http.NewResponseController(w).Flush()
 }

@@ -1,7 +1,7 @@
 package responses
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 
@@ -493,7 +493,7 @@ func (s *StreamingAccumulator) toolCallIncomplete(callID string) bool {
 
 	args := strings.TrimSpace(call.Arguments)
 
-	return args == "" || !json.Valid([]byte(args))
+	return args == "" || !jsontext.Value(args).IsValid()
 }
 
 func (s *StreamingAccumulator) ensureReasoningItem() error {

@@ -1,7 +1,7 @@
 package tool
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -70,7 +70,7 @@ func IntegerParameter(params map[string]any, key string, fallback, minimum, maxi
 	switch value := value.(type) {
 	case float64:
 		n = value
-	case json.Number:
+	case jsonv1.Number:
 		exact, ok := jsonutil.Int64(value)
 		if !ok {
 			return 0, fmt.Errorf("%s must be an integer", key)

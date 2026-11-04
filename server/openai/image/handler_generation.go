@@ -2,7 +2,7 @@ package image
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
@@ -13,7 +13,7 @@ import (
 func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) {
 	var req ImageCreateRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

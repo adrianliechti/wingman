@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -389,7 +390,7 @@ func (s *openAISession) clearAudio(ctx context.Context) error {
 	return nil
 }
 
-func (s *openAISession) createConversationItem(ctx context.Context, data json.RawMessage, previousItemID string) error {
+func (s *openAISession) createConversationItem(ctx context.Context, data jsontext.Value, previousItemID string) error {
 	var item conversationItem
 	if err := json.Unmarshal(data, &item); err != nil {
 		return errors.New("conversation item is invalid")
@@ -502,11 +503,11 @@ func (s *openAISession) forgetItem(itemID string) {
 	delete(s.itemPrevious, itemID)
 }
 
-func (s *openAISession) createResponse(ctx context.Context, data json.RawMessage) error {
+func (s *openAISession) createResponse(ctx context.Context, data jsontext.Value) error {
 	var nextOutputModalities []string
 	var nextResponseMetadata map[string]string
 	if len(data) > 0 && string(data) != "null" && string(data) != "{}" {
-		var fields map[string]json.RawMessage
+		var fields map[string]jsontext.Value
 		if err := json.Unmarshal(data, &fields); err != nil {
 			return errors.New("response configuration is invalid")
 		}

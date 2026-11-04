@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"iter"
 	"net/http"
@@ -43,8 +43,8 @@ type speechRequest struct {
 	Model string `json:"model"`
 	Input string `json:"input"`
 
-	VoiceID        string `json:"voice_id,omitempty"`
-	ResponseFormat string `json:"response_format,omitempty"`
+	VoiceID        string `json:"voice_id,omitzero"`
+	ResponseFormat string `json:"response_format,omitzero"`
 }
 
 type speechResponse struct {
@@ -122,7 +122,7 @@ func (s *Synthesizer) synthesize(ctx context.Context, content string, options *p
 
 	var result speechResponse
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return nil, err
 	}
 

@@ -1,6 +1,6 @@
 package docling
 
-import "encoding/json"
+import "encoding/json/jsontext"
 
 type TaskStatus string
 
@@ -25,5 +25,5 @@ type Document struct {
 	Html     string `json:"html_content"`
 	Markdown string `json:"md_content"`
 
-	Json json.RawMessage `json:"json_content"`
+	Json jsontext.Value `json:"json_content"`
 }

@@ -3,15 +3,15 @@ package exa
 type SearchRequest struct {
 	Query string `json:"query"`
 
-	Type string `json:"type,omitempty"`
+	Type string `json:"type,omitzero"`
 
-	Category string `json:"category,omitempty"`
-	Location string `json:"userLocation,omitempty"`
+	Category string `json:"category,omitzero"`
+	Location string `json:"userLocation,omitzero"`
 
-	StartPublishedDate string `json:"startPublishedDate,omitempty"`
-	EndPublishedDate   string `json:"endPublishedDate,omitempty"`
+	StartPublishedDate string `json:"startPublishedDate,omitzero"`
+	EndPublishedDate   string `json:"endPublishedDate,omitzero"`
 
-	NumResults *int `json:"numResults,omitempty"`
+	NumResults *int `json:"numResults,omitzero"`
 
 	IncludeDomains []string `json:"includeDomains,omitempty"`
 	ExcludeDomains []string `json:"excludeDomains,omitempty"`
@@ -20,8 +20,8 @@ type SearchRequest struct {
 }
 
 type SearchContents struct {
-	Text       bool              `json:"text,omitempty"`
-	Highlights *SearchHighlights `json:"highlights,omitempty"`
+	Text       bool              `json:"text,omitzero"`
+	Highlights *SearchHighlights `json:"highlights,omitzero"`
 }
 
 type SearchHighlights struct {

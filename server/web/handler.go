@@ -2,7 +2,8 @@ package web
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -66,14 +67,24 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, message stri
 		}
 		body = map[string]string{"error": message, "tag": tag, "requestId": uuid.NewString()}
 	}
+	data, encodeErr := json.Marshal(body)
+	if encodeErr != nil {
+		status = http.StatusInternalServerError
+		data = []byte(`{"error":"could not encode error response"}`)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(body)
+	w.Write(data)
 }
 
 func WriteJSON(w http.ResponseWriter, body any) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		http.Error(w, "could not encode response", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(body)
+	w.Write(data)
 }
 
 // ReadRequest validates the native API's request schema.
@@ -92,24 +103,14 @@ func readRequest(w http.ResponseWriter, r *http.Request, target any, strict bool
 	if err != nil || media != "application/json" {
 		return errors.New("Content-Type must be application/json")
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
-	var fields map[string]json.RawMessage
-	if err := decoder.Decode(&fields); err != nil {
+	var body jsontext.Value
+	if err := json.UnmarshalRead(http.MaxBytesReader(w, r.Body, maxBodyBytes), &body); err != nil {
 		return errors.New("invalid JSON request")
 	}
-	if fields == nil {
+	if body.Kind() != '{' {
 		return errors.New("request must be a JSON object")
 	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return errors.New("request must contain one JSON object")
-	}
-	body, _ := json.Marshal(fields)
-	decoder = json.NewDecoder(bytes.NewReader(body))
-	if strict {
-		decoder.DisallowUnknownFields()
-	}
-	if err := decoder.Decode(target); err != nil {
+	if err := json.Unmarshal(body, target, json.RejectUnknownMembers(strict)); err != nil {
 		return fmt.Errorf("invalid request: %w", err)
 	}
 	return nil

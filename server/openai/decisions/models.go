@@ -1,7 +1,8 @@
 package decisions
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -14,49 +15,48 @@ import (
 // https://developers.openai.com/api/reference/resources/decisions/methods/create
 type Request struct {
 	Model              string                     `json:"model"`
-	Input              json.RawMessage            `json:"input"`
+	Input              jsontext.Value             `json:"input"`
 	Questions          []Question                 `json:"questions"`
-	PromptCacheKey     *string                    `json:"prompt_cache_key,omitempty"`
-	PromptCacheOptions *shared.PromptCacheOptions `json:"prompt_cache_options,omitempty"`
+	PromptCacheKey     *string                    `json:"prompt_cache_key,omitzero"`
+	PromptCacheOptions *shared.PromptCacheOptions `json:"prompt_cache_options,omitzero"`
 }
 
 type Question struct {
-	Type         string          `json:"type"`
-	ID           *string         `json:"id,omitempty"`
-	Name         *string         `json:"name,omitempty"`
-	Instructions json.RawMessage `json:"instructions"`
-	Choices      []Choice        `json:"choices,omitempty"`
-	Levels       []Level         `json:"levels,omitempty"`
+	Type         string         `json:"type"`
+	ID           *string        `json:"id,omitzero"`
+	Name         *string        `json:"name,omitzero"`
+	Instructions jsontext.Value `json:"instructions"`
+	Choices      []Choice       `json:"choices,omitempty"`
+	Levels       []Level        `json:"levels,omitempty"`
 }
 
 type Choice struct {
 	Value       any    `json:"value"`
-	Description string `json:"description,omitempty"`
+	Description string `json:"description,omitzero"`
 }
 
 type Level struct {
-	Value       *int   `json:"value,omitempty"`
+	Value       *int   `json:"value,omitzero"`
 	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
+	Description string `json:"description,omitzero"`
 }
 
-func (l *Level) UnmarshalJSON(data []byte) error {
+func (l *Level) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	var value struct {
 		Value       *int    `json:"value"`
 		Label       *string `json:"label"`
 		Description string  `json:"description"`
 	}
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := json.UnmarshalDecode(dec, &value); err != nil {
 		return err
 	}
 	if value.Label == nil && value.Value == nil {
 		return errors.New("score level label or value is required")
 	}
-	l.Value = value.Value
+	*l = Level{Value: value.Value, Description: value.Description}
 	if value.Label != nil {
 		l.Label = *value.Label
 	}
-	l.Description = value.Description
 	return nil
 }
 
@@ -68,19 +68,19 @@ type Response struct {
 
 type Answer struct {
 	Type          string        `json:"type"`
-	ID            *string       `json:"id,omitempty"`
+	ID            *string       `json:"id,omitzero"`
 	Name          *string       `json:"name"`
-	Message       string        `json:"message,omitempty"`
-	Probability   *float64      `json:"probability,omitempty"`
-	Choice        any           `json:"choice,omitempty"`
-	Confidence    *float64      `json:"confidence,omitempty"`
-	Score         *float64      `json:"score,omitempty"`
+	Message       string        `json:"message,omitzero"`
+	Probability   *float64      `json:"probability,omitzero"`
+	Choice        any           `json:"choice,omitzero"`
+	Confidence    *float64      `json:"confidence,omitzero"`
+	Score         *float64      `json:"score,omitzero"`
 	Probabilities []Probability `json:"probabilities,omitempty"`
 }
 
 type Probability struct {
 	Value       any      `json:"value"`
-	Label       *string  `json:"label,omitempty"`
+	Label       *string  `json:"label,omitzero"`
 	Probability *float64 `json:"probability"`
 }
 
@@ -89,7 +89,7 @@ type Usage struct {
 	InputTokensDetails struct {
 		CachedTokens            int                             `json:"cached_tokens"`
 		CacheWriteTokens        int                             `json:"cache_write_tokens"`
-		CacheWriteTokensDetails *shared.CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
+		CacheWriteTokensDetails *shared.CacheWriteTokensDetails `json:"cache_write_tokens_details,omitzero"`
 	} `json:"input_tokens_details"`
 	OutputTokens        int `json:"output_tokens"`
 	OutputTokensDetails struct {

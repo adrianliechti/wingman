@@ -1,7 +1,8 @@
 package claude
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"math"
 	"strings"
@@ -155,8 +156,8 @@ func simplifyNullableEnum(schema map[string]any) map[string]any {
 			matches = others[0] == "boolean"
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			matches = others[0] == "integer" || others[0] == "number"
-		case json.Number:
-			valid := len(v) > 0 && (v[0] == '-' || v[0] >= '0' && v[0] <= '9') && json.Valid([]byte(v))
+		case jsonv1.Number:
+			valid := len(v) > 0 && (v[0] == '-' || v[0] >= '0' && v[0] <= '9') && jsontext.Value(v).IsValid()
 			matches = valid && (others[0] == "number" || others[0] == "integer" && jsonutil.IsInteger(v))
 		case float64:
 			matches = others[0] == "number" || others[0] == "integer" && math.Trunc(v) == v
@@ -181,8 +182,8 @@ func simplifyNullableEnum(schema map[string]any) map[string]any {
 
 func supportedMinItems(value any) bool {
 	switch value.(type) {
-	case json.Number, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		number, ok := jsonutil.Int64(json.Number(fmt.Sprint(value)))
+	case jsonv1.Number, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		number, ok := jsonutil.Int64(jsonv1.Number(fmt.Sprint(value)))
 		return ok && (number == 0 || number == 1)
 	default:
 		return false

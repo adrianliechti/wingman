@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"

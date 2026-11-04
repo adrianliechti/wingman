@@ -1,8 +1,9 @@
 package tavily
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
@@ -43,7 +44,14 @@ func (c *Client) Scrape(ctx context.Context, url string, options *scraper.Scrape
 		"extract_depth": "advanced",
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", "https://api.tavily.com/extract", jsonReader(body))
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.tavily.com/extract", bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.token)
 
@@ -60,7 +68,7 @@ func (c *Client) Scrape(ctx context.Context, url string, options *scraper.Scrape
 
 	var data extractResult
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &data); err != nil {
 		return nil, err
 	}
 

@@ -6,8 +6,8 @@ type EmbeddingsRequest struct {
 
 	Input any `json:"input"`
 
-	EncodingFormat string `json:"encoding_format,omitempty"`
-	Dimensions     *int   `json:"dimensions,omitempty"`
+	EncodingFormat string `json:"encoding_format,omitzero"`
+	Dimensions     *int   `json:"dimensions,omitzero"`
 }
 
 // https://platform.openai.com/docs/api-reference/embeddings/object
@@ -25,7 +25,7 @@ type EmbeddingList struct {
 	Model string      `json:"model"`
 	Data  []Embedding `json:"data"`
 
-	Usage *Usage `json:"usage,omitempty"`
+	Usage *Usage `json:"usage,omitzero"`
 }
 
 type Usage struct {

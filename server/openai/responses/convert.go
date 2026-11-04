@@ -2,7 +2,8 @@ package responses
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"mime"
 	"path"
@@ -441,7 +442,7 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 
 			payload, _ := json.Marshal(map[string]any{
 				"type":   string(item.Type),
-				"output": json.RawMessage(output.Output),
+				"output": jsontext.Value(output.Output),
 			})
 
 			pendingResults = append(pendingResults, provider.ToolResultContent(provider.ToolResult{
@@ -921,16 +922,16 @@ func shellOutputType(tools []Tool) ResponseOutputType {
 
 // shellLocalEnvironment is the environment for shell calls executed by the
 // client, the only mode wingman supports.
-var shellLocalEnvironment = json.RawMessage(`{"type":"local"}`)
+var shellLocalEnvironment = jsontext.Value(`{"type":"local"}`)
 
 // emptyShellAction is the placeholder action for a call whose commands are
 // not yet known (output_item.added) or were lost to truncation.
-func emptyShellAction(itemType ResponseOutputType) json.RawMessage {
+func emptyShellAction(itemType ResponseOutputType) jsontext.Value {
 	if itemType == ResponseOutputTypeLocalShellCall {
-		return json.RawMessage(`{"type":"exec","command":[]}`)
+		return jsontext.Value(`{"type":"exec","command":[]}`)
 	}
 
-	return json.RawMessage(`{"commands":[]}`)
+	return jsontext.Value(`{"commands":[]}`)
 }
 
 // toolCallToShellCall converts a shell ToolCall of any dialect to a
@@ -968,13 +969,13 @@ func toolCallToToolSearchCall(call provider.ToolCall, status string) *ToolSearch
 		CallID:    call.ID,
 		Status:    status,
 		Execution: call.Execution,
-		Arguments: json.RawMessage("{}"),
+		Arguments: jsontext.Value("{}"),
 	}
 	if item.Execution == "" {
 		item.Execution = "server"
 	}
 	if call.Arguments != "" {
-		item.Arguments = json.RawMessage(call.Arguments)
+		item.Arguments = jsontext.Value(call.Arguments)
 	}
 	return item
 }

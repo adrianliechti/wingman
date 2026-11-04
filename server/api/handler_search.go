@@ -2,7 +2,8 @@ package api
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"mime"
@@ -123,28 +124,28 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 type SearchResult struct {
-	Source string `json:"source,omitempty"`
+	Source string `json:"source,omitzero"`
 
-	Title   string  `json:"title,omitempty"`
-	Excerpt string  `json:"excerpt,omitempty"`
-	Text    *string `json:"text,omitempty"`
+	Title   string  `json:"title,omitzero"`
+	Excerpt string  `json:"excerpt,omitzero"`
+	Text    *string `json:"text,omitzero"`
 
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type SearchRequest struct {
-	Model        string          `json:"model"`
-	Query        string          `json:"query"`
-	Input        string          `json:"input"`
-	Prompt       string          `json:"prompt"`
-	Instructions string          `json:"instructions"`
-	Limit        *int            `json:"limit"`
-	Category     string          `json:"category"`
-	Location     string          `json:"location"`
-	Domain       []string        `json:"domain"`
-	Since        string          `json:"since"`
-	Until        string          `json:"until"`
-	Text         json.RawMessage `json:"text"`
+	Model        string         `json:"model"`
+	Query        string         `json:"query"`
+	Input        string         `json:"input"`
+	Prompt       string         `json:"prompt"`
+	Instructions string         `json:"instructions"`
+	Limit        *int           `json:"limit"`
+	Category     string         `json:"category"`
+	Location     string         `json:"location"`
+	Domain       []string       `json:"domain"`
+	Since        string         `json:"since"`
+	Until        string         `json:"until"`
+	Text         jsontext.Value `json:"text"`
 }
 
 func readSearchRequest(w http.ResponseWriter, r *http.Request) (*SearchRequest, error) {
@@ -172,11 +173,11 @@ func readSearchRequest(w http.ResponseWriter, r *http.Request) (*SearchRequest, 
 		Prompt: r.FormValue("prompt"), Instructions: r.FormValue("instructions"),
 		Limit: valueLimit(r), Category: valueCategory(r), Location: valueLocation(r),
 		Domain: r.Form["domain"], Since: r.FormValue("since"), Until: r.FormValue("until"),
-		Text: json.RawMessage(r.FormValue("text")),
+		Text: jsontext.Value(r.FormValue("text")),
 	}, nil
 }
 
-func searchTextOptions(raw json.RawMessage) (*searcher.TextOptions, error) {
+func searchTextOptions(raw jsontext.Value) (*searcher.TextOptions, error) {
 	value := bytes.TrimSpace(raw)
 	switch string(value) {
 	case "", "null", "false":
@@ -188,15 +189,8 @@ func searchTextOptions(raw json.RawMessage) (*searcher.TextOptions, error) {
 		return nil, errors.New("text must be an options object, true, false or null")
 	}
 	var options searcher.TextOptions
-	decoder := json.NewDecoder(bytes.NewReader(value))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&options); err != nil {
+	if err := json.Unmarshal(value, &options, json.RejectUnknownMembers(true)); err != nil {
 		return nil, err
-	}
-	// RawMessage is already a single JSON value for JSON requests. Form fields
-	// need the same guarantee, without silently accepting trailing data.
-	if !json.Valid(value) {
-		return nil, errors.New("invalid text options")
 	}
 	return &options, nil
 }

@@ -3,20 +3,35 @@
 package jsonutil
 
 import (
-	"bytes"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
+	"io"
 )
 
-// Unmarshal works like encoding/json.Unmarshal, but numbers in interface
-// values become json.Number rather than float64. Custom UnmarshalJSON methods
-// still control their own decoding and must preserve numbers themselves.
-func Unmarshal(data []byte, value any) error {
-	// Validate the entire input before populating value, just as Unmarshal
-	// does. A Decoder alone would accept the first of two concatenated values.
-	if !json.Valid(data) {
-		return json.Unmarshal(data, value)
+// PreserveNumbers keeps opaque JSON numbers as json.Number instead of float64.
+// Number is the standard library's exact numeric representation; using it does
+// not enable legacy JSON semantics. Streaming custom decoders inherit this option.
+var PreserveNumbers = json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, value *any) error {
+	if dec.PeekKind() != '0' {
+		return errors.ErrUnsupported
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	return decoder.Decode(value)
+	raw, err := dec.ReadValue()
+	if err != nil {
+		return err
+	}
+	*value = jsonv1.Number(string(raw))
+	return nil
+}))
+
+// Unmarshal decodes one complete JSON value with lossless opaque numbers.
+// Like json.Unmarshal, it may partially populate value before reporting an error.
+func Unmarshal(data []byte, value any, opts ...json.Options) error {
+	return json.Unmarshal(data, value, PreserveNumbers, json.JoinOptions(opts...))
+}
+
+// UnmarshalRead decodes a single JSON value and rejects trailing input.
+func UnmarshalRead(reader io.Reader, value any, opts ...json.Options) error {
+	return json.UnmarshalRead(reader, value, PreserveNumbers, json.JoinOptions(opts...))
 }

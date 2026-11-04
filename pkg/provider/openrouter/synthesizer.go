@@ -3,7 +3,7 @@ package openrouter
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"iter"
 	"net/http"

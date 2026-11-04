@@ -1,7 +1,7 @@
 package server
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
@@ -72,5 +72,5 @@ func writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 
-	json.NewEncoder(w).Encode(body)
+	json.MarshalWrite(w, body)
 }

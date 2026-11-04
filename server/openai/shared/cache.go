@@ -7,8 +7,8 @@ import (
 )
 
 type PromptCacheOptions struct {
-	Mode string `json:"mode,omitempty"`
-	TTL  string `json:"ttl,omitempty"`
+	Mode string `json:"mode,omitzero"`
+	TTL  string `json:"ttl,omitzero"`
 }
 
 func (o *PromptCacheOptions) Validate() error {

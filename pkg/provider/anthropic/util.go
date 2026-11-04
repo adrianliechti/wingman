@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
@@ -52,8 +52,9 @@ func extractAnthropicErrorInfo(apierr *anthropic.Error) (message, errType string
 	raw := apierr.RawJSON()
 
 	if raw != "" {
+		// Bedrock error envelopes use both "message" and "Message".
 		var payload struct {
-			Message string `json:"message"`
+			Message string `json:"message,case:ignore"`
 			Code    string `json:"code"`
 			Type    string `json:"__type"`
 			Error   struct {

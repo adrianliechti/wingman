@@ -5,9 +5,9 @@ type ErrorResponse struct {
 }
 
 type Error struct {
-	Type    string `json:"type,omitempty"`
-	Code    string `json:"code,omitempty"`
-	Param   string `json:"param,omitempty"`
+	Type    string `json:"type,omitzero"`
+	Code    string `json:"code,omitzero"`
+	Param   string `json:"param,omitzero"`
 	Message string `json:"message"`
 }
 

@@ -2,7 +2,8 @@ package web
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -16,22 +17,20 @@ import (
 
 type URLList []string
 
-func (u *URLList) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
-		*u = nil
-		return nil
-	}
-	var single string
-	if json.Unmarshal(data, &single) == nil {
+func (u *URLList) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	switch dec.PeekKind() {
+	case '"':
+		var single string
+		if err := json.UnmarshalDecode(dec, &single); err != nil {
+			return err
+		}
 		*u = []string{single}
 		return nil
-	}
-	var urls []string
-	if err := json.Unmarshal(data, &urls); err != nil {
+	case '[', 'n':
+		return json.UnmarshalDecode(dec, (*[]string)(u))
+	default:
 		return errors.New("urls must be a string or array of strings")
 	}
-	*u = urls
-	return nil
 }
 
 func (h *Retriever) Scraper(r *http.Request, model string) (scraper.Provider, error) {

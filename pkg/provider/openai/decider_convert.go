@@ -2,7 +2,8 @@ package openai
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -109,7 +110,7 @@ func convertDecisionInput(req *openai.DecisionNewParams, input *provider.Decisio
 	if len(input.Messages) > 0 && len(input.Assets) == 0 {
 		// The server already validated this envelope. Preserve JSON numbers, image
 		// details, empty parts, tool ordering, and explicit cache boundaries.
-		if raw, ok := input.State.(json.RawMessage); ok {
+		if raw, ok := input.State.(jsontext.Value); ok {
 			req.Input = param.Override[openai.DecisionNewParamsInputUnion](raw)
 			return nil
 		}
@@ -190,7 +191,7 @@ func decisionImagePart(file *provider.File) map[string]any {
 
 func decisionContentPart(c provider.Content) map[string]any {
 	if len(c.JSON) > 0 {
-		return map[string]any{"type": "input_json", "data": json.RawMessage(c.JSON)}
+		return map[string]any{"type": "input_json", "data": jsontext.Value(c.JSON)}
 	}
 	part := map[string]any{"type": "input_text", "text": c.Text}
 	if c.File != nil {
@@ -203,7 +204,7 @@ func decisionContentPart(c provider.Content) map[string]any {
 }
 
 func convertQuestionInstructionParts(q provider.DecisionQuestion) ([]shared.DecisionQuestionInputPartUnionParam, string, bool) {
-	if raw, ok := q.Instructions.(json.RawMessage); ok && len(raw) > 0 {
+	if raw, ok := q.Instructions.(jsontext.Value); ok && len(raw) > 0 {
 		var text string
 		if json.Unmarshal(raw, &text) == nil {
 			return nil, text, false
@@ -273,7 +274,7 @@ func decisionText(value any) string {
 	if s, ok := value.(string); ok {
 		return s
 	}
-	data, _ := json.Marshal(value)
+	data, _ := json.Marshal(value, json.Deterministic(true))
 	var text string
 	if json.Unmarshal(data, &text) == nil {
 		return text

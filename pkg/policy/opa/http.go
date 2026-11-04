@@ -3,7 +3,7 @@ package opa
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -76,7 +76,7 @@ func (c *Client) Verify(ctx context.Context, resource policy.Resource, id string
 		Result *bool `json:"result"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return err
 	}
 

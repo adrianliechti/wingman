@@ -3,7 +3,7 @@ package kreuzberg
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -111,7 +111,7 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 	var result []ExtractionResult
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return nil, err
 	}
 

@@ -1,19 +1,20 @@
 package jsonutil
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
 	"strconv"
 	"strings"
 )
 
 // IsInteger checks the exact decimal value, including exponent notation.
-func IsInteger(value json.Number) bool {
+func IsInteger(value jsonv1.Number) bool {
 	_, _, _, ok := integerParts(value)
 	return ok
 }
 
 // Int64 accepts any JSON number whose exact value is an integer in int64 range.
-func Int64(value json.Number) (int64, bool) {
+func Int64(value jsonv1.Number) (int64, bool) {
 	digits, zeros, negative, ok := integerParts(value)
 	if !ok || zeros > 19 || len(digits) > 19-zeros {
 		return 0, false
@@ -27,9 +28,9 @@ func Int64(value json.Number) (int64, bool) {
 
 // Inspect decimal digits without expanding powers of ten. Even a valid JSON
 // number with an enormous exponent should take space proportional to its text.
-func integerParts(value json.Number) (digits string, zeros int, negative, ok bool) {
+func integerParts(value jsonv1.Number) (digits string, zeros int, negative, ok bool) {
 	s := value.String()
-	if len(s) == 0 || !(s[0] == '-' || s[0] >= '0' && s[0] <= '9') || !json.Valid([]byte(s)) {
+	if len(s) == 0 || !(s[0] == '-' || s[0] >= '0' && s[0] <= '9') || !jsontext.Value(s).IsValid() {
 		return "", 0, false, false
 	}
 	negative = s[0] == '-'

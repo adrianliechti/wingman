@@ -3,7 +3,7 @@ package docling
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -191,7 +191,7 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return convertError(resp)
 	}
-	return json.NewDecoder(resp.Body).Decode(result)
+	return json.UnmarshalRead(resp.Body, result)
 }
 
 func (c *Client) ExtractCapabilities() extractor.Capabilities {

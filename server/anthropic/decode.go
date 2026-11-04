@@ -1,24 +1,15 @@
 package anthropic
 
 import (
-	"encoding/json"
-	"fmt"
 	"io"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 )
 
 // Accept optional metadata and cache hints for compatibility. Controls whose omission
 // changes conversation behavior are validated explicitly after decoding.
 func decodeRequest(r io.Reader, target any) error {
-	decoder := json.NewDecoder(r)
-	decoder.UseNumber()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return fmt.Errorf("request must contain a single JSON value")
-	}
-	return nil
+	return jsonutil.UnmarshalRead(r, target)
 }
 
 func validEffort(effort string) bool {

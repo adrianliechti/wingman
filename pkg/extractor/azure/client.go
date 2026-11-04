@@ -3,7 +3,7 @@ package azure
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -190,7 +190,7 @@ func (c *Client) readOperation(ctx context.Context, operationURL string) (*Analy
 		return nil, convertError(resp)
 	}
 	var operation AnalyzeOperation
-	if err := json.NewDecoder(resp.Body).Decode(&operation); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &operation); err != nil {
 		return nil, err
 	}
 	return &operation, nil

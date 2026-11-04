@@ -1,9 +1,10 @@
 package chat
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -15,9 +16,7 @@ import (
 func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 	var req ChatCompletionRequest
 
-	decoder := json.NewDecoder(r.Body)
-	decoder.UseNumber()
-	if err := decoder.Decode(&req); err != nil {
+	if err := jsonutil.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

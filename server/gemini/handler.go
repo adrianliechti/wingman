@@ -1,7 +1,7 @@
 package gemini
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,11 +31,13 @@ func (h *Handler) Attach(r chi.Router) {
 }
 
 func writeJson(w http.ResponseWriter, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("encode response: %w", err))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.Encode(v)
+	w.Write(data)
 }
 
 func writeError(w http.ResponseWriter, code int, err error) {
@@ -49,12 +51,14 @@ func writeError(w http.ResponseWriter, code int, err error) {
 		w.Header().Set("Retry-After", v)
 	}
 
+	data, encodeErr := json.Marshal(ErrorResponse{Error: apiError})
+	if encodeErr != nil {
+		apiError.Code = http.StatusInternalServerError
+		data = []byte(`{"error":{"code":500,"status":"INTERNAL","message":"could not encode error response"}}`)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(apiError.Code)
-
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.Encode(ErrorResponse{Error: apiError})
+	w.Write(data)
 }
 
 func toAPIError(err error, fallback int) *APIError {

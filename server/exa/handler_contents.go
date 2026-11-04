@@ -1,7 +1,8 @@
 package exa
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,7 +13,7 @@ import (
 
 // contentSelector reads only the supported output limit. Other vendor rendering
 // and excerpt options are deliberately ignored for forward compatibility.
-func contentSelector(value json.RawMessage) (bool, int, error) {
+func contentSelector(value jsontext.Value) (bool, int, error) {
 	switch string(value) {
 	case "", "false", "null":
 		return false, 0, nil
@@ -59,7 +60,7 @@ func (h *Handler) handleContents(w http.ResponseWriter, r *http.Request) {
 	// This extraction subset defaults to text; search content options remain
 	// opt-in, including when an empty contents object is supplied.
 	if len(request.Text) == 0 {
-		request.Text = json.RawMessage("true")
+		request.Text = jsontext.Value("true")
 	}
 	text, limit, err := contentSelector(request.Text)
 	if err != nil {

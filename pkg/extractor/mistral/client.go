@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"mime"
@@ -107,7 +107,7 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 
 	var response Response
 
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &response); err != nil {
 		return nil, err
 	}
 

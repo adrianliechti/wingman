@@ -3,7 +3,7 @@ package embeddings
 import (
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"math"
 	"net/http"
@@ -16,7 +16,7 @@ import (
 func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	var req EmbeddingsRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
