@@ -2,9 +2,12 @@ package otel
 
 import (
 	"context"
+	"errors"
 	"os"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
@@ -58,4 +61,16 @@ func Setup() error {
 	}
 
 	return nil
+}
+
+// Shutdown flushes and closes the global telemetry providers installed by Setup.
+// Logs are shut down last so exporter errors can still be recorded.
+func Shutdown(ctx context.Context) error {
+	var err error
+	for _, provider := range []any{otel.GetTracerProvider(), otel.GetMeterProvider(), global.GetLoggerProvider()} {
+		if s, ok := provider.(interface{ Shutdown(context.Context) error }); ok {
+			err = errors.Join(err, s.Shutdown(ctx))
+		}
+	}
+	return err
 }

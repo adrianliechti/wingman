@@ -233,6 +233,14 @@ Run the server (reads `.env` for the referenced secrets):
 task server        # or: go run .
 ```
 
+On `SIGINT` (Ctrl+C) or `SIGTERM`, Wingman stops accepting connections and gives
+active HTTP requests up to five minutes to finish. This is a maximum wait:
+an idle server stops immediately, and shutdown continues
+as soon as the last request finishes. Wingman then cancels remaining requests and
+realtime sessions, drains budget reports (up to five seconds), and flushes telemetry
+(up to two seconds). A second signal exits immediately. When deploying in a
+container, allow enough termination grace for the request timeout plus cleanup.
+
 Call it with any OpenAI-compatible client — agents appear as regular models:
 
 ```shell
