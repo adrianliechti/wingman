@@ -45,7 +45,7 @@ func TestCodexHard(t *testing.T) {
 	compaction.options.setup = func(t *testing.T, dir string) {
 		compactionProject.Setup(t, dir)
 		var context strings.Builder
-		for i := 0; i < 400; i++ {
+		for i := range 400 {
 			fmt.Fprintf(&context, "Context %04d: Keep invoice pricing and item counts correct; use the fixture tests to verify every change.\n", i)
 		}
 		writeArtifact(t, filepath.Join(dir, "compaction_context.txt"), []byte(context.String()))

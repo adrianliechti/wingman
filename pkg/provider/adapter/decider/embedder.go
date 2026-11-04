@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 

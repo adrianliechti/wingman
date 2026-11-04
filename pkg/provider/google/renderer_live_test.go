@@ -12,6 +12,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/internal/testimage"
+
 	"github.com/joho/godotenv"
 )
 

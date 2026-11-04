@@ -102,7 +102,7 @@ func projectSteps(exchanges []harness.Exchange) ([]projectStep, error) {
 				calls[item.CallID] = projectStep{name: item.Name, command: args.Cmd}
 			case "custom_tool_call":
 				step := projectStep{name: item.Name}
-				for _, line := range strings.Split(item.Input, "\n") {
+				for line := range strings.SplitSeq(item.Input, "\n") {
 					for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "*** Move to: "} {
 						if file, ok := strings.CutPrefix(line, prefix); ok {
 							step.files = append(step.files, file)

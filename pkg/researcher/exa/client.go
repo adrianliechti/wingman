@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/adrianliechti/wingman/pkg/researcher"
+
 	"github.com/openai/openai-go/v3/packages/ssestream"
 )
 

@@ -38,7 +38,7 @@ func reviewRequestBody(t *testing.T, c provider.Completer, stream bool, body str
 		return rec.Body.Bytes(), rec.Body.String()
 	}
 	var result jsontext.Value
-	for _, line := range strings.Split(rec.Body.String(), "\n") {
+	for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 		data, ok := strings.CutPrefix(line, "data: ")
 		if !ok {
 			continue
@@ -185,7 +185,7 @@ func TestResponsesOpenAISummaryParts(t *testing.T) {
 			}
 			if stream {
 				var added, done []int
-				for _, line := range strings.Split(wire, "\n") {
+				for line := range strings.SplitSeq(wire, "\n") {
 					data, ok := strings.CutPrefix(line, "data: ")
 					if !ok {
 						continue
@@ -352,7 +352,7 @@ func TestResponsesReasoningPartsSparseAndEmpty(t *testing.T) {
 				}
 				if stream {
 					n := 0
-					for _, line := range strings.Split(wire, "\n") {
+					for line := range strings.SplitSeq(wire, "\n") {
 						data, ok := strings.CutPrefix(line, "data: ")
 						if !ok {
 							continue

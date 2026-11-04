@@ -89,9 +89,9 @@ func interactionProviderError(err error, status int, code, message, body string,
 	}
 	var details []map[string]any
 	// Some non-2xx streaming failures are already framed as SSE.
-	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(line, "data:") {
-			body = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	for line := range strings.SplitSeq(body, "\n") {
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			body = strings.TrimSpace(after)
 			break
 		}
 	}

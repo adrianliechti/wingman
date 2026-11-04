@@ -9,6 +9,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	searchrpc "github.com/adrianliechti/wingman/pkg/searcher/custom"
 	translaterpc "github.com/adrianliechti/wingman/pkg/translator/custom"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"

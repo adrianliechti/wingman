@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/tool/research"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

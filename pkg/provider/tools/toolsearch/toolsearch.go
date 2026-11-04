@@ -11,7 +11,6 @@ package toolsearch
 
 import (
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 

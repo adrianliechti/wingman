@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json/v2"
+	"io"
 	"net/http"
 	"reflect"
 	"testing"
@@ -22,8 +23,23 @@ func TestComplete_InteractionRequest(t *testing.T) {
 		if r.Header.Get("x-goog-api-key") != "test-token" {
 			t.Error("missing authentication")
 		}
-		if err := json.UnmarshalRead(r.Body, &request); err != nil {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &request); err != nil {
 			t.Error(err)
+		}
+		var wire struct {
+			GenerationConfig map[string]any `json:"generation_config"`
+		}
+		if err := json.Unmarshal(data, &wire); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"temperature", "top_p"} {
+			if _, present := wire.GenerationConfig[name]; present {
+				t.Errorf("sampling parameter %s must be omitted", name)
+			}
 		}
 		interactionEvents(createdEvent, completedEvent)(w, r)
 	}
@@ -63,9 +79,6 @@ func TestComplete_InteractionRequest(t *testing.T) {
 	config := request.GenerationConfig
 	if value(config.MaxOutputTokens) != 1024 || !reflect.DeepEqual(config.StopSequences, []string{"STOP"}) || value(config.ThinkingLevel) != interactions.ThinkingLevelHigh || value(config.ThinkingSummaries) != interactions.ThinkingSummariesAuto {
 		t.Fatalf("configuration lost: %+v", config)
-	}
-	if config.Temperature != nil || config.TopP != nil {
-		t.Fatal("Gemini sampling parameters must be omitted")
 	}
 	if config.ToolChoice == nil || value(config.ToolChoice.ToolChoiceType) != interactions.ToolChoiceTypeValidated || len(request.Tools) != 1 || value(request.Tools[0].Function.Name) != "weather_lookup" {
 		t.Fatalf("tools lost: %+v", request.Tools)

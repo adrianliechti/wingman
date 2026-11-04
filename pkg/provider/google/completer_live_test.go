@@ -44,7 +44,7 @@ func TestComplete_LiveComparison(t *testing.T) {
 	if directory := os.Getenv("WINGMAN_GOOGLE_LIVE_CAPTURE"); directory != "" {
 		client.Transport = &liveCaptureTransport{directory: directory}
 	}
-	for _, model := range strings.Split(models, ",") {
+	for model := range strings.SplitSeq(models, ",") {
 		model = strings.TrimSpace(model)
 		t.Run(model, func(t *testing.T) {
 			completer, err := NewCompleter(model, WithToken(key), WithClient(client))

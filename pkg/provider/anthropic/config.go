@@ -12,7 +12,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/v2/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 )

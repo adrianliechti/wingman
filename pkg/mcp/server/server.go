@@ -164,7 +164,7 @@ func (s *Server) refreshTools() error {
 					}, nil
 
 				default:
-					data, _ := json.Marshal(v)
+					data, _ := json.Marshal(v, json.Deterministic(true))
 
 					return &mcp.CallToolResult{
 						Content: []mcp.Content{

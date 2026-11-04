@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/openai/shared"

@@ -8,6 +8,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/decider"
+
 	"go.yaml.in/yaml/v4"
 )
 

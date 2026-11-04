@@ -12,6 +12,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/anthropic"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/go-chi/chi/v5"
 )
 

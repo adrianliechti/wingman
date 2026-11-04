@@ -15,7 +15,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/log/global"
 )
 
 func TestShutdownFlushesTelemetry(t *testing.T) {
@@ -49,7 +48,7 @@ func TestShutdownFlushesTelemetry(t *testing.T) {
 			previousEnabled := EnableTelemetry
 			previousTracer := otel.GetTracerProvider()
 			previousMeter := otel.GetMeterProvider()
-			previousLogger := global.GetLoggerProvider()
+			previousLogger := otel.GetLoggerProvider()
 			previousPropagator := otel.GetTextMapPropagator()
 			previousSlog := slog.Default()
 			previousTransport := http.DefaultTransport
@@ -61,7 +60,7 @@ func TestShutdownFlushesTelemetry(t *testing.T) {
 				EnableTelemetry = previousEnabled
 				otel.SetTracerProvider(previousTracer)
 				otel.SetMeterProvider(previousMeter)
-				global.SetLoggerProvider(previousLogger)
+				otel.SetLoggerProvider(previousLogger)
 				otel.SetTextMapPropagator(previousPropagator)
 				slog.SetDefault(previousSlog)
 				http.DefaultTransport = previousTransport

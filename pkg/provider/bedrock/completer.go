@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/internal/claude"
 	"github.com/adrianliechti/wingman/pkg/provider/internal/schema"
@@ -24,14 +23,13 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 
-	"github.com/google/uuid"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/transport/http"
+	"github.com/google/uuid"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -538,18 +536,15 @@ func convertError(err error) error {
 		}
 	}
 
-	var throttle *types.ThrottlingException
-	if errors.As(err, &throttle) {
+	if throttle, ok := errors.AsType[*types.ThrottlingException](err); ok {
 		return wrap(429, fmt.Sprintf("bedrock throttling: %s", aws.ToString(throttle.Message)))
 	}
 
-	var quotaExceeded *types.ServiceQuotaExceededException
-	if errors.As(err, &quotaExceeded) {
+	if quotaExceeded, ok := errors.AsType[*types.ServiceQuotaExceededException](err); ok {
 		return wrap(429, fmt.Sprintf("bedrock quota exceeded: %s", aws.ToString(quotaExceeded.Message)))
 	}
 
-	var validation *types.ValidationException
-	if errors.As(err, &validation) {
+	if validation, ok := errors.AsType[*types.ValidationException](err); ok {
 		message := aws.ToString(validation.Message)
 		errorType := ""
 		if isBedrockContentFilterMessage(message) {
@@ -558,43 +553,35 @@ func convertError(err error) error {
 		return wrap(400, fmt.Sprintf("bedrock validation: %s", message), errorType)
 	}
 
-	var accessDenied *types.AccessDeniedException
-	if errors.As(err, &accessDenied) {
+	if accessDenied, ok := errors.AsType[*types.AccessDeniedException](err); ok {
 		return wrap(403, fmt.Sprintf("bedrock access denied: %s", aws.ToString(accessDenied.Message)))
 	}
 
-	var resourceNotFound *types.ResourceNotFoundException
-	if errors.As(err, &resourceNotFound) {
+	if resourceNotFound, ok := errors.AsType[*types.ResourceNotFoundException](err); ok {
 		return wrap(404, fmt.Sprintf("bedrock resource not found: %s", aws.ToString(resourceNotFound.Message)))
 	}
 
-	var conflict *types.ConflictException
-	if errors.As(err, &conflict) {
+	if conflict, ok := errors.AsType[*types.ConflictException](err); ok {
 		return wrap(409, fmt.Sprintf("bedrock conflict: %s", aws.ToString(conflict.Message)))
 	}
 
-	var modelNotReady *types.ModelNotReadyException
-	if errors.As(err, &modelNotReady) {
+	if modelNotReady, ok := errors.AsType[*types.ModelNotReadyException](err); ok {
 		return wrap(503, fmt.Sprintf("bedrock model not ready: %s", aws.ToString(modelNotReady.Message)))
 	}
 
-	var serviceUnavailable *types.ServiceUnavailableException
-	if errors.As(err, &serviceUnavailable) {
+	if serviceUnavailable, ok := errors.AsType[*types.ServiceUnavailableException](err); ok {
 		return wrap(503, fmt.Sprintf("bedrock service unavailable: %s", aws.ToString(serviceUnavailable.Message)))
 	}
 
-	var modelTimeout *types.ModelTimeoutException
-	if errors.As(err, &modelTimeout) {
+	if modelTimeout, ok := errors.AsType[*types.ModelTimeoutException](err); ok {
 		return wrap(504, fmt.Sprintf("bedrock model timeout: %s", aws.ToString(modelTimeout.Message)))
 	}
 
-	var internalServer *types.InternalServerException
-	if errors.As(err, &internalServer) {
+	if internalServer, ok := errors.AsType[*types.InternalServerException](err); ok {
 		return wrap(500, fmt.Sprintf("bedrock internal error: %s", aws.ToString(internalServer.Message)))
 	}
 
-	var modelErr *types.ModelStreamErrorException
-	if errors.As(err, &modelErr) {
+	if modelErr, ok := errors.AsType[*types.ModelStreamErrorException](err); ok {
 		status := 500
 		if modelErr.OriginalStatusCode != nil && *modelErr.OriginalStatusCode > 0 {
 			status = int(*modelErr.OriginalStatusCode)
@@ -602,8 +589,7 @@ func convertError(err error) error {
 		return wrap(status, fmt.Sprintf("bedrock stream error: %s", aws.ToString(modelErr.Message)))
 	}
 
-	var modelError *types.ModelErrorException
-	if errors.As(err, &modelError) {
+	if modelError, ok := errors.AsType[*types.ModelErrorException](err); ok {
 		status := 500
 		if modelError.OriginalStatusCode != nil && *modelError.OriginalStatusCode > 0 {
 			status = int(*modelError.OriginalStatusCode)
@@ -612,8 +598,7 @@ func convertError(err error) error {
 	}
 
 	// Non-modeled HTTP errors: preserve the real upstream status code.
-	var respErr *http.ResponseError
-	if errors.As(err, &respErr) {
+	if respErr, ok := errors.AsType[*http.ResponseError](err); ok {
 		status := respErr.HTTPStatusCode()
 		if status <= 0 {
 			status = 500
@@ -621,8 +606,7 @@ func convertError(err error) error {
 		return wrap(status, fmt.Sprintf("bedrock: %s", err.Error()))
 	}
 
-	var ae smithy.APIError
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[smithy.APIError](err); ok {
 		status := 500
 		if ae.ErrorFault() == smithy.FaultClient {
 			status = 400

@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 )
 

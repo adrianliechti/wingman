@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/stretchr/testify/require"
 )
 

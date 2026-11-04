@@ -194,7 +194,7 @@ func TestResearchFixedBenchmark(t *testing.T) {
 	efforts := []provider.Effort{provider.EffortLow}
 	if profiles := os.Getenv("RESEARCH_BENCHMARK_EFFORTS"); profiles != "" {
 		efforts = nil
-		for _, profile := range strings.Split(profiles, ",") {
+		for profile := range strings.SplitSeq(profiles, ",") {
 			effort := provider.Effort(strings.TrimSpace(profile))
 			if effort != provider.EffortLow && effort != provider.EffortMedium && effort != provider.EffortHigh {
 				t.Fatalf("invalid benchmark effort %q", effort)

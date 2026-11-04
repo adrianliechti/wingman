@@ -73,7 +73,7 @@ func TestResponsesPreserveReasoningMetadata(t *testing.T) {
 				}
 				var result *Response
 				if stream {
-					for _, line := range strings.Split(rec.Body.String(), "\n") {
+					for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 						data, ok := strings.CutPrefix(line, "data: ")
 						if !ok {
 							continue
@@ -184,7 +184,7 @@ func TestResponsesPreserveReasoningStatus(t *testing.T) {
 				done := make(map[string]string)
 				summaryDone := make(map[string]jsontext.Value)
 				if stream {
-					for _, line := range strings.Split(rec.Body.String(), "\n") {
+					for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 						data, ok := strings.CutPrefix(line, "data: ")
 						if !ok {
 							continue

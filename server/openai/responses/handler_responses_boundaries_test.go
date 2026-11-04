@@ -65,7 +65,7 @@ func TestResponsesMessageBoundaries(t *testing.T) {
 				payload := rec.Body.Bytes()
 				if stream {
 					payload = nil
-					for _, line := range strings.Split(rec.Body.String(), "\n") {
+					for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 						if !strings.HasPrefix(line, "data: ") {
 							continue
 						}

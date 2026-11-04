@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -236,8 +237,7 @@ func appendToolResults(t *testing.T, p *protocol, calls []toolCall) {
 		}
 	}
 	// Return parallel results in reverse order to verify correlation by ID.
-	for i := len(calls) - 1; i >= 0; i-- {
-		c := calls[i]
+	for _, c := range slices.Backward(calls) {
 		result := strings.TrimPrefix(c.id, "call_") + "-result"
 		switch p.name {
 		case "chat":

@@ -11,6 +11,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/auth"
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/google/uuid"
 )
 

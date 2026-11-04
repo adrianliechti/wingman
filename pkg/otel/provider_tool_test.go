@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/tool/mcp"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
+
 	protocol "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

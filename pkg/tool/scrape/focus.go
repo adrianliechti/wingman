@@ -46,7 +46,7 @@ func focusedText(text, query string, budget int) string {
 		if strings.Contains(lower, phrase) {
 			p.score += 2
 		}
-		for _, line := range strings.Split(lower, "\n") {
+		for line := range strings.SplitSeq(lower, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "#") {
 				for _, term := range p.matches {
 					if strings.Contains(line, term) {

@@ -66,10 +66,6 @@ func codexEnv(configDir string) []string {
 	return append(env, "CODEX_HOME="+configDir, "WINGMAN_CODEX_TEST_KEY=wingman-codex-test")
 }
 
-func codexConfig(baseURL, model, catalog string, edit bool) string {
-	return codexConfigWithOptions(baseURL, model, catalog, edit, codexRunOptions{})
-}
-
 func codexConfigWithOptions(baseURL, model, catalog string, edit bool, options codexRunOptions) string {
 	sandbox := "read-only"
 	if edit {

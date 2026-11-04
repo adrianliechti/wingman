@@ -79,9 +79,7 @@ func (h *Handler) handleRerank(w http.ResponseWriter, r *http.Request) {
 			Index: index,
 			Score: r.Score,
 
-			Segment: Segment{
-				Text: r.Text,
-			},
+			Text: r.Text,
 		}
 
 		result.Results = append(result.Results, ranking)

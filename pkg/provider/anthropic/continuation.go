@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/anthropics/anthropic-sdk-go/v2"
 )
 

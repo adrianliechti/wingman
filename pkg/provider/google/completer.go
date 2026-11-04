@@ -8,6 +8,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
+
 	"google.golang.org/genai/interactions/models/operations"
 )
 

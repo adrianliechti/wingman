@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"google.golang.org/genai"
 )
 

@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"

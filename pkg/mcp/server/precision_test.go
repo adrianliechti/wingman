@@ -45,7 +45,14 @@ func TestToolExecutionPreservesNumbers(t *testing.T) {
 	if err != nil || string(data) != args {
 		t.Fatalf("arguments changed: %s (%v)", data, err)
 	}
-	if len(result.Content) != 1 || result.Content[0].(*mcp.TextContent).Text != args {
-		t.Fatalf("result changed: %+v", result)
+	if len(result.Content) != 1 {
+		t.Fatalf("expected one text result, got %+v", result)
+	}
+	content, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected text result, got %T", result.Content[0])
+	}
+	if content.Text != args {
+		t.Fatalf("result changed: %s", content.Text)
 	}
 }

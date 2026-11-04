@@ -218,7 +218,7 @@ func (a *CompletionAccumulator) addReasoning(r *Reasoning) {
 		}
 	}
 	if target == nil {
-		target = &accumulatedReasoning{Reasoning: Reasoning{ID: r.ID, Redacted: r.Redacted}}
+		target = &accumulatedReasoning{ID: r.ID, Redacted: r.Redacted}
 		a.reasonings = append(a.reasonings, target)
 		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentReasoning, index: len(a.reasonings) - 1})
 	}

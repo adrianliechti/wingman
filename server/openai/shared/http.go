@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/openai/openai-go/v3"
 )
 
@@ -74,8 +75,7 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 		},
 	}
 
-	var apiErr *Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*Error](err); ok {
 		resp.Error = *apiErr
 
 		if resp.Error.Type == "" {

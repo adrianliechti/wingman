@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/tokens"
 	"github.com/adrianliechti/wingman/server/openai/shared"

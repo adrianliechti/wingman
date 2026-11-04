@@ -209,7 +209,7 @@ func postGeminiResponses(t *testing.T, url, model string, input, tools []map[str
 		var completed jsontext.Value
 		var doneItems []map[string]any
 		var added []string
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			payload, ok := strings.CutPrefix(line, "data: ")
 			if !ok {
 				continue
@@ -283,7 +283,7 @@ func TestResponsesGeminiLiveReplay(t *testing.T) {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			input := []map[string]any{{"role": "user", "content": "Inspect a Go repository using tools. First call glob twice for **/AGENTS.md and **/CLAUDE.md. Wait for their results. Then explain your next action and call glob for pkg/agent/*.go and run_command for git log --oneline -5. Wait for their results, then reply with DONE. Do not skip either stage."}}
 			calls, thoughts := 0, 0
-			for turn := 0; turn < 5; turn++ {
+			for turn := range 5 {
 				output := postGeminiResponses(t, server.URL, model, input, geminiReplayTools(), stream)
 				input = append(input, output...)
 				var results []map[string]any

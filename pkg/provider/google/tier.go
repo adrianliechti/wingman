@@ -2,6 +2,7 @@ package google
 
 import (
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"google.golang.org/genai/interactions/models/interactions"
 )
 

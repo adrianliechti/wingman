@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/openai/shared"
@@ -554,6 +553,7 @@ func completionFailure(completion *provider.Completion) error {
 	if completion != nil && completion.StopDetails != nil && completion.StopDetails.Type != "" {
 		return errors.New("The model stopped generating: " + completion.StopDetails.Type)
 	}
+	//lint:ignore ST1005 Preserve the client-facing Responses error text.
 	return errors.New("The model stopped generating without a usable result.")
 }
 

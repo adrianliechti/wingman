@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/base64"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -13,9 +14,6 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
-	"encoding/json/jsontext"
-
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )

@@ -31,13 +31,11 @@ type TextSplitter struct {
 
 func NewTextSplitter() TextSplitter {
 	return TextSplitter{
-		SplitterOptions: SplitterOptions{
-			ChunkSize:    1500,
-			ChunkOverlap: 0,
-			Trim:         true,
-			Normalize:    false,
-			LenFunc:      utf8.RuneCountInString,
-		},
+		ChunkSize:    1500,
+		ChunkOverlap: 0,
+		Trim:         true,
+		Normalize:    false,
+		LenFunc:      utf8.RuneCountInString,
 	}
 }
 

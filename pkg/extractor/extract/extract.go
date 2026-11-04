@@ -9,7 +9,6 @@ import (
 	"unicode"
 
 	"github.com/adrianliechti/go-extract"
-
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/plain"
 	"github.com/adrianliechti/wingman/pkg/text"

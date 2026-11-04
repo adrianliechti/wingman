@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"image"
-	"math"
-	"regexp"
-	"strings"
-
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
+	"regexp"
+	"strings"
 )
 
 // ImageDims returns the pixel dimensions of raw image bytes (PNG, JPEG, GIF,

@@ -11,6 +11,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/text"
+
 	"golang.org/x/net/html"
 )
 
@@ -200,7 +201,7 @@ func parseResults(body io.Reader) ([]searcher.Result, error) {
 func hasClass(n *html.Node, name string) bool {
 	for _, attr := range n.Attr {
 		if attr.Key == "class" {
-			for _, class := range strings.Fields(attr.Val) {
+			for class := range strings.FieldsSeq(attr.Val) {
 				if class == name {
 					return true
 				}

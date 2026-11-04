@@ -170,8 +170,7 @@ func TestWebProviderGuardConfiguration(t *testing.T) {
 				wantSpans, wantCalls := 1, 1
 				if guarded {
 					wantSpans, wantCalls = 2, 0
-					var flagged *guard.FlaggedError
-					if !errors.As(err, &flagged) {
+					if _, ok := errors.AsType[*guard.FlaggedError](err); !ok {
 						t.Fatalf("error = %v", err)
 					}
 				} else if !errors.Is(err, sentinel) {

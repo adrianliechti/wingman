@@ -39,13 +39,11 @@ func NewAsync(p Provider, capacity, workers int) *Async {
 	}
 	a := &Async{Provider: p, jobs: make(chan reportJob, capacity), done: make(chan struct{})}
 	for range workers {
-		a.workers.Add(1)
-		go func() {
-			defer a.workers.Done()
+		a.workers.Go(func() {
 			for job := range a.jobs {
 				a.deliver(job)
 			}
-		}()
+		})
 	}
 	return a
 }

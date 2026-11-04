@@ -149,7 +149,7 @@ func toolLoop(t *testing.T, h *openai.Harness, tg target, body map[string]any) (
 	messages := append([]any{}, body["messages"].([]any)...)
 	calls := 0
 
-	for round := 0; round < 6; round++ {
+	for range 6 {
 		req := chat.WithModel(body, tg.model)
 		req["messages"] = messages
 
@@ -515,11 +515,8 @@ func TestConcurrentStreams(t *testing.T) {
 			var wg sync.WaitGroup
 			errs := make(chan error, hardtest.Concurrency)
 
-			for i := 0; i < hardtest.Concurrency; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-
+			for i := range hardtest.Concurrency {
+				wg.Go(func() {
 					req := chat.WithModel(map[string]any{"messages": user(hardtest.UnicodePrompt)}, model.Name)
 					req["stream"] = true
 
@@ -531,7 +528,7 @@ func TestConcurrentStreams(t *testing.T) {
 					if text := streamedText(events); !strings.Contains(text, "Zürich") {
 						errs <- fmt.Errorf("stream %d: %q", i, text)
 					}
-				}()
+				})
 			}
 
 			wg.Wait()

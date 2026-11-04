@@ -6,14 +6,12 @@ import (
 	"os"
 	"strings"
 
-	"go.opentelemetry.io/otel/log/global"
-
-	"go.opentelemetry.io/otel/sdk/log"
-	"go.opentelemetry.io/otel/sdk/resource"
-
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 func setupLogger(ctx context.Context, resource *resource.Resource) error {
@@ -35,7 +33,7 @@ func setupLogger(ctx context.Context, resource *resource.Resource) error {
 		log.WithResource(resource),
 	)
 
-	global.SetLoggerProvider(provider)
+	otel.SetLoggerProvider(provider)
 
 	logger := otelslog.NewLogger("", otelslog.WithLoggerProvider(provider))
 	slog.SetDefault(logger)

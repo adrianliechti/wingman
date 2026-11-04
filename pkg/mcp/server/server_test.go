@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/tool"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

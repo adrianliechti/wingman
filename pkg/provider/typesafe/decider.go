@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/google/uuid"
 )
 

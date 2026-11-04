@@ -15,9 +15,7 @@ import (
 )
 
 func convertError(err error) error {
-	var apierr *anthropic.Error
-
-	if errors.As(err, &apierr) {
+	if apierr, ok := errors.AsType[*anthropic.Error](err); ok {
 		message, errType := extractAnthropicErrorInfo(apierr)
 		code := apierr.StatusCode
 		if code < 400 {

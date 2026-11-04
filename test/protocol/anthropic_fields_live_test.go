@@ -2,6 +2,7 @@ package protocol_test
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"maps"
@@ -14,13 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"encoding/json/jsontext"
-
 	"github.com/adrianliechti/wingman/config"
-	"github.com/adrianliechti/wingman/pkg/policy/noop"
-	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
-	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
-
 	// PROTOCOL_REFERENCE_LIVE=1 go test ./test/protocol -run TestLiveAnthropicFields -v
 	// Compare every JSON field against the SAME upstream generation, retaining raw
 	// objects so an SDK's typed decoder cannot silently discard newly added fields.
@@ -28,6 +23,9 @@ import (
 	// SSE chunk boundaries and ping timing are transport-specific; their contents,
 	// block indexes, lifecycle, start message and final message are checked.
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
+	"github.com/adrianliechti/wingman/pkg/policy/noop"
+	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
+	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 )
 
 func TestLiveAnthropicFields(t *testing.T) {

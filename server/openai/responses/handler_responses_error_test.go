@@ -11,11 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adrianliechti/wingman/test/harness"
-
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/test/harness"
 )
 
 const errorTestModel = "error-test-model"

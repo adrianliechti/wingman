@@ -49,8 +49,8 @@ func wingmanURL() string {
 	base := strings.TrimRight(env("WINGMAN_BASE_URL", DefaultWingmanURL), "/")
 	// A shared E2E invocation uses /v1 for OpenAI and Anthropic. Gemini's
 	// native routes use /v1beta on the same server.
-	if strings.HasSuffix(base, "/v1") {
-		return strings.TrimSuffix(base, "/v1") + "/v1beta"
+	if before, ok := strings.CutSuffix(base, "/v1"); ok {
+		return before + "/v1beta"
 	}
 	return base
 }

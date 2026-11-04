@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"maps"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -899,9 +900,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 
 					case provider.ToolKindToolSearch:
 						loaded := toolsearch.Tools(c.ToolResult.Payload)
-						for name, tool := range provider.ToolAliases(loaded) {
-							loadedTools[name] = tool
-						}
+						maps.Copy(loadedTools, provider.ToolAliases(loaded))
 						for _, tool := range loaded {
 							if len(tool.Tools) == 0 {
 								// Responses loads a top-level deferred function into

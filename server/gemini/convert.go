@@ -74,6 +74,7 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 	case c.Role == "model":
 		role = provider.MessageRoleAssistant
 	default:
+		//lint:ignore ST1005 Preserve the client-facing Gemini error text.
 		return nil, fmt.Errorf("Please use a valid role: user, model.")
 	}
 

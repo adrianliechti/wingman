@@ -9,6 +9,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
+
 	"google.golang.org/genai/interactions/models/interactions"
 	"google.golang.org/genproto/googleapis/rpc/code"
 )

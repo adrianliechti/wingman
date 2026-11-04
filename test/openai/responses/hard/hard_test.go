@@ -118,7 +118,7 @@ func toolLoop(t *testing.T, h *openai.Harness, tg target, body map[string]any) (
 	input := append([]any{}, body["input"].([]any)...)
 	calls := 0
 
-	for round := 0; round < 6; round++ {
+	for range 6 {
 		req := responses.WithModel(body, tg.model)
 		req["input"] = input
 
@@ -495,11 +495,8 @@ func TestConcurrentStreams(t *testing.T) {
 			var wg sync.WaitGroup
 			errs := make(chan error, hardtest.Concurrency)
 
-			for i := 0; i < hardtest.Concurrency; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-
+			for i := range hardtest.Concurrency {
+				wg.Go(func() {
 					req := responses.WithModel(body, model.Name)
 					req["stream"] = true
 
@@ -513,7 +510,7 @@ func TestConcurrentStreams(t *testing.T) {
 					if deltas == "" || deltas != done {
 						errs <- fmt.Errorf("stream %d: text %q done %q", i, deltas, done)
 					}
-				}()
+				})
 			}
 
 			wg.Wait()

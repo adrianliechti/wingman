@@ -1,15 +1,17 @@
 package provider
 
+import "slices"
+
 // FinalMessageIndex selects the last explicit final answer, or the last
 // unphased message when the provider does not label its output. Commentary
 // alone is never a final answer. Pass only assistant message items.
 func FinalMessageIndex(phases []MessagePhase) int {
 	fallback := -1
-	for i := len(phases) - 1; i >= 0; i-- {
-		if phases[i] == MessagePhaseFinalAnswer {
+	for i, phase := range slices.Backward(phases) {
+		if phase == MessagePhaseFinalAnswer {
 			return i
 		}
-		if fallback < 0 && phases[i] == "" {
+		if fallback < 0 && phase == "" {
 			fallback = i
 		}
 	}

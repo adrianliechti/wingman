@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-
 	// Core semconv v1.42 removed GenAI conventions; v1.41 is the last Go package
 	// providing these attributes and metric helpers. Keep it separate from core semconv.
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -88,13 +87,11 @@ func normalizeErrorType(err error) string {
 		return "timeout"
 	}
 
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
 		return "dns_error"
 	}
 
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
+	if _, ok := errors.AsType[*net.OpError](err); ok {
 		return "connection_error"
 	}
 

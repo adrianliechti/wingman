@@ -18,7 +18,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 
 	"github.com/google/uuid"
-
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 )

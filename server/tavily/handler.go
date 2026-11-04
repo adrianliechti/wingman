@@ -5,6 +5,7 @@ import (
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/server/web"
+
 	"github.com/go-chi/chi/v5"
 )
 
