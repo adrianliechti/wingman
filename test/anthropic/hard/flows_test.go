@@ -395,7 +395,7 @@ func TestFlowTextThenToolLoop(t *testing.T) {
 				"tools":      []any{anthropic.WeatherTool},
 			}
 			if model.Capabilities.Thinking {
-				body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 1024}
+				body["thinking"] = map[string]any{"type": "adaptive"}
 			}
 
 			runs := map[string]map[bool]messageRun{}

@@ -95,7 +95,7 @@ func modelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"gemini-3.8-flash", "claude-sonnet-4-6", "gpt-5.4"}
+	names := []string{"gemini-3.8-flash", "claude-sonnet-5-5", "gpt-6.1-sol"}
 	if v := os.Getenv("TEST_GEMINI_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {

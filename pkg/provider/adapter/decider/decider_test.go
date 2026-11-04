@@ -5,6 +5,7 @@ import (
 	"errors"
 	"iter"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,6 +35,43 @@ func decisionInput() *provider.DecisionInput {
 			}}},
 			{ID: "private-score-id", Instructions: []any{"Rate severity"}, Score: &provider.ScoreQuestion{Levels: []any{nil, "Medium", map[string]any{"severity": "High"}}}},
 		},
+	}
+}
+
+func TestDecisionPromptsStable(t *testing.T) {
+	for _, mode := range []string{"completer", "embedder"} {
+		t.Run(mode, func(t *testing.T) {
+			var first []string
+			capture := func(texts []string) {
+				if first == nil {
+					first = slices.Clone(texts)
+				} else if !slices.Equal(texts, first) {
+					t.Fatal("unchanged decision input produced different model text")
+				}
+			}
+			stop := errors.New("captured input")
+			var decider provider.Decider
+			if mode == "completer" {
+				decider = FromCompleter("test", completerFunc(func(_ context.Context, messages []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+					var texts []string
+					for _, message := range messages {
+						texts = append(texts, message.Text())
+					}
+					capture(texts)
+					return func(yield func(*provider.Completion, error) bool) { yield(nil, stop) }
+				}))
+			} else {
+				decider = FromEmbedder("test", embedderFunc(func(_ context.Context, texts []string, _ *provider.EmbedOptions) (*provider.Embedding, error) {
+					capture(texts)
+					return nil, stop
+				}))
+			}
+			for range 100 {
+				if _, err := decider.Decide(t.Context(), decisionInput()); !errors.Is(err, stop) {
+					t.Fatalf("expected captured input, got %v", err)
+				}
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/harness"
@@ -13,6 +14,11 @@ func WithModel(body map[string]any, model string) map[string]any {
 	m := make(map[string]any)
 	maps.Copy(m, body)
 	m["model"] = model
+	// GPT-6 defaults to reasoning, which its Chat Completions endpoint rejects
+	// with function tools. Explicit reasoning scenarios retain their setting.
+	if _, explicit := m["reasoning_effort"]; !explicit && m["tools"] != nil && strings.HasPrefix(model, "gpt-6") {
+		m["reasoning_effort"] = "none"
+	}
 	return m
 }
 

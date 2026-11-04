@@ -110,7 +110,7 @@ func (a *EmbedderAdapter) Decide(ctx context.Context, input *provider.DecisionIn
 			if len(input.Messages) > 0 {
 				stateForScore = stateValue
 			}
-			stateJSON, err := json.Marshal(stateForScore)
+			stateJSON, err := json.Marshal(stateForScore, json.Deterministic(true))
 			if err != nil {
 				return nil, err
 			}
@@ -122,7 +122,7 @@ func (a *EmbedderAdapter) Decide(ctx context.Context, input *provider.DecisionIn
 				if q.Score.Labels != nil && q.Score.Labels[i] != "" {
 					criterion["label"] = q.Score.Labels[i]
 				}
-				text, err := json.Marshal(criterion)
+				text, err := json.Marshal(criterion, json.Deterministic(true))
 				if err != nil {
 					return nil, err
 				}
@@ -142,7 +142,7 @@ func (a *EmbedderAdapter) Decide(ctx context.Context, input *provider.DecisionIn
 			}
 			label := strings.ReplaceAll(option.Label, "_", " ")
 			if option.Value != nil {
-				value, err := json.Marshal(option.Value)
+				value, err := json.Marshal(option.Value, json.Deterministic(true))
 				if err != nil {
 					return nil, err
 				}

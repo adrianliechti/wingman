@@ -78,7 +78,7 @@ func TestInputTokensVsReference(t *testing.T) {
 
 	scenarios := map[string]map[string]any{
 		"multi_tool_conversation": {
-			"model":        "gpt-5",
+			"model":        "gpt-6-luna",
 			"instructions": "You are a travel planning assistant. Prefer the cheapest reasonable option and always confirm before booking.",
 			"tools":        tools,
 			"input": []map[string]any{
@@ -90,7 +90,7 @@ func TestInputTokensVsReference(t *testing.T) {
 			},
 		},
 		"image_data_and_tools": {
-			"model":        "gpt-5",
+			"model":        "gpt-6-luna",
 			"instructions": "You analyze charts and verify the numbers against the warehouse.",
 			"tools":        tools,
 			"input": []map[string]any{

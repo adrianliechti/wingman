@@ -263,17 +263,13 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 			flushResults()
 
 			call := item.InputApplyPatchCall
-			args, _ := json.Marshal(map[string]any{
-				"type": call.Operation.Type,
-				"path": call.Operation.Path,
-				"diff": call.Operation.Diff,
-			})
+			args := (texteditor.Operation{Type: call.Operation.Type, Path: call.Operation.Path, Diff: call.Operation.Diff}).Args()
 
 			pendingCalls = append(pendingCalls, provider.ToolCallContent(provider.ToolCall{
 				ID:        call.CallID,
 				Kind:      provider.ToolKindTextEditor,
 				Name:      "apply_patch",
-				Arguments: string(args),
+				Arguments: args,
 			}))
 
 		case InputItemTypeApplyPatchCallOutput:

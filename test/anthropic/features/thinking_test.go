@@ -19,8 +19,8 @@ func TestThinkingHTTP(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
-					"type":          "enabled",
-					"budget_tokens": 5000,
+					"type":    "adaptive",
+					"display": "summarized",
 				},
 				"messages": []map[string]any{
 					{"role": "user", "content": harness.ReasoningPrompt},
@@ -52,8 +52,8 @@ func TestThinkingSSE(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
-					"type":          "enabled",
-					"budget_tokens": 5000,
+					"type":    "adaptive",
+					"display": "summarized",
 				},
 				"messages": []map[string]any{
 					{"role": "user", "content": harness.ReasoningPrompt},
@@ -80,8 +80,8 @@ func TestThinkingMultiTurnHTTP(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
-					"type":          "enabled",
-					"budget_tokens": 5000,
+					"type":    "adaptive",
+					"display": "summarized",
 				},
 				"messages": []map[string]any{
 					{"role": "user", "content": harness.ReasoningPrompt},

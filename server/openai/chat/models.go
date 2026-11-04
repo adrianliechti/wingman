@@ -1,13 +1,11 @@
 package chat
 
 import (
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
-
-	"encoding/json/jsontext"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
@@ -205,39 +203,18 @@ func (m *ChatCompletionMessage) MarshalJSONTo(enc *jsontext.Encoder) error {
 		return errors.New("cannot have both content and contents")
 	}
 
-	if len(m.Contents) > 0 {
+	type message ChatCompletionMessage
+	if m.Contents != nil {
 		return json.MarshalEncode(enc, struct {
-			Role        MessageRole      `json:"role,omitzero"`
-			Contents    []MessageContent `json:"content,omitempty"`
-			Refusal     *string          `json:"refusal,omitzero"`
-			ToolCalls   []ToolCall       `json:"tool_calls,omitempty"`
-			ToolCallID  string           `json:"tool_call_id,omitzero"`
-			Annotations []any            `json:"annotations,omitzero"`
-		}{
-			Role:        m.Role,
-			Contents:    m.Contents,
-			Refusal:     m.Refusal,
-			ToolCalls:   m.ToolCalls,
-			ToolCallID:  m.ToolCallID,
-			Annotations: m.Annotations,
-		})
+			*message
+			Content []MessageContent `json:"content"`
+		}{(*message)(m), m.Contents})
 	}
 
 	return json.MarshalEncode(enc, struct {
-		Role        MessageRole `json:"role,omitzero"`
-		Content     *string     `json:"content,omitzero"`
-		Refusal     *string     `json:"refusal"`
-		ToolCalls   []ToolCall  `json:"tool_calls,omitempty"`
-		ToolCallID  string      `json:"tool_call_id,omitzero"`
-		Annotations []any       `json:"annotations,omitzero"`
-	}{
-		Role:        m.Role,
-		Content:     m.Content,
-		Refusal:     m.Refusal,
-		ToolCalls:   m.ToolCalls,
-		ToolCallID:  m.ToolCallID,
-		Annotations: m.Annotations,
-	})
+		*message
+		Refusal *string `json:"refusal"`
+	}{(*message)(m), m.Refusal})
 }
 
 func (m *ChatCompletionMessage) UnmarshalJSONFrom(dec *jsontext.Decoder) error {

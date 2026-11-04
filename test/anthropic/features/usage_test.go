@@ -126,8 +126,7 @@ func TestUsageTokensThinking(t *testing.T) {
 	body := map[string]any{
 		"max_tokens": 16000,
 		"thinking": map[string]any{
-			"type":          "enabled",
-			"budget_tokens": 5000,
+			"type": "adaptive",
 		},
 		"messages": []map[string]any{
 			{"role": "user", "content": harness.ReasoningPrompt},

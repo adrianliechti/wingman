@@ -50,7 +50,7 @@ func TestResponsesLiveCrossProviderReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gpt, err := openai.NewResponder("https://api.openai.com/v1", "gpt-5.4-mini", openai.WithToken(key("OPENAI_API_KEY")), openai.WithClient(client))
+	gpt, err := openai.NewResponder("https://api.openai.com/v1", "gpt-6-luna", openai.WithToken(key("OPENAI_API_KEY")), openai.WithClient(client))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -119,6 +119,16 @@ func TestParseOperationArgs(t *testing.T) {
 	}
 }
 
+func TestOperationArgsStableAcrossReplay(t *testing.T) {
+	op := Operation{Type: "update_file", Path: "main.go", Diff: "@@\n-old\n+new\n"}
+	want := op.Args()
+	for range 100 {
+		if got := ParseEnvelope(op.Envelope()).Args(); got != want {
+			t.Fatalf("replayed arguments changed the cached prompt: got %s, want %s", got, want)
+		}
+	}
+}
+
 func TestFunctionTool(t *testing.T) {
 	applyPatch := FunctionTool(provider.Tool{Kind: provider.ToolKindTextEditor, Name: NameApplyPatch})
 

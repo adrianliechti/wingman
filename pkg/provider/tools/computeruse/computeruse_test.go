@@ -21,6 +21,16 @@ func TestParseCall_OpenAI(t *testing.T) {
 	}
 }
 
+func TestCallArgsStableAcrossReplay(t *testing.T) {
+	call := ParseCall(`{"call_id":"call_1","actions":[{"type":"click","button":"left","x":10,"y":20}]}`)
+	want := call.Args()
+	for range 100 {
+		if got := ParseCall(want).Args(); got != want {
+			t.Fatalf("replayed arguments changed the cached prompt: got %s, want %s", got, want)
+		}
+	}
+}
+
 func TestParseCall_AnthropicInput(t *testing.T) {
 	call := ParseCall(`{"action":"left_click","coordinate":[10,20]}`)
 

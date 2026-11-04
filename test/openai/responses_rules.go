@@ -38,6 +38,8 @@ func DefaultResponsesResponseRules() map[string]harness.FieldRule {
 		"error":                   harness.FieldExact,
 		"text.format.description": harness.FieldIgnore,
 		"prompt_cache_retention":  harness.FieldIgnore,
+		// Native OpenAI also reports its image context-compression setting.
+		"image": harness.FieldOptional,
 
 		"billing":           harness.FieldIgnore,
 		"store":             harness.FieldIgnore,
@@ -82,6 +84,7 @@ func DefaultResponsesSSERules() map[string]harness.FieldRule {
 		"response.reasoning.context":                            harness.FieldPresence,
 		"response.text.format.description":                      harness.FieldIgnore,
 		"response.prompt_cache_retention":                       harness.FieldIgnore,
+		"response.image":                                        harness.FieldOptional,
 		"response.billing":                                      harness.FieldIgnore,
 		"response.store":                                        harness.FieldIgnore,
 		"response.service_tier":                                 harness.FieldPresence,

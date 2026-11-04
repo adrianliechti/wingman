@@ -216,7 +216,7 @@ func buildSSML(voice, text string, speed *float32) (string, error) {
 		Voice   struct {
 			Name    string       `xml:"name,attr"`
 			Text    string       `xml:",chardata"`
-			Prosody *ssmlProsody `xml:"prosody,omitzero"`
+			Prosody *ssmlProsody `xml:"prosody,omitempty"`
 		} `xml:"voice"`
 	}{
 		Version: "1.0",

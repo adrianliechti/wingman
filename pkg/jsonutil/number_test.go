@@ -3,6 +3,8 @@ package jsonutil
 import (
 	"encoding/json/v2"
 	"fmt"
+	"math"
+	"math/big"
 	"strconv"
 	"testing"
 )
@@ -77,4 +79,46 @@ func TestNumberCodecs(t *testing.T) {
 	if err := json.Unmarshal([]byte("null"), &value); err != nil || value != "" {
 		t.Fatalf("null did not reset value: %q (%v)", value, err)
 	}
+}
+
+func FuzzExactIntegerNumbers(f *testing.F) {
+	for _, coefficient := range []int64{0, 1, -1, 10, 9007199254740993, math.MinInt64, math.MaxInt64} {
+		f.Add(coefficient, int8(0), uint8(0))
+		f.Add(coefficient, int8(-1), uint8(1))
+		f.Add(coefficient, int8(127), uint8(5))
+	}
+	f.Fuzz(func(t *testing.T, coefficient int64, exponent int8, fraction uint8) {
+		digits := strconv.FormatInt(coefficient, 10)
+		sign := ""
+		if coefficient < 0 {
+			sign, digits = "-", digits[1:]
+		}
+		if places := int(fraction) % len(digits); places > 0 {
+			split := len(digits) - places
+			digits = digits[:split] + "." + digits[split:]
+		}
+		number := Number(fmt.Sprintf("%s%se%d", sign, digits, exponent))
+		// Use exact rational arithmetic as an independent reference. The int8
+		// exponent bounds memory use even while fuzzing adversarial inputs.
+		want, ok := new(big.Rat).SetString(string(number))
+		if !ok {
+			t.Fatalf("invalid generated number %q", number)
+		}
+		if got := IsInteger(number); got != want.IsInt() {
+			t.Errorf("IsInteger(%s) = %v, want %v", number, got, want.IsInt())
+		}
+		got, ok := Int64(number)
+		fits := want.IsInt() && want.Num().IsInt64()
+		if ok != fits || ok && got != want.Num().Int64() {
+			t.Errorf("Int64(%s) = %d, %v; want %s, %v", number, got, ok, want, fits)
+		}
+		data, err := json.Marshal(number)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded Number
+		if err := json.Unmarshal(data, &decoded); err != nil || decoded != number {
+			t.Fatalf("number changed: %s -> %s (%v)", number, decoded, err)
+		}
+	})
 }

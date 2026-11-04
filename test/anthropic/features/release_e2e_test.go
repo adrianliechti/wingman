@@ -29,7 +29,7 @@ func TestClaudeReleaseE2E(t *testing.T) {
 	}
 	h := anthropic.New(t)
 	h.Client.Timeout = 180 * time.Second
-	const model = "claude-opus-5"
+	const model = "claude-opus-5-5"
 	p, err := claude.NewCompleter(strings.TrimSuffix(h.Anthropic.BaseURL, "/v1"), model, claude.WithToken(h.Anthropic.APIKey), claude.WithClient(h.Client.HTTP), claude.WithMaxRetries(0))
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestClaudeReleaseE2E(t *testing.T) {
 				map[string]any{"role": "system", "clear_at": "next_user_message", "content": "Answer color questions in German, with a single lowercase color word."},
 			}
 			body := map[string]any{"model": model, "max_tokens": 4096, "stream": stream,
-				"system": "Answer questions in English using a single lowercase color word.", "messages": history,
+				"system": "Answer only the current color question with exactly one lowercase color word, without explanation or corrections to earlier answers. Use English by default; later system messages may temporarily change the language.", "messages": history,
 				"output_config": map[string]any{"effort": "low"},
 			}
 			for _, expected := range []string{"blau", "green"} {

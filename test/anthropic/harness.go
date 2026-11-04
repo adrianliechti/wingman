@@ -38,7 +38,7 @@ func New(t *testing.T) *Harness {
 		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: env("WINGMAN_BASE_URL", DefaultWingmanURL), APIKey: env("WINGMAN_API_KEY", "test-key")},
 		Anthropic:      harness.Endpoint{Name: "anthropic", BaseURL: env("ANTHROPIC_BASE_URL", DefaultAnthropicURL), APIKey: key},
 		Client:         harness.NewClient(),
-		ReferenceModel: env("TEST_ANTHROPIC_REFERENCE_MODEL", "claude-sonnet-4-6"),
+		ReferenceModel: env("TEST_ANTHROPIC_REFERENCE_MODEL", "claude-sonnet-5-5"),
 	}
 }
 
@@ -99,7 +99,7 @@ func modelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"claude-sonnet-4-6", "bedrock-sonnet-4-6", "gpt-5.4", "gemini-3.8-flash"}
+	names := []string{"claude-sonnet-5-5", "bedrock-sonnet-5-5", "gpt-6.1-sol", "gemini-3.8-flash"}
 	if v := os.Getenv("TEST_ANTHROPIC_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {

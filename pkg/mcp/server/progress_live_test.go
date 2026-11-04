@@ -91,11 +91,11 @@ func TestLiveResearchProgress(t *testing.T) {
 	_ = godotenv.Load("../../../.env")
 	model := os.Getenv("RESEARCH_LIVE_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.4-mini"
+		model = "gpt-6-luna"
 	}
 	claudeModel := os.Getenv("RESEARCH_LIVE_ANTHROPIC_MODEL")
 	if claudeModel == "" {
-		claudeModel = "claude-sonnet-4-6"
+		claudeModel = "claude-sonnet-5-5"
 	}
 	const question = "Read https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress and https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/cancellation. Compare progress reporting and cancellation for that exact specification version. Explain progressToken, how numeric progress changes, when notifications stop, and cancellation propagation. Use those two primary sources. Answer in at most 250 words and cite both URLs."
 	var results []liveResearchResult

@@ -77,6 +77,13 @@ func BenchmarkResponsesInputV2(b *testing.B) {
 func TestOutputUnionsRoundTripV2(t *testing.T) {
 	for _, input := range []string{
 		`{"content":[{"type":"refusal","refusal":"no"}],"phase":null,"role":"assistant","status":"completed","id":"m","type":"message"}`,
+		`{"content":[{"type":"output_text","text":"hi","annotations":[],"logprobs":[]}],"phase":"final_answer","role":"assistant","status":"completed","id":"m","type":"message"}`,
+		`{"arguments":"{\"id\":9007199254740993}","call_id":"c","name":"lookup","namespace":"tools","async":true,"status":"completed","id":"f","type":"function_call"}`,
+		`{"operation":{"type":"delete_file","path":"file"},"call_id":"c","status":"completed","id":"p","type":"apply_patch_call"}`,
+		`{"action":{"commands":["pwd"]},"environment":{"type":"local"},"call_id":"c","status":"completed","id":"s","type":"shell_call"}`,
+		`{"action":{"command":["pwd"]},"call_id":"c","status":"completed","id":"s","type":"local_shell_call"}`,
+		`{"summary":[],"content":[],"encrypted_content":"opaque","status":"completed","id":"r","type":"reasoning"}`,
+		`{"content":"summary","encrypted_content":"opaque","id":"c","type":"compaction"}`,
 		`{"arguments":{"id":9007199254740993},"call_id":null,"execution":"server","status":"completed","id":"t","type":"tool_search_call"}`,
 		`{"tools":[{"type":"function","name":"lookup","parameters":{"enum":[1e400]}}],"call_id":null,"execution":"server","status":"completed","id":"t","type":"tool_search_output"}`,
 		`{"actions":[{"value":1e400}],"pending_safety_checks":[],"status":"completed","call_id":"c","id":"c","type":"computer_call"}`,
@@ -104,6 +111,56 @@ func TestOutputUnionsRoundTripV2(t *testing.T) {
 	for _, input := range []string{`[]`, `{"type":"future_unknown"}`, `{"type":"message","content":42}`} {
 		if err := json.Unmarshal([]byte(input), new(ResponseOutput)); err == nil {
 			t.Errorf("accepted %s", input)
+		}
+	}
+}
+
+func TestOutputDiscriminatorV2(t *testing.T) {
+	for _, output := range []ResponseOutput{
+		{Type: ResponseOutputTypeFunctionCall, FunctionCallOutputItem: &FunctionCallOutputItem{}},
+		{Type: ResponseOutputTypeComputerCall, ComputerCallItem: &ComputerCallItem{}},
+		{Type: ResponseOutputTypeApplyPatchCall, ApplyPatchCallItem: &ApplyPatchCallItem{}},
+		{Type: ResponseOutputTypeCustomToolCall, CustomToolCallItem: &CustomToolCallItem{}},
+		{Type: ResponseOutputTypeShellCall, ShellCallItem: &ShellCallItem{}},
+		{Type: ResponseOutputTypeLocalShellCall, ShellCallItem: &ShellCallItem{}},
+		{Type: ResponseOutputTypeReasoning, ReasoningOutputItem: &ReasoningOutputItem{}},
+		{Type: ResponseOutputTypeCompaction, CompactionOutputItem: &CompactionOutputItem{}},
+	} {
+		data, err := json.Marshal(output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded ResponseOutput
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+		if decoded.Type != output.Type {
+			t.Errorf("got %s, want %s", decoded.Type, output.Type)
+		}
+	}
+}
+
+func TestToolSearchOutputRequiresPayloadV2(t *testing.T) {
+	if _, err := json.Marshal(ResponseOutput{Type: ResponseOutputTypeToolSearchOutput}); err == nil {
+		t.Fatal("accepted tool-search output without its payload")
+	}
+}
+
+func TestComputerOutputEmptyArraysV2(t *testing.T) {
+	data, err := json.Marshal(ResponseOutput{
+		Type:             ResponseOutputTypeComputerCall,
+		ComputerCallItem: &ComputerCallItem{ID: "computer", CallID: "call", Status: "completed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"actions", "pending_safety_checks"} {
+		if values, ok := fields[name].([]any); !ok || len(values) != 0 {
+			t.Errorf("%s must be an empty array: %s", name, data)
 		}
 	}
 }

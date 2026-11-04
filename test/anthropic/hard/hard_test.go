@@ -202,13 +202,19 @@ func TestToolChoice(t *testing.T) {
 			h.SkipUnlessConfigured(t, model.Name)
 
 			for _, tg := range targets(h, model) {
-				if !model.Capabilities.NoForcedToolChoice {
-					forced := post(t, h, tg, map[string]any{
-						"max_tokens":  1024,
-						"tools":       []any{anthropic.WeatherTool},
-						"tool_choice": map[string]any{"type": "any"},
-						"messages":    user("Say hello."),
-					})
+				forcedRequest := map[string]any{
+					"max_tokens":  1024,
+					"tools":       []any{anthropic.WeatherTool},
+					"tool_choice": map[string]any{"type": "any"},
+					"messages":    user("Say hello."),
+				}
+				if harness.RejectsForcedToolChoice(tg.model) {
+					forced := anthropic.PostMessages(t, h, tg.ep, anthropic.WithModel(forcedRequest, tg.model))
+					if forced.StatusCode != 400 {
+						t.Errorf("[%s] expected forced tool_choice rejection, got %d: %s", tg.label, forced.StatusCode, forced.RawBody)
+					}
+				} else {
+					forced := post(t, h, tg, forcedRequest)
 					if len(toolUses(forced)) == 0 {
 						t.Errorf("[%s] tool_choice any produced no tool_use: %q", tg.label, messageText(forced))
 					}

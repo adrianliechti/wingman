@@ -40,11 +40,11 @@ To select only project repair and specific configured models:
 ```sh
 CODEX_LIVE=1 \
 WINGMAN_BASE_URL=http://localhost:4242/v1 \
-TEST_OPENAI_MODELS=gpt-5.4,claude-sonnet-4-6,claude-opus-5 \
+TEST_OPENAI_MODELS=gpt-6.1-sol,claude-sonnet-5-5,claude-opus-5-5 \
 go test -v -count=1 -timeout 30m ./test/codex -run '^TestCodex$/project_repair'
 ```
 
-The default matrix adds `claude-opus-5` to the existing OpenAI test matrix.
+The default matrix adds `claude-opus-5-5` to the existing OpenAI test matrix.
 Unconfigured defaults are skipped. Explicitly requested models missing from
 Wingman's model listing fail before the paid reference run.
 
@@ -54,7 +54,7 @@ The suite loads the repository `.env` without replacing exported values:
 | --- | --- |
 | `OPENAI_API_KEY` | Required reference credential |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
-| `TEST_OPENAI_REFERENCE_MODEL` | `gpt-5.4-mini` |
+| `TEST_OPENAI_REFERENCE_MODEL` | `gpt-6-luna` |
 | `WINGMAN_BASE_URL` | `http://localhost:4242/v1` |
 | `WINGMAN_API_KEY` | `test-key` |
 | `TEST_OPENAI_MODELS` | Override the default matrix, comma separated |

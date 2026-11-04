@@ -16,7 +16,7 @@ import (
 func TestAnthropicCitationVersions(t *testing.T) {
 	live(t)
 	h := ah.New(t)
-	model := "claude-sonnet-4-6"
+	model := "claude-sonnet-5-5"
 	p, err := ab.NewCompleter(strings.TrimSuffix(h.Anthropic.BaseURL, "/v1"), model, ab.WithToken(h.Anthropic.APIKey), ab.WithMaxRetries(0))
 	if err != nil {
 		t.Fatal(err)

@@ -35,37 +35,24 @@ func (n Number) MarshalJSONTo(enc *jsontext.Encoder) error {
 }
 
 func (n *Number) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
-	var value Number
-	stringify, _ := json.GetOption(dec.Options(), json.StringifyNumbers)
-	switch dec.PeekKind() {
-	case 'n':
-		if _, err := dec.ReadValue(); err != nil {
-			return err
-		}
+	token, err := dec.ReadToken()
+	if err != nil {
+		return err
+	}
+	if token.Kind() == 'n' {
 		*n = ""
 		return nil
-	case '0':
-		if stringify {
-			return fmt.Errorf("expected a stringified JSON number")
-		}
-		raw, err := dec.ReadValue()
-		if err != nil {
-			return err
-		}
-		value = Number(raw)
-	case '"':
-		if !stringify {
-			return fmt.Errorf("expected a JSON number")
-		}
-		var text string
-		if err := json.UnmarshalDecode(dec, &text); err != nil {
-			return err
-		}
-		value = Number(text)
-	default:
+	}
+	stringify, _ := json.GetOption(dec.Options(), json.StringifyNumbers)
+	if stringify && token.Kind() != '"' {
+		return fmt.Errorf("expected a stringified JSON number")
+	}
+	if !stringify && token.Kind() != '0' {
 		return fmt.Errorf("expected a JSON number")
 	}
-	if !value.valid() {
+	value := Number(token.String())
+	// ReadToken already validates number literals; quoted numbers need checking.
+	if stringify && !value.valid() {
 		return fmt.Errorf("invalid JSON number %q", value)
 	}
 	*n = value

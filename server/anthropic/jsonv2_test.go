@@ -42,3 +42,23 @@ func TestContentSourceUnionV2(t *testing.T) {
 		t.Fatal("accepted invalid source")
 	}
 }
+
+// Tool inputs are objects on the wire but strings in provider history. Repeated
+// decoding must preserve the exact text to keep cached prefixes stable.
+func TestToolArgumentsStableAcrossReplay(t *testing.T) {
+	const input = `{"path":"note.txt","operation":{"z":2,"a":1},"content":"hello"}`
+	const want = `{"content":"hello","operation":{"a":1,"z":2},"path":"note.txt"}`
+	for range 100 {
+		var args map[string]any
+		if err := json.Unmarshal([]byte(input), &args); err != nil {
+			t.Fatal(err)
+		}
+		got, err := toJSONString(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("replay arguments = %s, want %s", got, want)
+		}
+	}
+}

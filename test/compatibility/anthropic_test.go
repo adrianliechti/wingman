@@ -15,7 +15,7 @@ import (
 func TestAnthropicAPIVersion(t *testing.T) {
 	live(t)
 	h := anthropic.New(t)
-	const model = "claude-sonnet-4-6"
+	const model = "claude-sonnet-5-5"
 	p, err := backend.NewCompleter(strings.TrimSuffix(h.Anthropic.BaseURL, "/v1"), model, backend.WithToken(h.Anthropic.APIKey), backend.WithMaxRetries(0))
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +32,8 @@ func TestAnthropicAPIVersion(t *testing.T) {
 					headers := http.Header{"Anthropic-Version": {version}}
 					reference := post(t, h.Client, h.Anthropic, "/messages", body, headers)
 					want := 200
-					if version == "2026-10-21" {
+					// Sonnet 5.5 rejects top_p/top_k on both API versions.
+					if version == "2026-10-21" || parameter != "temperature" {
 						want = 400
 					}
 					requireStatus(t, "reference", reference, want)

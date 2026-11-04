@@ -98,7 +98,7 @@ func (a *CompleterAdapter) Decide(ctx context.Context, input *provider.DecisionI
 		}
 	}
 
-	questionJSON, err := json.Marshal(questions)
+	questionJSON, err := json.Marshal(questions, json.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (a *CompleterAdapter) Decide(ctx context.Context, input *provider.DecisionI
 			Content: userParts,
 		})
 	} else {
-		stateJSON, err := json.Marshal(input.State)
+		stateJSON, err := json.Marshal(input.State, json.Deterministic(true))
 		if err != nil {
 			return nil, err
 		}

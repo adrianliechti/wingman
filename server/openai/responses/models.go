@@ -938,112 +938,56 @@ func (r *ResponseOutput) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	return nil
 }
 
-// MarshalJSONTo implements custom JSON marshaling to avoid field conflicts
-// between embedded structs (ID, Type, Status fields exist in multiple embedded types)
+// MarshalJSONTo encodes only the selected variant. Normalize copies so the
+// discriminator and defaults on the wire do not mutate the caller's item.
 func (r ResponseOutput) MarshalJSONTo(enc *jsontext.Encoder) error {
 	switch r.Type {
 	case ResponseOutputTypeToolSearchOutput:
-		type output InputToolSearchOutput
+		if r.ToolSearchOutputItem == nil {
+			return errors.New("tool-search output requires a payload")
+		}
 		return json.MarshalEncode(enc, struct {
 			Type ResponseOutputType `json:"type"`
-			*output
+			*InputToolSearchOutput
 			CallID *string `json:"call_id"`
-		}{r.Type, (*output)(r.ToolSearchOutputItem), toolSearchCallID(r.ToolSearchOutputItem.CallID, r.ToolSearchOutputItem.Execution)})
+		}{r.Type, r.ToolSearchOutputItem, toolSearchCallID(r.ToolSearchOutputItem.CallID, r.ToolSearchOutputItem.Execution)})
 	case ResponseOutputTypeMessage:
 		if r.OutputMessage != nil {
 			return json.MarshalEncode(enc, struct {
-				Type     ResponseOutputType `json:"type"`
-				ID       string             `json:"id,omitzero"`
-				Role     MessageRole        `json:"role,omitzero"`
-				Status   string             `json:"status,omitzero"`
-				Contents []OutputContent    `json:"content"`
-				Phase    *string            `json:"phase"`
-			}{
-				Type:     r.Type,
-				ID:       r.OutputMessage.ID,
-				Role:     r.OutputMessage.Role,
-				Status:   r.OutputMessage.Status,
-				Contents: r.OutputMessage.Contents,
-				Phase:    outputPhase(r.OutputMessage.Phase),
-			})
+				Type ResponseOutputType `json:"type"`
+				*OutputMessage
+				Phase *string `json:"phase"`
+			}{r.Type, r.OutputMessage, outputPhase(r.OutputMessage.Phase)})
 		}
 	case ResponseOutputTypeFunctionCall:
 		if r.FunctionCallOutputItem != nil {
-			return json.MarshalEncode(enc, r.FunctionCallOutputItem)
+			item := *r.FunctionCallOutputItem
+			item.Type = string(r.Type)
+			return json.MarshalEncode(enc, item)
 		}
 	case ResponseOutputTypeShellCall, ResponseOutputTypeLocalShellCall:
 		if r.ShellCallItem != nil {
-			action := r.ShellCallItem.Action
-			if len(action) == 0 {
-				action = emptyShellAction(r.Type)
+			item := *r.ShellCallItem
+			item.Type = string(r.Type)
+			if len(item.Action) == 0 {
+				item.Action = emptyShellAction(r.Type)
 			}
-
-			environment := r.ShellCallItem.Environment
-			if len(environment) == 0 && r.Type == ResponseOutputTypeShellCall {
-				environment = shellLocalEnvironment
+			if len(item.Environment) == 0 && r.Type == ResponseOutputTypeShellCall {
+				item.Environment = shellLocalEnvironment
 			}
-
-			return json.MarshalEncode(enc, struct {
-				Type        ResponseOutputType `json:"type"`
-				ID          string             `json:"id"`
-				Status      string             `json:"status"`
-				CallID      string             `json:"call_id"`
-				Action      jsontext.Value     `json:"action"`
-				Environment jsontext.Value     `json:"environment,omitzero"`
-			}{
-				Type:        r.Type,
-				ID:          r.ShellCallItem.ID,
-				Status:      r.ShellCallItem.Status,
-				CallID:      r.ShellCallItem.CallID,
-				Action:      action,
-				Environment: environment,
-			})
+			return json.MarshalEncode(enc, item)
 		}
 	case ResponseOutputTypeComputerCall:
 		if r.ComputerCallItem != nil {
-			actions := r.ComputerCallItem.Actions
-			if actions == nil {
-				actions = []any{}
-			}
-
-			checks := r.ComputerCallItem.PendingSafetyChecks
-			if checks == nil {
-				checks = []SafetyCheck{}
-			}
-
-			return json.MarshalEncode(enc, struct {
-				Type    ResponseOutputType `json:"type"`
-				ID      string             `json:"id"`
-				Status  string             `json:"status"`
-				CallID  string             `json:"call_id"`
-				Actions []any              `json:"actions"`
-
-				PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks"`
-			}{
-				Type:    r.Type,
-				ID:      r.ComputerCallItem.ID,
-				Status:  r.ComputerCallItem.Status,
-				CallID:  r.ComputerCallItem.CallID,
-				Actions: actions,
-
-				PendingSafetyChecks: checks,
-			})
+			item := *r.ComputerCallItem
+			item.Type = string(r.Type)
+			return json.MarshalEncode(enc, item)
 		}
 	case ResponseOutputTypeApplyPatchCall:
 		if r.ApplyPatchCallItem != nil {
-			return json.MarshalEncode(enc, struct {
-				Type      ResponseOutputType   `json:"type"`
-				ID        string               `json:"id"`
-				Status    string               `json:"status"`
-				CallID    string               `json:"call_id"`
-				Operation *ApplyPatchOperation `json:"operation,omitzero"`
-			}{
-				Type:      r.Type,
-				ID:        r.ApplyPatchCallItem.ID,
-				Status:    r.ApplyPatchCallItem.Status,
-				CallID:    r.ApplyPatchCallItem.CallID,
-				Operation: r.ApplyPatchCallItem.Operation,
-			})
+			item := *r.ApplyPatchCallItem
+			item.Type = string(r.Type)
+			return json.MarshalEncode(enc, item)
 		}
 	case ResponseOutputTypeToolSearchCall:
 		if r.ToolSearchCallItem != nil {
@@ -1051,60 +995,24 @@ func (r ResponseOutput) MarshalJSONTo(enc *jsontext.Encoder) error {
 		}
 	case ResponseOutputTypeCustomToolCall:
 		if r.CustomToolCallItem != nil {
-			return json.MarshalEncode(enc, struct {
-				Type      ResponseOutputType `json:"type"`
-				ID        string             `json:"id"`
-				Status    string             `json:"status"`
-				CallID    string             `json:"call_id"`
-				Name      string             `json:"name"`
-				Namespace string             `json:"namespace,omitzero"`
-				Input     string             `json:"input"`
-				Async     bool               `json:"async,omitzero"`
-			}{
-				Type:      r.Type,
-				ID:        r.CustomToolCallItem.ID,
-				Status:    r.CustomToolCallItem.Status,
-				CallID:    r.CustomToolCallItem.CallID,
-				Name:      r.CustomToolCallItem.Name,
-				Namespace: r.CustomToolCallItem.Namespace,
-				Input:     r.CustomToolCallItem.Input,
-				Async:     r.CustomToolCallItem.Async,
-			})
+			item := *r.CustomToolCallItem
+			item.Type = string(r.Type)
+			return json.MarshalEncode(enc, item)
 		}
 	case ResponseOutputTypeReasoning:
 		if r.ReasoningOutputItem != nil {
-			return json.MarshalEncode(enc, struct {
-				Type             ResponseOutputType           `json:"type"`
-				ID               string                       `json:"id"`
-				Status           string                       `json:"status"`
-				Summary          []ReasoningOutputSummary     `json:"summary"`
-				Content          []ReasoningOutputContentPart `json:"content"`
-				EncryptedContent string                       `json:"encrypted_content,omitzero"`
-			}{
-				Type:             r.Type,
-				ID:               r.ReasoningOutputItem.ID,
-				Status:           r.ReasoningOutputItem.Status,
-				Summary:          r.ReasoningOutputItem.Summary,
-				Content:          r.ReasoningOutputItem.Content,
-				EncryptedContent: r.ReasoningOutputItem.EncryptedContent,
-			})
+			item := *r.ReasoningOutputItem
+			item.Type = string(r.Type)
+			return json.MarshalEncode(enc, item)
 		}
 	case ResponseOutputTypeCompaction:
 		if r.CompactionOutputItem != nil {
-			return json.MarshalEncode(enc, struct {
-				Type             ResponseOutputType `json:"type"`
-				ID               string             `json:"id"`
-				Content          string             `json:"content,omitzero"`
-				EncryptedContent string             `json:"encrypted_content"`
-			}{
-				Type:             r.Type,
-				ID:               r.CompactionOutputItem.ID,
-				Content:          r.CompactionOutputItem.Content,
-				EncryptedContent: r.CompactionOutputItem.EncryptedContent,
-			})
+			item := *r.CompactionOutputItem
+			item.Type = string(r.Type)
+			return json.MarshalEncode(enc, item)
 		}
 	}
-	// Fallback: just marshal the type
+	// Fallback: just marshal the type.
 	return json.MarshalEncode(enc, struct {
 		Type ResponseOutputType `json:"type,omitzero"`
 	}{Type: r.Type})

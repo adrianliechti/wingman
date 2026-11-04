@@ -24,7 +24,7 @@ func TestRerankEmbedder(t *testing.T) {
 }
 
 func TestRerankCompleter(t *testing.T) {
-	testRerank(t, env("TEST_RERANK_COMPLETER_MODEL", "gpt-5.4-mini"))
+	testRerank(t, env("TEST_RERANK_COMPLETER_MODEL", "gpt-6-luna"))
 }
 
 func testRerank(t *testing.T, model string) {

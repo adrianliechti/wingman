@@ -20,7 +20,7 @@ import (
 func TestExtendedCacheClaude(t *testing.T) {
 	live(t)
 	h := anthropic.New(t)
-	const model = "claude-sonnet-4-6"
+	const model = "claude-sonnet-5-5"
 	p, err := claude.NewCompleter(strings.TrimSuffix(h.Anthropic.BaseURL, "/v1"), model, claude.WithToken(h.Anthropic.APIKey), claude.WithMaxRetries(0))
 	if err != nil {
 		t.Fatal(err)

@@ -68,7 +68,7 @@ func ParseCall(args string) Call {
 }
 
 func (c Call) Args() string {
-	data, _ := json.Marshal(c)
+	data, _ := json.Marshal(c, json.Deterministic(true))
 	return string(data)
 }
 

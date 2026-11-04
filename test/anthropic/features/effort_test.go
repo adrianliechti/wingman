@@ -30,7 +30,8 @@ func TestAdaptiveThinkingEffortHTTP(t *testing.T) {
 					body := map[string]any{
 						"max_tokens": 16000,
 						"thinking": map[string]any{
-							"type": "adaptive",
+							"type":    "adaptive",
+							"display": "summarized",
 						},
 						"output_config": map[string]any{
 							"effort": effort,
@@ -81,7 +82,8 @@ func TestAdaptiveThinkingEffortSSE(t *testing.T) {
 					body := map[string]any{
 						"max_tokens": 16000,
 						"thinking": map[string]any{
-							"type": "adaptive",
+							"type":    "adaptive",
+							"display": "summarized",
 						},
 						"output_config": map[string]any{
 							"effort": effort,
@@ -166,7 +168,8 @@ func TestAdaptiveThinkingNoEffortHTTP(t *testing.T) {
 			body := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
-					"type": "adaptive",
+					"type":    "adaptive",
+					"display": "summarized",
 				},
 				"messages": []map[string]any{
 					{"role": "user", "content": harness.ReasoningPrompt},
@@ -225,7 +228,7 @@ func TestAdaptiveThinkingDisplayOmittedHTTP(t *testing.T) {
 // supportsEffortXHigh returns true for the Claude families that support
 // effort level "xhigh" (Opus 4.7 and later).
 func supportsEffortXHigh(name string) bool {
-	for _, p := range []string{"opus-4-7", "opus-4-8"} {
+	for _, p := range []string{"opus-4-7", "opus-4-8", "opus-5"} {
 		if strings.Contains(name, p) {
 			return true
 		}
@@ -236,7 +239,7 @@ func supportsEffortXHigh(name string) bool {
 // isClaudeAdaptiveModel returns true for the Claude families that support
 // adaptive thinking.
 func isClaudeAdaptiveModel(name string) bool {
-	for _, p := range []string{"claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8"} {
+	for _, p := range []string{"sonnet-4-6", "opus-4-6", "opus-4-7", "opus-4-8", "sonnet-5", "opus-5"} {
 		if strings.Contains(name, p) {
 			return true
 		}

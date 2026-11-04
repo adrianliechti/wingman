@@ -422,7 +422,7 @@ func toToolResultParts(path string, content any) ([]provider.Part, error) {
 		return parts, nil
 
 	default:
-		data, err := json.Marshal(v)
+		data, err := json.Marshal(v, json.Deterministic(true))
 
 		if err != nil {
 			return nil, err
@@ -452,7 +452,8 @@ func toJSONString(v any) (string, error) {
 		return s, nil
 	}
 
-	data, err := json.Marshal(v)
+	// These bytes become conversation text; their order must survive replay.
+	data, err := json.Marshal(v, json.Deterministic(true))
 
 	if err != nil {
 		return "", err
@@ -717,7 +718,7 @@ func generateID(length int) string {
 func serverToolUseMarker(block ContentBlockParam) string {
 	input, _ := block.Input.(map[string]any)
 	if input == nil {
-		if data, err := json.Marshal(block.Input); err == nil {
+		if data, err := json.Marshal(block.Input, json.Deterministic(true)); err == nil {
 			return fmt.Sprintf("[%s: %s]", block.Name, string(data))
 		}
 		return fmt.Sprintf("[%s]", block.Name)
@@ -730,7 +731,7 @@ func serverToolUseMarker(block ContentBlockParam) string {
 		return fmt.Sprintf("[%s: %s]", block.Name, u)
 	}
 
-	data, _ := json.Marshal(input)
+	data, _ := json.Marshal(input, json.Deterministic(true))
 	return fmt.Sprintf("[%s: %s]", block.Name, string(data))
 }
 

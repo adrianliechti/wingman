@@ -320,7 +320,7 @@ func (r *referenceResult) call(t *testing.T, name string, arguments any) {
 		}
 		arguments = exactObject(t, []byte(encoded))
 	}
-	raw, err := json.Marshal(arguments)
+	raw, err := json.Marshal(arguments, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}

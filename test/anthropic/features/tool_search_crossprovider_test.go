@@ -35,7 +35,7 @@ func TestToolSearchCrossProviderLive(t *testing.T) {
 		t.Fatal("OPENAI_API_KEY is required for cross-provider tests")
 	}
 	h.Client.Timeout = 180 * time.Second
-	models := []string{"claude-opus-5", "claude-fable-5-1", "gpt-5.4"}
+	models := []string{"claude-opus-5-5", "claude-fable-5-1", "gpt-6.1-sol"}
 	cfg := &config.Config{Policy: noop.New()}
 	for _, model := range models {
 		if strings.HasPrefix(model, "claude") {

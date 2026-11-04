@@ -258,7 +258,8 @@ func toJSONString(v any) (string, error) {
 		return s, nil
 	}
 
-	data, err := json.Marshal(v)
+	// These bytes become conversation text; their order must survive replay.
+	data, err := json.Marshal(v, json.Deterministic(true))
 	if err != nil {
 		return "", err
 	}

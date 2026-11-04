@@ -26,7 +26,7 @@ Start Wingman with the models you want to test. For `task server` (port 4242):
 ```sh
 CLAUDE_CODE_LIVE=1 \
 WINGMAN_BASE_URL=http://localhost:4242/v1 \
-TEST_ANTHROPIC_MODELS=claude-sonnet-4-6,claude-opus-5 \
+TEST_ANTHROPIC_MODELS=claude-sonnet-5-5,claude-opus-5-5 \
 CLAUDE_CODE_ARTIFACTS=/tmp/wingman-claude-code \
 go test -v -count=1 -timeout 30m ./test/claudecode
 ```
@@ -37,8 +37,8 @@ project repair allows twelve turns and three minutes. Every invocation has a
 $1 CLI budget. Run against the Wingman build you intend to validate. The live
 CLI suite is separate from `task test`; it must be invoked explicitly.
 
-For Claude over Bedrock, include an Opus model such as `claude-opus-5` in
-`TEST_ANTHROPIC_MODELS` alongside `claude-sonnet-4-6`. Newer Claude Code sends
+For Claude over Bedrock, include an Opus model such as `claude-opus-5-5` in
+`TEST_ANTHROPIC_MODELS` alongside `claude-sonnet-5-5`. Newer Claude Code sends
 mid-conversation system messages for Opus; Converse requires those instructions
 in its top-level system field. The model names must route to Bedrock in your
 Wingman configuration.
@@ -50,10 +50,10 @@ The suite reuses the existing Anthropic test settings and loads the repository
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Required reference credential |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` |
-| `TEST_ANTHROPIC_REFERENCE_MODEL` | `claude-sonnet-4-6` |
+| `TEST_ANTHROPIC_REFERENCE_MODEL` | `claude-sonnet-5-5` |
 | `WINGMAN_BASE_URL` | `http://localhost:4242/v1` |
 | `WINGMAN_API_KEY` | `test-key` |
-| `TEST_ANTHROPIC_MODELS` | Comma-separated models; defaults to the Anthropic test matrix plus `claude-opus-5` |
+| `TEST_ANTHROPIC_MODELS` | Comma-separated models; defaults to the Anthropic test matrix plus `claude-opus-5-5` |
 | `CLAUDE_CODE_LIVE` | Set to `1` to enable paid tests; checked before loading `.env` |
 | `CLAUDE_CODE_BIN` | `claude`; executable path or name |
 | `CLAUDE_CODE_ARTIFACTS` | Optional directory for retained artifacts |

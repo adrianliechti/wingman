@@ -324,17 +324,13 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}
 
 				case responses.ResponseApplyPatchToolCall:
-					args, _ := json.Marshal(map[string]any{
-						"type": item.Operation.Type,
-						"path": item.Operation.Path,
-						"diff": item.Operation.Diff,
-					})
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: string(args)}), "") {
+					args := (texteditor.Operation{Type: item.Operation.Type, Path: item.Operation.Path, Diff: item.Operation.Diff}).Args()
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: args}), "") {
 						return
 					}
 
 				case responses.ResponseComputerToolCall:
-					args, _ := json.Marshal(computerCallToArgs(item))
+					args, _ := json.Marshal(computerCallToArgs(item), json.Deterministic(true))
 					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer", Arguments: string(args)}), "") {
 						return
 					}
@@ -1803,7 +1799,14 @@ func computerCallToArgs(item responses.ResponseComputerToolCall) map[string]any 
 }
 
 func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
-	cacheWrites := cacheWriteDetails(usage.InputTokensDetails.JSON.ExtraFields["cache_write_tokens_details"].Raw())
+	var cacheWrites *provider.CacheWriteTokensDetails
+	if usage.InputTokensDetails.JSON.CacheWriteTokensDetails.Valid() {
+		details := usage.InputTokensDetails.CacheWriteTokensDetails
+		cacheWrites = &provider.CacheWriteTokensDetails{
+			StandardTokens: int(details.Ttl30mTokens),
+			ExtendedTokens: int(details.Ttl12hTokens),
+		}
+	}
 	var reasoningTokens *int
 	if usage.OutputTokensDetails.JSON.ReasoningTokens.Valid() || usage.OutputTokensDetails.ReasoningTokens > 0 {
 		reasoningTokens = new(int(usage.OutputTokensDetails.ReasoningTokens))

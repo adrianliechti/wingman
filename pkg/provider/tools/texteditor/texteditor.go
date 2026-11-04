@@ -45,7 +45,7 @@ func (op Operation) Args() string {
 		"type": op.Type,
 		"path": op.Path,
 		"diff": op.Diff,
-	})
+	}, json.Deterministic(true))
 	return string(data)
 }
 

@@ -42,7 +42,7 @@ func New(t *testing.T) *Harness {
 		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: env("WINGMAN_BASE_URL", DefaultWingmanURL), APIKey: env("WINGMAN_API_KEY", "test-key")},
 		OpenAI:         harness.Endpoint{Name: "openai", BaseURL: env("OPENAI_BASE_URL", DefaultOpenAIURL), APIKey: key},
 		Client:         harness.NewClient(),
-		ReferenceModel: env("TEST_OPENAI_REFERENCE_MODEL", "gpt-5.4-mini"),
+		ReferenceModel: env("TEST_OPENAI_REFERENCE_MODEL", "gpt-6-luna"),
 	}
 }
 
@@ -98,7 +98,7 @@ func modelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"gpt-5.4", "claude-sonnet-4-6", "gemini-3.8-flash"}
+	names := []string{"gpt-6.1-sol", "claude-sonnet-5-5", "gemini-3.8-flash"}
 	if v := os.Getenv("TEST_OPENAI_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {
