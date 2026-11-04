@@ -29,11 +29,16 @@ func (h *Handler) Attach(r chi.Router) {
 }
 
 func writeJson(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-
-	enc := json.NewEncoder(w)
+	var data bytes.Buffer
+	enc := json.NewEncoder(&data)
 	enc.SetEscapeHTML(false)
-	enc.Encode(v)
+	if err := enc.Encode(v); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("encode response: %w", err))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data.Bytes())
 }
 
 func writeError(w http.ResponseWriter, code int, err error) {
@@ -44,6 +49,10 @@ func writeError(w http.ResponseWriter, code int, err error) {
 	if v := provider.RetryAfterHeaderValue(provider.RetryAfterFromError(err)); v != "" {
 		w.Header().Set("Retry-After", v)
 	}
+	requestID := errorRequestID(err)
+	if requestID != "" {
+		w.Header().Set("Request-Id", requestID)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -51,10 +60,8 @@ func writeError(w http.ResponseWriter, code int, err error) {
 	resp := ErrorResponse{
 		Type: "error",
 
-		Error: Error{
-			Type:    errorTypeForStatus(code),
-			Message: err.Error(),
-		},
+		Error:     responseError(code, err),
+		RequestID: requestID,
 	}
 
 	enc := json.NewEncoder(w)
@@ -68,7 +75,9 @@ func writeEvent(w http.ResponseWriter, eventType string, v any) error {
 	var data bytes.Buffer
 	enc := json.NewEncoder(&data)
 	enc.SetEscapeHTML(false)
-	enc.Encode(v)
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
 
 	event := strings.TrimSpace(data.String())
 

@@ -33,9 +33,21 @@ type capturedResponse struct {
 	status      int
 	contentType string
 	body        []byte
+	requestBody []byte
+	requestID   string
 }
 
 func (c *nativeCapture) RoundTrip(req *http.Request) (*http.Response, error) {
+	var requestBody []byte
+	if req.Body != nil {
+		var err error
+		requestBody, err = io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		req.Body = io.NopCloser(bytes.NewReader(requestBody))
+	}
 	resp, err := http.DefaultTransport.RoundTrip(req)
 	if err != nil {
 		return nil, err
@@ -49,7 +61,10 @@ func (c *nativeCapture) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
 	c.mu.Lock()
-	c.responses = append(c.responses, capturedResponse{resp.StatusCode, resp.Header.Get("Content-Type"), raw})
+	c.responses = append(c.responses, capturedResponse{
+		status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), body: raw,
+		requestBody: requestBody, requestID: resp.Header.Get("Request-Id"),
+	})
 	c.mu.Unlock()
 	return resp, nil
 }
@@ -70,7 +85,7 @@ func (c *nativeCapture) only(t *testing.T) capturedResponse {
 	return c.responses[0]
 }
 
-func referenceLive(t *testing.T) {
+func referenceLive(t *testing.T, keys ...string) {
 	t.Helper()
 	if os.Getenv("PROTOCOL_REFERENCE_LIVE") != "1" {
 		t.Skip("set PROTOCOL_REFERENCE_LIVE=1 for paid native API comparisons")
@@ -92,7 +107,10 @@ func referenceLive(t *testing.T) {
 		}
 		dir = parent
 	}
-	for _, key := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"} {
+	if len(keys) == 0 {
+		keys = []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"}
+	}
+	for _, key := range keys {
 		if os.Getenv(key) == "" {
 			t.Fatalf("%s is required for the requested live matrix", key)
 		}
@@ -104,14 +122,20 @@ type liveBackend struct {
 	capture               *nativeCapture
 }
 
+const (
+	liveOpenAIModel    = "gpt-6.1-sol"
+	liveAnthropicModel = "claude-sonnet-5-5"
+	liveGeminiModel    = "gemini-3.8-flash"
+)
+
 func referenceBackends(t *testing.T) (*config.Config, []liveBackend) {
 	t.Helper()
 	cfg := &config.Config{Policy: noop.New()}
 	backends := []liveBackend{
-		{name: "openai-responses", protocol: "responses", model: "gpt-5.4"},
-		{name: "openai-chat", protocol: "chat", model: "gpt-5.4"},
-		{name: "anthropic", protocol: "anthropic", model: "claude-sonnet-4-6"},
-		{name: "gemini", protocol: "interactions", model: "gemini-3.8-flash"},
+		{name: "openai-responses", protocol: "responses", model: liveOpenAIModel},
+		{name: "openai-chat", protocol: "chat", model: liveOpenAIModel},
+		{name: "anthropic", protocol: "anthropic", model: liveAnthropicModel},
+		{name: "gemini", protocol: "interactions", model: liveGeminiModel},
 	}
 	for i := range backends {
 		b := &backends[i]
@@ -143,10 +167,14 @@ func TestLiveNativeResponseParity(t *testing.T) {
 	local := configuredGateway(t, cfg)
 	local.Client().Timeout = 120 * time.Second
 	for _, backend := range backends {
+		t.Logf("live backend %s: %s", backend.name, backend.model)
 		for _, stream := range []bool{false, true} {
 			for _, p := range protocols(stream) {
 				for _, scenario := range []string{"text", "tool"} {
 					name := backend.name + "/" + p.name + "/" + scenario
+					if backend.name == "openai-chat" && scenario == "tool" {
+						name += "_unsupported"
+					}
 					if stream {
 						name += "/stream"
 					} else {
@@ -156,13 +184,21 @@ func TestLiveNativeResponseParity(t *testing.T) {
 						p := liveRequest(t, p, backend.name, scenario)
 						backend.capture.reset()
 						status, headers, raw := post(t, local, p.path, p.body)
+						native := backend.capture.only(t)
+						saveReferenceFields(t, map[string]any{"request": p.body, "upstream_request": json.RawMessage(native.requestBody), "native": string(native.body), "wingman": string(raw)})
+						if backend.name == "openai-chat" && scenario == "tool" {
+							// GPT-6.1 Sol requires reasoning; native Chat Completions
+							// rejects tools with reasoning. Test its error mapping,
+							// while Responses above exercises successful tool calls.
+							compareUnsupportedChatTool(t, p.name, native, status, headers, raw)
+							return
+						}
 						requireStatus(t, status, 200, raw)
 						if stream {
 							requireType(t, headers, "text/event-stream")
 						} else {
 							requireType(t, headers, "application/json")
 						}
-						native := backend.capture.only(t)
 						requireStatus(t, native.status, 200, native.body)
 						want := readReference(t, backend.protocol, strings.Contains(native.contentType, "text/event-stream"), native.body)
 						got := readReference(t, p.name, stream, raw)
@@ -176,6 +212,7 @@ func TestLiveNativeResponseParity(t *testing.T) {
 							t.Fatalf("reference returned %d tools, want 1", len(want.calls))
 						}
 						equal(t, "text from same generation", got.text, want.text)
+						equal(t, "normalized stop reason", got.finish, want.finish)
 						if !reflect.DeepEqual(got.calls, want.calls) {
 							t.Fatalf("tool payload changed: got %+v, native %+v", got.calls, want.calls)
 						}
@@ -185,7 +222,10 @@ func TestLiveNativeResponseParity(t *testing.T) {
 						equal(t, "input tokens", got.input, want.input)
 						equal(t, "output tokens including reasoning", got.output, want.output)
 						equal(t, "cache read tokens", got.cached, want.cached)
-						if got.reasoningKnown && want.reasoningKnown {
+						if want.reasoningKnown {
+							if want.reasoning > 0 && !got.reasoningKnown {
+								t.Error("reported reasoning-token breakdown was lost")
+							}
 							equal(t, "reasoning tokens", got.reasoning, want.reasoning)
 						}
 					})
@@ -241,6 +281,18 @@ func liveRequest(t *testing.T, p protocol, model, scenario string) protocol {
 			p.body["tools"] = []any{map[string]any{"functionDeclarations": []any{map[string]any{"name": "record", "parameters": schema}}}}
 			p.body["toolConfig"] = map[string]any{"functionCallingConfig": map[string]any{"mode": "ANY"}}
 		}
+		// Claude 5.5 rejects forced tool choice. Exercise automatic selection
+		// with the same explicit tool prompt and require exactly one native call.
+		if model == "anthropic" {
+			switch p.name {
+			case "chat", "responses":
+				p.body["tool_choice"] = "auto"
+			case "anthropic":
+				p.body["tool_choice"] = map[string]any{"type": "auto"}
+			case "gemini":
+				p.body["toolConfig"] = map[string]any{"functionCallingConfig": map[string]any{"mode": "AUTO"}}
+			}
+		}
 	}
 	return p
 }
@@ -248,6 +300,7 @@ func liveRequest(t *testing.T, p protocol, model, scenario string) protocol {
 type referenceCall struct{ Name, Arguments string }
 type referenceResult struct {
 	text                             string
+	finish                           string
 	calls                            []referenceCall
 	input, output, cached, reasoning int
 	reasoningKnown, done             bool

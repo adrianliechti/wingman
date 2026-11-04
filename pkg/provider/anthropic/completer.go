@@ -1360,6 +1360,8 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 		// meaning across providers (cache fields are the cached subset of it).
 		InputTokens:  int(usage.InputTokens) + cacheReadInputTokens + cacheCreationInputTokens,
 		OutputTokens: int(usage.OutputTokens),
+		ServiceTier:  string(usage.ServiceTier),
+		InferenceGeo: usage.InferenceGeo,
 
 		ReasoningTokens: reasoningTokens,
 

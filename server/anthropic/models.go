@@ -16,6 +16,8 @@ type MessageRequest struct {
 
 	Stream bool `json:"stream,omitempty"`
 
+	CacheControl *CacheControlParam `json:"cache_control,omitempty"`
+
 	Speed         string   `json:"speed,omitempty"`
 	MaxTokens     *int     `json:"max_tokens"`
 	StopSequences []string `json:"stop_sequences,omitempty"`
@@ -375,8 +377,8 @@ type DeltaUsage struct {
 
 	OutputTokensDetails *OutputTokensDetails `json:"output_tokens_details,omitempty"`
 
-	CacheReadInputTokens     int            `json:"cache_read_input_tokens,omitempty"`
-	CacheCreationInputTokens int            `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int            `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int            `json:"cache_creation_input_tokens"`
 	CacheCreation            *CacheCreation `json:"cache_creation,omitempty"`
 }
 
@@ -391,13 +393,15 @@ type PingEvent struct {
 // Error types
 
 type ErrorResponse struct {
-	Type  string `json:"type"` // "error"
-	Error Error  `json:"error"`
+	Type      string `json:"type"` // "error"
+	Error     Error  `json:"error"`
+	RequestID string `json:"request_id,omitempty"`
 }
 
 type Error struct {
-	Type    string `json:"type"` // "invalid_request_error", "authentication_error", etc.
-	Message string `json:"message"`
+	Type    string          `json:"type"` // "invalid_request_error", "authentication_error", etc.
+	Message string          `json:"message"`
+	Details json.RawMessage `json:"details,omitempty"`
 }
 
 // Helper functions for parsing content

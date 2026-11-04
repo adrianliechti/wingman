@@ -16,6 +16,7 @@ import (
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
+	"github.com/joho/godotenv"
 )
 
 // Differential test: the same JSON body is posted to the local count_tokens
@@ -27,8 +28,11 @@ func TestCountTokensVsReference(t *testing.T) {
 	if os.Getenv("TOKENS_LIVE") != "1" {
 		t.Skip("set TOKENS_LIVE=1 to compare against the live Anthropic API")
 	}
+	if err := godotenv.Load("../../.env"); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
 	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("ANTHROPIC_API_KEY not set")
+		t.Fatal("ANTHROPIC_API_KEY is required for the requested live test")
 	}
 
 	tools := []map[string]any{
@@ -75,7 +79,7 @@ func TestCountTokensVsReference(t *testing.T) {
 
 	scenarios := map[string]map[string]any{
 		"multi_tool_conversation": {
-			"model":  "claude-sonnet-5",
+			"model":  "claude-sonnet-5-5",
 			"system": "You are a travel planning assistant. Prefer the cheapest reasonable option and always confirm before booking.",
 			"tools":  tools,
 			"messages": []map[string]any{
@@ -92,7 +96,7 @@ func TestCountTokensVsReference(t *testing.T) {
 			},
 		},
 		"image_data_and_tools": {
-			"model":  "claude-sonnet-5",
+			"model":  "claude-sonnet-5-5",
 			"system": "You analyze charts and verify the numbers against the warehouse.",
 			"tools":  tools,
 			"messages": []map[string]any{

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/openai/openai-go/v3"
 )
 
 func WriteJson(w http.ResponseWriter, v any) {
@@ -89,6 +90,21 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
+
+	// Native OpenAI error objects already use this wire format. Preserve all
+	// fields, including param, null codes and details unknown to the SDK.
+	if upstream, ok := errors.AsType[*openai.Error](err); ok {
+		raw := json.RawMessage(upstream.RawJSON())
+		var fields Error
+		// Other services using the SDK can return incompatible shapes (for
+		// example numeric Google error codes); retain normalization for those.
+		if json.Unmarshal(raw, &fields) == nil && fields.Type != "" && fields.Message != "" {
+			enc.Encode(struct {
+				Error json.RawMessage `json:"error"`
+			}{Error: raw})
+			return
+		}
+	}
 
 	enc.Encode(resp)
 }

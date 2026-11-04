@@ -229,6 +229,7 @@ func toCacheOptions(req MessageRequest) *provider.CacheOptions {
 			extended = true
 		}
 	}
+	note(req.CacheControl)
 	if blocks, err := parseContentBlocks(req.System); err == nil {
 		for _, block := range blocks {
 			note(block.CacheControl)
@@ -403,6 +404,8 @@ func (h *Handler) handleMessagesComplete(w http.ResponseWriter, r *http.Request,
 			// wire input_tokens excludes cached tokens, so subtract them back out.
 			InputTokens:  anthropicInputTokens(completion.Usage),
 			OutputTokens: completion.Usage.OutputTokens,
+			ServiceTier:  completion.Usage.ServiceTier,
+			InferenceGeo: completion.Usage.InferenceGeo,
 
 			CacheReadInputTokens:     completion.Usage.CacheReadInputTokens,
 			CacheCreationInputTokens: completion.Usage.CacheCreationInputTokens,
@@ -510,8 +513,9 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, r
 
 		case StreamEventError:
 			return writeEvent(w, "error", ErrorResponse{
-				Type:  "error",
-				Error: *event.Error,
+				Type:      "error",
+				Error:     *event.Error,
+				RequestID: event.RequestID,
 			})
 		}
 

@@ -41,7 +41,8 @@ type StreamEvent struct {
 	DeltaUsage   *DeltaUsage
 
 	// For error events
-	Error *Error
+	Error     *Error
+	RequestID string
 
 	// The accumulated completion (available on final events)
 	Completion *provider.Completion
@@ -83,8 +84,9 @@ type StreamingAccumulator struct {
 	lastToolCallID string
 
 	// Usage tracking
-	inputTokens  int
-	outputTokens int
+	inputTokens          int
+	outputTokens         int
+	initialCacheCreation *CacheCreation
 }
 
 // NewStreamingAccumulator creates a new StreamingAccumulator with an event handler
@@ -209,12 +211,20 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	// Emit message_start on first add
 	if !s.started {
 		s.started = true
+		s.initialCacheCreation = cacheCreation(c.Usage)
 
 		// Get input tokens from first chunk if available
-		inputTokens := 0
+		inputTokens, outputTokens := 0, 0
+		var serviceTier, inferenceGeo string
+		var outputTokensDetails *OutputTokensDetails
 		var cacheReadInputTokens, cacheCreationInputTokens int
 		if c.Usage != nil {
 			inputTokens = anthropicInputTokens(c.Usage)
+			outputTokens = c.Usage.OutputTokens
+			serviceTier, inferenceGeo = c.Usage.ServiceTier, c.Usage.InferenceGeo
+			if c.Usage.ReasoningTokens != nil {
+				outputTokensDetails = &OutputTokensDetails{ThinkingTokens: *c.Usage.ReasoningTokens}
+			}
 			s.inputTokens = inputTokens
 			cacheReadInputTokens = c.Usage.CacheReadInputTokens
 			cacheCreationInputTokens = c.Usage.CacheCreationInputTokens
@@ -233,11 +243,15 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				Usage: Usage{
 					Speed:        speedFromTier(c.Tier),
 					InputTokens:  inputTokens,
-					OutputTokens: 0,
+					OutputTokens: outputTokens,
+					ServiceTier:  serviceTier,
+					InferenceGeo: inferenceGeo,
+
+					OutputTokensDetails: outputTokensDetails,
 
 					CacheReadInputTokens:     cacheReadInputTokens,
 					CacheCreationInputTokens: cacheCreationInputTokens,
-					CacheCreation:            cacheCreation(c.Usage),
+					CacheCreation:            s.initialCacheCreation,
 				},
 			},
 		}); err != nil {
@@ -617,6 +631,12 @@ func (s *StreamingAccumulator) Complete() error {
 	if s.stopReason == StopReasonStopSequence {
 		messageDelta.StopSequence = &result.StopSequence
 	}
+	// Anthropic sends the breakdown at message_start. Repeat it only when a
+	// backend reports new information later, so final usage can reconstruct it.
+	creation := cacheCreation(result.Usage)
+	if creation != nil && s.initialCacheCreation != nil && *creation == *s.initialCacheCreation {
+		creation = nil
+	}
 
 	if err := s.emitEvent(StreamEvent{
 		Type:         StreamEventMessageDelta,
@@ -629,7 +649,7 @@ func (s *StreamingAccumulator) Complete() error {
 
 			CacheReadInputTokens:     cacheReadInputTokens,
 			CacheCreationInputTokens: cacheCreationInputTokens,
-			CacheCreation:            cacheCreation(result.Usage),
+			CacheCreation:            creation,
 		},
 		Completion: result,
 	}); err != nil {
@@ -649,12 +669,11 @@ func (s *StreamingAccumulator) Complete() error {
 
 // Error emits an error event
 func (s *StreamingAccumulator) Error(err error) error {
+	failure := responseError(provider.CodeFromError(err, http.StatusBadGateway), err)
 	return s.emitEvent(StreamEvent{
-		Type: StreamEventError,
-		Error: &Error{
-			Type:    errorTypeForStatus(provider.CodeFromError(err, http.StatusBadGateway)),
-			Message: err.Error(),
-		},
+		Type:      StreamEventError,
+		Error:     &failure,
+		RequestID: errorRequestID(err),
 	})
 }
 

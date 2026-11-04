@@ -32,6 +32,7 @@ func readReference(t *testing.T, protocol string, stream bool, raw []byte) refer
 			result.text += textValue(at(body, "choices", 0, "delta", "content"))
 			if reason := at(body, "choices", 0, "finish_reason"); reason == "stop" || reason == "tool_calls" {
 				finished = true
+				result.finish = normalizeReferenceFinish(textValue(reason))
 			}
 			items, _ := at(body, "choices", 0, "delta", "tool_calls").([]any)
 			for _, item := range items {
@@ -164,6 +165,12 @@ func readReference(t *testing.T, protocol string, stream bool, raw []byte) refer
 		result = referenceJSON(t, protocol, snapshot)
 	case "gemini":
 		result.done = finished
+		if finished {
+			result.finish = "end_turn"
+			if len(result.calls) > 0 {
+				result.finish = "tool_use"
+			}
+		}
 	case "interactions":
 		var steps []any
 		for _, index := range slices.Sorted(maps.Keys(blocks)) {
@@ -184,6 +191,12 @@ func readReference(t *testing.T, protocol string, stream bool, raw []byte) refer
 		content := referenceJSON(t, protocol, map[string]any{"steps": steps})
 		result.text, result.calls = content.text, content.calls
 		result.done = finished
+		if finished {
+			result.finish = "end_turn"
+			if len(result.calls) > 0 {
+				result.finish = "tool_use"
+			}
+		}
 	}
 	sortCalls(result.calls)
 	return result
@@ -202,6 +215,7 @@ func referenceJSON(t *testing.T, protocol string, body map[string]any) reference
 		}
 		reason := at(body, "choices", 0, "finish_reason")
 		result.done = reason == "stop" || reason == "tool_calls"
+		result.finish = normalizeReferenceFinish(textValue(reason))
 		result.usage(protocol, body["usage"])
 	case "responses":
 		items, _ = body["output"].([]any)
@@ -219,6 +233,12 @@ func referenceJSON(t *testing.T, protocol string, body map[string]any) reference
 			}
 		}
 		result.done = body["status"] == "completed"
+		if result.done {
+			result.finish = "end_turn"
+			if len(result.calls) > 0 {
+				result.finish = "tool_use"
+			}
+		}
 		result.usage(protocol, body["usage"])
 	case "anthropic":
 		items, _ = body["content"].([]any)
@@ -232,6 +252,7 @@ func referenceJSON(t *testing.T, protocol string, body map[string]any) reference
 		}
 		reason := body["stop_reason"]
 		result.done = reason == "end_turn" || reason == "tool_use" || reason == "stop_sequence"
+		result.finish = textValue(reason)
 		result.usage(protocol, body["usage"])
 	case "gemini":
 		items, _ = at(body, "candidates", 0, "content", "parts").([]any)
@@ -244,6 +265,12 @@ func referenceJSON(t *testing.T, protocol string, body map[string]any) reference
 			}
 		}
 		result.done = at(body, "candidates", 0, "finishReason") == "STOP"
+		if result.done {
+			result.finish = "end_turn"
+			if len(result.calls) > 0 {
+				result.finish = "tool_use"
+			}
+		}
 		result.usage(protocol, body["usageMetadata"])
 	case "interactions":
 		items, _ = body["steps"].([]any)
@@ -261,12 +288,33 @@ func referenceJSON(t *testing.T, protocol string, body map[string]any) reference
 			}
 		}
 		result.done = body["status"] == "completed" || body["status"] == "requires_action"
+		if result.done {
+			result.finish = "end_turn"
+			if body["status"] == "requires_action" || len(result.calls) > 0 {
+				result.finish = "tool_use"
+			}
+		}
 		result.usage(protocol, body["usage"])
 	default:
 		t.Fatalf("unknown reference protocol %q", protocol)
 	}
 	sortCalls(result.calls)
 	return result
+}
+
+func normalizeReferenceFinish(reason string) string {
+	switch reason {
+	case "stop":
+		return "end_turn"
+	case "tool_calls":
+		return "tool_use"
+	case "length":
+		return "max_tokens"
+	case "content_filter":
+		return "refusal"
+	default:
+		return reason
+	}
 }
 
 func (r *referenceResult) usage(protocol string, value any) {

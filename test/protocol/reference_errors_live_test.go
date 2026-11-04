@@ -11,6 +11,36 @@ import (
 	"time"
 )
 
+func compareUnsupportedChatTool(t *testing.T, protocol string, native capturedResponse, status int, headers http.Header, raw []byte) {
+	t.Helper()
+	requireStatus(t, native.status, http.StatusBadRequest, native.body)
+	requireStatus(t, status, native.status, raw)
+	requireType(t, headers, "application/json")
+	want, got := exactObject(t, native.body), exactObject(t, raw)
+	nativeError := want["error"].(map[string]any)
+	requireFieldKeys(t, nativeError, "type", "code", "param", "message")
+	equal(t, "native error.type", nativeError["type"], "invalid_request_error")
+	equal(t, "native error.param", nativeError["param"], "reasoning_effort")
+	equal(t, "native error.code", nativeError["code"], nil)
+	message := textValue(nativeError["message"])
+	if !strings.Contains(message, "Function tools with reasoning_effort are not supported") {
+		t.Fatalf("unexpected native rejection: %s", message)
+	}
+	switch protocol {
+	case "chat", "responses":
+		// Both OpenAI formats can preserve every native error field.
+		compareExactFields(t, "error envelope", want, got)
+	case "anthropic":
+		compareExactFields(t, "error envelope", map[string]any{
+			"type": "error", "error": map[string]any{"type": nativeError["type"], "message": message},
+		}, got)
+	case "gemini":
+		compareExactFields(t, "error envelope", map[string]any{
+			"error": map[string]any{"code": json.Number("400"), "status": "INVALID_ARGUMENT", "message": message},
+		}, got)
+	}
+}
+
 func TestLiveNativeErrorParity(t *testing.T) {
 	referenceLive(t)
 	local := gateway(t, func(w http.ResponseWriter, r *http.Request) {

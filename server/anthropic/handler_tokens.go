@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
@@ -22,6 +23,10 @@ func (h *Handler) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateAPIVersion(r.Header.Get("anthropic-version"), req.Messages); err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Model == "" || len(req.Messages) == 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("model and non-empty messages are required"))
 		return
 	}
 

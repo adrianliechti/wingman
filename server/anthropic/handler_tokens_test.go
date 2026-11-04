@@ -25,3 +25,26 @@ func TestCountTokensResolvesModel(t *testing.T) {
 		}
 	}
 }
+
+func TestCountTokensRequiresModelAndMessages(t *testing.T) {
+	cfg := &config.Config{Policy: noop.New()}
+	cfg.RegisterCompleter("test", &optionsCompleter{})
+	h := New(cfg)
+
+	for _, body := range []string{
+		`null`,
+		`{}`,
+		`{"messages":[{"role":"user","content":"hi"}]}`,
+		`{"model":"test"}`,
+		`{"model":"test","messages":null}`,
+		`{"model":"test","messages":[]}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.handleCountTokens(rec, httptest.NewRequest(http.MethodPost, "/messages/count_tokens", strings.NewReader(body)))
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"type":"invalid_request_error"`) {
+				t.Fatalf("invalid request accepted: HTTP %d: %s", rec.Code, rec.Body)
+			}
+		})
+	}
+}

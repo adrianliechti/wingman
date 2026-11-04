@@ -36,6 +36,8 @@ func TestMessagesMapCacheControl(t *testing.T) {
 		name, body string
 		want       *provider.CacheOptions
 	}{
+		{"automatic 1h", `{"model":"test","max_tokens":16,"cache_control":{"type":"ephemeral","ttl":"1h"},"messages":[{"role":"user","content":"hi"}]}`, &provider.CacheOptions{Retention: provider.CacheRetentionExtended}},
+		{"automatic default ttl", `{"model":"test","max_tokens":16,"cache_control":{"type":"ephemeral"},"messages":[{"role":"user","content":"hi"}]}`, nil},
 		{"system 1h", `{"model":"test","max_tokens":16,"system":[{"type":"text","text":"rules","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":"hi"}]}`, &provider.CacheOptions{Retention: provider.CacheRetentionExtended}},
 		{"message 1h", `{"model":"test","max_tokens":16,"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`, &provider.CacheOptions{Retention: provider.CacheRetentionExtended}},
 		{"default ttl", `{"model":"test","max_tokens":16,"system":[{"type":"text","text":"rules","cache_control":{"type":"ephemeral"}}],"messages":[{"role":"user","content":"hi"}]}`, nil},

@@ -140,6 +140,10 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 
+	// Provider-reported execution metadata, independent of requested speed.
+	ServiceTier  string
+	InferenceGeo string
+
 	// ReasoningTokens is nil when the provider did not report a breakdown.
 	// A non-nil zero means reasoning usage was measured as zero.
 	ReasoningTokens *int
@@ -163,6 +167,12 @@ func (u *Usage) Merge(src *Usage) {
 	u.InputTokens = max(u.InputTokens, src.InputTokens)
 	u.OutputTokens = max(u.OutputTokens, src.OutputTokens)
 	u.CacheReadInputTokens = max(u.CacheReadInputTokens, src.CacheReadInputTokens)
+	if src.ServiceTier != "" {
+		u.ServiceTier = src.ServiceTier
+	}
+	if src.InferenceGeo != "" {
+		u.InferenceGeo = src.InferenceGeo
+	}
 	if n := src.ReasoningTokens; n != nil && (u.ReasoningTokens == nil || *n > *u.ReasoningTokens) {
 		u.ReasoningTokens = new(*n)
 	}
