@@ -2,7 +2,7 @@ package responses
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"iter"
 	"net/http"
@@ -78,7 +78,7 @@ func TestResponsesPreserveMessagePhases(t *testing.T) {
 				var result map[string]any
 				added, done := map[string]map[string]any{}, map[string]map[string]any{}
 				if stream {
-					for _, line := range strings.Split(rec.Body.String(), "\n") {
+					for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 						if !strings.HasPrefix(line, "data: ") {
 							continue
 						}
@@ -200,7 +200,7 @@ func TestResponsesKeepRepeatedPhaseItemsApart(t *testing.T) {
 			doneIDs := map[string]bool{}
 
 			if stream {
-				for _, line := range strings.Split(rec.Body.String(), "\n") {
+				for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 					if !strings.HasPrefix(line, "data: ") {
 						continue
 					}

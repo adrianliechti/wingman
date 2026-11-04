@@ -2,13 +2,14 @@ package google
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
+
 	"google.golang.org/genai/interactions/models/interactions"
 	"google.golang.org/genproto/googleapis/rpc/code"
 )

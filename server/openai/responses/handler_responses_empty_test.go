@@ -2,7 +2,7 @@ package responses
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"iter"
 	"net/http"
 	"net/http/httptest"

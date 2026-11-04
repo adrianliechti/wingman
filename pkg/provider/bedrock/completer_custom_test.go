@@ -1,7 +1,7 @@
 package bedrock
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"

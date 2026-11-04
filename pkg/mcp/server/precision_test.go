@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/tool"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -35,15 +37,22 @@ func TestToolExecutionPreservesNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "lookup", Arguments: json.RawMessage(args)})
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "lookup", Arguments: jsontext.Value(args)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(p.args)
+	data, err := json.Marshal(p.args, json.Deterministic(true))
 	if err != nil || string(data) != args {
 		t.Fatalf("arguments changed: %s (%v)", data, err)
 	}
-	if len(result.Content) != 1 || result.Content[0].(*mcp.TextContent).Text != args {
-		t.Fatalf("result changed: %+v", result)
+	if len(result.Content) != 1 {
+		t.Fatalf("expected one text result, got %+v", result)
+	}
+	content, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected text result, got %T", result.Content[0])
+	}
+	if content.Text != args {
+		t.Fatalf("result changed: %s", content.Text)
 	}
 }

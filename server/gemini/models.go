@@ -16,65 +16,65 @@ const (
 
 // GenerateContentRequest is the request body for generateContent
 type GenerateContentRequest struct {
-	Model string `json:"model,omitempty"` // only inside countTokens.generateContentRequest
-	Tier  string `json:"serviceTier,omitempty"`
+	Model string `json:"model,omitzero"` // only inside countTokens.generateContentRequest
+	Tier  string `json:"serviceTier,omitzero"`
 
 	Contents          []*Content `json:"contents,omitempty"`
-	SystemInstruction *Content   `json:"systemInstruction,omitempty"`
+	SystemInstruction *Content   `json:"systemInstruction,omitzero"`
 
 	Tools      []*Tool     `json:"tools,omitempty"`
-	ToolConfig *ToolConfig `json:"toolConfig,omitempty"`
+	ToolConfig *ToolConfig `json:"toolConfig,omitzero"`
 
-	GenerationConfig *GenerationConfig `json:"generationConfig,omitempty"`
+	GenerationConfig *GenerationConfig `json:"generationConfig,omitzero"`
 	SafetySettings   []*SafetySetting  `json:"safetySettings,omitempty"`
 }
 
 type ThinkingConfig struct {
-	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
-	ThinkingBudget  *int   `json:"thinkingBudget,omitempty"`
-	IncludeThoughts bool   `json:"includeThoughts,omitempty"`
+	ThinkingLevel   string `json:"thinkingLevel,omitzero"`
+	ThinkingBudget  *int   `json:"thinkingBudget,omitzero"`
+	IncludeThoughts bool   `json:"includeThoughts,omitzero"`
 }
 
 // Content represents a message with parts
 type Content struct {
-	Role  string  `json:"role,omitempty"`
+	Role  string  `json:"role,omitzero"`
 	Parts []*Part `json:"parts,omitempty"`
 }
 
 // Part is a single piece of content
 type Part struct {
-	Text             string            `json:"text,omitempty"`
-	Thought          bool              `json:"thought,omitempty"`
+	Text             string            `json:"text,omitzero"`
+	Thought          bool              `json:"thought,omitzero"`
 	ThoughtSignature []byte            `json:"thoughtSignature,omitempty"`
-	InlineData       *Blob             `json:"inlineData,omitempty"`
-	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
-	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`
-	FileData         *FileData         `json:"fileData,omitempty"`
+	InlineData       *Blob             `json:"inlineData,omitzero"`
+	FunctionCall     *FunctionCall     `json:"functionCall,omitzero"`
+	FunctionResponse *FunctionResponse `json:"functionResponse,omitzero"`
+	FileData         *FileData         `json:"fileData,omitzero"`
 }
 
 // Blob represents inline binary data
 type Blob struct {
-	MimeType string `json:"mimeType,omitempty"`
-	Data     string `json:"data,omitempty"` // base64 encoded
+	MimeType string `json:"mimeType,omitzero"`
+	Data     string `json:"data,omitzero"` // base64 encoded
 }
 
 // FileData represents a reference to uploaded file
 type FileData struct {
-	FileUri  string `json:"fileUri,omitempty"`
-	MimeType string `json:"mimeType,omitempty"`
+	FileUri  string `json:"fileUri,omitzero"`
+	MimeType string `json:"mimeType,omitzero"`
 }
 
 // FunctionCall represents a function call from the model
 type FunctionCall struct {
-	ID   string         `json:"id,omitempty"` // internal ID for tracking
-	Name string         `json:"name,omitempty"`
+	ID   string         `json:"id,omitzero"` // internal ID for tracking
+	Name string         `json:"name,omitzero"`
 	Args map[string]any `json:"args,omitempty"`
 }
 
 // FunctionResponse is the result of a function call
 type FunctionResponse struct {
-	ID       string                  `json:"id,omitempty"` // matches the FunctionCall ID
-	Name     string                  `json:"name,omitempty"`
+	ID       string                  `json:"id,omitzero"` // matches the FunctionCall ID
+	Name     string                  `json:"name,omitzero"`
 	Response map[string]any          `json:"response,omitempty"`
 	Parts    []*FunctionResponsePart `json:"parts,omitempty"`
 }
@@ -82,20 +82,20 @@ type FunctionResponse struct {
 // FunctionResponsePart carries media alongside the function response's JSON
 // payload. Only one of InlineData / FileData should be set.
 type FunctionResponsePart struct {
-	InlineData *FunctionResponseBlob     `json:"inlineData,omitempty"`
-	FileData   *FunctionResponseFileData `json:"fileData,omitempty"`
+	InlineData *FunctionResponseBlob     `json:"inlineData,omitzero"`
+	FileData   *FunctionResponseFileData `json:"fileData,omitzero"`
 }
 
 type FunctionResponseBlob struct {
-	MimeType    string `json:"mimeType,omitempty"`
-	Data        string `json:"data,omitempty"` // base64 encoded
-	DisplayName string `json:"displayName,omitempty"`
+	MimeType    string `json:"mimeType,omitzero"`
+	Data        string `json:"data,omitzero"` // base64 encoded
+	DisplayName string `json:"displayName,omitzero"`
 }
 
 type FunctionResponseFileData struct {
-	FileUri     string `json:"fileUri,omitempty"`
-	MimeType    string `json:"mimeType,omitempty"`
-	DisplayName string `json:"displayName,omitempty"`
+	FileUri     string `json:"fileUri,omitzero"`
+	MimeType    string `json:"mimeType,omitzero"`
+	DisplayName string `json:"displayName,omitzero"`
 }
 
 // Tool represents a tool the model can use
@@ -105,107 +105,107 @@ type Tool struct {
 
 // FunctionDeclaration describes a function
 type FunctionDeclaration struct {
-	Name                 string `json:"name,omitempty"`
-	Description          string `json:"description,omitempty"`
-	Parameters           any    `json:"parameters,omitempty"`           // JSON Schema (standard Gemini API)
-	ParametersJsonSchema any    `json:"parametersJsonSchema,omitempty"` // JSON Schema (Gemini CLI format)
+	Name                 string `json:"name,omitzero"`
+	Description          string `json:"description,omitzero"`
+	Parameters           any    `json:"parameters,omitzero"`           // JSON Schema (standard Gemini API)
+	ParametersJsonSchema any    `json:"parametersJsonSchema,omitzero"` // JSON Schema (Gemini CLI format)
 }
 
 // ToolConfig configures tool behavior
 type ToolConfig struct {
-	FunctionCallingConfig *FunctionCallingConfig `json:"functionCallingConfig,omitempty"`
+	FunctionCallingConfig *FunctionCallingConfig `json:"functionCallingConfig,omitzero"`
 }
 
 // FunctionCallingConfig controls function calling
 type FunctionCallingConfig struct {
-	Mode                 string   `json:"mode,omitempty"` // AUTO, ANY, NONE
+	Mode                 string   `json:"mode,omitzero"` // AUTO, ANY, NONE
 	AllowedFunctionNames []string `json:"allowedFunctionNames,omitempty"`
 }
 
 // GenerationConfig contains generation parameters
 type GenerationConfig struct {
-	MaxOutputTokens *int     `json:"maxOutputTokens,omitempty"`
+	MaxOutputTokens *int     `json:"maxOutputTokens,omitzero"`
 	StopSequences   []string `json:"stopSequences,omitempty"`
-	CandidateCount  *int     `json:"candidateCount,omitempty"`
+	CandidateCount  *int     `json:"candidateCount,omitzero"`
 
-	ThinkingConfig *ThinkingConfig `json:"thinkingConfig,omitempty"`
+	ThinkingConfig *ThinkingConfig `json:"thinkingConfig,omitzero"`
 
-	ResponseMimeType   string `json:"responseMimeType,omitempty"`
-	ResponseSchema     any    `json:"responseSchema,omitempty"`
-	ResponseJsonSchema any    `json:"responseJsonSchema,omitempty"`
+	ResponseMimeType   string `json:"responseMimeType,omitzero"`
+	ResponseSchema     any    `json:"responseSchema,omitzero"`
+	ResponseJsonSchema any    `json:"responseJsonSchema,omitzero"`
 
 	ResponseModalities []string `json:"responseModalities,omitempty"`
-	MediaResolution    string   `json:"mediaResolution,omitempty"`
+	MediaResolution    string   `json:"mediaResolution,omitzero"`
 
-	Seed             *int     `json:"seed,omitempty"`
-	PresencePenalty  *float32 `json:"presencePenalty,omitempty"`
-	FrequencyPenalty *float32 `json:"frequencyPenalty,omitempty"`
+	Seed             *int     `json:"seed,omitzero"`
+	PresencePenalty  *float32 `json:"presencePenalty,omitzero"`
+	FrequencyPenalty *float32 `json:"frequencyPenalty,omitzero"`
 
-	ResponseLogprobs bool `json:"responseLogprobs,omitempty"`
-	Logprobs         *int `json:"logprobs,omitempty"`
+	ResponseLogprobs bool `json:"responseLogprobs,omitzero"`
+	Logprobs         *int `json:"logprobs,omitzero"`
 }
 
 // SafetySetting configures safety thresholds
 type SafetySetting struct {
-	Category  string `json:"category,omitempty"`
-	Threshold string `json:"threshold,omitempty"`
+	Category  string `json:"category,omitzero"`
+	Threshold string `json:"threshold,omitzero"`
 }
 
 // GenerateContentResponse is the response from generateContent
 type GenerateContentResponse struct {
-	ResponseId   string `json:"responseId,omitempty"`
-	ModelVersion string `json:"modelVersion,omitempty"`
+	ResponseId   string `json:"responseId,omitzero"`
+	ModelVersion string `json:"modelVersion,omitzero"`
 
 	Candidates []*Candidate `json:"candidates,omitempty"`
 
-	PromptFeedback *PromptFeedback `json:"promptFeedback,omitempty"`
-	Error          *APIError       `json:"error,omitempty"`
+	PromptFeedback *PromptFeedback `json:"promptFeedback,omitzero"`
+	Error          *APIError       `json:"error,omitzero"`
 
-	UsageMetadata *UsageMetadata `json:"usageMetadata,omitempty"`
+	UsageMetadata *UsageMetadata `json:"usageMetadata,omitzero"`
 }
 
 // Candidate is a single response candidate
 type Candidate struct {
-	Content       *Content        `json:"content,omitempty"`
-	FinishReason  string          `json:"finishReason,omitempty"`
-	Index         int             `json:"index,omitempty"`
+	Content       *Content        `json:"content,omitzero"`
+	FinishReason  string          `json:"finishReason,omitzero"`
+	Index         int             `json:"index,omitzero"`
 	SafetyRatings []*SafetyRating `json:"safetyRatings,omitempty"`
-	TokenCount    int             `json:"tokenCount,omitempty"`
+	TokenCount    int             `json:"tokenCount,omitzero"`
 }
 
 // SafetyRating represents a safety evaluation
 type SafetyRating struct {
-	Category    string `json:"category,omitempty"`
-	Probability string `json:"probability,omitempty"`
-	Blocked     bool   `json:"blocked,omitempty"`
+	Category    string `json:"category,omitzero"`
+	Probability string `json:"probability,omitzero"`
+	Blocked     bool   `json:"blocked,omitzero"`
 }
 
 // UsageMetadata contains token usage information
 type UsageMetadata struct {
-	PromptTokenCount        int  `json:"promptTokenCount,omitempty"`
-	CachedContentTokenCount int  `json:"cachedContentTokenCount,omitempty"`
-	CandidatesTokenCount    int  `json:"candidatesTokenCount,omitempty"`
-	ToolUsePromptTokenCount int  `json:"toolUsePromptTokenCount,omitempty"`
-	ThoughtsTokenCount      *int `json:"thoughtsTokenCount,omitempty"`
-	TotalTokenCount         int  `json:"totalTokenCount,omitempty"`
+	PromptTokenCount        int  `json:"promptTokenCount,omitzero"`
+	CachedContentTokenCount int  `json:"cachedContentTokenCount,omitzero"`
+	CandidatesTokenCount    int  `json:"candidatesTokenCount,omitzero"`
+	ToolUsePromptTokenCount int  `json:"toolUsePromptTokenCount,omitzero"`
+	ThoughtsTokenCount      *int `json:"thoughtsTokenCount,omitzero"`
+	TotalTokenCount         int  `json:"totalTokenCount,omitzero"`
 
 	PromptTokensDetails        []*ModalityTokenCount `json:"promptTokensDetails,omitempty"`
 	CacheTokensDetails         []*ModalityTokenCount `json:"cacheTokensDetails,omitempty"`
 	CandidatesTokensDetails    []*ModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
 	ToolUsePromptTokensDetails []*ModalityTokenCount `json:"toolUsePromptTokensDetails,omitempty"`
 
-	Tier string `json:"serviceTier,omitempty"`
+	Tier string `json:"serviceTier,omitzero"`
 }
 
 // ModalityTokenCount reports tokens broken down by modality.
 type ModalityTokenCount struct {
-	Modality   string `json:"modality,omitempty"`
-	TokenCount int    `json:"tokenCount,omitempty"`
+	Modality   string `json:"modality,omitzero"`
+	TokenCount int    `json:"tokenCount,omitzero"`
 }
 
 // PromptFeedback contains feedback about the prompt
 type PromptFeedback struct {
-	BlockReason   string          `json:"blockReason,omitempty"`
+	BlockReason   string          `json:"blockReason,omitzero"`
 	SafetyRatings []*SafetyRating `json:"safetyRatings,omitempty"`
 }
 
@@ -214,9 +214,9 @@ type PromptFeedback struct {
 // systemInstruction/tools form is a Wingman extension kept for older clients.
 type CountTokensRequest struct {
 	Contents               []*Content              `json:"contents,omitempty"`
-	GenerateContentRequest *GenerateContentRequest `json:"generateContentRequest,omitempty"`
+	GenerateContentRequest *GenerateContentRequest `json:"generateContentRequest,omitzero"`
 
-	SystemInstruction *Content `json:"systemInstruction,omitempty"`
+	SystemInstruction *Content `json:"systemInstruction,omitzero"`
 	Tools             []*Tool  `json:"tools,omitempty"`
 }
 
@@ -228,13 +228,13 @@ type CountTokensResponse struct {
 
 // ErrorResponse represents an error response
 type ErrorResponse struct {
-	Error *APIError `json:"error,omitempty"`
+	Error *APIError `json:"error,omitzero"`
 }
 
 // APIError contains error details
 type APIError struct {
-	Code    int              `json:"code,omitempty"`
-	Message string           `json:"message,omitempty"`
-	Status  string           `json:"status,omitempty"`
+	Code    int              `json:"code,omitzero"`
+	Message string           `json:"message,omitzero"`
+	Status  string           `json:"status,omitzero"`
 	Details []map[string]any `json:"details,omitempty"`
 }

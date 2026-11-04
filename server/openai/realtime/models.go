@@ -1,8 +1,8 @@
 package realtime
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
@@ -19,9 +20,9 @@ type clientEvent struct {
 	Type    string `json:"type"`
 	EventID string `json:"event_id"`
 
-	Session  json.RawMessage `json:"session"`
-	Response json.RawMessage `json:"response"`
-	Item     json.RawMessage `json:"item"`
+	Session  jsontext.Value `json:"session"`
+	Response jsontext.Value `json:"response"`
+	Item     jsontext.Value `json:"item"`
 
 	Audio string `json:"audio"`
 
@@ -33,26 +34,26 @@ type clientEvent struct {
 }
 
 type conversationItem struct {
-	ID     string `json:"id,omitempty"`
-	Object string `json:"object,omitempty"`
+	ID     string `json:"id,omitzero"`
+	Object string `json:"object,omitzero"`
 	Type   string `json:"type"`
-	Status string `json:"status,omitempty"`
-	Role   string `json:"role,omitempty"`
+	Status string `json:"status,omitzero"`
+	Role   string `json:"role,omitzero"`
 
 	Content []itemContent `json:"content,omitempty"`
 
-	CallID    string `json:"call_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Output    string `json:"output,omitempty"`
+	CallID    string `json:"call_id,omitzero"`
+	Name      string `json:"name,omitzero"`
+	Arguments string `json:"arguments,omitzero"`
+	Output    string `json:"output,omitzero"`
 }
 
 type itemContent struct {
 	Type string `json:"type"`
 
-	Text       string `json:"text,omitempty"`
-	Transcript string `json:"transcript,omitempty"`
-	Audio      string `json:"audio,omitempty"`
+	Text       string `json:"text,omitzero"`
+	Transcript string `json:"transcript,omitzero"`
+	Audio      string `json:"audio,omitzero"`
 }
 
 func (item *conversationItem) normalize() {
@@ -182,7 +183,7 @@ func (c sessionConfig) options(history []provider.Message) provider.RealtimeOpti
 	}
 }
 
-func (c *sessionConfig) apply(data json.RawMessage) error {
+func (c *sessionConfig) apply(data jsontext.Value) error {
 	if len(data) == 0 || string(data) == "null" {
 		return errors.New("session is required")
 	}
@@ -194,7 +195,7 @@ func (c *sessionConfig) apply(data json.RawMessage) error {
 	updated.Transcription = cloneTranscription(c.Transcription)
 	updated.Truncation = cloneTruncation(c.Truncation)
 
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("invalid session: %w", err)
 	}
@@ -341,8 +342,8 @@ func (c *sessionConfig) apply(data json.RawMessage) error {
 	return nil
 }
 
-func applyAudioConfig(config *sessionConfig, data json.RawMessage) error {
-	var audio map[string]json.RawMessage
+func applyAudioConfig(config *sessionConfig, data jsontext.Value) error {
+	var audio map[string]jsontext.Value
 	if err := json.Unmarshal(data, &audio); err != nil {
 		return errors.New("session.audio must be an object")
 	}
@@ -354,7 +355,7 @@ func applyAudioConfig(config *sessionConfig, data json.RawMessage) error {
 	}
 
 	if raw, ok := audio["input"]; ok {
-		var input map[string]json.RawMessage
+		var input map[string]jsontext.Value
 		if err := json.Unmarshal(raw, &input); err != nil {
 			return errors.New("session.audio.input must be an object")
 		}
@@ -399,7 +400,7 @@ func applyAudioConfig(config *sessionConfig, data json.RawMessage) error {
 	}
 
 	if raw, ok := audio["output"]; ok {
-		var output map[string]json.RawMessage
+		var output map[string]jsontext.Value
 		if err := json.Unmarshal(raw, &output); err != nil {
 			return errors.New("session.audio.output must be an object")
 		}
@@ -430,9 +431,9 @@ func applyAudioConfig(config *sessionConfig, data json.RawMessage) error {
 	return nil
 }
 
-func parseVoice(data json.RawMessage) (string, error) {
+func parseVoice(data jsontext.Value) (string, error) {
 	var voice string
-	if json.Unmarshal(data, &voice) == nil {
+	if data.Kind() == '"' && json.Unmarshal(data, &voice) == nil {
 		return voice, nil
 	}
 
@@ -446,11 +447,11 @@ func parseVoice(data json.RawMessage) (string, error) {
 	return "", errors.New("session audio voice must be a string")
 }
 
-func parseTranscription(data json.RawMessage) (*provider.RealtimeTranscription, error) {
+func parseTranscription(data jsontext.Value) (*provider.RealtimeTranscription, error) {
 	if string(data) == "null" {
 		return nil, nil
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, errors.New("must be an object or null")
 	}
@@ -471,11 +472,11 @@ func parseTranscription(data json.RawMessage) (*provider.RealtimeTranscription, 
 	return &provider.RealtimeTranscription{Model: value.Model, Language: value.Language, Prompt: value.Prompt}, nil
 }
 
-func parseTurnDetection(data json.RawMessage) (*provider.RealtimeTurnDetection, error) {
+func parseTurnDetection(data jsontext.Value) (*provider.RealtimeTurnDetection, error) {
 	if string(data) == "null" {
 		return nil, nil
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, errors.New("must be an object or null")
 	}
@@ -545,11 +546,11 @@ func parseTurnDetection(data json.RawMessage) (*provider.RealtimeTurnDetection, 
 	return result, nil
 }
 
-func parseNoiseReduction(data json.RawMessage) (provider.RealtimeNoiseReduction, error) {
+func parseNoiseReduction(data jsontext.Value) (provider.RealtimeNoiseReduction, error) {
 	if string(data) == "null" {
 		return "", nil
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return "", errors.New("must be an object or null")
 	}
@@ -570,9 +571,9 @@ func parseNoiseReduction(data json.RawMessage) (provider.RealtimeNoiseReduction,
 	}
 }
 
-func parseTruncation(data json.RawMessage) (*provider.RealtimeTruncation, error) {
+func parseTruncation(data jsontext.Value) (*provider.RealtimeTruncation, error) {
 	var mode string
-	if json.Unmarshal(data, &mode) == nil {
+	if data.Kind() == '"' && json.Unmarshal(data, &mode) == nil {
 		switch mode {
 		case "auto":
 			return nil, nil
@@ -582,7 +583,7 @@ func parseTruncation(data json.RawMessage) (*provider.RealtimeTruncation, error)
 			return nil, fmt.Errorf("unsupported mode %q", mode)
 		}
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, errors.New("must be an object or \"auto\" or \"disabled\"")
 	}
@@ -590,7 +591,7 @@ func parseTruncation(data json.RawMessage) (*provider.RealtimeTruncation, error)
 		return nil, err
 	}
 	if raw, ok := fields["token_limits"]; ok {
-		var tokenLimits map[string]json.RawMessage
+		var tokenLimits map[string]jsontext.Value
 		if err := json.Unmarshal(raw, &tokenLimits); err != nil {
 			return nil, errors.New("truncation.token_limits must be an object")
 		}
@@ -622,7 +623,7 @@ func parseTruncation(data json.RawMessage) (*provider.RealtimeTruncation, error)
 	}, nil
 }
 
-func parseMetadata(data json.RawMessage) (map[string]string, error) {
+func parseMetadata(data jsontext.Value) (map[string]string, error) {
 	if string(data) == "null" {
 		return nil, nil
 	}
@@ -644,7 +645,7 @@ func parseMetadata(data json.RawMessage) (map[string]string, error) {
 	return metadata, nil
 }
 
-func validateObjectFields(context string, fields map[string]json.RawMessage, allowed ...string) error {
+func validateObjectFields(context string, fields map[string]jsontext.Value, allowed ...string) error {
 	for name := range fields {
 		if !slices.Contains(allowed, name) {
 			return fmt.Errorf("%s field %q is not supported", context, name)
@@ -653,9 +654,9 @@ func validateObjectFields(context string, fields map[string]json.RawMessage, all
 	return nil
 }
 
-func parseAudioFormat(data json.RawMessage, current provider.RealtimeAudioFormat) (provider.RealtimeAudioFormat, error) {
+func parseAudioFormat(data jsontext.Value, current provider.RealtimeAudioFormat) (provider.RealtimeAudioFormat, error) {
 	var legacy string
-	if json.Unmarshal(data, &legacy) == nil {
+	if data.Kind() == '"' && json.Unmarshal(data, &legacy) == nil {
 		switch legacy {
 		case "pcm16", "audio/pcm":
 			return openAIAudioFormat(provider.RealtimeAudioPCM), nil
@@ -667,7 +668,7 @@ func parseAudioFormat(data json.RawMessage, current provider.RealtimeAudioFormat
 			return current, fmt.Errorf("unsupported format %q", legacy)
 		}
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return current, errors.New("must be a format string or object")
 	}
@@ -736,9 +737,9 @@ func validateAudioFormat(name string, format provider.RealtimeAudioFormat) error
 	return nil
 }
 
-func parseMaxTokens(data json.RawMessage) (*int, error) {
+func parseMaxTokens(data jsontext.Value) (*int, error) {
 	var value int
-	if json.Unmarshal(data, &value) == nil {
+	if data.Kind() == '0' && json.Unmarshal(data, &value) == nil {
 		if value < 1 || value > 4096 {
 			return nil, errors.New("session max output tokens must be between 1 and 4096")
 		}
@@ -746,15 +747,15 @@ func parseMaxTokens(data json.RawMessage) (*int, error) {
 	}
 
 	var unlimited string
-	if json.Unmarshal(data, &unlimited) == nil && unlimited == "inf" {
+	if data.Kind() == '"' && json.Unmarshal(data, &unlimited) == nil && unlimited == "inf" {
 		return nil, nil
 	}
 
 	return nil, errors.New("session max output tokens must be a positive integer or \"inf\"")
 }
 
-func parseTools(data json.RawMessage) ([]provider.Tool, error) {
-	var fields []map[string]json.RawMessage
+func parseTools(data jsontext.Value) ([]provider.Tool, error) {
+	var fields []map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, errors.New("session.tools must be an array")
 	}
@@ -772,9 +773,7 @@ func parseTools(data json.RawMessage) ([]provider.Tool, error) {
 		Description string         `json:"description"`
 		Parameters  map[string]any `json:"parameters"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&values); err != nil {
+	if err := jsonutil.Unmarshal(data, &values); err != nil {
 		return nil, errors.New("session.tools must be an array")
 	}
 
@@ -800,7 +799,7 @@ func parseTools(data json.RawMessage) ([]provider.Tool, error) {
 	return tools, nil
 }
 
-func parseToolChoice(data json.RawMessage) (provider.ToolChoice, error) {
+func parseToolChoice(data jsontext.Value) (provider.ToolChoice, error) {
 	var choice string
 	if json.Unmarshal(data, &choice) != nil {
 		return "", errors.New("session.tool_choice must be a string; named function choices are not supported")

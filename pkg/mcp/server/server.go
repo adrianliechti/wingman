@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"sync"
@@ -104,7 +104,8 @@ func (s *Server) refreshTools() error {
 		current := make(map[string]string, len(tools))
 
 		for _, t := range tools {
-			data, _ := json.Marshal(t.Parameters)
+			// Revisions compare bytes; map iteration must not announce false changes.
+			data, _ := json.Marshal(t.Parameters, json.Deterministic(true))
 
 			schema := new(jsonschema.Schema)
 
@@ -163,7 +164,7 @@ func (s *Server) refreshTools() error {
 					}, nil
 
 				default:
-					data, _ := json.Marshal(v)
+					data, _ := json.Marshal(v, json.Deterministic(true))
 
 					return &mcp.CallToolResult{
 						Content: []mcp.Content{

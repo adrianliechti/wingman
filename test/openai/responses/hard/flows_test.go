@@ -1,7 +1,7 @@
 package hard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -359,9 +359,7 @@ func TestFlowCommentaryToolLoop(t *testing.T) {
 						requireToolRound(t, tg.label, call.output())
 
 						replay := map[string]any{}
-						for key, value := range body {
-							replay[key] = value
-						}
+						maps.Copy(replay, body)
 						input := append([]any{}, body["input"].([]any)...)
 						input = append(input, call.output()...)
 						input = append(input, toolOutputs(call.output())...)
@@ -518,7 +516,7 @@ func cachedTokensPerTurn(t *testing.T, h *openai.Harness, tg target, body map[st
 	input := append([]any{}, body["input"].([]any)...)
 	var cached []float64
 
-	for round := 0; round < 6; round++ {
+	for range 6 {
 		req := maps.Clone(body)
 		req["input"] = input
 

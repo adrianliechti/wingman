@@ -1,7 +1,7 @@
 package gemini
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
+
 	"github.com/joho/godotenv"
 	"google.golang.org/genai"
 )
@@ -38,7 +39,7 @@ func TestFunctionCallSignatureReplayLive(t *testing.T) {
 	if models == "" {
 		models = "gemini-3.8-flash"
 	}
-	for _, model := range strings.Split(models, ",") {
+	for model := range strings.SplitSeq(models, ",") {
 		for _, tc := range []struct{ stream, summaries, native bool }{{false, false, false}, {true, false, false}, {false, true, false}, {true, true, false}, {false, false, true}} {
 			t.Run(fmt.Sprintf("%s/stream=%t/summaries=%t/native=%t", model, tc.stream, tc.summaries, tc.native), func(t *testing.T) {
 				p, err := google.NewCompleter(strings.TrimSpace(model), google.WithToken(key))
@@ -67,9 +68,9 @@ func TestFunctionCallSignatureReplayLive(t *testing.T) {
 					chunks := [][]byte{body}
 					if tc.stream {
 						chunks = nil
-						for _, line := range strings.Split(string(body), "\n") {
-							if strings.HasPrefix(line, "data: ") {
-								chunks = append(chunks, []byte(strings.TrimPrefix(line, "data: ")))
+						for line := range strings.SplitSeq(string(body), "\n") {
+							if after, ok := strings.CutPrefix(line, "data: "); ok {
+								chunks = append(chunks, []byte(after))
 							}
 						}
 					}

@@ -1,9 +1,11 @@
 package chat
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
@@ -43,24 +45,24 @@ type ChatCompletionRequest struct {
 
 	Messages []ChatCompletionMessage `json:"messages"`
 
-	Stream        bool                         `json:"stream,omitempty"`
-	StreamOptions *ChatCompletionStreamOptions `json:"stream_options,omitempty"`
+	Stream        bool                         `json:"stream,omitzero"`
+	StreamOptions *ChatCompletionStreamOptions `json:"stream_options,omitzero"`
 
-	MaxCompletionTokens *int `json:"max_completion_tokens,omitempty"`
-	MaxTokens           *int `json:"max_tokens,omitempty"` // deprecated alias of max_completion_tokens
-	Stop                any  `json:"stop,omitempty"`
+	MaxCompletionTokens *int `json:"max_completion_tokens,omitzero"`
+	MaxTokens           *int `json:"max_tokens,omitzero"` // deprecated alias of max_completion_tokens
+	Stop                any  `json:"stop,omitzero"`
 
-	ReasoningEffort ReasoningEffort               `json:"reasoning_effort,omitempty"`
-	Verbosity       Verbosity                     `json:"verbosity,omitempty"`
-	ResponseFormat  *ChatCompletionResponseFormat `json:"response_format,omitempty"`
+	ReasoningEffort ReasoningEffort               `json:"reasoning_effort,omitzero"`
+	Verbosity       Verbosity                     `json:"verbosity,omitzero"`
+	ResponseFormat  *ChatCompletionResponseFormat `json:"response_format,omitzero"`
 
 	Tools             []Tool      `json:"tools,omitempty"`
-	ToolChoice        *ToolChoice `json:"tool_choice,omitempty"`
-	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitempty"`
+	ToolChoice        *ToolChoice `json:"tool_choice,omitzero"`
+	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitzero"`
 
-	PromptCacheKey       *string             `json:"prompt_cache_key,omitempty"`
-	PromptCacheRetention *string             `json:"prompt_cache_retention,omitempty"`
-	PromptCacheOptions   *PromptCacheOptions `json:"prompt_cache_options,omitempty"`
+	PromptCacheKey       *string             `json:"prompt_cache_key,omitzero"`
+	PromptCacheRetention *string             `json:"prompt_cache_retention,omitzero"`
+	PromptCacheOptions   *PromptCacheOptions `json:"prompt_cache_options,omitzero"`
 
 	// frequency_penalty *float32
 	// presence_penalty *float32
@@ -95,7 +97,7 @@ var (
 // https://platform.openai.com/docs/api-reference/chat/create
 type ChatCompletionResponseFormat struct {
 	Type       ResponseFormat `json:"type"`
-	JSONSchema *Schema        `json:"json_schema,omitempty"`
+	JSONSchema *Schema        `json:"json_schema,omitzero"`
 }
 
 type ChatCompletionStreamOptions struct {
@@ -104,9 +106,9 @@ type ChatCompletionStreamOptions struct {
 
 type Schema struct {
 	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Description string `json:"description,omitzero"`
 
-	Strict *bool `json:"strict,omitempty"`
+	Strict *bool `json:"strict,omitzero"`
 
 	Schema map[string]any `json:"schema"`
 }
@@ -118,35 +120,35 @@ type ChatCompletion struct {
 	Model             string  `json:"model"`
 	SystemFingerprint *string `json:"system_fingerprint"`
 
-	ServiceTier string `json:"service_tier,omitempty"`
+	ServiceTier string `json:"service_tier,omitzero"`
 
 	Created int64 `json:"created"`
 
 	Choices []ChatCompletionChoice `json:"choices"`
 
-	Usage *Usage `json:"usage,omitempty"`
+	Usage *Usage `json:"usage,omitzero"`
 }
 
 // https://platform.openai.com/docs/api-reference/chat/object
 type ChatCompletionChoice struct {
 	Index int `json:"index"`
 
-	Delta   *ChatCompletionMessage `json:"delta,omitempty"`
-	Message *ChatCompletionMessage `json:"message,omitempty"`
+	Delta   *ChatCompletionMessage `json:"delta,omitzero"`
+	Message *ChatCompletionMessage `json:"message,omitzero"`
 
 	FinishReason *FinishReason `json:"finish_reason"`
 }
 
 // https://platform.openai.com/docs/api-reference/chat/object
 type ChatCompletionMessage struct {
-	Role MessageRole `json:"role,omitempty"`
+	Role MessageRole `json:"role,omitzero"`
 
-	Content  *string          `json:"content,omitempty"`
+	Content  *string          `json:"content,omitzero"`
 	Contents []MessageContent `json:"-"`
-	Refusal  *string          `json:"refusal,omitempty"`
+	Refusal  *string          `json:"refusal,omitzero"`
 
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitzero"`
 
 	Annotations []any `json:"annotations,omitzero"`
 }
@@ -162,24 +164,24 @@ var (
 )
 
 type MessageContent struct {
-	Type MessageContentType `json:"type,omitempty"`
+	Type MessageContentType `json:"type,omitzero"`
 
-	Text    string `json:"text,omitempty"`
-	Refusal string `json:"refusal,omitempty"`
+	Text    string `json:"text,omitzero"`
+	Refusal string `json:"refusal,omitzero"`
 
-	File  *MessageContentFile  `json:"file,omitempty"`
-	Image *MessageContentImage `json:"image_url,omitempty"`
-	Audio *MessageContentAudio `json:"input_audio,omitempty"`
+	File  *MessageContentFile  `json:"file,omitzero"`
+	Image *MessageContentImage `json:"image_url,omitzero"`
+	Audio *MessageContentAudio `json:"input_audio,omitzero"`
 
-	PromptCacheBreakpoint *PromptCacheBreakpoint `json:"prompt_cache_breakpoint,omitempty"`
+	PromptCacheBreakpoint *PromptCacheBreakpoint `json:"prompt_cache_breakpoint,omitzero"`
 }
 
 type PromptCacheOptions = shared.PromptCacheOptions
 
 // PromptCacheBreakpoint marks the end of a reusable prefix on a content part.
 type PromptCacheBreakpoint struct {
-	Mode string `json:"mode,omitempty"`
-	TTL  string `json:"ttl,omitempty"`
+	Mode string `json:"mode,omitzero"`
+	TTL  string `json:"ttl,omitzero"`
 }
 
 type MessageContentImage struct {
@@ -187,103 +189,66 @@ type MessageContentImage struct {
 }
 
 type MessageContentFile struct {
-	Name string `json:"filename,omitempty"`
-	Data string `json:"file_data,omitempty"`
+	Name string `json:"filename,omitzero"`
+	Data string `json:"file_data,omitzero"`
 }
 
 type MessageContentAudio struct {
-	Data   string `json:"data,omitempty"`
-	Format string `json:"format,omitempty"`
+	Data   string `json:"data,omitzero"`
+	Format string `json:"format,omitzero"`
 }
 
-func (m *ChatCompletionMessage) MarshalJSON() ([]byte, error) {
+func (m *ChatCompletionMessage) MarshalJSONTo(enc *jsontext.Encoder) error {
 	if m.Content != nil && m.Contents != nil {
-		return nil, errors.New("cannot have both content and contents")
+		return errors.New("cannot have both content and contents")
 	}
 
-	if len(m.Contents) > 0 {
-		return json.Marshal(struct {
-			Role        MessageRole      `json:"role,omitempty"`
-			Contents    []MessageContent `json:"content,omitempty"`
-			Refusal     *string          `json:"refusal,omitzero"`
-			ToolCalls   []ToolCall       `json:"tool_calls,omitempty"`
-			ToolCallID  string           `json:"tool_call_id,omitempty"`
-			Annotations []any            `json:"annotations,omitzero"`
-		}{
-			Role:        m.Role,
-			Contents:    m.Contents,
-			Refusal:     m.Refusal,
-			ToolCalls:   m.ToolCalls,
-			ToolCallID:  m.ToolCallID,
-			Annotations: m.Annotations,
-		})
+	type message ChatCompletionMessage
+	if m.Contents != nil {
+		return json.MarshalEncode(enc, struct {
+			*message
+			Content []MessageContent `json:"content"`
+		}{(*message)(m), m.Contents})
 	}
 
-	return json.Marshal(struct {
-		Role        MessageRole `json:"role,omitempty"`
-		Content     *string     `json:"content,omitempty"`
-		Refusal     *string     `json:"refusal"`
-		ToolCalls   []ToolCall  `json:"tool_calls,omitempty"`
-		ToolCallID  string      `json:"tool_call_id,omitempty"`
-		Annotations []any       `json:"annotations,omitzero"`
-	}{
-		Role:        m.Role,
-		Content:     m.Content,
-		Refusal:     m.Refusal,
-		ToolCalls:   m.ToolCalls,
-		ToolCallID:  m.ToolCallID,
-		Annotations: m.Annotations,
-	})
+	return json.MarshalEncode(enc, struct {
+		*message
+		Refusal *string `json:"refusal"`
+	}{(*message)(m), m.Refusal})
 }
 
-func (m *ChatCompletionMessage) UnmarshalJSON(data []byte) error {
-	// Try string content first
-	type stringContent struct {
-		Role        MessageRole `json:"role,omitempty"`
-		Content     *string     `json:"content"`
-		Refusal     *string     `json:"refusal,omitempty"`
-		ToolCalls   []ToolCall  `json:"tool_calls,omitempty"`
-		ToolCallID  string      `json:"tool_call_id,omitempty"`
-		Annotations []any       `json:"annotations,omitzero"`
+func (m *ChatCompletionMessage) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	var wire struct {
+		Role        MessageRole    `json:"role"`
+		Content     jsontext.Value `json:"content"`
+		Refusal     *string        `json:"refusal"`
+		ToolCalls   []ToolCall     `json:"tool_calls"`
+		ToolCallID  string         `json:"tool_call_id"`
+		Annotations []any          `json:"annotations"`
 	}
-
-	var sc stringContent
-	if err := json.Unmarshal(data, &sc); err == nil {
-		m.Role = sc.Role
-		m.Content = sc.Content
-		m.Refusal = sc.Refusal
-		m.ToolCalls = sc.ToolCalls
-		m.ToolCallID = sc.ToolCallID
-		m.Annotations = sc.Annotations
-		return nil
+	if err := json.UnmarshalDecode(dec, &wire, jsonutil.PreserveNumbers); err != nil {
+		return err
 	}
-
-	// Try array content
-	type arrayContent struct {
-		Role        MessageRole      `json:"role,omitempty"`
-		Contents    []MessageContent `json:"content"`
-		Refusal     *string          `json:"refusal,omitempty"`
-		ToolCalls   []ToolCall       `json:"tool_calls,omitempty"`
-		ToolCallID  string           `json:"tool_call_id,omitempty"`
-		Annotations []any            `json:"annotations,omitzero"`
+	value := ChatCompletionMessage{Role: wire.Role, Refusal: wire.Refusal, ToolCalls: wire.ToolCalls, ToolCallID: wire.ToolCallID, Annotations: wire.Annotations}
+	switch wire.Content.Kind() {
+	case 0, 'n':
+	case '"':
+		if err := json.Unmarshal(wire.Content, &value.Content, dec.Options()); err != nil {
+			return err
+		}
+	case '[':
+		if err := json.Unmarshal(wire.Content, &value.Contents, dec.Options()); err != nil {
+			return err
+		}
+	default:
+		return errors.New("message content must be a string, an array, or null")
 	}
-
-	var ac arrayContent
-	if err := json.Unmarshal(data, &ac); err == nil {
-		m.Role = ac.Role
-		m.Contents = ac.Contents
-		m.Refusal = ac.Refusal
-		m.ToolCalls = ac.ToolCalls
-		m.ToolCallID = ac.ToolCallID
-		m.Annotations = ac.Annotations
-		return nil
-	}
-
+	*m = value
 	return nil
 }
 
 type ToolChoice struct {
-	Mode ToolChoiceMode `json:"mode,omitempty"`
+	Mode ToolChoiceMode `json:"mode,omitzero"`
 
 	AllowedTools []ToolChoiceAllowedTool `json:"allowed_tools,omitempty"`
 }
@@ -298,63 +263,50 @@ const (
 
 type ToolChoiceAllowedTool struct {
 	Type     string                         `json:"type"`
-	Function *ToolChoiceAllowedToolFunction `json:"function,omitempty"`
+	Function *ToolChoiceAllowedToolFunction `json:"function,omitzero"`
 }
 
 type ToolChoiceAllowedToolFunction struct {
 	Name string `json:"name"`
 }
 
-func (t *ToolChoice) UnmarshalJSON(data []byte) error {
-	// string: "none", "auto", "required"
-	var mode string
-
-	if err := json.Unmarshal(data, &mode); err == nil {
-		t.Mode = ToolChoiceMode(mode)
-		return nil
-	}
-
-	// object: {"type": "function", "function": {"name": "X"}}
-	var legacy struct {
-		Type     string                         `json:"type"`
-		Function *ToolChoiceAllowedToolFunction `json:"function,omitempty"`
-	}
-
-	if err := json.Unmarshal(data, &legacy); err == nil && legacy.Type == "function" && legacy.Function != nil {
-		t.Mode = ToolChoiceModeRequired
-
-		t.AllowedTools = []ToolChoiceAllowedTool{
-			{Type: legacy.Type, Function: legacy.Function},
+func (t *ToolChoice) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	if dec.PeekKind() == '"' || dec.PeekKind() == 'n' {
+		var mode ToolChoiceMode
+		if err := json.UnmarshalDecode(dec, &mode); err != nil {
+			return err
 		}
-
+		*t = ToolChoice{Mode: mode}
 		return nil
 	}
-
-	// object: {"type": "allowed_tools", "allowed_tools": {"mode": "...", "tools": [...]}}
-	var official struct {
-		Type         string `json:"type"`
-		AllowedTools *struct {
-			Mode  ToolChoiceMode          `json:"mode"`
-			Tools []ToolChoiceAllowedTool `json:"tools"`
-		} `json:"allowed_tools"`
+	var wire struct {
+		Type         string                         `json:"type"`
+		Function     *ToolChoiceAllowedToolFunction `json:"function"`
+		Mode         ToolChoiceMode                 `json:"mode"`
+		AllowedTools jsontext.Value                 `json:"allowed_tools"`
 	}
-
-	if err := json.Unmarshal(data, &official); err == nil && official.Type == "allowed_tools" && official.AllowedTools != nil {
-		t.Mode = official.AllowedTools.Mode
-		t.AllowedTools = official.AllowedTools.Tools
-		return nil
-	}
-
-	// object: {"type": "allowed_tools", "mode": "...", "allowed_tools": [...]}
-	type Alias ToolChoice
-
-	var alias Alias
-
-	if err := json.Unmarshal(data, &alias); err != nil {
+	if err := json.UnmarshalDecode(dec, &wire); err != nil {
 		return err
 	}
-
-	*t = ToolChoice(alias)
+	value := ToolChoice{Mode: wire.Mode}
+	if wire.Type == "function" && wire.Function != nil {
+		value.Mode = ToolChoiceModeRequired
+		value.AllowedTools = []ToolChoiceAllowedTool{{Type: wire.Type, Function: wire.Function}}
+	} else if wire.AllowedTools.Kind() == '{' {
+		var allowed struct {
+			Mode  ToolChoiceMode          `json:"mode"`
+			Tools []ToolChoiceAllowedTool `json:"tools"`
+		}
+		if err := json.Unmarshal(wire.AllowedTools, &allowed, dec.Options()); err != nil {
+			return err
+		}
+		value.Mode, value.AllowedTools = allowed.Mode, allowed.Tools
+	} else if len(wire.AllowedTools) > 0 {
+		if err := json.Unmarshal(wire.AllowedTools, &value.AllowedTools, dec.Options()); err != nil {
+			return err
+		}
+	}
+	*t = value
 	return nil
 }
 
@@ -373,41 +325,41 @@ type Tool struct {
 
 // https://platform.openai.com/docs/api-reference/chat/object
 type ToolCall struct {
-	ID string `json:"id,omitempty"`
+	ID string `json:"id,omitzero"`
 
-	Type ToolType `json:"type,omitempty"`
+	Type ToolType `json:"type,omitzero"`
 
-	Index *int `json:"index,omitempty"`
+	Index *int `json:"index,omitzero"`
 
-	Function *FunctionCall `json:"function,omitempty"`
+	Function *FunctionCall `json:"function,omitzero"`
 }
 
 type Function struct {
 	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Description string `json:"description,omitzero"`
 
-	Strict *bool `json:"strict,omitempty"`
+	Strict *bool `json:"strict,omitzero"`
 
 	Parameters map[string]any `json:"parameters"`
 }
 
 // https://platform.openai.com/docs/api-reference/chat/object
 type FunctionCall struct {
-	Name      string `json:"name,omitempty"`
+	Name      string `json:"name,omitzero"`
 	Arguments string `json:"arguments"`
 }
 
 type Usage struct {
-	PromptTokens            int                      `json:"prompt_tokens,omitempty"`
-	CompletionTokens        int                      `json:"completion_tokens,omitempty"`
-	TotalTokens             int                      `json:"total_tokens,omitempty"`
-	PromptTokensDetails     *PromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
-	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+	PromptTokens            int                      `json:"prompt_tokens,omitzero"`
+	CompletionTokens        int                      `json:"completion_tokens,omitzero"`
+	TotalTokens             int                      `json:"total_tokens,omitzero"`
+	PromptTokensDetails     *PromptTokensDetails     `json:"prompt_tokens_details,omitzero"`
+	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitzero"`
 }
 
 type PromptTokensDetails struct {
 	CachedTokens     int `json:"cached_tokens"`
-	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitzero"`
 }
 
 type CompletionTokensDetails struct {

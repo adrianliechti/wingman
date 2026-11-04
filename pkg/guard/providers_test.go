@@ -208,8 +208,7 @@ func TestResearcherPreservesStream(t *testing.T) {
 			name = "stop early"
 		}
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 			options := &researcher.ResearchOptions{}
 			progress := &researcher.Result{Progress: "working"}
 			report := &researcher.Result{Content: "report"}

@@ -1,8 +1,9 @@
 package bedrock
 
 import (
-	"encoding/json"
 	"reflect"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	smithydocument "github.com/aws/smithy-go/document"
@@ -12,11 +13,11 @@ func newDocument(value any) document.Interface {
 	return document.NewLazyDocument(documentValue(value))
 }
 
-// Smithy's encoder treats json.Number as a string. Translate numbers at the
+// Smithy's encoder treats jsonutil.Number as a string. Translate numbers at the
 // SDK boundary, including nested schema values, without mutating caller data.
 func documentValue(value any) any {
 	switch value := value.(type) {
-	case json.Number:
+	case jsonutil.Number:
 		return smithydocument.Number(value)
 	case map[string]any:
 		if value == nil {
@@ -38,7 +39,7 @@ func documentValue(value any) any {
 		return result
 	default:
 		// Programmatic callers can supply typed maps/slices in a schema too,
-		// for example []json.Number or []map[string]any inside an enum/anyOf.
+		// for example []jsonutil.Number or []map[string]any inside an enum/anyOf.
 		rv := reflect.ValueOf(value)
 		if !rv.IsValid() {
 			return value

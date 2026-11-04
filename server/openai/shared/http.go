@@ -1,22 +1,25 @@
 package shared
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/openai/openai-go/v3"
 )
 
 func WriteJson(w http.ResponseWriter, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, fmt.Errorf("encode response: %w", err))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-
-	enc.Encode(v)
+	w.Write(data)
 }
 
 // ErrorTypeFromError maps a ProviderError to an OpenAI-compatible error type string.
@@ -62,9 +65,6 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 		w.Header().Set("Retry-After", v)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-
 	errorType := errorTypeFromCode(code)
 
 	resp := ErrorResponse{
@@ -75,8 +75,7 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 		},
 	}
 
-	var apiErr *Error
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*Error](err); ok {
 		resp.Error = *apiErr
 
 		if resp.Error.Type == "" {
@@ -88,25 +87,30 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 		}
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
+	var body any = resp
 
 	// Native OpenAI error objects already use this wire format. Preserve all
 	// fields, including param, null codes and details unknown to the SDK.
 	if upstream, ok := errors.AsType[*openai.Error](err); ok {
-		raw := json.RawMessage(upstream.RawJSON())
+		raw := jsontext.Value(upstream.RawJSON())
 		var fields Error
 		// Other services using the SDK can return incompatible shapes (for
 		// example numeric Google error codes); retain normalization for those.
 		if json.Unmarshal(raw, &fields) == nil && fields.Type != "" && fields.Message != "" {
-			enc.Encode(struct {
-				Error json.RawMessage `json:"error"`
-			}{Error: raw})
-			return
+			body = struct {
+				Error jsontext.Value `json:"error"`
+			}{Error: raw}
 		}
 	}
 
-	enc.Encode(resp)
+	data, encodeErr := json.Marshal(body)
+	if encodeErr != nil {
+		code = http.StatusInternalServerError
+		data = []byte(`{"error":{"type":"server_error","code":"server_error","message":"could not encode error response"}}`)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(data)
 }
 
 // WriteSSERetry emits an SSE "retry:" field (milliseconds) if the error

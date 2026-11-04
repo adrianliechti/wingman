@@ -3,7 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"mime/multipart"
 	"net/http"

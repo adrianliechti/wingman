@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/summarizer"
 	"github.com/adrianliechti/wingman/pkg/text"
+
+	"golang.org/x/sync/errgroup"
 )
 
 var _ summarizer.Provider = (*Summarizer)(nil)

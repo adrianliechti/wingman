@@ -3,7 +3,8 @@ package exa
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/adrianliechti/wingman/pkg/researcher"
+
 	"github.com/openai/openai-go/v3/packages/ssestream"
 )
 
@@ -102,7 +104,7 @@ func (c *Client) Research(ctx context.Context, instructions string, options *res
 		if mediaType != "text/event-stream" {
 			// Accept a normal response from deployments that do not stream search.
 			var data SearchResponse
-			if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+			if err := json.UnmarshalRead(resp.Body, &data); err != nil {
 				yield(nil, err)
 				return
 			}
@@ -164,7 +166,7 @@ type source struct {
 
 // decodeContent returns the synthesized text. With a "text" outputSchema the
 // content is a JSON string; fall back to the raw bytes for any other shape.
-func decodeContent(raw json.RawMessage) string {
+func decodeContent(raw jsontext.Value) string {
 	if len(raw) == 0 {
 		return ""
 	}

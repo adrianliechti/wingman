@@ -11,7 +11,8 @@
 package custom
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -212,7 +213,7 @@ func unwrap(args string) (string, bool) {
 		return "", false
 	}
 
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 
 	if err := json.Unmarshal([]byte(args), &fields); err != nil {
 		return "", false

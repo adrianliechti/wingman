@@ -1,7 +1,8 @@
 package toolsearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -17,7 +18,7 @@ func TestCatalogSchemaNumbers(t *testing.T) {
 		if len(tools) != 1 {
 			t.Fatalf("missing tool: %s", payload)
 		}
-		data, err := json.Marshal(tools[0].Parameters)
+		data, err := json.Marshal(tools[0].Parameters, json.Deterministic(true))
 		if err != nil || string(data) != schema {
 			t.Fatalf("schema changed: %s (%v)", data, err)
 		}
@@ -30,7 +31,9 @@ func TestCatalogSchemaNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var items []struct{ Parameters json.RawMessage }
+	var items []struct {
+		Parameters jsontext.Value `json:"parameters"`
+	}
 	if err := json.Unmarshal(resolved[0].Content[0].ToolResult.Payload, &items); err != nil {
 		t.Fatal(err)
 	}

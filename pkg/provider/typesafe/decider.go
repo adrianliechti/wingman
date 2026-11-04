@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/google/uuid"
 )
 
@@ -53,7 +56,7 @@ type decisionRequest struct {
 type decisionQuestion struct {
 	Type         string `json:"type"`
 	Instructions any    `json:"instructions"`
-	Criteria     any    `json:"criteria,omitempty"`
+	Criteria     any    `json:"criteria,omitzero"`
 }
 
 type decisionAsset struct {
@@ -73,34 +76,39 @@ type decisionResponse struct {
 }
 
 type decisionAnswer struct {
-	Type          string                                       `json:"type"`
-	Noul          *float64                                     `json:"noul"`
-	Choice        *string                                      `json:"choice"`
-	Score         *float64                                     `json:"score"`
-	Confidence    *float64                                     `json:"confidence"`
-	Probabilities map[string]float64                           `json:"probabilities"`
-	Legend        map[string]any                               `json:"legend"`
-	Box           *struct{ Top, Bottom, Left, Right *float64 } `json:"box"`
+	Type          string             `json:"type"`
+	Noul          *float64           `json:"noul"`
+	Choice        *string            `json:"choice"`
+	Score         *float64           `json:"score"`
+	Confidence    *float64           `json:"confidence"`
+	Probabilities map[string]float64 `json:"probabilities"`
+	Legend        map[string]any     `json:"legend"`
+	Box           *struct {
+		Top    *float64 `json:"top"`
+		Bottom *float64 `json:"bottom"`
+		Left   *float64 `json:"left"`
+		Right  *float64 `json:"right"`
+	} `json:"box"`
 }
 
-func (a *decisionAnswer) UnmarshalJSON(data []byte) error {
+func (a *decisionAnswer) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
 	type plain decisionAnswer
-	var decoded plain
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&decoded); err != nil {
+	var wire struct {
+		plain
+		Confidence jsontext.Value `json:"confidence"`
+	}
+	if err := json.UnmarshalDecode(dec, &wire, jsonutil.PreserveNumbers); err != nil {
 		return err
 	}
-	if decoded.Type == "box" {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(data, &fields); err != nil {
+	if wire.Type == "box" && len(wire.Confidence) == 0 {
+		return errors.New("box confidence is required (may be null)")
+	}
+	if len(wire.Confidence) > 0 {
+		if err := json.Unmarshal(wire.Confidence, &wire.plain.Confidence, dec.Options()); err != nil {
 			return err
 		}
-		if _, ok := fields["confidence"]; !ok {
-			return errors.New("box confidence is required (may be null)")
-		}
 	}
-	*a = decisionAnswer(decoded)
+	*a = decisionAnswer(wire.plain)
 	return nil
 }
 
@@ -213,7 +221,8 @@ func (d *Decider) Decide(ctx context.Context, input *provider.DecisionInput) (*p
 	if encodingError != nil {
 		return nil, provider.InvalidRequest(encodingError)
 	}
-	data, err := json.Marshal(body)
+	// Opaque state and criteria become model context; keep their order stable.
+	data, err := json.Marshal(body, json.Deterministic(true))
 	if err != nil {
 		return nil, provider.InvalidRequest(err)
 	}
@@ -268,7 +277,7 @@ func (d *Decider) evaluate(ctx context.Context, data []byte, images bool) (*deci
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		upstream := &provider.ProviderError{Code: resp.StatusCode, Message: string(data)}
 		var envelope struct {
-			Detail json.RawMessage `json:"detail"`
+			Detail jsontext.Value `json:"detail"`
 			Error  struct {
 				Message string `json:"message"`
 				Type    string `json:"type"`
@@ -294,9 +303,7 @@ func (d *Decider) evaluate(ctx context.Context, data []byte, images bool) (*deci
 	}
 
 	var result decisionResponse
-	decoder := json.NewDecoder(resp.Body)
-	decoder.UseNumber()
-	if err := decoder.Decode(&result); err != nil {
+	if err := jsonutil.UnmarshalRead(resp.Body, &result); err != nil {
 		return nil, fmt.Errorf("invalid decision response: %w", err)
 	}
 	return &result, nil

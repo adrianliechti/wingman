@@ -2,7 +2,8 @@ package protocol_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -15,17 +16,18 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/config"
+	// PROTOCOL_REFERENCE_LIVE=1 go test ./test/protocol -run TestLiveAnthropicFields -v
+	// Compare every JSON field against the SAME upstream generation, retaining raw
+	// objects so an SDK's typed decoder cannot silently discard newly added fields.
+	// Only gateway message IDs and the reversible signature scope are normalized.
+	// SSE chunk boundaries and ping timing are transport-specific; their contents,
+	// block indexes, lifecycle, start message and final message are checked.
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 )
 
-// PROTOCOL_REFERENCE_LIVE=1 go test ./test/protocol -run TestLiveAnthropicFields -v
-// Compare every JSON field against the SAME upstream generation, retaining raw
-// objects so an SDK's typed decoder cannot silently discard newly added fields.
-// Only gateway message IDs and the reversible signature scope are normalized.
-// SSE chunk boundaries and ping timing are transport-specific; their contents,
-// block indexes, lifecycle, start message and final message are checked.
 func TestLiveAnthropicFields(t *testing.T) {
 	referenceLive(t, "ANTHROPIC_API_KEY")
 	model := os.Getenv("ANTHROPIC_FIELDS_MODEL")
@@ -80,7 +82,7 @@ func TestLiveAnthropicFields(t *testing.T) {
 				capture.reset()
 				status, headers, raw := post(t, local, "/v1/messages", body)
 				native := capture.only(t)
-				saveReferenceFields(t, map[string]any{"request": body, "upstream_request": json.RawMessage(native.requestBody), "native": string(native.body), "wingman": string(raw)})
+				saveReferenceFields(t, map[string]any{"request": body, "upstream_request": jsontext.Value(native.requestBody), "native": string(native.body), "wingman": string(raw)})
 				requireStatus(t, native.status, http.StatusOK, native.body)
 				requireStatus(t, status, native.status, raw)
 				compareAnthropicRequest(t, body, native.requestBody)
@@ -113,7 +115,7 @@ func TestLiveAnthropicFields(t *testing.T) {
 						t.Fatalf("expected one tool call, got %d", len(calls))
 					}
 					equal(t, "tool name", calls[0]["name"], "record")
-					compareExactFields(t, "tool input", map[string]any{"city": "Zürich", "value": json.Number("9007199254740993")}, calls[0]["input"])
+					compareExactFields(t, "tool input", map[string]any{"city": "Zürich", "value": jsonutil.Number("9007199254740993")}, calls[0]["input"])
 				case "structured":
 					output := exactObject(t, []byte(anthropicFieldText(got)))
 					requireFieldKeys(t, output, "answer")
@@ -133,7 +135,7 @@ func TestLiveAnthropicFields(t *testing.T) {
 						capture.reset()
 						status, _, raw := post(t, local, "/v1/messages", followup)
 						native := capture.only(t)
-						saveReferenceFields(t, map[string]any{"request": followup, "upstream_request": json.RawMessage(native.requestBody), "native": string(native.body), "wingman": string(raw)})
+						saveReferenceFields(t, map[string]any{"request": followup, "upstream_request": jsontext.Value(native.requestBody), "native": string(native.body), "wingman": string(raw)})
 						requireStatus(t, status, http.StatusOK, raw)
 						requireStatus(t, native.status, http.StatusOK, native.body)
 						upstream := exactObject(t, native.requestBody)
@@ -295,7 +297,7 @@ func TestLiveAnthropicErrorFields(t *testing.T) {
 				}
 				status, headers, raw := post(t, local, "/v1/messages", body)
 				native := capture.only(t)
-				saveReferenceFields(t, map[string]any{"request": body, "upstream_request": json.RawMessage(native.requestBody), "native": string(native.body), "wingman": string(raw)})
+				saveReferenceFields(t, map[string]any{"request": body, "upstream_request": jsontext.Value(native.requestBody), "native": string(native.body), "wingman": string(raw)})
 				if native.status < 400 {
 					t.Fatalf("invalid request unexpectedly succeeded: HTTP %d", native.status)
 				}
@@ -445,7 +447,7 @@ func saveReferenceFields(t *testing.T, evidence any) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.MarshalIndent(evidence, "", "  ")
+	data, err := json.Marshal(evidence, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}

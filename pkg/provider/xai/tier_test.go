@@ -1,7 +1,7 @@
 package xai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -19,7 +19,7 @@ func TestTierMapping(t *testing.T) {
 		t.Run(string(tier), func(t *testing.T) {
 			client := &http.Client{Transport: tierTransport(func(r *http.Request) (*http.Response, error) {
 				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if tier == provider.TierStandard || tier == provider.TierPriority {

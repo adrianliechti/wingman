@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -42,7 +42,10 @@ func ParseToolSearchResult(id string, data []byte, catalog []provider.Tool) (pro
 
 func ToolSearchResultContent(result provider.ToolResult) anthropic.BetaToolSearchToolResultBlockParamContentUnion {
 	if result.IsError {
-		var detail struct{ Code, Message string }
+		var detail struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
 		json.Unmarshal(result.Payload, &detail)
 		if detail.Code == "" {
 			detail.Code = "unavailable"

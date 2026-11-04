@@ -2,7 +2,8 @@ package responses
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 	"google.golang.org/genai/interactions/models/interactions"
@@ -32,7 +34,7 @@ func TestResponsesGeminiSignedReplay(t *testing.T) {
 			client := &http.Client{Transport: boundaryTransport(func(r *http.Request) (*http.Response, error) {
 				number := requests.Add(1)
 				var request interactions.CreateModelInteraction
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				if err := json.UnmarshalRead(r.Body, &request); err != nil {
 					t.Fatal(err)
 				}
 				if r.URL.Path != "/v1beta/interactions" || request.Model != "gemini-4-argon" || request.Store == nil || *request.Store {
@@ -96,7 +98,7 @@ func TestResponsesGeminiTextBeforeThoughtSummary(t *testing.T) {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			client := &http.Client{Transport: boundaryTransport(func(r *http.Request) (*http.Response, error) {
 				var request interactions.CreateModelInteraction
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				if err := json.UnmarshalRead(r.Body, &request); err != nil {
 					t.Fatal(err)
 				}
 				steps := request.Input.ArrayOfStep
@@ -204,19 +206,19 @@ func postGeminiResponses(t *testing.T, url, model string, input, tools []map[str
 		t.Fatalf("Responses HTTP %d: %s", response.StatusCode, data)
 	}
 	if stream {
-		var completed json.RawMessage
+		var completed jsontext.Value
 		var doneItems []map[string]any
 		var added []string
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			payload, ok := strings.CutPrefix(line, "data: ")
 			if !ok {
 				continue
 			}
 			var event struct {
-				Type     string          `json:"type"`
-				Response json.RawMessage `json:"response"`
-				Index    int             `json:"output_index"`
-				Item     map[string]any  `json:"item"`
+				Type     string         `json:"type"`
+				Response jsontext.Value `json:"response"`
+				Index    int            `json:"output_index"`
+				Item     map[string]any `json:"item"`
 			}
 			if err := json.Unmarshal([]byte(payload), &event); err != nil {
 				t.Fatal(err)
@@ -281,7 +283,7 @@ func TestResponsesGeminiLiveReplay(t *testing.T) {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			input := []map[string]any{{"role": "user", "content": "Inspect a Go repository using tools. First call glob twice for **/AGENTS.md and **/CLAUDE.md. Wait for their results. Then explain your next action and call glob for pkg/agent/*.go and run_command for git log --oneline -5. Wait for their results, then reply with DONE. Do not skip either stage."}}
 			calls, thoughts := 0, 0
-			for turn := 0; turn < 5; turn++ {
+			for turn := range 5 {
 				output := postGeminiResponses(t, server.URL, model, input, geminiReplayTools(), stream)
 				input = append(input, output...)
 				var results []map[string]any

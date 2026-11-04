@@ -2,7 +2,7 @@ package api
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 
@@ -16,7 +16,7 @@ type RerankRequest struct {
 	Query string   `json:"query"`
 	Texts []string `json:"texts"`
 
-	Limit *int `json:"limit,omitempty"`
+	Limit *int `json:"limit,omitzero"`
 }
 
 type RerankResponse struct {
@@ -28,7 +28,7 @@ type RerankResponse struct {
 func (h *Handler) handleRerank(w http.ResponseWriter, r *http.Request) {
 	var req RerankRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -79,9 +79,7 @@ func (h *Handler) handleRerank(w http.ResponseWriter, r *http.Request) {
 			Index: index,
 			Score: r.Score,
 
-			Segment: Segment{
-				Text: r.Text,
-			},
+			Text: r.Text,
 		}
 
 		result.Results = append(result.Results, ranking)

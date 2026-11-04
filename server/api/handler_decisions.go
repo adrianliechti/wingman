@@ -1,9 +1,9 @@
 package api
 
 import (
-	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,21 +13,22 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 type DecisionsRequest struct {
 	Model     string                      `json:"model"`
-	State     json.RawMessage             `json:"state"`
+	State     jsontext.Value              `json:"state"`
 	Questions map[string]DecisionQuestion `json:"questions"`
 	Assets    map[string]DecisionAsset    `json:"assets,omitempty"`
 }
 
 type DecisionQuestion struct {
 	Type         string `json:"type"`
-	Instructions any    `json:"instructions,omitempty"`
-	Criteria     any    `json:"criteria,omitempty"`
+	Instructions any    `json:"instructions,omitzero"`
+	Criteria     any    `json:"criteria,omitzero"`
 }
 
 type DecisionAsset struct {
@@ -38,7 +39,7 @@ type DecisionAsset struct {
 }
 
 type DecisionsResponse struct {
-	ID      string                    `json:"id,omitempty"`
+	ID      string                    `json:"id,omitzero"`
 	Model   string                    `json:"model"`
 	Answers map[string]DecisionAnswer `json:"answers"`
 	Usage   DecisionsUsage            `json:"usage"`
@@ -48,26 +49,26 @@ type DecisionsResponse struct {
 // belong to another primitive. The provider layer uses separate answer types.
 type DecisionAnswer struct {
 	Type          string                   `json:"type"`
-	Message       string                   `json:"message,omitempty"`
-	Noul          *float64                 `json:"noul,omitempty"`
-	Choice        *string                  `json:"choice,omitempty"`
-	Score         *float64                 `json:"score,omitempty"`
-	Confidence    *float64                 `json:"confidence,omitempty"`
+	Message       string                   `json:"message,omitzero"`
+	Noul          *float64                 `json:"noul,omitzero"`
+	Choice        *string                  `json:"choice,omitzero"`
+	Score         *float64                 `json:"score,omitzero"`
+	Confidence    *float64                 `json:"confidence,omitzero"`
 	Probabilities map[string]float64       `json:"probabilities,omitempty"`
 	Legend        map[string]any           `json:"legend,omitempty"`
-	Box           *provider.BoxCoordinates `json:"box,omitempty"`
+	Box           *provider.BoxCoordinates `json:"box,omitzero"`
 }
 
-func (a DecisionAnswer) MarshalJSON() ([]byte, error) {
+func (a DecisionAnswer) MarshalJSONTo(enc *jsontext.Encoder) error {
 	type plain DecisionAnswer
 	if a.Type == "box" {
-		return json.Marshal(struct {
+		return json.MarshalEncode(enc, struct {
 			Type       string                   `json:"type"`
 			Box        *provider.BoxCoordinates `json:"box"`
 			Confidence *float64                 `json:"confidence"`
 		}{a.Type, a.Box, a.Confidence})
 	}
-	return json.Marshal(plain(a))
+	return json.MarshalEncode(enc, plain(a))
 }
 
 type DecisionsUsage struct {
@@ -113,9 +114,7 @@ func (r DecisionsRequest) input() (*provider.DecisionInput, error) {
 		return nil, errors.New("state is required")
 	}
 	var state any
-	decoder := json.NewDecoder(bytes.NewReader(r.State))
-	decoder.UseNumber()
-	if err := decoder.Decode(&state); err != nil {
+	if err := jsonutil.Unmarshal(r.State, &state); err != nil {
 		return nil, err
 	}
 	input := &provider.DecisionInput{State: state}
@@ -231,28 +230,23 @@ func decisionsResponse(result *provider.Decision) DecisionsResponse {
 }
 
 func writeDecisionError(w http.ResponseWriter, code int, err error) {
-	w.Header().Set("Content-Type", "application/json")
 	if retry := provider.RetryAfterHeaderValue(provider.RetryAfterFromError(err)); retry != "" {
 		w.Header().Set("Retry-After", retry)
 	}
+	data, encodeErr := json.Marshal(map[string]any{"error": map[string]any{"message": err.Error(), "type": provider.TypeFromError(err), "code": code}})
+	if encodeErr != nil {
+		code = http.StatusInternalServerError
+		data = []byte(`{"error":{"message":"could not encode error response","type":"server_error","code":500}}`)
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]any{"message": err.Error(), "type": provider.TypeFromError(err), "code": code},
-	})
+	w.Write(data)
 }
 
 func readDecisionsRequest(r *http.Request) (DecisionsRequest, error) {
 	var request DecisionsRequest
 	decode := func(reader io.Reader) error {
-		decoder := json.NewDecoder(reader)
-		decoder.UseNumber()
-		if err := decoder.Decode(&request); err != nil {
-			return err
-		}
-		if decoder.Decode(new(any)) != io.EOF {
-			return errors.New("request must contain a single JSON object")
-		}
-		return nil
+		return jsonutil.UnmarshalRead(reader, &request)
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
 		err := decode(r.Body)

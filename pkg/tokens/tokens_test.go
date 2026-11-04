@@ -1,7 +1,7 @@
 package tokens
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"os"
 	"sort"

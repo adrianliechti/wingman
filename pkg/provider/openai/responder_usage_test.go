@@ -1,13 +1,38 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
+
+	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 )
+
+func TestToResponseUsagePreservesCacheWriteBreakdown(t *testing.T) {
+	for _, tc := range []struct {
+		name, details string
+		want          *provider.CacheWriteTokensDetails
+	}{
+		{"missing", "", nil},
+		{"null", `,"cache_write_tokens_details":null`, nil},
+		{"zero", `,"cache_write_tokens_details":{"ttl_30m_tokens":0,"ttl_12h_tokens":0}`, &provider.CacheWriteTokensDetails{}},
+		{"measured", `,"cache_write_tokens_details":{"ttl_30m_tokens":3,"ttl_12h_tokens":7}`, &provider.CacheWriteTokensDetails{StandardTokens: 3, ExtendedTokens: 7}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var raw responses.ResponseUsage
+			if err := json.Unmarshal([]byte(`{"input_tokens":12,"output_tokens":2,"input_tokens_details":{"cache_write_tokens":10`+tc.details+`}}`), &raw); err != nil {
+				t.Fatal(err)
+			}
+			got := toResponseUsage(raw).CacheWriteTokensDetails
+			if (got == nil) != (tc.want == nil) || got != nil && *got != *tc.want {
+				t.Fatalf("cache write breakdown = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestToResponseUsageDistinguishesMissingReasoningFromZero(t *testing.T) {
 	for _, tc := range []struct {

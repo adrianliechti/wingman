@@ -1,23 +1,11 @@
 package tavily
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 )
-
-func jsonReader(v any) io.Reader {
-	b := new(bytes.Buffer)
-
-	enc := json.NewEncoder(b)
-	enc.SetEscapeHTML(false)
-
-	enc.Encode(v)
-	return b
-}
 
 func convertError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

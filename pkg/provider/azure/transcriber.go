@@ -3,7 +3,7 @@ package azure
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"iter"
@@ -254,13 +254,13 @@ func mapLocale(code string) string {
 type transcriptionDefinition struct {
 	Locales []string `json:"locales,omitempty"`
 
-	Diarization *transcriptionDiarization `json:"diarization,omitempty"`
-	PhraseList  *transcriptionPhraseList  `json:"phraseList,omitempty"`
+	Diarization *transcriptionDiarization `json:"diarization,omitzero"`
+	PhraseList  *transcriptionPhraseList  `json:"phraseList,omitzero"`
 }
 
 type transcriptionDiarization struct {
 	Enabled     bool `json:"enabled"`
-	MaxSpeakers int  `json:"maxSpeakers,omitempty"`
+	MaxSpeakers int  `json:"maxSpeakers,omitzero"`
 }
 
 type transcriptionPhraseList struct {

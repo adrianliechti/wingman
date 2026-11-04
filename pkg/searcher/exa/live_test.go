@@ -3,7 +3,7 @@ package exa
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"os"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/searcher"
+
 	"github.com/joho/godotenv"
 )
 

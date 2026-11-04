@@ -2,7 +2,8 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"iter"
 	"net/http/httptest"
@@ -24,14 +25,15 @@ import (
 	scrapeexa "github.com/adrianliechti/wingman/pkg/scraper/exa"
 	searchexa "github.com/adrianliechti/wingman/pkg/searcher/exa"
 	"github.com/adrianliechti/wingman/pkg/tool/research"
+
 	"github.com/joho/godotenv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type liveResearchUpdate struct {
-	Milliseconds int64
-	Progress     float64
-	Message      string
+	Milliseconds int64   `json:"milliseconds"`
+	Progress     float64 `json:"progress"`
+	Message      string  `json:"message"`
 }
 
 // Exercise final response delivery beyond the former keepalive ping timeout.
@@ -74,11 +76,11 @@ func TestLiveResearchLongRequest(t *testing.T) {
 }
 
 type liveResearchResult struct {
-	Provider     string
-	Milliseconds int64
-	Updates      []liveResearchUpdate
-	Report       string
-	Error        string
+	Provider     string               `json:"provider"`
+	Milliseconds int64                `json:"milliseconds"`
+	Updates      []liveResearchUpdate `json:"updates"`
+	Report       string               `json:"report"`
+	Error        string               `json:"error"`
 }
 
 // Opt in: this makes billable provider calls and opens a local HTTP MCP server.
@@ -89,11 +91,11 @@ func TestLiveResearchProgress(t *testing.T) {
 	_ = godotenv.Load("../../../.env")
 	model := os.Getenv("RESEARCH_LIVE_OPENAI_MODEL")
 	if model == "" {
-		model = "gpt-5.4-mini"
+		model = "gpt-6-luna"
 	}
 	claudeModel := os.Getenv("RESEARCH_LIVE_ANTHROPIC_MODEL")
 	if claudeModel == "" {
-		claudeModel = "claude-sonnet-4-6"
+		claudeModel = "claude-sonnet-5-5"
 	}
 	const question = "Read https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress and https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/cancellation. Compare progress reporting and cancellation for that exact specification version. Explain progressToken, how numeric progress changes, when notifications stop, and cancellation propagation. Use those two primary sources. Answer in at most 250 words and cite both URLs."
 	var results []liveResearchResult
@@ -211,7 +213,7 @@ func TestLiveResearchProgress(t *testing.T) {
 		})
 	}
 	if path := os.Getenv("RESEARCH_LIVE_OUTPUT"); path != "" {
-		data, err := json.MarshalIndent(results, "", "  ")
+		data, err := json.Marshal(results, jsontext.WithIndent("  "), json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

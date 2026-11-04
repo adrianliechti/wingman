@@ -3,7 +3,7 @@ package kreuzberg
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -93,7 +93,7 @@ func (c *Client) Segment(ctx context.Context, input string, options *segmenter.S
 
 	var results []ExtractionResult
 
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &results); err != nil {
 		return nil, err
 	}
 

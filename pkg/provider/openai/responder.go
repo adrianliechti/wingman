@@ -3,10 +3,12 @@ package openai
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"iter"
+	"maps"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -323,17 +325,13 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}
 
 				case responses.ResponseApplyPatchToolCall:
-					args, _ := json.Marshal(map[string]any{
-						"type": item.Operation.Type,
-						"path": item.Operation.Path,
-						"diff": item.Operation.Diff,
-					})
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: string(args)}), "") {
+					args := (texteditor.Operation{Type: item.Operation.Type, Path: item.Operation.Path, Diff: item.Operation.Diff}).Args()
+					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: args}), "") {
 						return
 					}
 
 				case responses.ResponseComputerToolCall:
-					args, _ := json.Marshal(computerCallToArgs(item))
+					args, _ := json.Marshal(computerCallToArgs(item), json.Deterministic(true))
 					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer", Arguments: string(args)}), "") {
 						return
 					}
@@ -357,7 +355,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						}
 					}
 					var raw struct {
-						Arguments json.RawMessage `json:"arguments"`
+						Arguments jsontext.Value `json:"arguments"`
 					}
 					if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
 						yield(nil, err)
@@ -365,7 +363,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}
 					args := raw.Arguments
 					if len(args) == 0 {
-						args = json.RawMessage("null")
+						args = jsontext.Value("null")
 					}
 					if !emit(provider.ToolCallContent(provider.ToolCall{
 						ID:        searchCallID,
@@ -382,7 +380,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						id = searchCallID
 					}
 					var raw struct {
-						Tools json.RawMessage `json:"tools"`
+						Tools jsontext.Value `json:"tools"`
 					}
 					if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
 						yield(nil, err)
@@ -390,7 +388,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}
 					payload := raw.Tools
 					if len(payload) == 0 || string(payload) == "null" {
-						payload = json.RawMessage("[]")
+						payload = jsontext.Value("[]")
 					}
 					if !emit(provider.ToolResultContent(provider.ToolResult{ID: id, Kind: provider.ToolKindToolSearch, Execution: string(item.Execution), Payload: payload}), "") {
 						return
@@ -438,7 +436,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				return
 
 			case responses.ResponseErrorEvent:
-				retryAfter := parseRetryHeaders(json.RawMessage(event.JSON.ExtraFields["headers"].Raw()))
+				retryAfter := parseRetryHeaders(jsontext.Value(event.JSON.ExtraFields["headers"].Raw()))
 				yield(nil, newProviderError("", event.Code, event.Message, statusCodeFromResponseErrorCode(event.Code), retryAfter, nil))
 				return
 
@@ -454,7 +452,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					}
 				}
 
-				retryAfter := parseRetryHeaders(json.RawMessage(event.Response.Error.JSON.ExtraFields["headers"].Raw()))
+				retryAfter := parseRetryHeaders(jsontext.Value(event.Response.Error.JSON.ExtraFields["headers"].Raw()))
 				statusCode := statusCodeFromResponseErrorCode(errCode)
 				providerErr := newProviderError("", errCode, msg, statusCode, retryAfter, nil)
 				yield(nil, providerErr)
@@ -727,7 +725,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 			}
 
 			controlItems = append(controlItems,
-				param.Override[responses.ResponseInputItemUnionParam](json.RawMessage(data)))
+				param.Override[responses.ResponseInputItemUnionParam](jsontext.Value(data)))
 		}
 		if len(controlItems) > 0 {
 			result = append(result, controlItems...)
@@ -902,9 +900,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 
 					case provider.ToolKindToolSearch:
 						loaded := toolsearch.Tools(c.ToolResult.Payload)
-						for name, tool := range provider.ToolAliases(loaded) {
-							loadedTools[name] = tool
-						}
+						maps.Copy(loadedTools, provider.ToolAliases(loaded))
 						for _, tool := range loaded {
 							if len(tool.Tools) == 0 {
 								// Responses loads a top-level deferred function into
@@ -924,7 +920,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 							tso.Execution = responses.ResponseToolSearchOutputItemParamExecution(c.ToolResult.Execution)
 						}
 						if len(c.ToolResult.Payload) > 0 {
-							var raw []json.RawMessage
+							var raw []jsontext.Value
 							if err := json.Unmarshal(c.ToolResult.Payload, &raw); err == nil {
 								for _, tool := range raw {
 									tso.Tools = append(tso.Tools, param.Override[responses.ResponseToolSearchOutputItemParamToolUnion](tool))
@@ -1142,8 +1138,8 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 							ts.Execution = c.ToolCall.Execution
 						}
 						if c.ToolCall.Arguments != "" {
-							args := json.RawMessage(c.ToolCall.Arguments)
-							if json.Valid(args) {
+							args := jsontext.Value(c.ToolCall.Arguments)
+							if args.IsValid() {
 								ts.Arguments = args
 							} else {
 								ts.Arguments = c.ToolCall.Arguments
@@ -1592,7 +1588,7 @@ func computerCallParam(call provider.ToolCall) responses.ResponseComputerToolCal
 		"pending_safety_checks": checks,
 	})
 
-	return param.Override[responses.ResponseComputerToolCallParam](json.RawMessage(data))
+	return param.Override[responses.ResponseComputerToolCallParam](jsontext.Value(data))
 }
 
 func computerCallOutputParam(r *provider.ToolResult) *responses.ResponseInputItemComputerCallOutputParam {
@@ -1668,7 +1664,7 @@ func shellCallParam(call provider.ToolCall, native bool) (responses.ResponseInpu
 			"action":  shell.ShellAction(call.Arguments),
 		})
 
-		item := param.Override[responses.ResponseInputItemShellCallParam](json.RawMessage(data))
+		item := param.Override[responses.ResponseInputItemShellCallParam](jsontext.Value(data))
 		return responses.ResponseInputItemUnionParam{OfShellCall: &item}, true
 
 	case shell.NameLocalShell:
@@ -1686,7 +1682,7 @@ func shellCallParam(call provider.ToolCall, native bool) (responses.ResponseInpu
 			"action":  action,
 		})
 
-		item := param.Override[responses.ResponseInputItemLocalShellCallParam](json.RawMessage(data))
+		item := param.Override[responses.ResponseInputItemLocalShellCallParam](jsontext.Value(data))
 		return responses.ResponseInputItemUnionParam{OfLocalShellCall: &item}, true
 	}
 
@@ -1701,8 +1697,8 @@ func shellCallOutputParam(r *provider.ToolResult, native bool) (responses.Respon
 	}
 
 	var envelope struct {
-		Type   string          `json:"type"`
-		Output json.RawMessage `json:"output"`
+		Type   string         `json:"type"`
+		Output jsontext.Value `json:"output"`
 	}
 
 	json.Unmarshal(r.Payload, &envelope)
@@ -1741,7 +1737,7 @@ func shellCallOutputParam(r *provider.ToolResult, native bool) (responses.Respon
 		"output":  output,
 	})
 
-	item := param.Override[responses.ResponseInputItemShellCallOutputParam](json.RawMessage(data))
+	item := param.Override[responses.ResponseInputItemShellCallOutputParam](jsontext.Value(data))
 	return responses.ResponseInputItemUnionParam{OfShellCallOutput: &item}, true
 }
 
@@ -1802,7 +1798,14 @@ func computerCallToArgs(item responses.ResponseComputerToolCall) map[string]any 
 }
 
 func toResponseUsage(usage responses.ResponseUsage) *provider.Usage {
-	cacheWrites := cacheWriteDetails(usage.InputTokensDetails.JSON.ExtraFields["cache_write_tokens_details"].Raw())
+	var cacheWrites *provider.CacheWriteTokensDetails
+	if usage.InputTokensDetails.JSON.CacheWriteTokensDetails.Valid() {
+		details := usage.InputTokensDetails.CacheWriteTokensDetails
+		cacheWrites = &provider.CacheWriteTokensDetails{
+			StandardTokens: int(details.Ttl30mTokens),
+			ExtendedTokens: int(details.Ttl12hTokens),
+		}
+	}
 	var reasoningTokens *int
 	if usage.OutputTokensDetails.JSON.ReasoningTokens.Valid() || usage.OutputTokensDetails.ReasoningTokens > 0 {
 		reasoningTokens = new(int(usage.OutputTokensDetails.ReasoningTokens))

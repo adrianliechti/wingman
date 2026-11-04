@@ -1,7 +1,7 @@
 package codex
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,10 +79,13 @@ func projectSteps(exchanges []harness.Exchange) ([]projectStep, error) {
 	for _, exchange := range exchanges {
 		var request struct {
 			Input []struct {
-				Type, Name, Arguments, Input string
-				CallID                       string `json:"call_id"`
-				Output                       string
-			}
+				Type      string `json:"type"`
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+				Input     string `json:"input"`
+				CallID    string `json:"call_id"`
+				Output    string `json:"output"`
+			} `json:"input"`
 		}
 		if err := json.Unmarshal([]byte(exchange.Request), &request); err != nil {
 			return nil, err
@@ -90,14 +93,16 @@ func projectSteps(exchanges []harness.Exchange) ([]projectStep, error) {
 		for _, item := range request.Input {
 			switch item.Type {
 			case "function_call":
-				var args struct{ Cmd string }
+				var args struct {
+					Cmd string `json:"cmd"`
+				}
 				if err := json.Unmarshal([]byte(item.Arguments), &args); err != nil {
 					return nil, err
 				}
 				calls[item.CallID] = projectStep{name: item.Name, command: args.Cmd}
 			case "custom_tool_call":
 				step := projectStep{name: item.Name}
-				for _, line := range strings.Split(item.Input, "\n") {
+				for line := range strings.SplitSeq(item.Input, "\n") {
 					for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "*** Move to: "} {
 						if file, ok := strings.CutPrefix(line, prefix); ok {
 							step.files = append(step.files, file)
@@ -136,8 +141,10 @@ func validateProjectCommands(exchanges []harness.Exchange, dir string) error {
 	for _, exchange := range exchanges {
 		var request struct {
 			Input []struct {
-				Type, Name, Arguments string
-			}
+				Type      string `json:"type"`
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			} `json:"input"`
 		}
 		if err := json.Unmarshal([]byte(exchange.Request), &request); err != nil {
 			return err
@@ -152,7 +159,10 @@ func validateProjectCommands(exchanges []harness.Exchange, dir string) error {
 				if item.Name != "exec_command" {
 					return fmt.Errorf("unexpected project tool %q", item.Name)
 				}
-				var args struct{ Cmd, Workdir string }
+				var args struct {
+					Cmd     string `json:"cmd"`
+					Workdir string `json:"workdir"`
+				}
 				if err := json.Unmarshal([]byte(item.Arguments), &args); err != nil {
 					return err
 				}

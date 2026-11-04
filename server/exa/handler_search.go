@@ -6,6 +6,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/server/web"
+
 	"github.com/google/uuid"
 )
 

@@ -2,7 +2,8 @@ package claudecode
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
 	"github.com/adrianliechti/wingman/server/anthropic"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/go-chi/chi/v5"
 )
@@ -63,10 +65,14 @@ func TestClaudeCodeOfflineBedrock(t *testing.T) {
 	client := &http.Client{Transport: bedrockTransport(func(r *http.Request) (*http.Response, error) {
 		defer r.Body.Close()
 		var request struct {
-			System   []struct{ Text string }
-			Messages []struct{ Role string }
+			System []struct {
+				Text string `json:"text"`
+			} `json:"system"`
+			Messages []struct {
+				Role string `json:"role"`
+			} `json:"messages"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := json.UnmarshalRead(r.Body, &request); err != nil {
 			return nil, err
 		}
 		if len(request.Messages) == 0 || request.Messages[len(request.Messages)-1].Role != "user" {
@@ -94,14 +100,14 @@ func TestClaudeCodeOfflineBedrock(t *testing.T) {
 	const trailingInstruction = "WINGMAN_E2E_SYSTEM_GUIDANCE"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/messages" {
-			var request map[string]json.RawMessage
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			var request map[string]jsontext.Value
+			if err := json.UnmarshalRead(r.Body, &request); err != nil {
 				t.Error(err)
 				http.Error(w, "invalid CLI request", http.StatusBadRequest)
 				return
 			}
 			r.Body.Close()
-			var messages []json.RawMessage
+			var messages []jsontext.Value
 			if err := json.Unmarshal(request["messages"], &messages); err != nil {
 				t.Error(err)
 				http.Error(w, "invalid CLI messages", http.StatusBadRequest)
@@ -129,9 +135,9 @@ func TestClaudeCodeOfflineBedrock(t *testing.T) {
 		}
 		var request struct {
 			Messages []struct {
-				Role    string
-				Content json.RawMessage
-			}
+				Role    string         `json:"role"`
+				Content jsontext.Value `json:"content"`
+			} `json:"messages"`
 		}
 		if err := json.Unmarshal([]byte(exchange.Request), &request); err != nil {
 			t.Fatal(err)
@@ -140,7 +146,9 @@ func TestClaudeCodeOfflineBedrock(t *testing.T) {
 			if message.Role != "system" {
 				continue
 			}
-			var blocks []struct{ Text string }
+			var blocks []struct {
+				Text string `json:"text"`
+			}
 			if err := json.Unmarshal(message.Content, &blocks); err != nil {
 				t.Fatal(err)
 			}

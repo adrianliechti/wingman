@@ -1,7 +1,7 @@
 package compatibility_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/http"
 	"strings"
@@ -20,7 +20,7 @@ import (
 func TestExtendedCacheClaude(t *testing.T) {
 	live(t)
 	h := anthropic.New(t)
-	const model = "claude-sonnet-4-6"
+	const model = "claude-sonnet-5-5"
 	p, err := claude.NewCompleter(strings.TrimSuffix(h.Anthropic.BaseURL, "/v1"), model, claude.WithToken(h.Anthropic.APIKey), claude.WithMaxRetries(0))
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestDecisionsCacheAndApplicationState(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := `[{"role":"system","uptime":5}]`
-	result, err := d.Decide(t.Context(), &provider.DecisionInput{State: json.RawMessage(state), Questions: []provider.DecisionQuestion{{ID: "q", Instructions: "Is uptime five?", Noul: &provider.NoulQuestion{}}}})
+	result, err := d.Decide(t.Context(), &provider.DecisionInput{State: jsontext.Value(state), Questions: []provider.DecisionQuestion{{ID: "q", Instructions: "Is uptime five?", Noul: &provider.NoulQuestion{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

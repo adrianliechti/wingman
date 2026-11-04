@@ -15,7 +15,7 @@
 package computeruse
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -34,14 +34,14 @@ const (
 // computer tool. Anthropic's tool has no equivalent; checks only round-trip
 // between OpenAI-dialect clients and OpenAI backends.
 type SafetyCheck struct {
-	ID      string `json:"id,omitempty"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
+	ID      string `json:"id,omitzero"`
+	Code    string `json:"code,omitzero"`
+	Message string `json:"message,omitzero"`
 }
 
 // Call is the canonical computer tool call payload.
 type Call struct {
-	CallID  string           `json:"call_id,omitempty"`
+	CallID  string           `json:"call_id,omitzero"`
 	Actions []map[string]any `json:"actions,omitempty"`
 
 	PendingSafetyChecks []SafetyCheck `json:"pending_safety_checks,omitempty"`
@@ -68,7 +68,7 @@ func ParseCall(args string) Call {
 }
 
 func (c Call) Args() string {
-	data, _ := json.Marshal(c)
+	data, _ := json.Marshal(c, json.Deterministic(true))
 	return string(data)
 }
 
@@ -284,7 +284,7 @@ func number(v any) int {
 		return int(n)
 	case int:
 		return n
-	case json.Number:
+	case jsonutil.Number:
 		if i, ok := jsonutil.Int64(n); ok {
 			return int(i)
 		}

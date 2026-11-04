@@ -12,7 +12,7 @@
 package texteditor
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
@@ -31,7 +31,7 @@ const (
 type Operation struct {
 	Type string `json:"type"`
 	Path string `json:"path"`
-	Diff string `json:"diff,omitempty"`
+	Diff string `json:"diff,omitzero"`
 }
 
 func ParseOperation(args string) Operation {
@@ -45,7 +45,7 @@ func (op Operation) Args() string {
 		"type": op.Type,
 		"path": op.Path,
 		"diff": op.Diff,
-	})
+	}, json.Deterministic(true))
 	return string(data)
 }
 
@@ -54,13 +54,13 @@ type Input struct {
 	Command string `json:"command"`
 	Path    string `json:"path"`
 
-	FileText string `json:"file_text,omitempty"`
+	FileText string `json:"file_text,omitzero"`
 
-	OldStr string `json:"old_str,omitempty"`
-	NewStr string `json:"new_str,omitempty"`
+	OldStr string `json:"old_str,omitzero"`
+	NewStr string `json:"new_str,omitzero"`
 
-	InsertLine *int   `json:"insert_line,omitempty"`
-	InsertText string `json:"insert_text,omitempty"`
+	InsertLine *int   `json:"insert_line,omitzero"`
+	InsertText string `json:"insert_text,omitzero"`
 
 	ViewRange []int `json:"view_range,omitempty"`
 }

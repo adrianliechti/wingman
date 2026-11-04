@@ -1,11 +1,14 @@
 package bedrock
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 )
 
@@ -23,7 +26,7 @@ func TestToolReplayPreservesJSONNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got map[string]json.RawMessage
+	var got map[string]jsontext.Value
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +37,7 @@ func TestToolReplayPreservesJSONNumbers(t *testing.T) {
 
 func TestToolSchemaPreservesJSONNumbers(t *testing.T) {
 	c := &Completer{Config: &Config{model: "anthropic.claude-test"}}
-	schema := map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"enum": []any{json.Number("9007199254740993")}}}}
+	schema := map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"enum": []any{jsonutil.Number("9007199254740993")}}}}
 	config, err := c.convertToolConfig([]provider.Tool{{Name: "lookup", Parameters: schema}}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +48,9 @@ func TestToolSchemaPreservesJSONNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got struct {
-		Properties map[string]struct{ Enum []json.RawMessage }
+		Properties map[string]struct {
+			Enum []jsontext.Value `json:"enum"`
+		} `json:"properties"`
 	}
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
@@ -53,20 +58,20 @@ func TestToolSchemaPreservesJSONNumbers(t *testing.T) {
 	if string(got.Properties["id"].Enum[0]) != "9007199254740993" {
 		t.Fatalf("schema number changed: %s", data)
 	}
-	if _, ok := schema["properties"].(map[string]any)["id"].(map[string]any)["enum"].([]any)[0].(json.Number); !ok {
+	if _, ok := schema["properties"].(map[string]any)["id"].(map[string]any)["enum"].([]any)[0].(jsonutil.Number); !ok {
 		t.Fatal("mutated caller schema")
 	}
 }
 
 func TestDocumentTypedCollectionsPreserveNumbers(t *testing.T) {
 	data, err := newDocument(map[string]any{
-		"enum":  []json.Number{"9007199254740993", "1e400"},
-		"items": []map[string]any{{"const": json.Number("1.234567890123456789")}},
+		"enum":  []jsonutil.Number{"9007199254740993", "1e400"},
+		"items": []map[string]any{{"const": jsonutil.Number("1.234567890123456789")}},
 	}).MarshalSmithyDocument()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
 	}

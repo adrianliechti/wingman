@@ -1,13 +1,14 @@
 package gemini
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"google.golang.org/genai"
 )
 

@@ -2,7 +2,7 @@ package codex
 
 import (
 	"crypto/rand"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -92,10 +92,13 @@ func TestCodexOfflineReadEdit(t *testing.T) {
 	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		var request struct {
-			Tools []struct{ Type, Name string }
-			Input []map[string]any
+			Tools []struct {
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"tools"`
+			Input []map[string]any `json:"input"`
 		}
-		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+		if err := json.UnmarshalRead(req.Body, &request); err != nil {
 			t.Error(err)
 		}
 		toolTypes := map[string]string{}

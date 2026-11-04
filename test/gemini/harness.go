@@ -49,8 +49,8 @@ func wingmanURL() string {
 	base := strings.TrimRight(env("WINGMAN_BASE_URL", DefaultWingmanURL), "/")
 	// A shared E2E invocation uses /v1 for OpenAI and Anthropic. Gemini's
 	// native routes use /v1beta on the same server.
-	if strings.HasSuffix(base, "/v1") {
-		return strings.TrimSuffix(base, "/v1") + "/v1beta"
+	if before, ok := strings.CutSuffix(base, "/v1"); ok {
+		return before + "/v1beta"
 	}
 	return base
 }
@@ -95,7 +95,7 @@ func modelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"gemini-3.8-flash", "claude-sonnet-4-6", "gpt-5.4"}
+	names := []string{"gemini-3.8-flash", "claude-sonnet-5-5", "gpt-6.1-sol"}
 	if v := os.Getenv("TEST_GEMINI_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {

@@ -2,7 +2,7 @@ package server
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/scraper/exa"
 	"github.com/adrianliechti/wingman/pkg/tool/scrape"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -24,7 +25,7 @@ func TestFetchFullExaContentOverMCP(t *testing.T) {
 			Text        bool `json:"text"`
 			MaxAgeHours int  `json:"maxAgeHours"`
 		}
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(req.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		if !body.Text || body.MaxAgeHours != 0 {

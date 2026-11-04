@@ -3,7 +3,7 @@ package azure
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"io"
 	"net/http"
@@ -70,12 +70,12 @@ func TestSynthesizeResourceRequest(t *testing.T) {
 			outputFormat: "audio-24khz-160kbitrate-mono-mp3", contentType: "audio/mpeg",
 		},
 		{
-			name: "speed sets prosody rate", options: &provider.SynthesizeOptions{Voice: "nova", Speed: ptr(float32(1.5))},
+			name: "speed sets prosody rate", options: &provider.SynthesizeOptions{Voice: "nova", Speed: new(float32(1.5))},
 			voice: "en-US-Nova:DragonHDLatestNeural", lang: "en-US", rate: "1.5",
 			outputFormat: "audio-24khz-160kbitrate-mono-mp3", contentType: "audio/mpeg",
 		},
 		{
-			name: "default speed adds no prosody", options: &provider.SynthesizeOptions{Speed: ptr(float32(1))},
+			name: "default speed adds no prosody", options: &provider.SynthesizeOptions{Speed: new(float32(1))},
 			voice: "en-US-Ava:DragonHDLatestNeural", lang: "en-US",
 			outputFormat: "audio-24khz-160kbitrate-mono-mp3", contentType: "audio/mpeg",
 		},
@@ -99,8 +99,8 @@ func TestSynthesizeResourceRequest(t *testing.T) {
 					t.Errorf("output format = %s, want %s", got, tt.outputFormat)
 				}
 				var document struct {
-					XMLName xml.Name
-					Lang    string `xml:"http://www.w3.org/XML/1998/namespace lang,attr"`
+					XMLName xml.Name `json:"xmlName"`
+					Lang    string   `xml:"http://www.w3.org/XML/1998/namespace lang,attr"`
 					Voices  []struct {
 						Name    string `xml:"name,attr"`
 						Text    string `xml:",chardata"`
@@ -214,10 +214,6 @@ func TestOpenAIVoicesMapToDistinctHDVoices(t *testing.T) {
 	}
 }
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
 func TestSynthesizeRejectsUnsupportedFormatsBeforeRequest(t *testing.T) {
 	for _, format := range []string{"aac", "flac", "unknown"} {
 		t.Run(format, func(t *testing.T) {
@@ -279,7 +275,7 @@ func TestTranscribeResourceRequest(t *testing.T) {
 						MaxSpeakers int  `json:"maxSpeakers"`
 					} `json:"diarization"`
 				}
-				if err := json.NewDecoder(part).Decode(&definition); err != nil {
+				if err := json.UnmarshalRead(part, &definition); err != nil {
 					t.Fatal(err)
 				}
 				if len(definition.Locales) != 1 || definition.Locales[0] != "de-CH" || !definition.Diarization.Enabled || definition.Diarization.MaxSpeakers != 2 {
@@ -362,7 +358,7 @@ func TestTranscribeLocales(t *testing.T) {
 
 func TestWhisperLanguagesMapToLocales(t *testing.T) {
 	// Whisper's languages, minus Belarusian and Māori, which Azure doesn't transcribe.
-	for _, code := range strings.Fields("af ar hy az bs bg ca zh hr cs da nl en et fi fr gl de el he hi hu is id it ja kn kk ko lv lt mk ms mr ne no fa pl pt ro ru sr sk sl es sw sv tl ta th tr uk ur vi cy") {
+	for code := range strings.FieldsSeq("af ar hy az bs bg ca zh hr cs da nl en et fi fr gl de el he hi hu is id it ja kn kk ko lv lt mk ms mr ne no fa pl pt ro ru sr sk sl es sw sv tl ta th tr uk ur vi cy") {
 		if _, ok := localeMap[code]; !ok {
 			t.Errorf("no locale for %s", code)
 		}

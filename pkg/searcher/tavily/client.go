@@ -1,8 +1,9 @@
 package tavily
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -125,7 +126,11 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 		body["filter_by_published_date"] = true
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), jsonReader(body))
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +151,7 @@ func (c *Client) Search(ctx context.Context, query string, options *searcher.Sea
 
 	var data searchResult
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &data); err != nil {
 		return nil, err
 	}
 	if data.Results == nil {

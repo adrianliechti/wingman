@@ -1,7 +1,7 @@
 package hard_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"reflect"
 	"testing"
 
@@ -20,7 +20,7 @@ func TestParallelToolsReasoningStreamReplay(t *testing.T) {
 			tg := target{"wingman", h.Wingman, model.Name}
 			input := userInput(hardtest.ParallelPrompt)
 			calls := 0
-			for round := 0; round < 6; round++ {
+			for range 6 {
 				events := postSSE(t, h, tg, map[string]any{
 					"input": input, "tools": []any{weatherTool}, "store": false,
 					"reasoning": map[string]any{"effort": "low", "summary": "auto"},
@@ -71,7 +71,7 @@ func TestParallelToolsReasoningStreamReplay(t *testing.T) {
 						continue
 					}
 					arguments := item["arguments"].(string)
-					if !json.Valid([]byte(arguments)) {
+					if !jsontext.Value([]byte(arguments)).IsValid() {
 						t.Fatalf("invalid final tool arguments: %s", arguments)
 					}
 					calls++

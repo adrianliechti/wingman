@@ -1,9 +1,11 @@
 package claude
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -55,11 +57,11 @@ func TestSanitizeStrictSchema(t *testing.T) {
 		"additionalProperties": false,
 	}
 
-	before, _ := json.Marshal(schema)
+	before, _ := json.Marshal(schema, json.Deterministic(true))
 
 	result := SanitizeSchema(schema)
 
-	after, _ := json.Marshal(schema)
+	after, _ := json.Marshal(schema, json.Deterministic(true))
 	if string(before) != string(after) {
 		t.Fatal("input schema was mutated")
 	}
@@ -135,17 +137,17 @@ func TestSanitizeStrictSchemaNullableEnum(t *testing.T) {
 
 	props := SanitizeSchema(schema)["properties"].(map[string]any)
 
-	got, _ := json.Marshal(props["output_mode"])
+	got, _ := json.Marshal(props["output_mode"], json.Deterministic(true))
 	want := `{"default":"files_with_matches","description":"Output mode","enum":["content","files_with_matches","count",null]}`
 	if string(got) != want {
 		t.Errorf("nullable enum:\n got %s\nwant %s", got, want)
 	}
 
-	if got, _ := json.Marshal(props["plain"]); string(got) != `{"enum":["a","b"],"type":"string"}` {
+	if got, _ := json.Marshal(props["plain"], json.Deterministic(true)); string(got) != `{"enum":["a","b"],"type":"string"}` {
 		t.Errorf("plain enum changed: %s", got)
 	}
 
-	if got, _ := json.Marshal(props["mixed"]); string(got) != `{"enum":["a",1],"type":["string","integer"]}` {
+	if got, _ := json.Marshal(props["mixed"], json.Deterministic(true)); string(got) != `{"enum":["a",1],"type":["string","integer"]}` {
 		t.Errorf("non-nullable type list changed: %s", got)
 	}
 
@@ -201,11 +203,11 @@ func TestSanitizeStrictSchemaNullableEnumConstraints(t *testing.T) {
 				"required":             []any{"mode"},
 				"additionalProperties": false,
 			}
-			before, err := json.Marshal(schema)
+			before, err := json.Marshal(schema, json.Deterministic(true))
 			if err != nil {
 				t.Fatal(err)
 			}
-			after, err := json.Marshal(SanitizeSchema(schema))
+			after, err := json.Marshal(SanitizeSchema(schema), json.Deterministic(true))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -219,7 +221,7 @@ func TestSanitizeStrictSchemaNullableEnumConstraints(t *testing.T) {
 					t.Errorf("value %#v: accepted before=%t after=%t; schema=%s", value, want, got, after)
 				}
 			}
-			unchanged, err := json.Marshal(schema)
+			unchanged, err := json.Marshal(schema, json.Deterministic(true))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -232,15 +234,16 @@ func TestSanitizeStrictSchemaNullableEnumConstraints(t *testing.T) {
 
 func TestSanitizeSchemaLosslessNumbers(t *testing.T) {
 	for _, useNumber := range []bool{false, true} {
-		decoder := json.NewDecoder(strings.NewReader(`{"type":"object","properties":{"list":{"type":"array","minItems":1},"choice":{"type":["integer","null"],"enum":[1,2,null]}}}`))
+		reader := strings.NewReader(`{"type":"object","properties":{"list":{"type":"array","minItems":1},"choice":{"type":["integer","null"],"enum":[1,2,null]}}}`)
+		var opts json.Options
 		if useNumber {
-			decoder.UseNumber()
+			opts = jsonutil.PreserveNumbers
 		}
 		var schema map[string]any
-		if err := decoder.Decode(&schema); err != nil {
+		if err := json.UnmarshalRead(reader, &schema, opts); err != nil {
 			t.Fatal(err)
 		}
-		got, err := json.Marshal(SanitizeSchema(schema))
+		got, err := json.Marshal(SanitizeSchema(schema), json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -255,13 +258,13 @@ func TestSanitizeSchemaLosslessNumbers(t *testing.T) {
 	}{
 		{"9007199254740993", true}, {"1e400", true}, {"2.0", true}, {"1.0000000000000000001", false}, {"1e-400", false},
 	} {
-		schema := map[string]any{"type": []any{"integer", "null"}, "enum": []any{json.Number(tc.value), nil}}
+		schema := map[string]any{"type": []any{"integer", "null"}, "enum": []any{jsonutil.Number(tc.value), nil}}
 		got := SanitizeSchema(schema)
 		_, hasType := got["type"]
 		if hasType == tc.integer {
 			t.Errorf("%s: incorrect integer classification: %v", tc.value, got)
 		}
-		if got["enum"].([]any)[0] != json.Number(tc.value) {
+		if got["enum"].([]any)[0] != jsonutil.Number(tc.value) {
 			t.Errorf("number changed: %v", got)
 		}
 	}

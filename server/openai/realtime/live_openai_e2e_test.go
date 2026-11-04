@@ -5,7 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -522,7 +523,7 @@ func validateLiveTrace(t *testing.T, label string, events []map[string]any) {
 			assertLiveString(t, label, event, "item_id")
 			assertLiveString(t, label, event, "call_id")
 			assertLiveString(t, label, event, "name")
-			if arguments, ok := event["arguments"].(string); !ok || !json.Valid([]byte(arguments)) {
+			if arguments, ok := event["arguments"].(string); !ok || !jsontext.Value([]byte(arguments)).IsValid() {
 				t.Errorf("%s: function arguments are not valid JSON: %v", label, event["arguments"])
 			}
 		case "response.output_item.done":
@@ -703,7 +704,7 @@ func assertLiveObjectWithString(t *testing.T, label string, event map[string]any
 }
 
 func formatLiveTrace(events []map[string]any) string {
-	data, _ := json.MarshalIndent(events, "", "  ")
+	data, _ := json.Marshal(events, jsontext.WithIndent("  "), json.Deterministic(true))
 	return string(data)
 }
 

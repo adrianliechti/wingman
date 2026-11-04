@@ -161,25 +161,6 @@ func extractAssistantAndCallID(t *testing.T, label string, body map[string]any, 
 	}, callID
 }
 
-func requireFunctionCall(t *testing.T, label string, body map[string]any) {
-	t.Helper()
-
-	candidates, _ := body["candidates"].([]any)
-	for _, c := range candidates {
-		cand, _ := c.(map[string]any)
-		content, _ := cand["content"].(map[string]any)
-		parts, _ := content["parts"].([]any)
-		for _, p := range parts {
-			part, _ := p.(map[string]any)
-			if _, ok := part["functionCall"]; ok {
-				return
-			}
-		}
-	}
-
-	t.Fatalf("[%s] no functionCall found in response", label)
-}
-
 func requireFunctionCallWithName(t *testing.T, label string, body map[string]any, name string) {
 	t.Helper()
 

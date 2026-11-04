@@ -3,12 +3,13 @@ package openrouter
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"iter"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/google/uuid"
 )
 

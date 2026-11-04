@@ -3,6 +3,8 @@ package responses
 import (
 	"context"
 	"maps"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/harness"
@@ -14,6 +16,11 @@ func WithModel(body map[string]any, model string) map[string]any {
 	m := make(map[string]any)
 	maps.Copy(m, body)
 	m["model"] = model
+	// Disable the default reference model's optional reasoning in basic
+	// comparisons. Reasoning scenarios supply their own configuration.
+	if _, explicit := m["reasoning"]; !explicit && strings.HasPrefix(model, "gpt-6-luna") {
+		m["reasoning"] = map[string]any{"effort": "none"}
+	}
 	return m
 }
 
@@ -42,6 +49,10 @@ func CompareHTTP(t *testing.T, h *openai.Harness, model openai.Model, body map[s
 	}
 	if wingmanResp.StatusCode != 200 {
 		t.Fatalf("wingman returned status %d: %s", wingmanResp.StatusCode, string(wingmanResp.RawBody))
+	}
+	if body["reasoning"] == nil {
+		openaiResp.Body = withoutReasoningOutput(openaiResp.Body)
+		wingmanResp.Body = withoutReasoningOutput(wingmanResp.Body)
 	}
 
 	return openaiResp, wingmanResp
@@ -75,10 +86,62 @@ func CompareSSE(t *testing.T, h *openai.Harness, model openai.Model, body map[st
 	if len(wingmanEvents) == 0 {
 		t.Fatal("wingman returned no SSE events")
 	}
+	if body["reasoning"] == nil {
+		openaiEvents = withoutReasoningEvents(openaiEvents)
+		wingmanEvents = withoutReasoningEvents(wingmanEvents)
+	}
 
 	harness.CompareSSEEventPattern(t, comparableSSEEvents(openaiEvents), comparableSSEEvents(wingmanEvents))
 
 	return openaiEvents, wingmanEvents
+}
+
+// Some models always reason, even at their lowest effort. In scenarios that
+// do not request reasoning, compare the remaining output and its event indices.
+// Explicit reasoning scenarios keep their full output for validation.
+func withoutReasoningOutput(body map[string]any) map[string]any {
+	result := maps.Clone(body)
+	if output, ok := body["output"].([]any); ok {
+		result["output"] = slices.DeleteFunc(slices.Clone(output), func(raw any) bool {
+			item, _ := raw.(map[string]any)
+			return item["type"] == "reasoning"
+		})
+	}
+	return result
+}
+
+func withoutReasoningEvents(events []*harness.SSEEvent) []*harness.SSEEvent {
+	indices := map[float64]bool{}
+	for _, event := range events {
+		if item, ok := event.Data["item"].(map[string]any); ok && item["type"] == "reasoning" {
+			index, ok := event.Data["output_index"].(float64)
+			if ok {
+				indices[index] = true
+			}
+		}
+	}
+	var result []*harness.SSEEvent
+	for _, event := range events {
+		copy := *event
+		copy.Data = maps.Clone(event.Data)
+		if index, ok := event.Data["output_index"].(float64); ok {
+			if indices[index] {
+				continue
+			}
+			adjusted := index
+			for reasoningIndex := range indices {
+				if reasoningIndex < index {
+					adjusted--
+				}
+			}
+			copy.Data["output_index"] = adjusted
+		}
+		if response, ok := event.Data["response"].(map[string]any); ok {
+			copy.Data["response"] = withoutReasoningOutput(response)
+		}
+		result = append(result, &copy)
+	}
+	return result
 }
 
 func comparableSSEEvents(events []*harness.SSEEvent) []*harness.SSEEvent {

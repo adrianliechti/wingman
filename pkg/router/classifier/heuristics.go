@@ -1,6 +1,7 @@
 package classifier
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -90,12 +91,12 @@ func extractSignals(messages []provider.Message, options *provider.CompleteOptio
 
 	var recent string
 
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != provider.MessageRoleUser {
+	for i, message := range slices.Backward(messages) {
+		if message.Role != provider.MessageRoleUser {
 			continue
 		}
 
-		if t := strings.TrimSpace(messages[i].Text()); t != "" {
+		if t := strings.TrimSpace(message.Text()); t != "" {
 			recentIndex = i
 			recent = t
 

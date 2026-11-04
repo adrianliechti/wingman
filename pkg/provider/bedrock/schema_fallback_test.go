@@ -2,13 +2,14 @@ package bedrock
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -39,7 +40,7 @@ func TestDictionarySchemaStreamsAsText(t *testing.T) {
 	}
 	client := &http.Client{Transport: lifecycleTransport(func(r *http.Request) (*http.Response, error) {
 		var request map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		require.NoError(t, json.UnmarshalRead(r.Body, &request))
 		require.Contains(t, request, "toolConfig")
 		require.NotContains(t, request, "outputConfig")
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/vnd.amazon.eventstream"}}, Body: io.NopCloser(bytes.NewReader(body.Bytes())), Request: r}, nil

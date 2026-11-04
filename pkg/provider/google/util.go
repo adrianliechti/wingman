@@ -1,7 +1,8 @@
 package google
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"math"
 	"net/http"
@@ -80,7 +81,7 @@ func interactionProviderError(err error, status int, code, message, body string,
 	}
 	var response struct {
 		Error struct {
-			Code    json.RawMessage  `json:"code"`
+			Code    jsontext.Value   `json:"code"`
 			Status  string           `json:"status"`
 			Message string           `json:"message"`
 			Details []map[string]any `json:"details"`
@@ -88,15 +89,15 @@ func interactionProviderError(err error, status int, code, message, body string,
 	}
 	var details []map[string]any
 	// Some non-2xx streaming failures are already framed as SSE.
-	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(line, "data:") {
-			body = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+	for line := range strings.SplitSeq(body, "\n") {
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			body = strings.TrimSpace(after)
 			break
 		}
 	}
 	// Streaming gateway failures can use a one-element JSON array, even
 	// though the Interactions SDK expects a single error object.
-	var envelopes []json.RawMessage
+	var envelopes []jsontext.Value
 	if json.Unmarshal([]byte(body), &envelopes) == nil && len(envelopes) > 0 {
 		body = string(envelopes[0])
 	}

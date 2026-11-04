@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/joho/godotenv"
 )
 

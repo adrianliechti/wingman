@@ -1,7 +1,7 @@
 package exa_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -23,7 +23,7 @@ func TestCurrentExaProviderThroughHandler(t *testing.T) {
 			client := &http.Client{Transport: exaTransport(func(r *http.Request) (*http.Response, error) {
 				calls++
 				var body exa.SearchRequest
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if body.Type != mode || body.Category != "company" || len(body.ExcludeDomains) != 1 || body.ExcludeDomains[0] != "spam.example" {

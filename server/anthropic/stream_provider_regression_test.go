@@ -3,7 +3,7 @@ package anthropic
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"iter"
@@ -19,6 +19,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/stretchr/testify/require"
 )

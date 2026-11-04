@@ -1,13 +1,14 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/openai/openai-go/v3"
 )
 

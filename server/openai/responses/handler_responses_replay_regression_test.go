@@ -1,7 +1,8 @@
 package responses
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,13 +19,13 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 )
 
-func reviewRequest(t *testing.T, c provider.Completer, stream bool) (json.RawMessage, string) {
+func reviewRequest(t *testing.T, c provider.Completer, stream bool) (jsontext.Value, string) {
 	t.Helper()
 	body := fmt.Sprintf(`{"model":"test","input":"check","stream":%t,"include":["reasoning.encrypted_content"],"reasoning":{"effort":"low","summary":"auto"}}`, stream)
 	return reviewRequestBody(t, c, stream, body)
 }
 
-func reviewRequestBody(t *testing.T, c provider.Completer, stream bool, body string) (json.RawMessage, string) {
+func reviewRequestBody(t *testing.T, c provider.Completer, stream bool, body string) (jsontext.Value, string) {
 	t.Helper()
 	cfg := &config.Config{Policy: noop.New()}
 	cfg.RegisterCompleter("test", c)
@@ -36,15 +37,15 @@ func reviewRequestBody(t *testing.T, c provider.Completer, stream bool, body str
 	if !stream {
 		return rec.Body.Bytes(), rec.Body.String()
 	}
-	var result json.RawMessage
-	for _, line := range strings.Split(rec.Body.String(), "\n") {
+	var result jsontext.Value
+	for line := range strings.SplitSeq(rec.Body.String(), "\n") {
 		data, ok := strings.CutPrefix(line, "data: ")
 		if !ok {
 			continue
 		}
 		var e struct {
-			Type     string          `json:"type"`
-			Response json.RawMessage `json:"response"`
+			Type     string         `json:"type"`
+			Response jsontext.Value `json:"response"`
 		}
 		if err := json.Unmarshal([]byte(data), &e); err != nil {
 			t.Fatal(err)
@@ -131,12 +132,14 @@ func TestResponsesOpenAISummaryParts(t *testing.T) {
 				if requests == 2 {
 					var req struct {
 						Input []struct {
-							Type             string
-							Summary          []struct{ Text string }
+							Type    string `json:"type"`
+							Summary []struct {
+								Text string `json:"text"`
+							} `json:"summary"`
 							EncryptedContent string `json:"encrypted_content"`
-						}
+						} `json:"input"`
 					}
-					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					if err := json.UnmarshalRead(r.Body, &req); err != nil {
 						t.Fatal(err)
 					}
 					var replay []string
@@ -163,9 +166,11 @@ func TestResponsesOpenAISummaryParts(t *testing.T) {
 			payload, wire := reviewRequest(t, c, stream)
 			var result struct {
 				Output []struct {
-					Type    string
-					Summary []struct{ Text string }
-				}
+					Type    string `json:"type"`
+					Summary []struct {
+						Text string `json:"text"`
+					} `json:"summary"`
+				} `json:"output"`
 			}
 			if err := json.Unmarshal(payload, &result); err != nil {
 				t.Fatal(err)
@@ -180,15 +185,17 @@ func TestResponsesOpenAISummaryParts(t *testing.T) {
 			}
 			if stream {
 				var added, done []int
-				for _, line := range strings.Split(wire, "\n") {
+				for line := range strings.SplitSeq(wire, "\n") {
 					data, ok := strings.CutPrefix(line, "data: ")
 					if !ok {
 						continue
 					}
 					var e struct {
-						Type  string
-						Index int `json:"summary_index"`
-						Part  struct{ Text string }
+						Type  string `json:"type"`
+						Index int    `json:"summary_index"`
+						Part  struct {
+							Text string `json:"text"`
+						} `json:"part"`
 					}
 					if err := json.Unmarshal([]byte(data), &e); err != nil {
 						t.Fatal(err)
@@ -207,7 +214,9 @@ func TestResponsesOpenAISummaryParts(t *testing.T) {
 					t.Errorf("summary lifecycle: added=%v done=%v", added, done)
 				}
 			}
-			var output struct{ Output json.RawMessage }
+			var output struct {
+				Output jsontext.Value `json:"output"`
+			}
 			if err := json.Unmarshal(payload, &output); err != nil {
 				t.Fatal(err)
 			}
@@ -268,7 +277,9 @@ func TestResponsesPreserveMixedRedactedBlocks(t *testing.T) {
 			}
 			contents = append(contents, provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "lookup", Arguments: `{}`}))
 			payload, _ := reviewRequest(t, reasoningStatusCompleter{status: provider.CompletionStatusCompleted, content: contents}, stream)
-			var result struct{ Output ResponsesInput }
+			var result struct {
+				Output ResponsesInput `json:"output"`
+			}
 			if err := json.Unmarshal(payload, &result); err != nil {
 				t.Fatal(err)
 			}
@@ -314,9 +325,13 @@ func TestResponsesReasoningPartsSparseAndEmpty(t *testing.T) {
 				payload, wire := reviewRequest(t, reasoningStatusCompleter{status: provider.CompletionStatusCompleted, content: []provider.Content{provider.ReasoningContent(r)}}, stream)
 				var result struct {
 					Output []struct {
-						Content []struct{ Text string }
-						Summary []struct{ Text string }
-					}
+						Content []struct {
+							Text string `json:"text"`
+						} `json:"content"`
+						Summary []struct {
+							Text string `json:"text"`
+						} `json:"summary"`
+					} `json:"output"`
 				}
 				if err := json.Unmarshal(payload, &result); err != nil {
 					t.Fatal(err)
@@ -337,15 +352,17 @@ func TestResponsesReasoningPartsSparseAndEmpty(t *testing.T) {
 				}
 				if stream {
 					n := 0
-					for _, line := range strings.Split(wire, "\n") {
+					for line := range strings.SplitSeq(wire, "\n") {
 						data, ok := strings.CutPrefix(line, "data: ")
 						if !ok {
 							continue
 						}
 						var e struct {
-							Type  string
-							Index int `json:"summary_index"`
-							Part  struct{ Text string }
+							Type  string `json:"type"`
+							Index int    `json:"summary_index"`
+							Part  struct {
+								Text string `json:"text"`
+							} `json:"part"`
 						}
 						if err := json.Unmarshal([]byte(data), &e); err != nil {
 							t.Fatal(err)
@@ -424,7 +441,9 @@ func TestResponsesRedactedReplayRespectsSignatureRealm(t *testing.T) {
 					provider.TextContent("Answer"),
 				}})
 				payload, _ := reviewRequest(t, producer, stream)
-				var result struct{ Output json.RawMessage }
+				var result struct {
+					Output jsontext.Value `json:"output"`
+				}
 				if err := json.Unmarshal(payload, &result); err != nil {
 					t.Fatal(err)
 				}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

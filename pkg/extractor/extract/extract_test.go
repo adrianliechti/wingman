@@ -13,12 +13,12 @@ import (
 	"testing"
 	"unicode/utf16"
 
-	"github.com/abemedia/go-cfb"
 	"github.com/adrianliechti/go-extract"
-
 	"github.com/adrianliechti/wingman/pkg/extractor"
 	"github.com/adrianliechti/wingman/pkg/extractor/multi"
 	"github.com/adrianliechti/wingman/pkg/otel"
+
+	"github.com/abemedia/go-cfb"
 )
 
 func TestExtractSupportedFormats(t *testing.T) {

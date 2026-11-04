@@ -1,11 +1,12 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 )

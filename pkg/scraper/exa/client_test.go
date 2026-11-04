@@ -3,7 +3,8 @@ package exa
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"os"
@@ -23,7 +24,7 @@ func TestScrapePreservesEntireExtraction(t *testing.T) {
 	text := strings.Repeat("Early source text. ", 1000) + "Late evidence: VX-7319."
 	client, err := New("key", WithClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		var request map[string]any
-		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+		if err := json.UnmarshalRead(req.Body, &request); err != nil {
 			t.Fatal(err)
 		}
 		if request["text"] != true || request["maxAgeHours"] != float64(0) {
@@ -60,17 +61,17 @@ func TestLiveExtractionModes(t *testing.T) {
 		url = "https://www.blick.ch/"
 	}
 	type observation struct {
-		Mode         string
-		Characters   int
-		Milliseconds int64
-		Text         string
+		Mode         string `json:"mode"`
+		Characters   int    `json:"characters"`
+		Milliseconds int64  `json:"milliseconds"`
+		Text         string `json:"text"`
 	}
 	var results []observation
 	for _, mode := range []string{"default", "standard", "full", "full-html", "full-sections"} {
 		t.Run(mode, func(t *testing.T) {
 			client, err := New(key, WithClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				var body map[string]any
-				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(req.Body, &body); err != nil {
 					return nil, err
 				}
 				req.Body.Close()
@@ -111,7 +112,7 @@ func TestLiveExtractionModes(t *testing.T) {
 		})
 	}
 	if path := os.Getenv("EXA_EXTRACTION_OUTPUT"); path != "" {
-		data, err := json.MarshalIndent(results, "", "  ")
+		data, err := json.Marshal(results, jsontext.WithIndent("  "), json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

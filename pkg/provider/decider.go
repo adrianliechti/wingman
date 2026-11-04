@@ -2,7 +2,7 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -129,7 +129,7 @@ func (input *DecisionInput) Validate() error {
 			}
 		}
 	} else {
-		if _, err := json.Marshal(input.State); err != nil {
+		if _, err := json.Marshal(input.State, json.Deterministic(true)); err != nil {
 			return fmt.Errorf("invalid state: %w", err)
 		}
 		if !decisionEntry(input.State) {
@@ -269,7 +269,7 @@ func decisionEntry(value any) bool {
 func (input *DecisionInput) EvidenceMessages() []Message {
 	messages := append([]Message(nil), input.Messages...)
 	if len(messages) == 0 {
-		data, _ := json.Marshal(input.State)
+		data, _ := json.Marshal(input.State, json.Deterministic(true))
 		messages = []Message{UserMessage(string(data))}
 	}
 	if len(input.Assets) > 0 {

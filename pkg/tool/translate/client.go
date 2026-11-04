@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"golang.org/x/text/language"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/translator"
+
+	"golang.org/x/text/language"
 )
 
 const ToolName = "translate"

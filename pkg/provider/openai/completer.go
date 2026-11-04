@@ -3,7 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"iter"
 	"maps"
 	"net/http"
@@ -18,7 +18,6 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 
 	"github.com/google/uuid"
-
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 )

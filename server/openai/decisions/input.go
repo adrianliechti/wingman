@@ -2,33 +2,35 @@ package decisions
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/files"
 )
 
-func parseInput(raw json.RawMessage) ([]provider.Message, error) {
+func parseInput(raw jsontext.Value) ([]provider.Message, error) {
 	if absent(raw) {
 		return nil, errors.New("input is required")
 	}
 	var text string
-	if json.Unmarshal(raw, &text) == nil {
+	if raw.Kind() == '"' && json.Unmarshal(raw, &text) == nil {
 		return []provider.Message{provider.UserMessage(text)}, nil
 	}
 	var items []struct {
-		Role      string          `json:"role"`
-		Type      string          `json:"type"`
-		Content   json.RawMessage `json:"content"`
-		CallID    string          `json:"call_id"`
-		Name      string          `json:"name"`
-		Arguments *string         `json:"arguments"`
-		Input     *string         `json:"input"`
-		Output    json.RawMessage `json:"output"`
+		Role      string         `json:"role"`
+		Type      string         `json:"type"`
+		Content   jsontext.Value `json:"content"`
+		CallID    string         `json:"call_id"`
+		Name      string         `json:"name"`
+		Arguments *string        `json:"arguments"`
+		Input     *string        `json:"input"`
+		Output    jsontext.Value `json:"output"`
 	}
 	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
 		return nil, errors.New("input must be text or an array of messages and tool items")
@@ -133,27 +135,27 @@ func parseInput(raw json.RawMessage) ([]provider.Message, error) {
 	return messages, nil
 }
 
-func absent(raw json.RawMessage) bool {
+func absent(raw jsontext.Value) bool {
 	return len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
-func parseParts(raw json.RawMessage, role string) ([]provider.Content, int, error) {
+func parseParts(raw jsontext.Value, role string) ([]provider.Content, int, error) {
 	if absent(raw) {
 		return nil, 0, errors.New("content is required")
 	}
 	var text string
-	if json.Unmarshal(raw, &text) == nil {
+	if raw.Kind() == '"' && json.Unmarshal(raw, &text) == nil {
 		return []provider.Content{provider.TextContent(text)}, 0, nil
 	}
 	var parts []struct {
 		Type       string                `json:"type"`
 		Text       *string               `json:"text"`
 		Refusal    *string               `json:"refusal"`
-		Data       json.RawMessage       `json:"data"`
+		Data       jsontext.Value        `json:"data"`
 		ImageURL   *string               `json:"image_url"`
 		FileID     *string               `json:"file_id"`
 		Detail     *provider.ImageDetail `json:"detail"`
-		Breakpoint json.RawMessage       `json:"prompt_cache_breakpoint"`
+		Breakpoint jsontext.Value        `json:"prompt_cache_breakpoint"`
 	}
 	if json.Unmarshal(raw, &parts) != nil || len(parts) == 0 {
 		return nil, 0, errors.New("content must be text or a nonempty array of parts")
@@ -253,12 +255,12 @@ func parseParts(raw json.RawMessage, role string) ([]provider.Content, int, erro
 	return result, images, nil
 }
 
-func parseQuestionInstructions(raw json.RawMessage) (any, error) {
+func parseQuestionInstructions(raw jsontext.Value) (any, error) {
 	if absent(raw) {
 		return nil, errors.New("instructions is required")
 	}
 	var text string
-	if json.Unmarshal(raw, &text) == nil {
+	if raw.Kind() == '"' && json.Unmarshal(raw, &text) == nil {
 		return text, nil
 	}
 	parts, _, err := parseParts(raw, "question")
@@ -269,11 +271,9 @@ func parseQuestionInstructions(raw json.RawMessage) (any, error) {
 }
 
 // Match the Decisions JSON input limits before falling back to text adapters.
-func validateJSONData(raw json.RawMessage) error {
+func validateJSONData(raw jsontext.Value) error {
 	var data any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&data); err != nil {
+	if err := jsonutil.Unmarshal(raw, &data); err != nil {
 		return err
 	}
 	compact, err := json.Marshal(data)

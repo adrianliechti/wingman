@@ -5,7 +5,8 @@ package hard_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync"
@@ -102,7 +103,7 @@ func toolLoop(t *testing.T, h *anthropic.Harness, tg target, body map[string]any
 	messages := append([]any{}, body["messages"].([]any)...)
 	calls := 0
 
-	for round := 0; round < 6; round++ {
+	for range 6 {
 		req := anthropic.WithModel(body, tg.model)
 		req["messages"] = messages
 
@@ -201,13 +202,19 @@ func TestToolChoice(t *testing.T) {
 			h.SkipUnlessConfigured(t, model.Name)
 
 			for _, tg := range targets(h, model) {
-				if !model.Capabilities.NoForcedToolChoice {
-					forced := post(t, h, tg, map[string]any{
-						"max_tokens":  1024,
-						"tools":       []any{anthropic.WeatherTool},
-						"tool_choice": map[string]any{"type": "any"},
-						"messages":    user("Say hello."),
-					})
+				forcedRequest := map[string]any{
+					"max_tokens":  1024,
+					"tools":       []any{anthropic.WeatherTool},
+					"tool_choice": map[string]any{"type": "any"},
+					"messages":    user("Say hello."),
+				}
+				if harness.RejectsForcedToolChoice(tg.model) {
+					forced := anthropic.PostMessages(t, h, tg.ep, anthropic.WithModel(forcedRequest, tg.model))
+					if forced.StatusCode != 400 {
+						t.Errorf("[%s] expected forced tool_choice rejection, got %d: %s", tg.label, forced.StatusCode, forced.RawBody)
+					}
+				} else {
+					forced := post(t, h, tg, forcedRequest)
 					if len(toolUses(forced)) == 0 {
 						t.Errorf("[%s] tool_choice any produced no tool_use: %q", tg.label, messageText(forced))
 					}
@@ -256,7 +263,7 @@ func TestArgumentlessToolStreaming(t *testing.T) {
 					if input == "" {
 						input = "{}"
 					}
-					if !json.Valid([]byte(input)) || c.name != "get_time" || c.id == "" {
+					if !jsontext.Value([]byte(input)).IsValid() || c.name != "get_time" || c.id == "" {
 						t.Errorf("[%s] bad streamed tool_use: %+v", tg.label, c)
 					}
 				}
@@ -477,11 +484,8 @@ func TestConcurrentStreams(t *testing.T) {
 			var wg sync.WaitGroup
 			errs := make(chan error, hardtest.Concurrency)
 
-			for i := 0; i < hardtest.Concurrency; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-
+			for i := range hardtest.Concurrency {
+				wg.Go(func() {
 					req := anthropic.WithModel(map[string]any{"max_tokens": 256, "messages": user(hardtest.UnicodePrompt)}, model.Name)
 					req["stream"] = true
 
@@ -489,7 +493,7 @@ func TestConcurrentStreams(t *testing.T) {
 					if text := streamedText(events); !strings.Contains(text, "Zürich") {
 						errs <- fmt.Errorf("stream %d: %q", i, text)
 					}
-				}()
+				})
 			}
 
 			wg.Wait()

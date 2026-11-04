@@ -5,6 +5,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/otel"
+	"github.com/adrianliechti/wingman/pkg/researcher"
+	"github.com/adrianliechti/wingman/pkg/scraper"
+	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/tool"
 	"github.com/adrianliechti/wingman/pkg/tool/custom"
 	"github.com/adrianliechti/wingman/pkg/tool/mcp"
@@ -12,13 +16,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool/scrape"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
 	"github.com/adrianliechti/wingman/pkg/tool/translate"
-
-	"github.com/adrianliechti/wingman/pkg/researcher"
-	"github.com/adrianliechti/wingman/pkg/scraper"
-	"github.com/adrianliechti/wingman/pkg/searcher"
 	"github.com/adrianliechti/wingman/pkg/translator"
-
-	"github.com/adrianliechti/wingman/pkg/otel"
 )
 
 func (cfg *Config) RegisterTool(id string, p tool.Provider) {

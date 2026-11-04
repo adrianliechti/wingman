@@ -6,9 +6,8 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
-	"go.opentelemetry.io/otel/sdk/resource"
-
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 func setupHTTP(_ context.Context, _ *resource.Resource) error {

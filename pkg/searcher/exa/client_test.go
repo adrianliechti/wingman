@@ -2,7 +2,7 @@ package exa
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"reflect"
@@ -27,7 +27,7 @@ func TestSearchRetrievalOnlyAndOptionsUnchanged(t *testing.T) {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
 		}
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body["type"] != "auto" || body["query"] != "launch date" || body["numResults"] != float64(3) || body["category"] != "news" || body["userLocation"] != "CH" {
@@ -74,7 +74,7 @@ func TestSearchRetainsFullTextIncludingFailedRetrievals(t *testing.T) {
 	}})
 	c, err := New("test", WithClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		var request SearchRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := json.UnmarshalRead(r.Body, &request); err != nil {
 			t.Fatal(err)
 		}
 		if request.Contents == nil || !request.Contents.Text || request.Contents.Highlights == nil || !request.Contents.Highlights.Dynamic {
@@ -128,7 +128,7 @@ func TestSearchRetrievalModesAndCompanyExclusions(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if body["type"] != mode || body["category"] != "company" || body["numResults"] != float64(100) {
@@ -160,7 +160,7 @@ func TestSearchPublicationDateBounds(t *testing.T) {
 	until := time.Date(2031, 5, 31, 0, 0, 0, 0, time.UTC)
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body["startPublishedDate"] != "2031-05-01T00:00:00Z" || body["endPublishedDate"] != "2031-05-31T00:00:00Z" {
@@ -185,7 +185,7 @@ func TestSearchPublicationCategoryAndLegacyAlias(t *testing.T) {
 		t.Run(category, func(t *testing.T) {
 			httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				var body SearchRequest
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if body.Category != "publication" {
@@ -256,7 +256,7 @@ func TestSearchToolInclusiveUntilAndExactTimestamp(t *testing.T) {
 		t.Run(tc.input, func(t *testing.T) {
 			httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				var body SearchRequest
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if body.EndPublishedDate != tc.want {

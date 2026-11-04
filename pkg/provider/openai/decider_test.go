@@ -2,7 +2,8 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -22,16 +24,20 @@ func TestDeciderNativeQuestions(t *testing.T) {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		var req struct {
-			Model     string
-			Input     json.RawMessage
+			Model     string         `json:"model"`
+			Input     jsontext.Value `json:"input"`
 			Questions []struct {
-				Type         string
-				Instructions string
-				Choices      []struct{ Value any }
-				Levels       []struct{ Label string }
-			}
+				Type         string `json:"type"`
+				Instructions string `json:"instructions"`
+				Choices      []struct {
+					Value any `json:"value"`
+				} `json:"choices"`
+				Levels []struct {
+					Label string `json:"label"`
+				} `json:"levels"`
+			} `json:"questions"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.UnmarshalRead(r.Body, &req); err != nil {
 			t.Error(err)
 		}
 		if req.Model != "native-model" || string(req.Input) != `"{\"id\":9007199254740993,\"ticket\":\"broken\"}"` ||
@@ -51,7 +57,7 @@ func TestDeciderNativeQuestions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := &provider.DecisionInput{State: map[string]any{"ticket": "broken", "id": json.Number("9007199254740993")}, Questions: []provider.DecisionQuestion{
+	input := &provider.DecisionInput{State: map[string]any{"ticket": "broken", "id": jsonutil.Number("9007199254740993")}, Questions: []provider.DecisionQuestion{
 		{ID: "p", Instructions: "Damaged?", Noul: &provider.NoulQuestion{True: "Broken"}},
 		{ID: "c", Instructions: "Choose", Choice: &provider.ChoiceQuestion{Options: []provider.DecisionOption{{Label: "bool", Value: false}, {Label: "text", Value: "false"}}}},
 		{ID: "s", Instructions: "Rate", Score: &provider.ScoreQuestion{Levels: []any{"Low", "High"}, Labels: []string{"low", "high"}}},
@@ -76,7 +82,7 @@ func TestDeciderNativeQuestions(t *testing.T) {
 func TestDeciderKeepsApplicationStateAsText(t *testing.T) {
 	d, _ := NewDecider("", "gpt-6-luna")
 	for _, state := range []string{`[{"role":"system","uptime":5}]`, `[{"role":"user","content":"hello","uptime":5}]`, `[{"type":"function_call","uptime":5}]`} {
-		req, err := d.convertDecisionRequest(&provider.DecisionInput{State: json.RawMessage(state), Questions: []provider.DecisionQuestion{{ID: "q", Instructions: json.RawMessage(`["uptime"]`), Noul: &provider.NoulQuestion{True: "five"}}}})
+		req, err := d.convertDecisionRequest(&provider.DecisionInput{State: jsontext.Value(state), Questions: []provider.DecisionQuestion{{ID: "q", Instructions: jsontext.Value(`["uptime"]`), Noul: &provider.NoulQuestion{True: "five"}}}})
 		if err != nil {
 			t.Fatal(err)
 		}

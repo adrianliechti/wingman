@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -15,6 +15,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/server/openai/responses"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/go-chi/chi/v5"
 )
 

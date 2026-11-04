@@ -2,7 +2,8 @@ package features_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"os/exec"
 	"strings"
@@ -17,7 +18,7 @@ import (
 // (pkg/provider/tools/custom), so these tests cover both paths across the
 // three emulating backends and the native one:
 //
-//	TEST_CUSTOM_TOOL_MODELS=bedrock-sonnet-4-6,claude-sonnet-4-6,gpt-5.4,gemini-3.8-flash \
+//	TEST_CUSTOM_TOOL_MODELS=bedrock-sonnet-5-5,claude-sonnet-5-5,gpt-6.1-sol,gemini-3.8-flash \
 //	  go test ./test/openai/responses/features -run TestCustomTool -v
 //
 // The payload deliberately carries the escape-heavy content that breaks
@@ -36,7 +37,7 @@ func customToolModels() []string {
 		return names
 	}
 
-	return []string{"bedrock-sonnet-4-6", "claude-sonnet-4-6", "gpt-5.4", "gemini-3.8-flash"}
+	return []string{"bedrock-sonnet-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gemini-3.8-flash"}
 }
 
 const runPythonDescription = "Run a Python script. This is a FREEFORM tool: send the raw source code, " +
@@ -91,7 +92,7 @@ func requireFreeform(t *testing.T, label, input string) {
 		t.Fatalf("%s: empty tool input", label)
 	}
 
-	var wrapper map[string]json.RawMessage
+	var wrapper map[string]jsontext.Value
 
 	if err := json.Unmarshal([]byte(input), &wrapper); err == nil {
 		if _, leaked := wrapper["input"]; leaked {

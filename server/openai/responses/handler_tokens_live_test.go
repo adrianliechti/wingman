@@ -3,7 +3,7 @@ package responses
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"image"
 	"image/color"
 	"image/png"
@@ -78,7 +78,7 @@ func TestInputTokensVsReference(t *testing.T) {
 
 	scenarios := map[string]map[string]any{
 		"multi_tool_conversation": {
-			"model":        "gpt-5",
+			"model":        "gpt-6-luna",
 			"instructions": "You are a travel planning assistant. Prefer the cheapest reasonable option and always confirm before booking.",
 			"tools":        tools,
 			"input": []map[string]any{
@@ -90,7 +90,7 @@ func TestInputTokensVsReference(t *testing.T) {
 			},
 		},
 		"image_data_and_tools": {
-			"model":        "gpt-5",
+			"model":        "gpt-6-luna",
 			"instructions": "You analyze charts and verify the numbers against the warehouse.",
 			"tools":        tools,
 			"input": []map[string]any{
@@ -161,7 +161,7 @@ func openAIReference(t *testing.T, payload []byte) int {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.Error != nil {

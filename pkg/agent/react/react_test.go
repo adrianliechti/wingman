@@ -1435,11 +1435,9 @@ func TestComplete_Resulter(t *testing.T) {
 		},
 	}
 	toolProvider := &resulterToolProvider{
-		mockToolProvider: mockToolProvider{
-			tools: []provider.Tool{{Name: "fancy"}},
-			executeFunc: func(ctx context.Context, name string, params map[string]any) (any, error) {
-				return "raw-value", nil
-			},
+		tools: []provider.Tool{{Name: "fancy"}},
+		executeFunc: func(ctx context.Context, name string, params map[string]any) (any, error) {
+			return "raw-value", nil
 		},
 	}
 

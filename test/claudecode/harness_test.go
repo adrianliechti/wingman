@@ -3,7 +3,8 @@ package claudecode
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,11 +33,11 @@ func newRecorder(t *testing.T, endpoint harness.Endpoint) *harness.Recorder {
 }
 
 type cliEvent struct {
-	Type              string            `json:"type"`
-	Subtype           string            `json:"subtype"`
-	IsError           bool              `json:"is_error"`
-	Result            string            `json:"result"`
-	PermissionDenials []json.RawMessage `json:"permission_denials"`
+	Type              string           `json:"type"`
+	Subtype           string           `json:"subtype"`
+	IsError           bool             `json:"is_error"`
+	Result            string           `json:"result"`
+	PermissionDenials []jsontext.Value `json:"permission_denials"`
 }
 
 func claudeEnv(configDir, baseURL, model string) []string {
@@ -151,7 +152,7 @@ func runClaudeWithOptions(t *testing.T, binary string, endpoint harness.Endpoint
 	r.Close() // Drain handlers before reading the captured exchanges.
 	writeArtifact(t, filepath.Join(dir, "stdout.jsonl"), stdout.Bytes())
 	writeArtifact(t, filepath.Join(dir, "stderr.log"), stderr.Bytes())
-	data, err := json.MarshalIndent(r.Exchanges(), "", "  ")
+	data, err := json.Marshal(r.Exchanges(), jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,11 +161,11 @@ func runClaudeWithOptions(t *testing.T, binary string, endpoint harness.Endpoint
 	if runErr != nil {
 		t.Errorf("Claude Code failed: %v (context: %v)\n%s", runErr, ctx.Err(), stderr.String())
 	}
-	decoder := json.NewDecoder(&stdout)
+	decoder := jsontext.NewDecoder(&stdout)
 	var result *cliEvent
 	for {
 		var event cliEvent
-		if err := decoder.Decode(&event); err == io.EOF {
+		if err := json.UnmarshalDecode(decoder, &event); err == io.EOF {
 			break
 		} else if err != nil {
 			t.Fatalf("invalid Claude Code JSON output: %v", err)

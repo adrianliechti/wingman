@@ -1,20 +1,20 @@
 package realtime
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 	"testing"
 )
 
 func TestNoStoreSessionForcesTracingOff(t *testing.T) {
 	config := newSessionConfig(newFakeRealtime().Defaults())
-	if err := config.apply(json.RawMessage(`{"type":"realtime","tracing":null}`)); err != nil {
+	if err := config.apply(jsontext.Value(`{"type":"realtime","tracing":null}`)); err != nil {
 		t.Fatalf("null tracing rejected: %v", err)
 	}
 	if got := config.object("sess_1", "model")["tracing"]; got != nil {
 		t.Fatalf("session tracing = %#v, want null", got)
 	}
-	if err := config.apply(json.RawMessage(`{"type":"realtime","tracing":"auto"}`)); err == nil {
+	if err := config.apply(jsontext.Value(`{"type":"realtime","tracing":"auto"}`)); err == nil {
 		t.Fatal("enabled tracing was accepted")
 	}
 }

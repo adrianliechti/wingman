@@ -1,7 +1,7 @@
 package decisions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"flag"
 	"math"
 	"net/http"
@@ -65,7 +65,7 @@ func TestNativeHTTP(t *testing.T) {
 }
 
 // Run the same contract and classification checks across enabled decision
-// aliases. TEST_DECISIONS_MODELS overrides the default gpt-6-luna alias.
+// aliases. TEST_DECISIONS_MODELS overrides the decisions alias in config.yaml.
 func TestCrossModelHTTP(t *testing.T) {
 	h := openai.New(t)
 	if *configPath != "" {
@@ -92,7 +92,7 @@ func TestCrossModelHTTP(t *testing.T) {
 			}
 		}
 	} else {
-		models = []string{"gpt-6-luna"}
+		models = []string{"decisions"}
 	}
 	if len(models) == 0 {
 		t.Fatal("TEST_DECISIONS_MODELS contains no models")

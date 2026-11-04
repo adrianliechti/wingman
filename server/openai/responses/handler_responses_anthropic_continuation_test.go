@@ -3,7 +3,7 @@ package responses
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
+
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/go-chi/chi/v5"
 )
@@ -33,7 +34,7 @@ func TestResponsesAnthropicContinuationAndSignedReplay(t *testing.T) {
 					var request struct {
 						Messages []any `json:"messages"`
 					}
-					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					if err := json.UnmarshalRead(r.Body, &request); err != nil {
 						t.Fatal(err)
 					}
 					if calls == 1 {
@@ -42,9 +43,9 @@ func TestResponsesAnthropicContinuationAndSignedReplay(t *testing.T) {
 						}
 						// Bedrock uses a top-level message; the native API nests it.
 						message := "This model does not support assistant message prefill. The conversation must end with a user message."
-						body, _ := json.Marshal(map[string]any{"message": message})
+						body, _ := json.Marshal(map[string]any{"message": message}, json.Deterministic(true))
 						if !strings.Contains(endpoint, "bedrock-runtime") {
-							body, _ = json.Marshal(map[string]any{"error": map[string]any{"type": "invalid_request_error", "message": message}})
+							body, _ = json.Marshal(map[string]any{"error": map[string]any{"type": "invalid_request_error", "message": message}}, json.Deterministic(true))
 						}
 						return &http.Response{StatusCode: 400, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(body)), Request: r}, nil
 					}
@@ -92,9 +93,9 @@ func TestResponsesAnthropicContinuationAndSignedReplay(t *testing.T) {
 					{"type": "function_call_output", "call_id": "call_1", "output": "README.md"},
 					{"role": "assistant", "content": "Now I will update the docs."},
 				}
-				original, _ := json.Marshal(input)
+				original, _ := json.Marshal(input, json.Deterministic(true))
 				output := postGeminiResponses(t, server.URL, model, input, geminiReplayTools(), stream)
-				unchanged, _ := json.Marshal(input)
+				unchanged, _ := json.Marshal(input, json.Deterministic(true))
 				if string(original) != string(unchanged) || len(output) != 2 || output[0]["type"] != "reasoning" || output[1]["type"] != "function_call" {
 					t.Fatalf("client history/output changed: %v", output)
 				}
@@ -139,7 +140,7 @@ func anthropicContinuationBedrockEvents(t *testing.T, sse []byte) []byte {
 		if !ok {
 			continue
 		}
-		payload, _ := json.Marshal(map[string]string{"bytes": base64.StdEncoding.EncodeToString([]byte(data))})
+		payload, _ := json.Marshal(map[string]string{"bytes": base64.StdEncoding.EncodeToString([]byte(data))}, json.Deterministic(true))
 		message := eventstream.Message{Payload: payload}
 		message.Headers.Set(":message-type", eventstream.StringValue("event"))
 		message.Headers.Set(":event-type", eventstream.StringValue("chunk"))

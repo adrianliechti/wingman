@@ -2,7 +2,7 @@ package features_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -18,6 +18,7 @@ import (
 	"github.com/adrianliechti/wingman/server/openai/responses"
 	"github.com/adrianliechti/wingman/test/anthropic"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -30,8 +31,8 @@ func TestClaudeContextE2E(t *testing.T) {
 	}
 	h := anthropic.New(t)
 	h.Client.Timeout = 180 * time.Second
-	model := "claude-sonnet-4-6"
-	systemModel := "claude-opus-5"
+	model := "claude-sonnet-5-5"
+	systemModel := "claude-opus-5-5"
 	cfg := &config.Config{Policy: noop.New()}
 	for _, name := range []string{model, systemModel} {
 		p, err := claude.NewCompleter(strings.TrimSuffix(h.Anthropic.BaseURL, "/v1"), name, claude.WithToken(h.Anthropic.APIKey), claude.WithMaxRetries(0))
@@ -162,7 +163,7 @@ func TestClaudeContextE2E(t *testing.T) {
 	t.Run("mid_conversation_system", func(t *testing.T) {
 		for _, ep := range []harness.Endpoint{h.Anthropic, h.Wingman} {
 			t.Run(ep.Name, func(t *testing.T) {
-				body := map[string]any{"model": systemModel, "max_tokens": 1024, "thinking": map[string]any{"type": "disabled"}, "system": "You are a helpful software project assistant. Be concise.", "messages": []any{
+				body := map[string]any{"model": systemModel, "max_tokens": 1024, "thinking": map[string]any{"type": "adaptive"}, "output_config": map[string]any{"effort": "low"}, "system": "You are a helpful software project assistant. Be concise.", "messages": []any{
 					map[string]any{"role": "user", "content": "We are building a recipe app."},
 					map[string]any{"role": "assistant", "content": "I can help with the recipe app."},
 					map[string]any{"role": "user", "content": "What is the current project code?"},

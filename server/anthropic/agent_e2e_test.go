@@ -2,7 +2,7 @@ package anthropic
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +68,7 @@ func TestHostedSearchThenAgentToolE2E(t *testing.T) {
 					client := &http.Client{Transport: featureTransport(func(r *http.Request) (*http.Response, error) {
 						defer r.Body.Close()
 						var body map[string]any
-						if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						if err := json.UnmarshalRead(r.Body, &body); err != nil {
 							return nil, err
 						}
 						requests = append(requests, body)

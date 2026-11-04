@@ -2,7 +2,8 @@ package decider
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -97,7 +98,7 @@ func (a *CompleterAdapter) Decide(ctx context.Context, input *provider.DecisionI
 		}
 	}
 
-	questionJSON, err := json.Marshal(questions)
+	questionJSON, err := json.Marshal(questions, json.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +115,7 @@ func (a *CompleterAdapter) Decide(ctx context.Context, input *provider.DecisionI
 			Content: userParts,
 		})
 	} else {
-		stateJSON, err := json.Marshal(input.State)
+		stateJSON, err := json.Marshal(input.State, json.Deterministic(true))
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +155,7 @@ func (a *CompleterAdapter) Decide(ctx context.Context, input *provider.DecisionI
 		return nil, fmt.Errorf("decision completion %s", completion.Status)
 	}
 
-	var rawAnswers map[string]json.RawMessage
+	var rawAnswers map[string]jsontext.Value
 	if err := json.Unmarshal([]byte(completion.Text()), &rawAnswers); err != nil {
 		return nil, fmt.Errorf("invalid decision probabilities: %w", err)
 	}
@@ -172,10 +173,15 @@ func (a *CompleterAdapter) Decide(ctx context.Context, input *provider.DecisionI
 		}
 		if q.Box != nil {
 			var box struct {
-				Box        *struct{ Top, Bottom, Left, Right *float64 } `json:"box"`
-				Confidence *float64                                     `json:"confidence"`
+				Box *struct {
+					Top    *float64 `json:"top"`
+					Bottom *float64 `json:"bottom"`
+					Left   *float64 `json:"left"`
+					Right  *float64 `json:"right"`
+				} `json:"box"`
+				Confidence *float64 `json:"confidence"`
 			}
-			var fields map[string]json.RawMessage
+			var fields map[string]jsontext.Value
 			json.Unmarshal(raw, &fields)
 			if err := json.Unmarshal(raw, &box); err != nil || fields["confidence"] == nil || box.Box == nil || box.Box.Top == nil || box.Box.Bottom == nil || box.Box.Left == nil || box.Box.Right == nil {
 				return nil, fmt.Errorf("question %q: invalid box answer", q.ID)

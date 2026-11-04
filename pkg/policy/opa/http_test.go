@@ -2,7 +2,7 @@ package opa
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -22,16 +22,14 @@ func TestClientVerify(t *testing.T) {
 		var body struct {
 			Input map[string]any `json:"input"`
 		}
-
-		json.NewDecoder(r.Body).Decode(&body)
+		json.UnmarshalRead(r.Body, &body)
 		gotInput = body.Input
 
 		if body.Input["user"] == "adrian" {
-			json.NewEncoder(w).Encode(map[string]any{"result": true})
+			json.MarshalWrite(w, map[string]any{"result": true})
 			return
 		}
-
-		json.NewEncoder(w).Encode(map[string]any{})
+		json.MarshalWrite(w, map[string]any{})
 	}))
 
 	defer server.Close()

@@ -361,9 +361,9 @@ func TestTools_ReflectProviderCapabilities(t *testing.T) {
 			if present != (len(test.categories) > 0) {
 				t.Fatalf("category present = %v, want %v", present, len(test.categories) > 0)
 			}
-			if category, ok := category.(map[string]any); ok {
-				if !reflect.DeepEqual(category["enum"], test.categories) {
-					t.Fatalf("category enum = %v, want %v", category["enum"], test.categories)
+			if schema, ok := category.(map[string]any); ok {
+				if !reflect.DeepEqual(schema["enum"], test.categories) {
+					t.Fatalf("category enum = %v, want %v", schema["enum"], test.categories)
 				}
 			} else if present {
 				t.Fatalf("invalid category schema: %v", category)

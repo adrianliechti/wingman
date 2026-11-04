@@ -27,13 +27,11 @@ func (e *requestError) Error() string { return e.message }
 func BadRequest(message string) error { return &requestError{400, message} }
 
 func StatusOf(err error) int {
-	var request *requestError
-	if errors.As(err, &request) {
+	if request, ok := errors.AsType[*requestError](err); ok {
 		return request.status
 	}
 
-	var flagged *guard.FlaggedError
-	if errors.As(err, &flagged) {
+	if _, ok := errors.AsType[*guard.FlaggedError](err); ok {
 		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway

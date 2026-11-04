@@ -2,7 +2,7 @@ package protocol_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -148,7 +148,7 @@ func textUpstream(t *testing.T, mode string) http.HandlerFunc {
 			return
 		}
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 			return
 		}

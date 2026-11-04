@@ -2,7 +2,7 @@ package base_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/harness"
@@ -334,28 +334,6 @@ func hasFunctionCall(body map[string]any, name string) bool {
 	}
 
 	return false
-}
-
-// requireAnyFunctionCall checks that the response contains at least one function_call.
-func requireAnyFunctionCall(t *testing.T, label string, body map[string]any) {
-	t.Helper()
-
-	output, ok := body["output"].([]any)
-	if !ok {
-		t.Fatalf("[%s] output is not an array", label)
-	}
-
-	for _, item := range output {
-		obj, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if obj["type"] == "function_call" {
-			return
-		}
-	}
-
-	t.Fatalf("[%s] no function_call output item found", label)
 }
 
 // requireFunctionCallSSEEvent checks that the SSE stream contains a function_call output_item.

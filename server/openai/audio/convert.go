@@ -1,9 +1,8 @@
 package audio
 
 import (
-	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -163,15 +162,18 @@ func writeTranscriptionStream(w http.ResponseWriter, seq iter.Seq2[*provider.Tra
 		acc.Add(*delta)
 
 		if delta.Text != "" {
-			writeEvent(w, TranscriptionDeltaEvent{
+			if err := writeEvent(w, TranscriptionDeltaEvent{
 				Type: "transcript.text.delta",
 
 				Delta: delta.Text,
-			})
+			}); err != nil {
+				writeErrorEvent(w, err)
+				return
+			}
 		}
 
 		for _, s := range delta.Segments {
-			writeEvent(w, TranscriptionSegmentEvent{
+			if err := writeEvent(w, TranscriptionSegmentEvent{
 				Type: "transcript.text.segment",
 
 				ID: s.ID,
@@ -182,7 +184,10 @@ func writeTranscriptionStream(w http.ResponseWriter, seq iter.Seq2[*provider.Tra
 				End:   s.End,
 
 				Text: s.Text,
-			})
+			}); err != nil {
+				writeErrorEvent(w, err)
+				return
+			}
 		}
 	}
 
@@ -190,29 +195,31 @@ func writeTranscriptionStream(w http.ResponseWriter, seq iter.Seq2[*provider.Tra
 
 	transcription := acc.Result()
 
-	writeEvent(w, TranscriptionDoneEvent{
+	if err := writeEvent(w, TranscriptionDoneEvent{
 		Type: "transcript.text.done",
 
 		Text: transcription.Text,
 
 		Languages: transcriptionLanguages(&transcription),
-	})
+	}); err != nil {
+		writeErrorEvent(w, err)
+		return
+	}
 
 	fmt.Fprint(w, "data: [DONE]\n\n")
 
 	http.NewResponseController(w).Flush()
 }
 
-func writeEvent(w http.ResponseWriter, v any) {
-	var data bytes.Buffer
-
-	enc := json.NewEncoder(&data)
-	enc.SetEscapeHTML(false)
-	enc.Encode(v)
-
-	fmt.Fprintf(w, "data: %s\n\n", strings.TrimSpace(data.String()))
-
-	http.NewResponseController(w).Flush()
+func writeEvent(w http.ResponseWriter, v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		return err
+	}
+	return http.NewResponseController(w).Flush()
 }
 
 func writeErrorEvent(w http.ResponseWriter, err error) {

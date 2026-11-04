@@ -14,9 +14,8 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/config"
-	"github.com/adrianliechti/wingman/server"
-
 	"github.com/adrianliechti/wingman/pkg/otel"
+	"github.com/adrianliechti/wingman/server"
 )
 
 func main() {

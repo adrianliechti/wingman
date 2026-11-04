@@ -2,7 +2,6 @@ package config
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -32,9 +31,5 @@ func (cfg *Config) Reranker(id string) (provider.Reranker, error) {
 }
 
 func createReranker(cfg providerConfig, model modelContext) (provider.Reranker, error) {
-	switch strings.ToLower(cfg.Type) {
-
-	default:
-		return nil, errors.New("invalid reranker type: " + cfg.Type)
-	}
+	return nil, errors.New("invalid reranker type: " + cfg.Type)
 }

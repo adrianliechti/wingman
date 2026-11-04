@@ -59,8 +59,8 @@ func FuzzStopFilterChunkBoundaries(f *testing.F) {
 		}
 		want := source
 		if stop != "" {
-			if index := strings.Index(source, stop); index >= 0 {
-				want = source[:index]
+			if before, _, ok := strings.Cut(source, stop); ok {
+				want = before
 			}
 		}
 		if result.String() != want {

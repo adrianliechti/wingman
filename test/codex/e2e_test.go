@@ -25,7 +25,7 @@ func TestCodex(t *testing.T) {
 	t.Logf("Codex version: %s", version)
 	models := openai.DefaultModels()
 	if os.Getenv("TEST_OPENAI_MODELS") == "" {
-		models = append(models, openai.Model{Name: "claude-opus-5"})
+		models = append(models, openai.Model{Name: "claude-opus-5-5"})
 	} else if configured := harness.ConfiguredModels(h.Wingman.BaseURL, h.Wingman.APIKey); configured != nil {
 		for _, model := range models {
 			if !configured[model.Name] {

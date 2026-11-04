@@ -2,11 +2,12 @@ package bedrock
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 )

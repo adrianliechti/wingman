@@ -1,7 +1,7 @@
 package exa
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -19,7 +19,7 @@ func TestResearchStreamAndJSONFallback(t *testing.T) {
 		t.Run(map[bool]string{true: "stream", false: "json"}[streaming], func(t *testing.T) {
 			client, _ := New("test", WithClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				var body SearchRequest
-				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(req.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if !body.Stream || body.Type != "deep-reasoning" || body.OutputSchema.Type != "text" {

@@ -1,7 +1,8 @@
 package gemini
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -29,11 +30,11 @@ func TestArgumentlessFunctionCallReplay(t *testing.T) {
 
 func requirePreciseArguments(t *testing.T, value any) {
 	t.Helper()
-	data, err := json.Marshal(value)
+	data, err := json.Marshal(value, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got map[string]json.RawMessage
+	var got map[string]jsontext.Value
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestFunctionNumbersRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requirePreciseArguments(t, json.RawMessage(messages[0].ToolCalls()[0].Arguments))
+	requirePreciseArguments(t, jsontext.Value(messages[0].ToolCalls()[0].Arguments))
 	requirePreciseArguments(t, toContent(messages[0].Content).Parts[0].FunctionCall.Args)
 }
 
@@ -85,4 +86,24 @@ func TestStreamingFunctionNumbers(t *testing.T) {
 		t.Fatal("missing function call")
 	}
 	requirePreciseArguments(t, call.Args)
+}
+
+// Tool inputs are objects on the wire but strings in provider history. Repeated
+// decoding must preserve the exact text to keep cached prefixes stable.
+func TestToolArgumentsStableAcrossReplay(t *testing.T) {
+	const input = `{"path":"note.txt","operation":{"z":2,"a":1},"content":"hello"}`
+	const want = `{"content":"hello","operation":{"a":1,"z":2},"path":"note.txt"}`
+	for range 100 {
+		var args map[string]any
+		if err := json.Unmarshal([]byte(input), &args); err != nil {
+			t.Fatal(err)
+		}
+		got, err := toJSONString(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("replay arguments = %s, want %s", got, want)
+		}
+	}
 }

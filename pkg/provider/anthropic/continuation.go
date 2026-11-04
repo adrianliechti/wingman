@@ -2,11 +2,12 @@ package anthropic
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/anthropics/anthropic-sdk-go/v2"
 )
 

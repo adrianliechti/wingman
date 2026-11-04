@@ -2,7 +2,7 @@ package typesafe
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +20,7 @@ func TestSystemOneDocumentedAssetsAndMixedQuestions(t *testing.T) {
 					t.Error("missing images header")
 				}
 				var body decisionRequest
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Error(err)
 				}
 				if body.State != "photo" || len(body.Assets) != 1 || body.Assets["photo"].DataBase64 != "aGk=" || body.Assets["photo"].Format != "png" || body.Questions["p"].Criteria.(map[string]any)["true"] != "contains photo" {
@@ -49,7 +49,7 @@ func TestSystemOneDocumentedAssetsAndMixedQuestions(t *testing.T) {
 func TestSystemOneMessagesTakePrecedenceAndCreateAssets(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body decisionRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
 		raw, _ := json.Marshal(body)

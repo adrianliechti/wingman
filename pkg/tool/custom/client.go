@@ -2,7 +2,7 @@ package custom
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,10 +10,9 @@ import (
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/tool"
 
+	"go.yaml.in/yaml/v4"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-
-	"go.yaml.in/yaml/v4"
 )
 
 var (

@@ -40,7 +40,7 @@ func TestClaudeCode(t *testing.T) {
 	models := anthropic.DefaultModels()
 	if os.Getenv("TEST_ANTHROPIC_MODELS") == "" {
 		// Opus makes the CLI exercise mid-conversation system messages.
-		models = append(models, anthropic.Model{Name: "claude-opus-5"})
+		models = append(models, anthropic.Model{Name: "claude-opus-5-5"})
 	} else if configured := harness.ConfiguredModels(h.Wingman.BaseURL, h.Wingman.APIKey); configured != nil {
 		for _, model := range models {
 			if !configured[model.Name] {

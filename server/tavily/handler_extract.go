@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/server/web"
+
 	"github.com/google/uuid"
 )
 

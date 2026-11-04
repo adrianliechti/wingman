@@ -3,7 +3,8 @@ package agent
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -21,6 +22,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/researcher"
 	"github.com/adrianliechti/wingman/pkg/scraper"
 	"github.com/adrianliechti/wingman/pkg/searcher"
+
 	"github.com/joho/godotenv"
 )
 
@@ -31,28 +33,37 @@ import (
 var benchmarkCasesJSON []byte
 
 type benchmarkCase struct {
-	ID, Question string
-	Expected     []struct {
-		Answer  string
-		Sources []string
-	}
+	ID       string `json:"id"`
+	Question string `json:"question"`
+	Expected []struct {
+		Answer  string   `json:"answer"`
+		Sources []string `json:"sources"`
+	} `json:"expected"`
 	Searches []struct {
-		Terms   []string
-		Results []searcher.Result
-	}
-	Pages map[string]*string
+		Terms   []string          `json:"terms"`
+		Results []searcher.Result `json:"results"`
+	} `json:"searches"`
+	Pages map[string]*string `json:"pages"`
 }
 
 type benchmarkMetrics struct {
-	Case                                                          string
-	Effort                                                        provider.Effort
-	Repeat                                                        int
-	ModelCalls, ToolCalls, SearchRequests, FetchRequests          int
-	InputTokens, CachedInputTokens, OutputTokens, ToolResultChars int
-	AnswerRecall, CitationRecall                                  float64
-	Milliseconds                                                  int64
-	Answer, Error                                                 string
-	Calls                                                         []provider.ToolCall
+	Case              string              `json:"case"`
+	Effort            provider.Effort     `json:"effort"`
+	Repeat            int                 `json:"repeat"`
+	ModelCalls        int                 `json:"modelCalls"`
+	ToolCalls         int                 `json:"toolCalls"`
+	SearchRequests    int                 `json:"searchRequests"`
+	FetchRequests     int                 `json:"fetchRequests"`
+	InputTokens       int                 `json:"inputTokens"`
+	CachedInputTokens int                 `json:"cachedInputTokens"`
+	OutputTokens      int                 `json:"outputTokens"`
+	ToolResultChars   int                 `json:"toolResultChars"`
+	AnswerRecall      float64             `json:"answerRecall"`
+	CitationRecall    float64             `json:"citationRecall"`
+	Milliseconds      int64               `json:"milliseconds"`
+	Answer            string              `json:"answer"`
+	Error             string              `json:"error"`
+	Calls             []provider.ToolCall `json:"calls"`
 }
 
 type benchmarkEvidence struct {
@@ -183,7 +194,7 @@ func TestResearchFixedBenchmark(t *testing.T) {
 	efforts := []provider.Effort{provider.EffortLow}
 	if profiles := os.Getenv("RESEARCH_BENCHMARK_EFFORTS"); profiles != "" {
 		efforts = nil
-		for _, profile := range strings.Split(profiles, ",") {
+		for profile := range strings.SplitSeq(profiles, ",") {
 			effort := provider.Effort(strings.TrimSpace(profile))
 			if effort != provider.EffortLow && effort != provider.EffortMedium && effort != provider.EffortHigh {
 				t.Fatalf("invalid benchmark effort %q", effort)
@@ -229,11 +240,11 @@ func TestResearchFixedBenchmark(t *testing.T) {
 		}
 	}
 	if path := os.Getenv("RESEARCH_BENCHMARK_OUTPUT"); path != "" {
-		data, err := json.MarshalIndent(struct {
-			Model   string
-			Repeats int
-			Results []benchmarkMetrics
-		}{model, repeats, results}, "", "  ")
+		data, err := json.Marshal(struct {
+			Model   string             `json:"model"`
+			Repeats int                `json:"repeats"`
+			Results []benchmarkMetrics `json:"results"`
+		}{model, repeats, results}, jsontext.WithIndent("  "), json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

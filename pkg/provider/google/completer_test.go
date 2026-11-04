@@ -3,12 +3,14 @@ package google
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
+	"io"
 	"net/http"
 	"reflect"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"google.golang.org/genai/interactions/models/interactions"
 )
 
@@ -21,8 +23,23 @@ func TestComplete_InteractionRequest(t *testing.T) {
 		if r.Header.Get("x-goog-api-key") != "test-token" {
 			t.Error("missing authentication")
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &request); err != nil {
 			t.Error(err)
+		}
+		var wire struct {
+			GenerationConfig map[string]any `json:"generation_config"`
+		}
+		if err := json.Unmarshal(data, &wire); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"temperature", "top_p"} {
+			if _, present := wire.GenerationConfig[name]; present {
+				t.Errorf("sampling parameter %s must be omitted", name)
+			}
 		}
 		interactionEvents(createdEvent, completedEvent)(w, r)
 	}
@@ -62,9 +79,6 @@ func TestComplete_InteractionRequest(t *testing.T) {
 	config := request.GenerationConfig
 	if value(config.MaxOutputTokens) != 1024 || !reflect.DeepEqual(config.StopSequences, []string{"STOP"}) || value(config.ThinkingLevel) != interactions.ThinkingLevelHigh || value(config.ThinkingSummaries) != interactions.ThinkingSummariesAuto {
 		t.Fatalf("configuration lost: %+v", config)
-	}
-	if config.Temperature != nil || config.TopP != nil {
-		t.Fatal("Gemini sampling parameters must be omitted")
 	}
 	if config.ToolChoice == nil || value(config.ToolChoice.ToolChoiceType) != interactions.ToolChoiceTypeValidated || len(request.Tools) != 1 || value(request.Tools[0].Function.Name) != "weather_lookup" {
 		t.Fatalf("tools lost: %+v", request.Tools)
@@ -151,7 +165,7 @@ func TestConvertMessages_PreservesNumericArgumentsAndTextResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(steps[1].FunctionCallStep.Arguments)
+	encoded, err := json.Marshal(steps[1].FunctionCallStep.Arguments, json.Deterministic(true))
 	if err != nil || string(encoded) != `{"decimal":0.1234567890123456789,"id":9007199254740993}` {
 		t.Fatalf("tool argument precision lost: %s (%v)", encoded, err)
 	}

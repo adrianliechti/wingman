@@ -1,7 +1,8 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/openai/openai-go/v3"
@@ -19,19 +21,19 @@ import (
 	"golang.org/x/net/http/httpguts"
 )
 
-// Generated SDK encoders can treat json.Number inside a schema as a Go
-// string. Encode each opaque schema value with encoding/json first.
+// Generated SDK encoders can treat jsonutil.Number inside a schema as a Go
+// string. Encode each opaque schema value with encoding/json/v2 first.
 func schemaFields(schema map[string]any) (map[string]any, error) {
 	if schema == nil {
 		return nil, nil
 	}
 	result := make(map[string]any, len(schema))
 	for key, value := range schema {
-		data, err := json.Marshal(value)
+		data, err := json.Marshal(value, json.Deterministic(true))
 		if err != nil {
 			return nil, err
 		}
-		result[key] = json.RawMessage(data)
+		result[key] = jsontext.Value(data)
 	}
 	return result, nil
 }
@@ -54,10 +56,10 @@ func convertError(err error) error {
 	if streamErr, ok := errors.AsType[*ssestream.StreamError](err); ok {
 		var envelope struct {
 			Error struct {
-				Type    string          `json:"type"`
-				Code    string          `json:"code"`
-				Message string          `json:"message"`
-				Headers json.RawMessage `json:"headers"`
+				Type    string         `json:"type"`
+				Code    string         `json:"code"`
+				Message string         `json:"message"`
+				Headers jsontext.Value `json:"headers"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(streamErr.Event.Data, &envelope)
@@ -209,8 +211,8 @@ func parseRetryFromMessage(msg string) time.Duration {
 // parseRetryHeaders reads the header object embedded in a streamed error.
 // Validate and canonicalize names/values just like HTTP headers; ignore
 // malformed objects and unsupported values without losing the error itself.
-func parseRetryHeaders(raw json.RawMessage) time.Duration {
-	var values map[string]json.RawMessage
+func parseRetryHeaders(raw jsontext.Value) time.Duration {
+	var values map[string]jsontext.Value
 	if json.Unmarshal(raw, &values) != nil {
 		return 0
 	}
@@ -222,7 +224,7 @@ func parseRetryHeaders(raw json.RawMessage) time.Duration {
 		}
 		var value string
 		if json.Unmarshal(rawValue, &value) != nil {
-			var number json.Number
+			var number jsonutil.Number
 			if json.Unmarshal(rawValue, &number) != nil {
 				continue
 			}

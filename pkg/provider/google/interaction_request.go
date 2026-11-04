@@ -2,17 +2,17 @@ package google
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/computeruse"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/custom"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/shell"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/texteditor"
+
 	"google.golang.org/genai/interactions/models/interactions"
 )
 
@@ -277,18 +277,12 @@ func convertMessages(messages []provider.Message) ([]interactions.Step, error) {
 }
 
 func toolArguments(arguments string) (map[string]any, error) {
-	decoder := json.NewDecoder(strings.NewReader(arguments))
-	// Preserve large integer IDs and precise decimals when replaying calls.
-	decoder.UseNumber()
 	var object map[string]any
-	if err := decoder.Decode(&object); err != nil {
+	if err := jsonutil.Unmarshal([]byte(arguments), &object); err != nil {
 		return nil, err
 	}
 	if object == nil {
 		return nil, fmt.Errorf("expected a JSON object")
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return nil, fmt.Errorf("unexpected trailing JSON")
 	}
 	return object, nil
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/agent/assistant"
 	"github.com/adrianliechti/wingman/pkg/agent/react"
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/stretchr/testify/require"
 )
 

@@ -2,7 +2,8 @@ package protocol_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"os"
@@ -15,12 +16,14 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
+
 	"github.com/joho/godotenv"
 )
 
@@ -185,7 +188,7 @@ func TestLiveNativeResponseParity(t *testing.T) {
 						backend.capture.reset()
 						status, headers, raw := post(t, local, p.path, p.body)
 						native := backend.capture.only(t)
-						saveReferenceFields(t, map[string]any{"request": p.body, "upstream_request": json.RawMessage(native.requestBody), "native": string(native.body), "wingman": string(raw)})
+						saveReferenceFields(t, map[string]any{"request": p.body, "upstream_request": jsontext.Value(native.requestBody), "native": string(native.body), "wingman": string(raw)})
 						if backend.name == "openai-chat" && scenario == "tool" {
 							// GPT-6.1 Sol requires reasoning; native Chat Completions
 							// rejects tools with reasoning. Test its error mapping,
@@ -297,7 +300,10 @@ func liveRequest(t *testing.T, p protocol, model, scenario string) protocol {
 	return p
 }
 
-type referenceCall struct{ Name, Arguments string }
+type referenceCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
 type referenceResult struct {
 	text                             string
 	finish                           string
@@ -314,7 +320,7 @@ func (r *referenceResult) call(t *testing.T, name string, arguments any) {
 		}
 		arguments = exactObject(t, []byte(encoded))
 	}
-	raw, err := json.Marshal(arguments)
+	raw, err := json.Marshal(arguments, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +329,7 @@ func (r *referenceResult) call(t *testing.T, name string, arguments any) {
 
 func number(value any) int {
 	switch v := value.(type) {
-	case json.Number:
+	case jsonutil.Number:
 		n, _ := v.Int64()
 		return int(n)
 	case float64:

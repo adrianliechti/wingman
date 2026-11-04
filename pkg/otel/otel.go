@@ -7,7 +7,6 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
@@ -67,7 +66,7 @@ func Setup() error {
 // Logs are shut down last so exporter errors can still be recorded.
 func Shutdown(ctx context.Context) error {
 	var err error
-	for _, provider := range []any{otel.GetTracerProvider(), otel.GetMeterProvider(), global.GetLoggerProvider()} {
+	for _, provider := range []any{otel.GetTracerProvider(), otel.GetMeterProvider(), otel.GetLoggerProvider()} {
 		if s, ok := provider.(interface{ Shutdown(context.Context) error }); ok {
 			err = errors.Join(err, s.Shutdown(ctx))
 		}

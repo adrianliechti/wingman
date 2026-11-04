@@ -2,7 +2,7 @@ package responses
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -97,7 +97,11 @@ func TestInputTokensUnknownModel(t *testing.T) {
 	h.handleInputTokens(rec, req)
 
 	var resp struct {
-		Error struct{ Type, Code, Param string }
+		Error struct {
+			Type  string `json:"type"`
+			Code  string `json:"code"`
+			Param string `json:"param"`
+		} `json:"error"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 

@@ -1,7 +1,8 @@
 package toolsearch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -27,12 +28,12 @@ func Payload(tools []provider.Tool) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			item["type"], item["tools"] = "namespace", json.RawMessage(children)
+			item["type"], item["tools"] = "namespace", jsontext.Value(children)
 			delete(item, "defer_loading")
 		}
 		items = append(items, item)
 	}
-	return json.Marshal(items)
+	return json.Marshal(items, json.Deterministic(true))
 }
 
 func Resolve(tools, catalog []provider.Tool) []provider.Tool {

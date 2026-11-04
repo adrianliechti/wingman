@@ -3,7 +3,7 @@ package gemini
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"maps"
@@ -37,8 +37,8 @@ func (h *Harness) SkipUnlessConfigured(t *testing.T, model string) {
 	t.Helper()
 	// Wingman's model registry is exposed on its OpenAI route.
 	registryURL := h.Wingman.BaseURL
-	if strings.HasSuffix(registryURL, "/v1beta") {
-		registryURL = strings.TrimSuffix(registryURL, "/v1beta") + "/v1"
+	if before, ok := strings.CutSuffix(registryURL, "/v1beta"); ok {
+		registryURL = before + "/v1"
 	}
 	harness.SkipUnlessConfigured(t, registryURL, h.Wingman.APIKey, model)
 }

@@ -1,7 +1,8 @@
 package api_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -29,7 +30,7 @@ func TestSearchExcerptsAndOptionalText(t *testing.T) {
 				if format == "json" {
 					request := map[string]any{"model": backend, "query": "test"}
 					if include != "" {
-						request["text"] = json.RawMessage(include)
+						request["text"] = jsontext.Value(include)
 					}
 					data, err := json.Marshal(request)
 					if err != nil {

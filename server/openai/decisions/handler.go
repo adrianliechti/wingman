@@ -1,15 +1,14 @@
 package decisions
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/openai/shared"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -21,13 +20,8 @@ func (h *Handler) Attach(r chi.Router) { r.Post("/decisions", h.handleDecisions)
 
 func (h *Handler) handleDecisions(w http.ResponseWriter, r *http.Request) {
 	var req Request
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&req); err != nil {
+	if err := jsonutil.UnmarshalRead(r.Body, &req); err != nil {
 		shared.WriteError(w, http.StatusBadRequest, err)
-		return
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		shared.WriteError(w, http.StatusBadRequest, errors.New("request must contain a single JSON object"))
 		return
 	}
 	input, err := req.ProviderInput()

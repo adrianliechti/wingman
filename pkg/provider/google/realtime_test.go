@@ -1,10 +1,9 @@
 package google
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/gorilla/websocket"
@@ -460,9 +460,7 @@ func newGeminiWireCapture(t *testing.T) (*geminiRealtimeSession, <-chan map[stri
 			var message map[string]any
 			_, data, err := conn.ReadMessage()
 			if err == nil {
-				decoder := json.NewDecoder(bytes.NewReader(data))
-				decoder.UseNumber()
-				err = decoder.Decode(&message)
+				err = jsonutil.Unmarshal(data, &message)
 			}
 			if err != nil {
 				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {

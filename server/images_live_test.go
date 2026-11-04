@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
 	"github.com/adrianliechti/wingman/server"
+
 	"github.com/joho/godotenv"
 )
 
@@ -83,7 +84,10 @@ func TestImagesLiveErrors(t *testing.T) {
 					message := w.Body.String()
 					if endpoint != "/v1/render" {
 						var response struct {
-							Error struct{ Code, Message string }
+							Error struct {
+								Code    string `json:"code"`
+								Message string `json:"message"`
+							} `json:"error"`
 						}
 						if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 							t.Fatal(err)

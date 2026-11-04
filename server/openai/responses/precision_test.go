@@ -1,7 +1,7 @@
 package responses
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -26,7 +26,7 @@ func TestRequestSchemaNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, value := range []any{c.options.Tools[0].Parameters, c.options.Schema.Properties, input.Items[0].InputAdditionalTools.Tools[0].Parameters} {
-		data, err := json.Marshal(value)
+		data, err := json.Marshal(value, json.Deterministic(true))
 		if err != nil || string(data) != schema {
 			t.Fatalf("schema changed: %s (%v)", data, err)
 		}

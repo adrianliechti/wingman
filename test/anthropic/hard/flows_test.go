@@ -87,18 +87,14 @@ func assembleMessage(t *testing.T, label string, events []*harness.SSEEvent) map
 
 		case "message_delta":
 			delta, _ := event.Data["delta"].(map[string]any)
-			for key, value := range delta {
-				message[key] = value
-			}
+			maps.Copy(message, delta)
 			if usage, ok := event.Data["usage"].(map[string]any); ok {
 				current, _ := message["usage"].(map[string]any)
 				if current == nil {
 					current = map[string]any{}
 					message["usage"] = current
 				}
-				for key, value := range usage {
-					current[key] = value
-				}
+				maps.Copy(current, usage)
 			}
 
 		case "message_stop":
@@ -395,7 +391,7 @@ func TestFlowTextThenToolLoop(t *testing.T) {
 				"tools":      []any{anthropic.WeatherTool},
 			}
 			if model.Capabilities.Thinking {
-				body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": 1024}
+				body["thinking"] = map[string]any{"type": "adaptive"}
 			}
 
 			runs := map[string]map[bool]messageRun{}
@@ -407,9 +403,7 @@ func TestFlowTextThenToolLoop(t *testing.T) {
 						requireToolTurn(t, tg.label, call.response, model.Capabilities.Thinking)
 
 						replay := map[string]any{}
-						for key, value := range body {
-							replay[key] = value
-						}
+						maps.Copy(replay, body)
 						messages := append([]any{}, body["messages"].([]any)...)
 						messages = append(messages, map[string]any{"role": "assistant", "content": call.content()})
 						messages = append(messages, map[string]any{"role": "user", "content": toolResults(call.content())})
@@ -582,7 +576,7 @@ func cacheReadsPerTurn(t *testing.T, h *anthropic.Harness, tg target, body map[s
 	messages := append([]any{}, body["messages"].([]any)...)
 	var cached []float64
 
-	for round := 0; round < 6; round++ {
+	for range 6 {
 		req := maps.Clone(body)
 		req["messages"] = messages
 

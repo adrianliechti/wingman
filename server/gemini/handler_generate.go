@@ -1,7 +1,7 @@
 package gemini
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 

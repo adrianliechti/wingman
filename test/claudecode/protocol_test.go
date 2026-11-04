@@ -1,7 +1,8 @@
 package claudecode
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"slices"
@@ -35,8 +36,8 @@ func checkExchanges(t *testing.T, exchanges []exchange, model string) []string {
 			Model    string `json:"model"`
 			Stream   bool   `json:"stream"`
 			Messages []struct {
-				Role    string          `json:"role"`
-				Content json.RawMessage `json:"content"`
+				Role    string         `json:"role"`
+				Content jsontext.Value `json:"content"`
 			} `json:"messages"`
 		}
 		if err := json.Unmarshal([]byte(record.Request), &request); err != nil {

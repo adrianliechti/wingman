@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +23,7 @@ func TestTierRequestAndResponse(t *testing.T) {
 			t.Run(fmt.Sprintf("chat=%v/%s", chat, tier), func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					var body map[string]any
-					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					if err := json.UnmarshalRead(r.Body, &body); err != nil {
 						t.Error(err)
 						return
 					}
@@ -86,7 +86,7 @@ func TestUnsupportedTierFallsBackOnce(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					requests++
 					var body map[string]any
-					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					if err := json.UnmarshalRead(r.Body, &body); err != nil {
 						t.Error(err)
 						return
 					}

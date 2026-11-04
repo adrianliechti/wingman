@@ -1,19 +1,18 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 func TestRequestSchemasPreserveNumbers(t *testing.T) {
 	const enum = `[9007199254740993,1.234567890123456789,1e400,null]`
 	var schema map[string]any
-	decoder := json.NewDecoder(strings.NewReader(`{"type":"object","properties":{"id":{"enum":` + enum + `}}}`))
-	decoder.UseNumber()
-	if err := decoder.Decode(&schema); err != nil {
+	if err := jsonutil.UnmarshalRead(strings.NewReader(`{"type":"object","properties":{"id":{"enum":`+enum+`}}}`), &schema); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := NewCompleter("http://localhost", "claude-test")
@@ -25,7 +24,7 @@ func TestRequestSchemasPreserveNumbers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		data, err := json.Marshal(req)
+		data, err := json.Marshal(req, json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

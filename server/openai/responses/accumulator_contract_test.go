@@ -2,7 +2,7 @@ package responses
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"iter"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	sdk "github.com/openai/openai-go/v3/responses"
 )
 

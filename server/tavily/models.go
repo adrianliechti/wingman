@@ -1,34 +1,34 @@
 package tavily
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 
 	"github.com/adrianliechti/wingman/server/web"
 )
 
 type SearchRequest struct {
 	web.Selection
-	Query                string          `json:"query"`
-	MaxResults           *int            `json:"max_results"`
-	Topic                string          `json:"topic"`
-	Country              string          `json:"country"`
-	Include              []string        `json:"include_domains"`
-	Exclude              []string        `json:"exclude_domains"`
-	Start                string          `json:"start_date"`
-	End                  string          `json:"end_date"`
-	TimeRange            string          `json:"time_range"`
-	Days                 *int            `json:"days"`
-	IncludePublishedDate bool            `json:"include_published_date"`
-	IncludeRawContent    json.RawMessage `json:"include_raw_content"`
+	Query                string         `json:"query"`
+	MaxResults           *int           `json:"max_results"`
+	Topic                string         `json:"topic"`
+	Country              string         `json:"country"`
+	Include              []string       `json:"include_domains"`
+	Exclude              []string       `json:"exclude_domains"`
+	Start                string         `json:"start_date"`
+	End                  string         `json:"end_date"`
+	TimeRange            string         `json:"time_range"`
+	Days                 *int           `json:"days"`
+	IncludePublishedDate bool           `json:"include_published_date"`
+	IncludeRawContent    jsontext.Value `json:"include_raw_content"`
 }
 
 type SearchResult struct {
 	URL           string   `json:"url"`
 	Title         string   `json:"title"`
 	Content       string   `json:"content"`
-	Score         *float64 `json:"score,omitempty"`
+	Score         *float64 `json:"score,omitzero"`
 	RawContent    *string  `json:"raw_content"`
-	PublishedDate string   `json:"published_date,omitempty"`
+	PublishedDate string   `json:"published_date,omitzero"`
 }
 
 type ExtractRequest struct {

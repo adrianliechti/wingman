@@ -2,7 +2,7 @@ package base_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,7 +20,7 @@ import (
 // arguments (a complex Python script as `content`), the streamed function call
 // sometimes breaks mid-way or reassembles into invalid JSON.
 //
-// Defaults to bedrock-sonnet-4-6; crank iterations to hunt the flake:
+// Defaults to bedrock-sonnet-5-5; crank iterations to hunt the flake:
 //
 //	TEST_WRITE_FILE_ITERATIONS=10 go test ./test/openai/responses/base -run TestWriteFileComplexPython -v -timeout 60m
 //
@@ -153,7 +153,7 @@ func writeFileModels() []string {
 		}
 		return names
 	}
-	return []string{"bedrock-sonnet-4-6"}
+	return []string{"bedrock-sonnet-5-5"}
 }
 
 func writeFileIterations() int {
@@ -243,6 +243,7 @@ func TestWriteFileTruncationSSE(t *testing.T) {
 			events, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", responses.WithModel(map[string]any{
 				"stream":            true,
 				"max_output_tokens": 900,
+				"reasoning":         map[string]any{"effort": "none"},
 				"input":             writeFilePrompt,
 				"tools":             []any{writeFileTool},
 			}, model))

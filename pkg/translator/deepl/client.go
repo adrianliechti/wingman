@@ -3,7 +3,7 @@ package deepl
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -79,7 +79,14 @@ func (c *Client) translateText(ctx context.Context, input, language string) (*tr
 	}
 
 	u, _ := url.JoinPath(c.url, "/v2/translate")
-	r, _ := http.NewRequestWithContext(ctx, "POST", u, jsonReader(body))
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	r, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
 	r.Header.Add("Authorization", "DeepL-Auth-Key "+c.token)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -104,7 +111,7 @@ func (c *Client) translateText(ctx context.Context, input, language string) (*tr
 
 	var result resultType
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return nil, err
 	}
 
@@ -174,7 +181,7 @@ func (c *Client) uploadDocument(ctx context.Context, input *translator.File, lan
 
 	var result resultType
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return "", "", err
 	}
 
@@ -212,7 +219,14 @@ func (c *Client) checkDocument(ctx context.Context, documentID, documentKey stri
 	}
 
 	u, _ := url.JoinPath(c.url, "/v2/document/"+documentID)
-	r, _ := http.NewRequestWithContext(ctx, "POST", u, jsonReader(body))
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return false, err
+	}
+	r, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(encoded))
+	if err != nil {
+		return false, err
+	}
 	r.Header.Add("Authorization", "DeepL-Auth-Key "+c.token)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -232,12 +246,12 @@ func (c *Client) checkDocument(ctx context.Context, documentID, documentKey stri
 		DocumentID string `json:"document_id"`
 
 		Status  string `json:"status"`
-		Message string `json:"message,omitempty"`
+		Message string `json:"message,omitzero"`
 	}
 
 	var result resultType
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return false, err
 	}
 
@@ -262,7 +276,14 @@ func (c *Client) downloadDocument(ctx context.Context, documentID, documentKey s
 	}
 
 	u, _ := url.JoinPath(c.url, "/v2/document/"+documentID+"/result")
-	r, _ := http.NewRequestWithContext(ctx, "POST", u, jsonReader(body))
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	r, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
 	r.Header.Add("Authorization", "DeepL-Auth-Key "+c.token)
 	r.Header.Add("Content-Type", "application/json")
 

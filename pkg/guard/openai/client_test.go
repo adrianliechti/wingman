@@ -2,7 +2,7 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,7 +16,7 @@ func TestCheck(t *testing.T) {
 
 		var body map[string]any
 
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 

@@ -13,6 +13,7 @@ import (
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/auth"
 	"github.com/adrianliechti/wingman/pkg/auth/static"
+
 	"github.com/klauspost/compress/zstd"
 )
 

@@ -1,7 +1,7 @@
 package base_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/anthropic"
@@ -23,14 +23,10 @@ func TestStructuredOutputHTTP(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			if model.Capabilities.NoForcedToolChoice {
-				t.Skip("model rejects forced tool_choice")
-			}
-
 			body := map[string]any{
 				"max_tokens": 1024,
 				"messages": []map[string]any{
-					{"role": "user", "content": "Recommend a classic science fiction book. Respond with JSON only."},
+					{"role": "user", "content": "Call book_recommendation with a classic science fiction book. Do not respond with text."},
 				},
 				"tools": []any{
 					map[string]any{
@@ -43,6 +39,10 @@ func TestStructuredOutputHTTP(t *testing.T) {
 					"type": "tool",
 					"name": "book_recommendation",
 				},
+			}
+
+			if model.Capabilities.NoForcedToolChoice || harness.RejectsForcedToolChoice(h.ReferenceModel) {
+				body["tool_choice"] = map[string]any{"type": "auto"}
 			}
 
 			anthropicResp, wingmanResp := anthropic.CompareHTTP(t, h, model.Name, body)
@@ -66,14 +66,10 @@ func TestStructuredOutputSSE(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			if model.Capabilities.NoForcedToolChoice {
-				t.Skip("model rejects forced tool_choice")
-			}
-
 			body := map[string]any{
 				"max_tokens": 1024,
 				"messages": []map[string]any{
-					{"role": "user", "content": "Recommend a classic science fiction book."},
+					{"role": "user", "content": "Call book_recommendation with a classic science fiction book. Do not respond with text."},
 				},
 				"tools": []any{
 					map[string]any{
@@ -86,6 +82,10 @@ func TestStructuredOutputSSE(t *testing.T) {
 					"type": "tool",
 					"name": "book_recommendation",
 				},
+			}
+
+			if model.Capabilities.NoForcedToolChoice || harness.RejectsForcedToolChoice(h.ReferenceModel) {
+				body["tool_choice"] = map[string]any{"type": "auto"}
 			}
 
 			anthropicEvents, wingmanEvents := anthropic.CompareSSE(t, h, model.Name, body)

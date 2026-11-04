@@ -83,11 +83,11 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 		}
 
 		if diarize {
-			config.Diarization = genai.Ptr(true)
+			config.Diarization = new(true)
 		}
 
 		if timestamps {
-			config.WordTimestamp = genai.Ptr(true)
+			config.WordTimestamp = new(true)
 		}
 
 		if !timestamps {

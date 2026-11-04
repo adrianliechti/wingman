@@ -3,7 +3,7 @@ package responses
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -93,8 +93,8 @@ func TestStreamMarksTruncatedToolCallItemIncomplete(t *testing.T) {
 
 	var item map[string]any
 
-	for _, block := range strings.Split(stream, "\n\n") {
-		for _, line := range strings.Split(block, "\n") {
+	for block := range strings.SplitSeq(stream, "\n\n") {
+		for line := range strings.SplitSeq(block, "\n") {
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}
@@ -135,8 +135,8 @@ func TestStreamReportsMaxOutputTokensOnTruncation(t *testing.T) {
 
 	var response map[string]any
 
-	for _, block := range strings.Split(stream, "\n\n") {
-		for _, line := range strings.Split(block, "\n") {
+	for block := range strings.SplitSeq(stream, "\n\n") {
+		for line := range strings.SplitSeq(block, "\n") {
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}

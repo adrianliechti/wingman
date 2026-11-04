@@ -1,7 +1,7 @@
 package systemone_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"flag"
 	"math"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/server"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/joho/godotenv"
 )
 

@@ -18,6 +18,7 @@ import (
 	exasearch "github.com/adrianliechti/wingman/pkg/searcher/exa"
 	tavilysearch "github.com/adrianliechti/wingman/pkg/searcher/tavily"
 	"github.com/adrianliechti/wingman/server"
+
 	"github.com/joho/godotenv"
 )
 

@@ -1,7 +1,7 @@
 package compatibility_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +20,7 @@ func TestPortableCacheRequests(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			var sent map[string]any
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				if err := json.UnmarshalRead(r.Body, &sent); err != nil {
 					t.Error(err)
 				}
 				w.Header().Set("Content-Type", "text/event-stream")

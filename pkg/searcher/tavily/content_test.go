@@ -1,7 +1,7 @@
 package tavily
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -14,7 +14,7 @@ func TestOptionalFullTextPreservesExcerptsAndFailedAttempts(t *testing.T) {
 	for _, include := range []bool{false, true} {
 		c, err := New("test", WithClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			var request map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			if err := json.UnmarshalRead(r.Body, &request); err != nil {
 				t.Fatal(err)
 			}
 			if (request["include_raw_content"] == true) != include {

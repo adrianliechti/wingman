@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/openai/openai-go/v3/packages/ssestream"
 )
 

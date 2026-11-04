@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,7 +77,7 @@ func TestFastTierFallback(t *testing.T) {
 			client := &http.Client{Transport: lifecycleTransport(func(r *http.Request) (*http.Response, error) {
 				requests++
 				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if requests == 1 {

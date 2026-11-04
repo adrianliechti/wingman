@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
@@ -10,17 +10,17 @@ import (
 )
 
 type tokenInfo struct {
-	Token string `json:"token,omitempty"`
+	Token string `json:"token,omitzero"`
 
 	Header  map[string]any `json:"header,omitempty"`
 	Payload map[string]any `json:"payload,omitempty"`
 
-	User   string   `json:"user,omitempty"`
-	Email  string   `json:"email,omitempty"`
-	Name   string   `json:"name,omitempty"`
+	User   string   `json:"user,omitzero"`
+	Email  string   `json:"email,omitzero"`
+	Name   string   `json:"name,omitzero"`
 	Groups []string `json:"groups,omitempty"`
 
-	Headers http.Header `json:"headers,omitempty"`
+	Headers http.Header `json:"headers,omitzero"`
 }
 
 func (h *Handler) handleToken(w http.ResponseWriter, r *http.Request) {

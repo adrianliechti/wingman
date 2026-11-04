@@ -7,12 +7,10 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
-
-	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
-
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 func setupTracer(ctx context.Context, resource *resource.Resource) error {

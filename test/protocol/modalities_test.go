@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"math"
@@ -58,7 +58,7 @@ func TestEmbeddingWireContract(t *testing.T) {
 					t.Errorf("upstream path = %s", r.URL.Path)
 				}
 				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Error(err)
 					return
 				}
@@ -175,7 +175,7 @@ func TestImageWireContract(t *testing.T) {
 							t.Errorf("upstream path = %s", r.URL.Path)
 						}
 						var body map[string]any
-						if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						if err := json.UnmarshalRead(r.Body, &body); err != nil {
 							t.Error(err)
 							return
 						}
@@ -184,7 +184,7 @@ func TestImageWireContract(t *testing.T) {
 						}
 					}
 					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(map[string]any{"created": 1, "data": []any{map[string]any{"b64_json": base64.StdEncoding.EncodeToString(image)}}})
+					json.MarshalWrite(w, map[string]any{"created": 1, "data": []any{map[string]any{"b64_json": base64.StdEncoding.EncodeToString(image)}}})
 				})
 				var status int
 				var headers http.Header
@@ -217,7 +217,7 @@ func TestSpeechWireContract(t *testing.T) {
 					t.Errorf("upstream path = %s", r.URL.Path)
 				}
 				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Error(err)
 					return
 				}
@@ -287,7 +287,7 @@ func TestTranscriptionWireContract(t *testing.T) {
 					t.Error("audio upload changed")
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]any{"text": answer})
+				json.MarshalWrite(w, map[string]any{"text": answer})
 			})
 			ct, body := multipartBody(t, map[string]string{"model": "transcription", "language": "de", "prompt": "Swiss German", "response_format": format}, "file", "audio.wav", []byte("RIFFcontract-audio"))
 			status, headers, raw := request(t, local, http.MethodPost, "/v1/audio/transcriptions", ct, body)

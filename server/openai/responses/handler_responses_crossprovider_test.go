@@ -2,7 +2,7 @@ package responses
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +18,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/bedrock"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/provider/openai"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 )
@@ -49,7 +50,7 @@ func TestResponsesLiveCrossProviderReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gpt, err := openai.NewResponder("https://api.openai.com/v1", "gpt-5.4-mini", openai.WithToken(key("OPENAI_API_KEY")), openai.WithClient(client))
+	gpt, err := openai.NewResponder("https://api.openai.com/v1", "gpt-6-luna", openai.WithToken(key("OPENAI_API_KEY")), openai.WithClient(client))
 	if err != nil {
 		t.Fatal(err)
 	}

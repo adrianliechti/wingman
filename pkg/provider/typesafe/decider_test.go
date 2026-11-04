@@ -2,7 +2,8 @@ package typesafe
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -34,15 +35,15 @@ func TestDeciderPreservesStateAndAnswers(t *testing.T) {
 					t.Errorf("unexpected upstream request: %s %s %v", r.Method, r.URL.Path, r.Header)
 				}
 				var body struct {
-					Model     string
-					State     json.RawMessage
+					Model     string         `json:"model"`
+					State     jsontext.Value `json:"state"`
 					Questions map[string]struct {
-						Type         string
-						Instructions string
-						Criteria     map[string]any
-					}
+						Type         string         `json:"type"`
+						Instructions string         `json:"instructions"`
+						Criteria     map[string]any `json:"criteria"`
+					} `json:"questions"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Error(err)
 				}
 				q := body.Questions["label"]
@@ -57,7 +58,7 @@ func TestDeciderPreservesStateAndAnswers(t *testing.T) {
 				t.Fatal(err)
 			}
 			input := choiceInput()
-			input.State = json.RawMessage(state)
+			input.State = jsontext.Value(state)
 			result, err := d.Decide(context.Background(), input)
 			if err != nil {
 				t.Fatal(err)
@@ -145,7 +146,7 @@ func TestDeciderTypeSafeErrors(t *testing.T) {
 				t.Fatalf("unexpected error: %+v", upstreamError)
 			}
 			var envelope struct {
-				Detail json.RawMessage `json:"detail"`
+				Detail jsontext.Value `json:"detail"`
 			}
 			json.Unmarshal([]byte(tc.body), &envelope)
 			var detailError *APIError

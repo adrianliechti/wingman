@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/auth"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

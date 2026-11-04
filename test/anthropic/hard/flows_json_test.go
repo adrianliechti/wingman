@@ -1,6 +1,6 @@
 package hard_test
 
-import "encoding/json"
+import "encoding/json/v2"
 
 func parseJSON(data string, v any) error {
 	return json.Unmarshal([]byte(data), v)

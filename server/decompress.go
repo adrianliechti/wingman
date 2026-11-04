@@ -2,7 +2,7 @@ package server
 
 import (
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -50,9 +50,13 @@ func handleRequestDecompression(next http.Handler) http.Handler {
 }
 
 func writeDecompressionError(w http.ResponseWriter, status int, err error) {
+
+	data, encodeErr := json.Marshal(map[string]any{"error": map[string]any{"message": err.Error(), "type": "invalid_request_error", "code": status}})
+	if encodeErr != nil {
+		status = http.StatusInternalServerError
+		data = []byte(`{"error":{"message":"could not encode error response","type":"server_error","code":500}}`)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]any{"message": err.Error(), "type": "invalid_request_error", "code": status},
-	})
+	w.Write(data)
 }

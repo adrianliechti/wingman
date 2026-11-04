@@ -6,11 +6,10 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/jpeg"
 	"image/png"
 	"net/http"
 	"slices"
-
-	_ "image/jpeg"
 
 	_ "golang.org/x/image/webp"
 )

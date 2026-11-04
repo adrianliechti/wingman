@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"

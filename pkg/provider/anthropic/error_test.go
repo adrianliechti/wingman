@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/anthropics/anthropic-sdk-go/v2"
 )
 

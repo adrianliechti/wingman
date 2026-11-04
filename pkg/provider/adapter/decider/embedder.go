@@ -1,15 +1,15 @@
 package decider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -109,7 +109,7 @@ func (a *EmbedderAdapter) Decide(ctx context.Context, input *provider.DecisionIn
 			if len(input.Messages) > 0 {
 				stateForScore = stateValue
 			}
-			stateJSON, err := json.Marshal(stateForScore)
+			stateJSON, err := json.Marshal(stateForScore, json.Deterministic(true))
 			if err != nil {
 				return nil, err
 			}
@@ -121,7 +121,7 @@ func (a *EmbedderAdapter) Decide(ctx context.Context, input *provider.DecisionIn
 				if q.Score.Labels != nil && q.Score.Labels[i] != "" {
 					criterion["label"] = q.Score.Labels[i]
 				}
-				text, err := json.Marshal(criterion)
+				text, err := json.Marshal(criterion, json.Deterministic(true))
 				if err != nil {
 					return nil, err
 				}
@@ -141,7 +141,7 @@ func (a *EmbedderAdapter) Decide(ctx context.Context, input *provider.DecisionIn
 			}
 			label := strings.ReplaceAll(option.Label, "_", " ")
 			if option.Value != nil {
-				value, err := json.Marshal(option.Value)
+				value, err := json.Marshal(option.Value, json.Deterministic(true))
 				if err != nil {
 					return nil, err
 				}
@@ -236,10 +236,8 @@ func embeddingText(value any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
 	var normalized any
-	if err := decoder.Decode(&normalized); err != nil {
+	if err := jsonutil.Unmarshal(data, &normalized); err != nil {
 		return "", err
 	}
 	return embeddingValue(normalized), nil

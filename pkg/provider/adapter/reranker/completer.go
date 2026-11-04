@@ -2,7 +2,7 @@ package reranker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strconv"
 	"strings"

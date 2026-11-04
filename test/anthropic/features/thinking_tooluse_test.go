@@ -25,8 +25,7 @@ func TestThinkingToolUseRoundTripHTTP(t *testing.T) {
 			turn1 := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{
-					"type":          "enabled",
-					"budget_tokens": 5000,
+					"type": "adaptive",
 				},
 				"messages": []map[string]any{
 					{"role": "user", "content": "What's the weather in London? Use the tool."},
@@ -50,8 +49,7 @@ func TestThinkingToolUseRoundTripHTTP(t *testing.T) {
 				return map[string]any{
 					"max_tokens": 16000,
 					"thinking": map[string]any{
-						"type":          "enabled",
-						"budget_tokens": 5000,
+						"type": "adaptive",
 					},
 					"messages": []map[string]any{
 						{"role": "user", "content": "What's the weather in London? Use the tool."},

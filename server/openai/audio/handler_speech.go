@@ -2,7 +2,7 @@ package audio
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -17,7 +17,7 @@ import (
 func (h *Handler) handleAudioSpeech(w http.ResponseWriter, r *http.Request) {
 	var req SpeechRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

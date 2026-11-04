@@ -1,7 +1,7 @@
 package tool
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -19,7 +19,8 @@ func RenderResult(p Provider, name string, value any) (provider.ToolResult, erro
 	if text, ok := value.(string); ok {
 		return TextResult(text), nil
 	}
-	data, err := json.Marshal(value)
+	// Stable tool text preserves model prompt prefixes and evidence deduplication.
+	data, err := json.Marshal(value, json.Deterministic(true))
 	if err != nil {
 		return provider.ToolResult{}, err
 	}

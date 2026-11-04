@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"google.golang.org/genai"
 	"google.golang.org/genai/interactions/models/apierrors"
 	"google.golang.org/genai/interactions/models/components"

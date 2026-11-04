@@ -1,7 +1,8 @@
 package claudecode
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"path/filepath"
@@ -62,21 +63,25 @@ func projectSteps(exchanges []exchange) ([]projectStep, error) {
 			continue
 		}
 		var request struct {
-			Messages []struct{ Content json.RawMessage }
+			Messages []struct {
+				Content jsontext.Value `json:"content"`
+			} `json:"messages"`
 		}
 		if err := json.Unmarshal([]byte(exchange.Request), &request); err != nil {
 			return nil, err
 		}
 		for _, message := range request.Messages {
 			var blocks []struct {
-				Type, ID, Name string
-				ToolUseID      string `json:"tool_use_id"`
-				IsError        bool   `json:"is_error"`
-				Content        json.RawMessage
-				Input          struct {
+				Type      string         `json:"type"`
+				ID        string         `json:"id"`
+				Name      string         `json:"name"`
+				ToolUseID string         `json:"tool_use_id"`
+				IsError   bool           `json:"is_error"`
+				Content   jsontext.Value `json:"content"`
+				Input     struct {
 					FilePath string `json:"file_path"`
-					Command  string
-				}
+					Command  string `json:"command"`
+				} `json:"input"`
 			}
 			if json.Unmarshal(message.Content, &blocks) != nil {
 				continue // String user prompts contain no tool events.

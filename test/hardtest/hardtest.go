@@ -6,7 +6,7 @@ package hardtest
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"image"
 	"image/color"
@@ -137,7 +137,7 @@ func NeedlePrompt() string {
 
 	b.WriteString("Read the following notes carefully and then answer the question at the end.\n\n")
 
-	for i := 0; i < 240; i++ {
+	for i := range 240 {
 		fmt.Fprintf(&b, "Note %d: The quarterly review covered logistics, staffing and the maintenance schedule for the northern depots; no decisions were taken and the item was carried over.\n", i)
 
 		if i == 137 {

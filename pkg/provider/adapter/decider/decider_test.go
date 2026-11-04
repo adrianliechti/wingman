@@ -2,13 +2,14 @@ package decider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"iter"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -26,7 +27,7 @@ func (f embedderFunc) Embed(ctx context.Context, texts []string, options *provid
 
 func decisionInput() *provider.DecisionInput {
 	return &provider.DecisionInput{
-		State: map[string]any{"ticket": "Payment failed", "id": json.Number("9007199254740993")},
+		State: map[string]any{"ticket": "Payment failed", "id": jsonutil.Number("9007199254740993")},
 		Questions: []provider.DecisionQuestion{
 			{ID: "private-noul-id", Instructions: map[string]any{"question": "Is it urgent?"}, Noul: &provider.NoulQuestion{True: []any{"Act now"}}},
 			{ID: "private-choice-id", Instructions: "Which department?", Choice: &provider.ChoiceQuestion{Options: []provider.DecisionOption{
@@ -34,6 +35,43 @@ func decisionInput() *provider.DecisionInput {
 			}}},
 			{ID: "private-score-id", Instructions: []any{"Rate severity"}, Score: &provider.ScoreQuestion{Levels: []any{nil, "Medium", map[string]any{"severity": "High"}}}},
 		},
+	}
+}
+
+func TestDecisionPromptsStable(t *testing.T) {
+	for _, mode := range []string{"completer", "embedder"} {
+		t.Run(mode, func(t *testing.T) {
+			var first []string
+			capture := func(texts []string) {
+				if first == nil {
+					first = slices.Clone(texts)
+				} else if !slices.Equal(texts, first) {
+					t.Fatal("unchanged decision input produced different model text")
+				}
+			}
+			stop := errors.New("captured input")
+			var decider provider.Decider
+			if mode == "completer" {
+				decider = FromCompleter("test", completerFunc(func(_ context.Context, messages []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+					var texts []string
+					for _, message := range messages {
+						texts = append(texts, message.Text())
+					}
+					capture(texts)
+					return func(yield func(*provider.Completion, error) bool) { yield(nil, stop) }
+				}))
+			} else {
+				decider = FromEmbedder("test", embedderFunc(func(_ context.Context, texts []string, _ *provider.EmbedOptions) (*provider.Embedding, error) {
+					capture(texts)
+					return nil, stop
+				}))
+			}
+			for range 100 {
+				if _, err := decider.Decide(t.Context(), decisionInput()); !errors.Is(err, stop) {
+					t.Fatalf("expected captured input, got %v", err)
+				}
+			}
+		})
 	}
 }
 
@@ -227,7 +265,7 @@ func TestEmbeddingTextPreservesStructuredContent(t *testing.T) {
 	value := struct {
 		Details map[string]any `json:"details"`
 	}{Details: map[string]any{
-		"number": json.Number("9007199254740993"),
+		"number": jsonutil.Number("9007199254740993"),
 		"items":  []any{"first", map[string]any{"name": "second", "enabled": false}, nil},
 	}}
 	text, err := embeddingText(value)

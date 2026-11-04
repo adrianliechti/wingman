@@ -1,10 +1,11 @@
 package protocol_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,7 +20,7 @@ func TestParallelToolRoundTrip(t *testing.T) {
 				var requests atomic.Int32
 				local := gateway(t, func(w http.ResponseWriter, r *http.Request) {
 					var body map[string]any
-					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					if err := json.UnmarshalRead(r.Body, &body); err != nil {
 						t.Error(err)
 						return
 					}
@@ -236,8 +237,7 @@ func appendToolResults(t *testing.T, p *protocol, calls []toolCall) {
 		}
 	}
 	// Return parallel results in reverse order to verify correlation by ID.
-	for i := len(calls) - 1; i >= 0; i-- {
-		c := calls[i]
+	for _, c := range slices.Backward(calls) {
 		result := strings.TrimPrefix(c.id, "call_") + "-result"
 		switch p.name {
 		case "chat":

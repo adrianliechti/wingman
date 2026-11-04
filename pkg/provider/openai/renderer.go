@@ -15,8 +15,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/google/uuid"
 
+	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 )
 

@@ -3,7 +3,7 @@ package google_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -56,7 +56,7 @@ func TestTranslateDocuments(t *testing.T) {
 					NativePDF bool `json:"isTranslateNativePdfOnly"`
 					Rotation  bool `json:"enableRotationCorrection"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Errorf("decode document request: %v", err)
 					w.WriteHeader(http.StatusBadRequest)
 					return
@@ -70,7 +70,7 @@ func TestTranslateDocuments(t *testing.T) {
 				if body.Rotation != (tt.wantType == "application/pdf") {
 					t.Errorf("PDF rotation correction = %v", body.Rotation)
 				}
-				json.NewEncoder(w).Encode(map[string]any{
+				json.MarshalWrite(w, map[string]any{
 					"documentTranslation": map[string]any{
 						"byteStreamOutputs": [][]byte{outputBytes},
 						"mimeType":          tt.wantType,

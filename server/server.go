@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
-
 	"github.com/adrianliechti/wingman/server/anthropic"
 	"github.com/adrianliechti/wingman/server/api"
 	"github.com/adrianliechti/wingman/server/exa"
@@ -17,7 +16,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 

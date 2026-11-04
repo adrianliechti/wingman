@@ -1,7 +1,8 @@
 package codex
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"github.com/adrianliechti/wingman/test/hardtest"
 	"github.com/adrianliechti/wingman/test/harness"
 	"github.com/adrianliechti/wingman/test/openai"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -43,7 +45,7 @@ func TestCodexHard(t *testing.T) {
 	compaction.options.setup = func(t *testing.T, dir string) {
 		compactionProject.Setup(t, dir)
 		var context strings.Builder
-		for i := 0; i < 400; i++ {
+		for i := range 400 {
 			fmt.Fprintf(&context, "Context %04d: Keep invoice pricing and item counts correct; use the fixture tests to verify every change.\n", i)
 		}
 		writeArtifact(t, filepath.Join(dir, "compaction_context.txt"), []byte(context.String()))
@@ -309,7 +311,7 @@ func saveUpstream(t *testing.T, env string, exchanges []harness.Exchange) {
 	if root == "" {
 		return
 	}
-	data, err := json.MarshalIndent(exchanges, "", "  ")
+	data, err := json.Marshal(exchanges, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}

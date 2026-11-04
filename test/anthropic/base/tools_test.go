@@ -1,7 +1,7 @@
 package base_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/test/anthropic"
@@ -157,7 +157,7 @@ func TestToolCallingLongInputSSE(t *testing.T) {
 
 			// The prompt already asks for the call; models without forced
 			// tool choice rely on it.
-			if model.Capabilities.NoForcedToolChoice {
+			if model.Capabilities.NoForcedToolChoice || harness.RejectsForcedToolChoice(h.ReferenceModel) {
 				req["tool_choice"] = map[string]any{"type": "auto"}
 			}
 

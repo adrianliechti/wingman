@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/researcher"
+
 	"github.com/openai/openai-go/v3/responses"
 )
 
@@ -40,7 +41,7 @@ func TestResearchStreamProgressAndCitations(t *testing.T) {
 		`{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","phase":"final_answer","content":[{"type":"output_text","text":"Report text","annotations":[{"type":"url_citation","title":"MCP","url":"https://modelcontextprotocol.io/specification"}]}]}]}}`,
 	}
 	client, _ := New("test", WithModel("configured-model"), WithClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
+		if err := json.UnmarshalRead(request.Body, &requestBody); err != nil {
 			t.Fatal(err)
 		}
 		var body strings.Builder
@@ -127,7 +128,7 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 func TestResearchDoesNotImposeToolCallCeiling(t *testing.T) {
 	var body map[string]any
 	client, err := New("test", WithClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(request.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(`data: {"type":"response.completed","response":{"id":"response","output":[{"type":"message","content":[{"type":"output_text","text":"Answer"}]}]}}

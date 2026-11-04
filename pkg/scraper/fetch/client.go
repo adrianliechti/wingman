@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/scraper"
+
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
-
-	"github.com/adrianliechti/wingman/pkg/scraper"
 )
 
 var _ scraper.Provider = &Client{}
