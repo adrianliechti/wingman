@@ -64,7 +64,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					s.pendingSignature = reasoning.Signature
 				}
 				reasoning.Signature = ""
-				if reasoning.Text != "" || reasoning.Summary != "" {
+				if reasoning.Text() != "" || reasoning.SummaryText() != "" {
 					textContent = append(textContent, provider.ReasoningContent(reasoning))
 				}
 			}

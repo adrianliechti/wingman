@@ -92,7 +92,7 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 
 		if part.Thought {
 			content = append(content, provider.ReasoningContent(provider.Reasoning{
-				Text:      part.Text,
+				Content:   provider.TextParts(part.Text),
 				Signature: sig,
 			}))
 			continue
@@ -321,9 +321,9 @@ func toContent(content []provider.Content) *Content {
 	for i, c := range content {
 		if c.Reasoning != nil {
 			beforeCall := i+1 < len(content) && content[i+1].ToolCall != nil
-			text := c.Reasoning.Text
+			text := c.Reasoning.Text()
 			if text == "" {
-				text = c.Reasoning.Summary
+				text = c.Reasoning.SummaryText()
 			}
 
 			if text == "" {

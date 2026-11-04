@@ -45,7 +45,7 @@ func partsOf(r GenerateContentResponse) []*Part {
 func TestStreamingFinalChunkCarriesOnlyFunctionCalls(t *testing.T) {
 	out := collectStream(t,
 		assistantChunk(provider.TextContent("Let me check. ")),
-		assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "thinking"})),
+		assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("thinking")})),
 		assistantChunk(provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "get_weather", Arguments: `{"city":"Bern"}`})),
 	)
 
@@ -72,7 +72,7 @@ func TestStreamingFinalChunkCarriesOnlyFunctionCalls(t *testing.T) {
 // thought parts just like Text deltas do.
 func TestStreamingReasoningSummaryBecomesThought(t *testing.T) {
 	out := collectStream(t,
-		assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "thinking summary"})),
+		assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("thinking summary")})),
 		assistantChunk(provider.TextContent("Answer")),
 	)
 
@@ -111,7 +111,7 @@ func TestStreamingFunctionCallSignatureSurvivesReplay(t *testing.T) {
 		t.Run(summary, func(t *testing.T) {
 			out := collectStream(t,
 				assistantChunk(provider.TextContent("Let me check.")),
-				assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: summary})),
+				assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts(summary)})),
 				assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Signature: "U0lH"})),
 				assistantChunk(provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "get_weather"})),
 				assistantChunk(provider.ToolCallContent(provider.ToolCall{ID: "c1", Arguments: `{"city":"Bern"}`})),

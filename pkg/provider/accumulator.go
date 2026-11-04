@@ -17,7 +17,7 @@ type CompletionAccumulator struct {
 	role     MessageRole
 	messages []*accumulatedMessage
 
-	reasonings  []Reasoning
+	reasonings  []*accumulatedReasoning
 	compactions []Compaction
 
 	toolCall    string
@@ -153,19 +153,7 @@ func (a *CompletionAccumulator) Add(c Completion) {
 			a.usage = &Usage{}
 		}
 
-		if c.Usage.InputTokens > a.usage.InputTokens {
-			a.usage.InputTokens = c.Usage.InputTokens
-		}
-		if c.Usage.OutputTokens > a.usage.OutputTokens {
-			a.usage.OutputTokens = c.Usage.OutputTokens
-		}
-		if tokens := c.Usage.ReasoningTokens; tokens != nil && (a.usage.ReasoningTokens == nil || *tokens > *a.usage.ReasoningTokens) {
-			a.usage.ReasoningTokens = new(*tokens)
-		}
-		if c.Usage.CacheReadInputTokens > a.usage.CacheReadInputTokens {
-			a.usage.CacheReadInputTokens = c.Usage.CacheReadInputTokens
-		}
-		a.usage.MergeCacheWrites(c.Usage.CacheCreationInputTokens, c.Usage.CacheWriteTokensDetails)
+		a.usage.Merge(c.Usage)
 	}
 }
 
@@ -200,41 +188,46 @@ func (a *CompletionAccumulator) currentMessage() *accumulatedMessage {
 	return a.messages[len(a.messages)-1]
 }
 
-// Distinct IDs are kept as separate entries; without an ID, deltas merge into
-// the last entry. Collapsing distinct IDs would pair one item's ID with
-// another's encrypted_content, which OpenAI rejects on the next turn.
+type accumulatedReasoning struct {
+	Reasoning
+	content, summary PartAccumulator
+}
+
+func (r *accumulatedReasoning) result() Reasoning {
+	result := r.Reasoning
+	result.Content, result.Summary = r.content.Parts(), r.summary.Parts()
+	return result
+}
+
+// Distinct IDs and signed blocks retain separate replay state.
 func (a *CompletionAccumulator) addReasoning(r *Reasoning) {
-	if r.Redacted {
-		a.reasonings = append(a.reasonings, Reasoning{ID: r.ID, Signature: r.Signature, Redacted: true})
-		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentReasoning, index: len(a.reasonings) - 1})
-		return
-	}
-
-	var target *Reasoning
-
-	if r.ID != "" {
-		for i := range a.reasonings {
-			if a.reasonings[i].ID == r.ID {
-				target = &a.reasonings[i]
-				break
+	var target *accumulatedReasoning
+	if !r.Redacted {
+		if r.ID != "" {
+			for _, entry := range a.reasonings {
+				if entry.ID == r.ID {
+					target = entry
+					break
+				}
+			}
+		} else if len(a.reasonings) > 0 && len(a.contentOrder) > 0 && a.contentOrder[len(a.contentOrder)-1].kind == accumulatedContentReasoning {
+			last := a.reasonings[len(a.reasonings)-1]
+			if !last.Redacted && last.Signature == "" {
+				target = last
 			}
 		}
-	} else if len(a.reasonings) > 0 && len(a.contentOrder) > 0 && a.contentOrder[len(a.contentOrder)-1].kind == accumulatedContentReasoning {
-		// A signed, redacted, or interrupted entry is complete; ID-less deltas start a new one
-		if last := &a.reasonings[len(a.reasonings)-1]; !last.Redacted && last.Signature == "" {
-			target = last
-		}
 	}
-
 	if target == nil {
-		a.reasonings = append(a.reasonings, Reasoning{ID: r.ID})
+		target = &accumulatedReasoning{Reasoning: Reasoning{ID: r.ID, Redacted: r.Redacted}}
+		a.reasonings = append(a.reasonings, target)
 		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentReasoning, index: len(a.reasonings) - 1})
-		target = &a.reasonings[len(a.reasonings)-1]
 	}
-
-	target.Text += r.Text
-	target.Summary += r.Summary
-
+	for _, part := range r.Content {
+		target.content.Add(part)
+	}
+	for _, part := range r.Summary {
+		target.summary.Add(part)
+	}
 	if r.Signature != "" {
 		target.Signature = r.Signature
 	}
@@ -335,7 +328,7 @@ func (a *CompletionAccumulator) Result() *Completion {
 	for _, ref := range a.contentOrder {
 		switch ref.kind {
 		case accumulatedContentReasoning:
-			content = append(content, ReasoningContent(a.reasonings[ref.index]))
+			content = append(content, ReasoningContent(a.reasonings[ref.index].result()))
 
 		case accumulatedContentCompaction:
 			content = append(content, CompactionContent(a.compactions[ref.index]))
@@ -353,7 +346,7 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 			// A truncated call keeps its empty arguments — fabricating "{}"
 			// would disguise an aborted call as a valid zero-argument one.
-			if a.status != CompletionStatusIncomplete {
+			if a.status != CompletionStatusIncomplete && a.status != CompletionStatusFailed && a.status != CompletionStatusRefused {
 				call = NormalizeToolCallArguments(call)
 			}
 

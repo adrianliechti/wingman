@@ -142,14 +142,15 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				continue
 			}
 
-			r := provider.Reasoning{
-				ID:        item.InputReasoning.ID,
-				Signature: item.InputReasoning.EncryptedContent,
+			signature, redacted, err := parseReasoningEncryptedContent(item.InputReasoning.EncryptedContent)
+			if err != nil {
+				return nil, err
 			}
+			r := provider.Reasoning{ID: item.InputReasoning.ID, Signature: signature, Redacted: redacted}
 
 			for _, part := range item.InputReasoning.Summary {
 				if part.Type == "summary_text" {
-					r.Summary += part.Text
+					r.Summary = append(r.Summary, provider.Part{Index: len(r.Summary), Text: part.Text})
 				}
 			}
 
@@ -162,13 +163,13 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				if err := json.Unmarshal(item.InputReasoning.Content, &parts); err == nil {
 					for _, part := range parts {
 						if part.Type == "reasoning_text" {
-							r.Text += part.Text
+							r.Content = append(r.Content, provider.Part{Index: len(r.Content), Text: part.Text})
 						}
 					}
 				}
 			}
 
-			if r.Signature == "" && r.Summary == "" && r.Text == "" {
+			if r.Signature == "" && r.SummaryText() == "" && r.Text() == "" {
 				continue
 			}
 

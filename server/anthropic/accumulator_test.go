@@ -210,10 +210,10 @@ func TestStreamingAccumulatorSplitsThinkingBlocks(t *testing.T) {
 		}
 	}
 
-	add(provider.ReasoningContent(provider.Reasoning{Text: "first thought"}))
+	add(provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("first thought")}))
 	add(provider.ReasoningContent(provider.Reasoning{Signature: "SIG_1"}))
 	add(provider.TextContent("hello"))
-	add(provider.ReasoningContent(provider.Reasoning{Text: "second thought"}))
+	add(provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("second thought")}))
 	add(provider.ReasoningContent(provider.Reasoning{Signature: "SIG_2"}))
 
 	if err := acc.Complete(); err != nil {
@@ -400,8 +400,8 @@ func TestStreamingAccumulatorSummaryReasoning(t *testing.T) {
 		}
 	}
 
-	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "summarized "}))
-	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: "thought"}))
+	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("summarized ")}))
+	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("thought")}))
 	add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Signature: "ENC"}))
 	add(provider.TextContent("hello"))
 

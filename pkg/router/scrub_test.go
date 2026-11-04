@@ -12,7 +12,7 @@ func TestScrubMessages(t *testing.T) {
 			Role:  provider.MessageRoleAssistant,
 			Phase: provider.MessagePhaseCommentary,
 			Content: []provider.Content{
-				provider.ReasoningContent(provider.Reasoning{Text: "thinking", Signature: "SIG"}),
+				provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("thinking"), Signature: "SIG"}),
 				provider.CompactionContent(provider.Compaction{Signature: "SIG"}),
 				provider.TextContent("answer"),
 			},

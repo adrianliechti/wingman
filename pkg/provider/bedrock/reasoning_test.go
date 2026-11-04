@@ -20,7 +20,7 @@ func TestReplaySignedThinkingFromResponsesSummary(t *testing.T) {
 			content, err := convertAssistantContent(provider.Message{
 				Role: provider.MessageRoleAssistant,
 				Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{
-					Text: tc.text, Summary: tc.summary, Signature: "signature",
+					Content: provider.TextParts(tc.text), Summary: provider.TextParts(tc.summary), Signature: "signature",
 				})},
 			})
 			if err != nil {

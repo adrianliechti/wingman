@@ -183,9 +183,9 @@ func progressNotes(t anthropic.BetaThinkingConfigParamUnion) bool {
 // them without the caller asking for reasoning summaries.
 func thinkingReasoning(text, signature string, notes bool) provider.Reasoning {
 	if notes {
-		return provider.Reasoning{Summary: text, Signature: signature}
+		return provider.Reasoning{Summary: provider.TextParts(text), Signature: signature}
 	}
-	return provider.Reasoning{Text: text, Signature: signature}
+	return provider.Reasoning{Content: provider.TextParts(text), Signature: signature}
 }
 
 // thinking is the resolved thinking configuration for one request.

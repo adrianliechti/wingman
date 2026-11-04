@@ -14,7 +14,7 @@ func TestToChatMessageEmitsTypedParts(t *testing.T) {
 		Role: provider.MessageRoleAssistant,
 		Content: []provider.Content{
 			provider.TextContent("Sure, let me check the weather."),
-			provider.ReasoningContent(provider.Reasoning{Text: "User wants Zurich weather"}),
+			provider.ReasoningContent(provider.Reasoning{Content: provider.TextParts("User wants Zurich weather")}),
 			provider.ToolCallContent(provider.ToolCall{ID: "tc_1", Name: "get_weather", Arguments: args}),
 		},
 	})

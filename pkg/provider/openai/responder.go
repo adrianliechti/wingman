@@ -272,18 +272,21 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case responses.ResponseReasoningTextDeltaEvent:
-				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Text: event.Delta}), "") {
+				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Content: []provider.Part{{Index: int(event.ContentIndex), Text: event.Delta}}}), "") {
 					return
 				}
 
 			case responses.ResponseReasoningSummaryTextDeltaEvent:
-				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Summary: event.Delta}), "") {
+				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Summary: []provider.Part{{Index: int(event.SummaryIndex), Text: event.Delta}}}), "") {
+					return
+				}
+			case responses.ResponseReasoningSummaryPartAddedEvent:
+				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Summary: []provider.Part{{Index: int(event.SummaryIndex), Text: event.Part.Text}}}), "") {
 					return
 				}
 
 			case responses.ResponseTextDoneEvent:
 			case responses.ResponseReasoningTextDoneEvent:
-			case responses.ResponseReasoningSummaryPartAddedEvent:
 			case responses.ResponseReasoningSummaryTextDoneEvent:
 			case responses.ResponseReasoningSummaryPartDoneEvent:
 			case responses.ResponseFunctionCallArgumentsDeltaEvent:
@@ -995,16 +998,20 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 					// alone and reject reasoning_text content ("array too long ...
 					// maximum length 0"). Other Responses-compatible servers may
 					// need the text next to their signature to restore reasoning.
-					if c.Reasoning.Text != "" && !r.isOpenAI() {
-						reasoning.Content = append(reasoning.Content, responses.ResponseReasoningItemContentParam{
-							Text: c.Reasoning.Text,
-						})
+					if !r.isOpenAI() {
+						for _, part := range c.Reasoning.Content {
+							if part.Text == "" {
+								continue
+							}
+							reasoning.Content = append(reasoning.Content, responses.ResponseReasoningItemContentParam{Text: part.Text})
+						}
 					}
 
-					if c.Reasoning.Summary != "" {
-						reasoning.Summary = append(reasoning.Summary, responses.ResponseReasoningItemSummaryParam{
-							Text: c.Reasoning.Summary,
-						})
+					for _, part := range c.Reasoning.Summary {
+						if part.Text == "" {
+							continue
+						}
+						reasoning.Summary = append(reasoning.Summary, responses.ResponseReasoningItemSummaryParam{Text: part.Text})
 					}
 
 					if c.Reasoning.Signature != "" {

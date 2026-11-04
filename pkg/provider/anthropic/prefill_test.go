@@ -15,7 +15,7 @@ func TestToolResultsNotFollowedByEmptyAssistant(t *testing.T) {
 	for _, content := range [][]provider.Content{
 		nil,
 		{provider.TextContent(" \n\t")},
-		{provider.ReasoningContent(provider.Reasoning{Summary: "Earlier reasoning from another model"})},
+		{provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("Earlier reasoning from another model")})},
 	} {
 		c, err := NewCompleter("https://bedrock-mantle.eu-north-1.api.aws/anthropic", "anthropic.claude-sonnet-5-5", WithToken("test"))
 		if err != nil {
@@ -88,7 +88,7 @@ func TestContinuationReplayAcrossMultipleRequests(t *testing.T) {
 			provider.AssistantMessage("second response"),
 			{Role: provider.MessageRoleAssistant, Content: []provider.Content{
 				provider.TextContent("third response"),
-				provider.ReasoningContent(provider.Reasoning{Signature: signature, Text: "thought", Redacted: redacted}),
+				provider.ReasoningContent(provider.Reasoning{Signature: signature, Content: provider.TextParts("thought"), Redacted: redacted}),
 				provider.TextContent("fourth response"),
 			}},
 			provider.UserMessage("follow up"),

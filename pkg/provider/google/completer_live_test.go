@@ -253,7 +253,7 @@ func liveComplete(t *testing.T, completer *Completer, messages []provider.Messag
 			if r.Signature != "" {
 				signatures++
 			}
-			if r.Summary != "" {
+			if r.SummaryText() != "" {
 				summaries++
 			}
 		}

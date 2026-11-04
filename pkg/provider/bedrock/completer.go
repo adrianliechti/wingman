@@ -83,7 +83,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		}
 
 		_, thinking := c.converseAdditionalFields(options)
-		notes := c.progressNotes(thinking)
+		notes := c.progressNotes(thinking) || thinking.Summarized
 
 		params := &bedrockruntime.ConverseStreamInput{
 			ModelId: req.ModelId,
@@ -872,6 +872,14 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 	}
 
 	fields, _ := c.converseAdditionalFields(options)
+	if len(options.Tools) > 0 && config != nil && options.ToolOptions != nil && options.ToolOptions.DisableParallelToolCalls && !none && isClaudeModel(c.model) {
+		if config.ToolChoice == nil {
+			config.ToolChoice = &types.ToolChoiceMemberAuto{}
+		}
+		// Converse supplies the type/name from ToolConfig. Repeating those
+		// fields here conflicts with it; only forward Claude's extra control.
+		fields["tool_choice"] = map[string]any{"disable_parallel_tool_use": true}
+	}
 
 	if len(fields) > 0 {
 		req.AdditionalModelRequestFields = newDocument(fields)
@@ -1127,9 +1135,9 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 			} else {
 				// The Responses API presents signed thinking text as a summary.
 				// Restore it exactly, as the native Anthropic adapter does.
-				text := c.Reasoning.Text
+				text := c.Reasoning.Text()
 				if text == "" {
-					text = c.Reasoning.Summary
+					text = c.Reasoning.SummaryText()
 				}
 				content = append(content, &types.ContentBlockMemberReasoningContent{
 					Value: &types.ReasoningContentBlockMemberReasoningText{

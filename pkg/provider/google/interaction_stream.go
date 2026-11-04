@@ -14,10 +14,11 @@ import (
 )
 
 type interactionStep struct {
-	call      *interactions.FunctionCallStep
-	arguments strings.Builder
-	media     map[string]string
-	closed    bool
+	call         *interactions.FunctionCallStep
+	arguments    strings.Builder
+	media        map[string]string
+	closed       bool
+	summaryIndex int
 }
 
 type interactionState struct {
@@ -151,14 +152,15 @@ func (s *interactionState) start(index int, step interactions.Step) (*provider.C
 		delta.Message.Content = []provider.Content{provider.ToolCallContent(s.toolCall(call.ID, call.Name, ""))}
 	case step.ThoughtStep != nil:
 		thought := step.ThoughtStep
-		var summary strings.Builder
+		var summary []provider.Part
 		for _, content := range thought.Summary {
 			if content.TextContent != nil {
-				summary.WriteString(content.TextContent.Text)
+				summary = append(summary, provider.Part{Index: len(summary), Text: content.TextContent.Text})
 			}
 		}
+		state.summaryIndex = max(0, len(summary)-1)
 		delta.Message.Content = []provider.Content{provider.ReasoningContent(provider.Reasoning{
-			ID: s.itemID(index), Summary: summary.String(), Signature: value(thought.Signature),
+			ID: s.itemID(index), Summary: summary, Signature: value(thought.Signature),
 		})}
 	case step.ModelOutputStep != nil:
 		for _, content := range step.ModelOutputStep.Content {
@@ -217,7 +219,7 @@ func (s *interactionState) delta(event *interactions.StepDelta) (*provider.Compl
 	case data.ThoughtSummaryDelta != nil:
 		content := data.ThoughtSummaryDelta.Content
 		if content != nil && content.TextContent != nil {
-			part.Reasoning = &provider.Reasoning{ID: s.itemID(event.Index), Summary: content.TextContent.Text}
+			part.Reasoning = &provider.Reasoning{ID: s.itemID(event.Index), Summary: []provider.Part{{Index: step.summaryIndex, Text: content.TextContent.Text}}}
 		}
 	case data.ThoughtSignatureDelta != nil:
 		part.Reasoning = &provider.Reasoning{ID: s.itemID(event.Index), Signature: value(data.ThoughtSignatureDelta.Signature)}

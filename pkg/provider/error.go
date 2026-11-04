@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// ErrRejected marks a request Wingman refuses before any upstream call, such
+// as an exhausted budget. Routers surface it as is: failing over cannot help,
+// and it says nothing about upstream health.
+var ErrRejected = errors.New("request rejected")
+
 // ProviderError wraps an upstream API error with HTTP status code, a
 // provider-specific error type, and rate-limit metadata.
 type ProviderError struct {

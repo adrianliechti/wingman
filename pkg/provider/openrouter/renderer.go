@@ -37,9 +37,17 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		options = new(provider.RenderOptions)
 	}
 
+	// The images endpoint has no mask or markup field, so both guides
+	// become input references with an instruction.
+	prompt, images, err := provider.EmulateEditGuides(input, options.Images, options.Mask, options.Markup)
+
+	if err != nil {
+		return nil, err
+	}
+
 	body := map[string]any{
 		"model":  r.model,
-		"prompt": input,
+		"prompt": prompt,
 	}
 
 	if options.Aspect != "" {
@@ -62,10 +70,10 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		body["output_format"] = string(options.Format)
 	}
 
-	if len(options.Images) > 0 {
-		references := make([]map[string]any, 0, len(options.Images))
+	if len(images) > 0 {
+		references := make([]map[string]any, 0, len(images))
 
-		for _, img := range options.Images {
+		for _, img := range images {
 			contentType := img.ContentType
 
 			if contentType == "" {

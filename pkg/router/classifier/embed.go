@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/budget"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -100,7 +101,7 @@ func (cc *centroidCache) build(ctx context.Context) ([][]float32, bool) {
 		return vectors, true
 	}
 
-	result, err := cc.embedder.Embed(ctx, texts, nil)
+	result, err := cc.embedder.Embed(budget.SystemContext(ctx), texts, nil)
 
 	if err != nil || result == nil || len(result.Embeddings) != len(texts) {
 		return nil, false

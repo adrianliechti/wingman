@@ -342,12 +342,16 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		if content.Reasoning != nil && !content.Reasoning.Redacted && (content.Reasoning.Text != "" || content.Reasoning.Summary != "" || content.Reasoning.Signature != "") {
+		var reasoningText, reasoningSummary string
+		if content.Reasoning != nil {
+			reasoningText, reasoningSummary = content.Reasoning.Text(), content.Reasoning.SummaryText()
+		}
+		if content.Reasoning != nil && !content.Reasoning.Redacted && (reasoningText != "" || reasoningSummary != "" || content.Reasoning.Signature != "") {
 			reasoning := content.Reasoning
 			// Gemini can deliver an opaque signature after the answer text.
 			// Keep that text open until the signature block is complete so
 			// block-oriented clients finish on the answer, not empty thinking.
-			lateSignature := s.thinkingIndex < 0 && s.textIndex >= 0 && reasoning.Text == "" && reasoning.Summary == "" && reasoning.Signature != ""
+			lateSignature := s.thinkingIndex < 0 && s.textIndex >= 0 && reasoningText == "" && reasoningSummary == "" && reasoning.Signature != ""
 			preserveText := -1
 			if lateSignature {
 				preserveText = s.textIndex
@@ -383,9 +387,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 
 			// OpenAI-backed reasoning arrives as Summary deltas with empty Text
-			if thinking := reasoning.Text; thinking != "" || reasoning.Summary != "" {
+			if thinking := reasoningText; thinking != "" || reasoningSummary != "" {
 				if thinking == "" {
-					thinking = reasoning.Summary
+					thinking = reasoningSummary
 				}
 
 				if err := s.emitEvent(StreamEvent{

@@ -105,10 +105,14 @@ type ToolResult struct {
 	Parts []Part
 }
 
-// Part is a leaf piece of content that can appear inside a tool result.
+// Part is leaf content inside a tool result, reasoning content, or a summary.
 // Either Text or File is set; File covers image / audio / pdf / other
 // media via its ContentType.
 type Part struct {
+	// Index identifies a streamed part within its containing array. Deltas at
+	// the same index extend that part; accumulated arrays retain part order.
+	Index int
+
 	Text string
 	File *File
 }
@@ -148,6 +152,21 @@ type Usage struct {
 type CacheWriteTokensDetails struct {
 	StandardTokens int
 	ExtendedTokens int
+}
+
+// Merge combines cumulative usage snapshots, preserving optional breakdowns
+// when later chunks update only totals or another field.
+func (u *Usage) Merge(src *Usage) {
+	if src == nil {
+		return
+	}
+	u.InputTokens = max(u.InputTokens, src.InputTokens)
+	u.OutputTokens = max(u.OutputTokens, src.OutputTokens)
+	u.CacheReadInputTokens = max(u.CacheReadInputTokens, src.CacheReadInputTokens)
+	if n := src.ReasoningTokens; n != nil && (u.ReasoningTokens == nil || *n > *u.ReasoningTokens) {
+		u.ReasoningTokens = new(*n)
+	}
+	u.MergeCacheWrites(src.CacheCreationInputTokens, src.CacheWriteTokensDetails)
 }
 
 func (u *Usage) MergeCacheWrites(total int, details *CacheWriteTokensDetails) {

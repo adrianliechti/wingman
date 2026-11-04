@@ -24,6 +24,31 @@ import (
 // the protocol contract every native provider (OpenAI, Gemini Live, Nova Sonic)
 // must satisfy after translation.
 
+func TestSessionUsageDoesNotCreateResponse(t *testing.T) {
+	upstream := newFakeRealtime()
+	conn := openTestRealtime(t, upstream)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+	writeWireEvent(t, conn, map[string]any{"type": "response.create"})
+	waitSignal(t, upstream.session.responded, "response.create")
+
+	for _, id := range []string{"resp_first", "resp_after_tool"} {
+		upstream.session.emit(provider.RealtimeEvent{Type: provider.RealtimeEventUsage, Usage: &provider.RealtimeUsage{InputTokens: 12, OutputTokens: 3}})
+		emitAudioResponse(upstream.session, id, "item_"+id, "content_"+id, "Hello.")
+		trace := readThrough(t, conn, "response.done")
+		if countEvents(trace, "response.created") != 1 {
+			t.Fatal("session usage created an extra response")
+		}
+		response := findEvent(t, trace, "response.done")["response"].(map[string]any)
+		if response["id"] != id || response["status"] != "completed" {
+			t.Fatalf("response = %#v", response)
+		}
+		if total := response["usage"].(map[string]any)["total_tokens"]; total != float64(5) {
+			t.Fatalf("response usage = %v, want 5 (excluding session usage)", total)
+		}
+	}
+}
+
 func TestWingmanChatRealtimeNormalAndMixedInputContract(t *testing.T) {
 	upstream := newFakeRealtime()
 	conn := openTestRealtime(t, upstream)
@@ -330,6 +355,33 @@ func TestRealtimeProviderDiagnosticErrorIsNotExposed(t *testing.T) {
 	}
 	if strings.Contains(message, "RequestId") || strings.Contains(message, "ValidationException") {
 		t.Errorf("error.message leaks upstream diagnostics: %q", message)
+	}
+}
+
+type rejectingRealtime struct{ *fakeRealtime }
+
+func (rejectingRealtime) Connect(context.Context, *provider.RealtimeOptions) (provider.RealtimeSession, error) {
+	return nil, &provider.ProviderError{Code: 429, Type: "insufficient_quota", Message: "monthly budget exhausted", Err: provider.ErrRejected}
+}
+
+func TestRealtimeRejectedConnectionEndsSession(t *testing.T) {
+	conn := openTestRealtime(t, rejectingRealtime{newFakeRealtime()})
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+
+	writeWireEvent(t, conn, map[string]any{"type": "response.create", "event_id": "evt_1"})
+
+	event := readWireEvent(t, conn)
+	assertEventType(t, event, "error")
+	apiError := event["error"].(map[string]any)
+	if apiError["type"] != "insufficient_quota" || apiError["code"] != "insufficient_quota" || apiError["message"] != "monthly budget exhausted" || apiError["event_id"] != "evt_1" {
+		t.Fatalf("error = %v", apiError)
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := conn.ReadMessage(); err == nil || strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("session stayed open after a rejected connection: %v", err)
 	}
 }
 

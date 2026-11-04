@@ -34,7 +34,7 @@ func TestComplete_InteractionRequest(t *testing.T) {
 		provider.SystemMessage("You are helpful."), provider.SystemMessage("Be brief."),
 		provider.UserMessage("question"),
 		{Role: provider.MessageRoleAssistant, Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Summary: "thinking", Signature: "Ev8BAA=="}),
+			provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("thinking"), Signature: "Ev8BAA=="}),
 			provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "lookup", Namespace: "weather", Arguments: `{"city":"Zurich"}`}),
 		}},
 		{Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(provider.ToolResult{
@@ -130,7 +130,7 @@ func TestConvertInteraction_ThinkingAndToolChoice(t *testing.T) {
 
 func TestConvertMessages_PreservesInterleavingAndLegacyIDs(t *testing.T) {
 	messages := []provider.Message{{Role: provider.MessageRoleAssistant, Content: []provider.Content{
-		provider.TextContent("first "), provider.ReasoningContent(provider.Reasoning{Summary: "think", Signature: "opaque_signature"}),
+		provider.TextContent("first "), provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("think"), Signature: "opaque_signature"}),
 		provider.ToolCallContent(provider.ToolCall{ID: "c1::lookup::Ev8BAA==", Name: "lookup", Arguments: `{}`}), provider.TextContent(" last"),
 	}}, provider.ToolMessage("c1::lookup::Ev8BAA==", "ok")}
 	steps, err := convertMessages(messages)
@@ -170,7 +170,7 @@ func TestConvertMessages_UnsignedToolTurns(t *testing.T) {
 		}},
 		provider.ToolMessage("c1", "ok"), provider.ToolMessage("c2", "ok"),
 		{Role: provider.MessageRoleAssistant, Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Summary: "foreign reasoning"}),
+			provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("foreign reasoning")}),
 			provider.ToolCallContent(provider.ToolCall{ID: "c3", Name: "lookup", Arguments: `{}`}),
 		}},
 	})
@@ -191,7 +191,7 @@ func TestConvertMessages_ThoughtPrecedesUnsignedText(t *testing.T) {
 		provider.UserMessage("inspect"),
 		provider.AssistantMessage("Checking history."),
 		{Role: provider.MessageRoleAssistant, Content: []provider.Content{
-			provider.ReasoningContent(provider.Reasoning{Summary: "Run the history command."}),
+			provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("Run the history command.")}),
 			provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "lookup", Arguments: `{}`}),
 		}},
 		provider.ToolMessage("c1", "ok"),
@@ -246,5 +246,16 @@ func TestInteractionState_StatusUpdateCarriesUsage(t *testing.T) {
 	}
 	if delta.Usage == nil || delta.Usage.InputTokens != 12 || delta.Usage.OutputTokens != 8 || delta.Usage.ReasoningTokens == nil || *delta.Usage.ReasoningTokens != 3 || delta.Usage.CacheReadInputTokens != 4 {
 		t.Fatalf("status_update usage lost: %+v", delta.Usage)
+	}
+}
+
+func TestConvertInteraction_DisableParallelTools(t *testing.T) {
+	for _, choice := range []provider.ToolChoice{"", provider.ToolChoiceAuto, provider.ToolChoiceAny, provider.ToolChoiceNone} {
+		for _, tools := range [][]provider.Tool{nil, {{Kind: provider.ToolKindFunction, Name: "lookup"}}} {
+			_, err := convertInteraction("gemini-test", nil, &provider.CompleteOptions{Tools: tools, ToolOptions: &provider.ToolOptions{Choice: choice, DisableParallelToolCalls: true}})
+			if err != nil {
+				t.Errorf("choice=%q tools=%d: error=%v", choice, len(tools), err)
+			}
+		}
 	}
 }

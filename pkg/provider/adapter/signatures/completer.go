@@ -127,7 +127,7 @@ func resolveContents(contents []provider.Content, realm string) []provider.Conte
 			} else {
 				reasoning.Signature = ""
 
-				if reasoning.Text == "" && reasoning.Summary == "" {
+				if reasoning.Text() == "" && reasoning.SummaryText() == "" {
 					continue
 				}
 			}

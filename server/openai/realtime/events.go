@@ -82,7 +82,7 @@ func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error 
 		return s.finishContent(event)
 
 	case provider.RealtimeEventUsage:
-		if event.Usage != nil {
+		if event.Usage != nil && event.ResponseID != "" {
 			if err := s.ensureResponse(event.ResponseID); err != nil {
 				return err
 			}

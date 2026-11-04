@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package budget.v1;
+
+option go_package = "github.com/adrianliechti/wingman/pkg/budget/custom;custom";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+service Budget {
+  // Admission check for a new request. Does not reserve budget.
+  rpc Check(CheckRequest) returns (CheckResponse);
+  // One final snapshot per upstream model call. Acknowledge after durable
+  // acceptance and deduplicate operation_id atomically with accounting.
+  rpc Report(ReportRequest) returns (google.protobuf.Empty);
+}
+
+message CheckRequest {
+  string user_id = 1;
+}
+
+message CheckResponse {
+  bool allowed = 1;
+  string message = 2; // Optional user-facing reason when denied.
+  google.protobuf.Timestamp resets_at = 3; // Optional next budget reset.
+}
+
+message ReportRequest {
+  string operation_id = 1; // Unique per model call; unchanged on report retries.
+  string user_id = 2;
+  string provider = 3;
+  string model = 4; // Upstream model, not the Wingman alias.
+  string service_tier = 5; // Effective tier, empty when unknown.
+  google.protobuf.Timestamp completed_at = 6;
+  Usage usage = 7; // Absent when unknown, including interrupted calls.
+}
+
+message Usage {
+  int64 input_tokens = 1; // Includes cache reads and writes.
+  int64 output_tokens = 2; // Includes reasoning.
+  int64 cache_read_input_tokens = 3; // Subset of input_tokens.
+  int64 cache_creation_input_tokens = 4; // Subset of input_tokens.
+  optional int64 reasoning_tokens = 5; // Subset of output_tokens.
+  CacheWriteTokensDetails cache_write_tokens_details = 6;
+}
+
+message CacheWriteTokensDetails {
+  int64 standard_tokens = 1; // Five-minute cache writes.
+  int64 extended_tokens = 2; // One-hour cache writes.
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/budget"
 	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/reranker"
@@ -93,8 +94,11 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				if err != nil {
 					return err
 				}
+				if cfg.Budget != nil {
+					decider = budget.NewDecider(p.Type, m.ID, decider, cfg.Budget)
+				}
 				if _, ok := decider.(otel.Decider); !ok {
-					decider = otel.NewDecider(p.Type, id, decider)
+					decider = otel.NewDecider(p.Type, m.ID, decider)
 				}
 				cfg.RegisterDecider(id, decider)
 
@@ -105,6 +109,10 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					return err
 				}
 
+				if cfg.Budget != nil {
+					completer = budget.NewCompleter(p.Type, m.ID, completer, cfg.Budget)
+				}
+
 				if p.ReasoningSignatures != nil && !*p.ReasoningSignatures {
 					completer = signatures.FromCompleter(completer)
 				} else {
@@ -113,7 +121,7 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				}
 
 				if _, ok := completer.(otel.Completer); !ok {
-					completer = otel.NewCompleter(p.Type, id, completer)
+					completer = otel.NewCompleter(p.Type, m.ID, completer)
 				}
 
 				cfg.RegisterCompleter(id, completer)
@@ -126,8 +134,12 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					return err
 				}
 
+				if cfg.Budget != nil {
+					embedder = budget.NewEmbedder(p.Type, m.ID, embedder, cfg.Budget)
+				}
+
 				if _, ok := embedder.(otel.Embedder); !ok {
-					embedder = otel.NewEmbedder(p.Type, id, embedder)
+					embedder = otel.NewEmbedder(p.Type, m.ID, embedder)
 				}
 
 				cfg.RegisterEmbedder(id, embedder)
@@ -140,8 +152,11 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					return err
 				}
 
+				if cfg.Budget != nil {
+					reranker = budget.NewReranker(p.Type, m.ID, reranker, cfg.Budget)
+				}
 				if _, ok := reranker.(otel.Reranker); !ok {
-					reranker = otel.NewReranker(p.Type, id, reranker)
+					reranker = otel.NewReranker(p.Type, m.ID, reranker)
 				}
 
 				cfg.RegisterReranker(id, reranker)
@@ -157,6 +172,9 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					return err
 				}
 
+				if cfg.Budget != nil {
+					realtime = budget.NewRealtime(p.Type, m.ID, realtime, cfg.Budget)
+				}
 				cfg.RegisterRealtime(id, realtime)
 
 			case ModelTypeRenderer:
@@ -166,8 +184,11 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					return err
 				}
 
+				if cfg.Budget != nil {
+					renderer = budget.NewRenderer(p.Type, m.ID, renderer, cfg.Budget)
+				}
 				if _, ok := renderer.(otel.Renderer); !ok {
-					renderer = otel.NewRenderer(p.Type, id, renderer)
+					renderer = otel.NewRenderer(p.Type, m.ID, renderer)
 				}
 
 				cfg.RegisterRenderer(id, renderer)
@@ -179,8 +200,11 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					return err
 				}
 
+				if cfg.Budget != nil {
+					synthesizer = budget.NewSynthesizer(p.Type, m.ID, synthesizer, cfg.Budget)
+				}
 				if _, ok := synthesizer.(otel.Synthesizer); !ok {
-					synthesizer = otel.NewSynthesizer(p.Type, id, synthesizer)
+					synthesizer = otel.NewSynthesizer(p.Type, m.ID, synthesizer)
 				}
 
 				cfg.RegisterSynthesizer(id, synthesizer)
@@ -192,8 +216,11 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					return err
 				}
 
+				if cfg.Budget != nil {
+					transcriber = budget.NewTranscriber(p.Type, m.ID, transcriber, cfg.Budget)
+				}
 				if _, ok := transcriber.(otel.Transcriber); !ok {
-					transcriber = otel.NewTranscriber(p.Type, id, transcriber)
+					transcriber = otel.NewTranscriber(p.Type, m.ID, transcriber)
 				}
 
 				cfg.RegisterTranscriber(id, transcriber)

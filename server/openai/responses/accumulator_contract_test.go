@@ -49,15 +49,15 @@ func TestAccumulatorResponsesContract(t *testing.T) {
 		types  []string
 	}{
 		{"fragmented plain text", []provider.Completion{content(provider.TextContent("Hel")), content(provider.TextContent("lo")), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"message"}},
-		{"reasoning and tool in one chunk", []provider.Completion{content(provider.ReasoningContent(provider.Reasoning{Summary: "Check.", Signature: "opaque"}), call), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"reasoning", "function_call"}},
-		{"tool then reasoning then text", []provider.Completion{content(call), content(provider.ReasoningContent(provider.Reasoning{Summary: "Checked.", Signature: "opaque"})), content(provider.TextContent("Done.")), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"function_call", "reasoning", "message"}},
-		{"reasoning only cutoff", []provider.Completion{content(provider.ReasoningContent(provider.Reasoning{Summary: "Still checking."})), {Status: provider.CompletionStatusIncomplete}}, nil, "incomplete", []string{"reasoning"}},
+		{"reasoning and tool in one chunk", []provider.Completion{content(provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("Check."), Signature: "opaque"}), call), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"reasoning", "function_call"}},
+		{"tool then reasoning then text", []provider.Completion{content(call), content(provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("Checked."), Signature: "opaque"})), content(provider.TextContent("Done.")), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"function_call", "reasoning", "message"}},
+		{"reasoning only cutoff", []provider.Completion{content(provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("Still checking.")})), {Status: provider.CompletionStatusIncomplete}}, nil, "incomplete", []string{"reasoning"}},
 		{"explicit empty final text", []provider.Completion{content(provider.Content{MessageID: "msg_empty", Phase: provider.MessagePhaseFinalAnswer, TextPresent: true}), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"message"}},
 		{"cutoff without output", []provider.Completion{{Status: provider.CompletionStatusIncomplete}}, nil, "incomplete", nil},
 		{"tool only after empty deltas", []provider.Completion{content(provider.TextContent("")), content(call), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"function_call"}},
 		{"signature only reasoning", []provider.Completion{content(provider.ReasoningContent(provider.Reasoning{Signature: "opaque"})), {Status: provider.CompletionStatusCompleted}}, nil, "completed", []string{"reasoning"}},
 		{"unlabelled reasoning tool and text", []provider.Completion{
-			content(provider.ReasoningContent(provider.Reasoning{Summary: "Check the result.", Signature: "opaque"})),
+			content(provider.ReasoningContent(provider.Reasoning{Summary: provider.TextParts("Check the result."), Signature: "opaque"})),
 			content(call), content(provider.TextContent("Done.")), {Status: provider.CompletionStatusCompleted},
 		}, nil, "completed", []string{"reasoning", "function_call", "message"}},
 		{"native message boundaries", []provider.Completion{
@@ -70,7 +70,7 @@ func TestAccumulatorResponsesContract(t *testing.T) {
 			content(provider.Content{MessageID: "msg_update", Text: "Checking."}), content(call),
 			content(provider.Content{MessageID: "msg_partial", Text: "Partial result"}),
 			{Status: provider.CompletionStatusFailed, StopDetails: &provider.StopDetails{Type: "provider_failure"}},
-		}, nil, "failed", []string{"message", "function_call", "message"}},
+		}, nil, "failed", []string{"message", "function_call"}},
 		{"transport failed during arguments", []provider.Completion{
 			content(provider.Content{MessageID: "msg_update", Text: "Checking."}),
 			content(provider.ToolCallContent(provider.ToolCall{ID: "call_check", Name: "check", Arguments: `{"path":`})),
