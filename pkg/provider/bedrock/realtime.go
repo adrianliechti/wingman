@@ -3,7 +3,8 @@ package bedrock
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -572,7 +573,7 @@ func (s *realtimeSession) SendToolResult(ctx context.Context, id, output string)
 		return errors.New("bedrock realtime: tool use id is required")
 	}
 
-	if !json.Valid([]byte(output)) {
+	if !jsontext.Value(output).IsValid() {
 		data, err := json.Marshal(map[string]string{"result": output})
 		if err != nil {
 			return err

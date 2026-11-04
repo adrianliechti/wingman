@@ -1,7 +1,8 @@
 package server_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,15 +26,15 @@ func TestNativeDecisionsRoutes(t *testing.T) {
 			t.Errorf("unexpected upstream request: %s %s", r.Method, r.URL.Path)
 		}
 		var body struct {
-			Model     string
-			State     json.RawMessage
+			Model     string         `json:"model"`
+			State     jsontext.Value `json:"state"`
 			Questions map[string]struct {
-				Type         string
-				Instructions json.RawMessage
-				Criteria     json.RawMessage
-			}
+				Type         string         `json:"type"`
+				Instructions jsontext.Value `json:"instructions"`
+				Criteria     jsontext.Value `json:"criteria"`
+			} `json:"questions"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
 		if body.Model != wantModel || string(body.State) != wantState || len(body.Questions) != 3 ||
@@ -112,10 +113,10 @@ providers:
 					t.Fatalf("status %d: %s", w.Code, w.Body.String())
 				}
 				var result struct {
-					ID      string
-					Model   string
-					Answers map[string]map[string]json.RawMessage
-					Usage   map[string]int
+					ID      string                               `json:"id"`
+					Model   string                               `json:"model"`
+					Answers map[string]map[string]jsontext.Value `json:"answers"`
+					Usage   map[string]int                       `json:"usage"`
 				}
 				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 					t.Fatal(err)

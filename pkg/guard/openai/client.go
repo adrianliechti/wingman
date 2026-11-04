@@ -1,9 +1,10 @@
 package openai
 
 import (
+	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -59,7 +60,14 @@ func (c *Client) Check(ctx context.Context, text string, options *guard.CheckOpt
 	}
 
 	u, _ := url.JoinPath(c.url, "/moderations")
-	r, _ := http.NewRequestWithContext(ctx, "POST", u, jsonReader(body))
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	r, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
 	r.Header.Add("Authorization", "Bearer "+c.token)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -86,7 +94,7 @@ func (c *Client) Check(ctx context.Context, text string, options *guard.CheckOpt
 
 	var result resultType
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &result); err != nil {
 		return nil, err
 	}
 

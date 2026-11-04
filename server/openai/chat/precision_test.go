@@ -1,7 +1,7 @@
 package chat
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -22,7 +22,7 @@ func TestRequestSchemaNumbers(t *testing.T) {
 		t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
 	}
 	for _, value := range []any{c.options.Tools[0].Parameters, c.options.Schema.Properties} {
-		data, err := json.Marshal(value)
+		data, err := json.Marshal(value, json.Deterministic(true))
 		if err != nil || string(data) != schema {
 			t.Fatalf("schema changed: %s (%v)", data, err)
 		}

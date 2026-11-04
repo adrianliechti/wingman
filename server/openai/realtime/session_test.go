@@ -3,7 +3,8 @@ package realtime
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http/httptest"
 	"slices"
@@ -541,7 +542,7 @@ func TestRealtimeAudioFormatParsing(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := parseAudioFormat(json.RawMessage(test.raw), current)
+			got, err := parseAudioFormat(jsontext.Value(test.raw), current)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -554,7 +555,7 @@ func TestRealtimeAudioFormatParsing(t *testing.T) {
 		})
 	}
 
-	invalid, err := parseAudioFormat(json.RawMessage(`{"type":"audio/pcm","rate":16000}`), current)
+	invalid, err := parseAudioFormat(jsontext.Value(`{"type":"audio/pcm","rate":16000}`), current)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +577,7 @@ func TestRealtimeToolChoiceParsing(t *testing.T) {
 		{`{"type":"function","name":"weather"}`, "", true},
 	}
 	for _, test := range tests {
-		got, err := parseToolChoice(json.RawMessage(test.raw))
+		got, err := parseToolChoice(jsontext.Value(test.raw))
 		if (err != nil) != test.wantErr {
 			t.Errorf("parseToolChoice(%s) error = %v, wantErr %v", test.raw, err, test.wantErr)
 		}
@@ -587,22 +588,22 @@ func TestRealtimeToolChoiceParsing(t *testing.T) {
 }
 
 func TestRealtimeTruncationAndMetadataParsing(t *testing.T) {
-	truncation, err := parseTruncation(json.RawMessage(`"auto"`))
+	truncation, err := parseTruncation(jsontext.Value(`"auto"`))
 	if err != nil || truncation != nil {
 		t.Fatalf("auto truncation = %#v, %v; want nil, nil", truncation, err)
 	}
-	if _, err := parseTruncation(json.RawMessage(`{"type":"retention_ratio","retention_ratio":1.1}`)); err == nil {
+	if _, err := parseTruncation(jsontext.Value(`{"type":"retention_ratio","retention_ratio":1.1}`)); err == nil {
 		t.Fatal("out-of-range retention ratio was accepted")
 	}
 
-	metadata, err := parseMetadata(json.RawMessage(`{"request":"weather"}`))
+	metadata, err := parseMetadata(jsontext.Value(`{"request":"weather"}`))
 	if err != nil || metadata["request"] != "weather" {
 		t.Fatalf("metadata = %#v, %v", metadata, err)
 	}
-	if _, err := parseMetadata(json.RawMessage(`{"request":42}`)); err == nil {
+	if _, err := parseMetadata(jsontext.Value(`{"request":42}`)); err == nil {
 		t.Fatal("non-string metadata value was accepted")
 	}
-	if _, err := parseMetadata(json.RawMessage(`{"request":"` + strings.Repeat("x", 513) + `"}`)); err == nil {
+	if _, err := parseMetadata(jsontext.Value(`{"request":"` + strings.Repeat("x", 513) + `"}`)); err == nil {
 		t.Fatal("oversized metadata value was accepted")
 	}
 }
@@ -617,7 +618,7 @@ func TestRealtimeSessionRejectsIgnoredFields(t *testing.T) {
 		`{"type":"realtime","audio":{"input":{"transcription":{"model":"gpt-live-transcribe","keywords":["Wingman"]}}}}`,
 	} {
 		config := newSessionConfig(newFakeRealtime().Defaults())
-		if err := config.apply(json.RawMessage(raw)); err == nil || !strings.Contains(err.Error(), "not supported") {
+		if err := config.apply(jsontext.Value(raw)); err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("session %s error = %v, want explicit unsupported-field error", raw, err)
 		}
 	}
@@ -1057,6 +1058,6 @@ func assertCompletedResponse(t *testing.T, event map[string]any, outputCount int
 }
 
 func formatTrace(events []map[string]any) string {
-	data, _ := json.MarshalIndent(events, "", "  ")
+	data, _ := json.Marshal(events, jsontext.WithIndent("  "), json.Deterministic(true))
 	return string(data)
 }

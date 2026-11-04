@@ -1,7 +1,7 @@
 package api
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
@@ -27,7 +27,7 @@ type GuardCategory struct {
 func (h *Handler) handleGuard(w http.ResponseWriter, r *http.Request) {
 	var req GuardRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

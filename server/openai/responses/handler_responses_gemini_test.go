@@ -2,7 +2,8 @@ package responses
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 	"google.golang.org/genai/interactions/models/interactions"
@@ -32,7 +34,7 @@ func TestResponsesGeminiSignedReplay(t *testing.T) {
 			client := &http.Client{Transport: boundaryTransport(func(r *http.Request) (*http.Response, error) {
 				number := requests.Add(1)
 				var request interactions.CreateModelInteraction
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				if err := json.UnmarshalRead(r.Body, &request); err != nil {
 					t.Fatal(err)
 				}
 				if r.URL.Path != "/v1beta/interactions" || request.Model != "gemini-4-argon" || request.Store == nil || *request.Store {
@@ -96,7 +98,7 @@ func TestResponsesGeminiTextBeforeThoughtSummary(t *testing.T) {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			client := &http.Client{Transport: boundaryTransport(func(r *http.Request) (*http.Response, error) {
 				var request interactions.CreateModelInteraction
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				if err := json.UnmarshalRead(r.Body, &request); err != nil {
 					t.Fatal(err)
 				}
 				steps := request.Input.ArrayOfStep
@@ -204,7 +206,7 @@ func postGeminiResponses(t *testing.T, url, model string, input, tools []map[str
 		t.Fatalf("Responses HTTP %d: %s", response.StatusCode, data)
 	}
 	if stream {
-		var completed json.RawMessage
+		var completed jsontext.Value
 		var doneItems []map[string]any
 		var added []string
 		for _, line := range strings.Split(string(data), "\n") {
@@ -213,10 +215,10 @@ func postGeminiResponses(t *testing.T, url, model string, input, tools []map[str
 				continue
 			}
 			var event struct {
-				Type     string          `json:"type"`
-				Response json.RawMessage `json:"response"`
-				Index    int             `json:"output_index"`
-				Item     map[string]any  `json:"item"`
+				Type     string         `json:"type"`
+				Response jsontext.Value `json:"response"`
+				Index    int            `json:"output_index"`
+				Item     map[string]any `json:"item"`
 			}
 			if err := json.Unmarshal([]byte(payload), &event); err != nil {
 				t.Fatal(err)

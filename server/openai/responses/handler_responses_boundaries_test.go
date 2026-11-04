@@ -1,7 +1,8 @@
 package responses
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,9 +53,11 @@ func TestResponsesMessageBoundaries(t *testing.T) {
 					ID     string `json:"id"`
 					Status string `json:"status"`
 					Output []struct {
-						ID      string                  `json:"id"`
-						Phase   string                  `json:"phase"`
-						Content []struct{ Text string } `json:"content"`
+						ID      string `json:"id"`
+						Phase   string `json:"phase"`
+						Content []struct {
+							Text string `json:"text"`
+						} `json:"content"`
 					} `json:"output"`
 				}
 				added, done := map[string]string{}, map[string]string{}
@@ -67,16 +70,21 @@ func TestResponsesMessageBoundaries(t *testing.T) {
 							continue
 						}
 						var event struct {
-							Type     string                     `json:"type"`
-							Response json.RawMessage            `json:"response"`
-							Item     struct{ ID, Phase string } `json:"item"`
+							Type     string         `json:"type"`
+							Response jsontext.Value `json:"response"`
+							Item     struct {
+								ID    string `json:"id"`
+								Phase string `json:"phase"`
+							} `json:"item"`
 						}
 						if err := json.Unmarshal([]byte(line[6:]), &event); err != nil {
 							t.Fatal(err)
 						}
 						switch event.Type {
 						case "response.created", "response.in_progress":
-							var response struct{ ID string }
+							var response struct {
+								ID string `json:"id"`
+							}
 							if err := json.Unmarshal(event.Response, &response); err != nil || response.ID == "" || (responseID != "" && response.ID != responseID) {
 								t.Fatalf("response ID missing or changed in %s: %s (%v)", event.Type, event.Response, err)
 							}

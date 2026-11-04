@@ -2,7 +2,7 @@ package anthropic
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"

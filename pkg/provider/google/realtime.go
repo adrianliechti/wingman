@@ -4,7 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -513,7 +514,7 @@ func (s *geminiRealtimeSession) SendToolResult(ctx context.Context, id, output s
 		return errors.New("gemini live: unknown tool call id")
 	}
 	var result any = output
-	if raw := json.RawMessage(output); json.Valid(raw) {
+	if raw := jsontext.Value(output); raw.IsValid() {
 		result = raw
 	}
 	if err := s.send(ctx, map[string]any{"toolResponse": map[string]any{"functionResponses": []map[string]any{{
@@ -650,9 +651,9 @@ type geminiServerMessage struct {
 	} `json:"serverContent"`
 	ToolCall *struct {
 		FunctionCalls []struct {
-			ID   string          `json:"id"`
-			Name string          `json:"name"`
-			Args json.RawMessage `json:"args"`
+			ID   string         `json:"id"`
+			Name string         `json:"name"`
+			Args jsontext.Value `json:"args"`
 		} `json:"functionCalls"`
 	} `json:"toolCall"`
 	ToolCallCancellation *struct {
@@ -791,7 +792,7 @@ func (s *geminiRealtimeSession) translate(message geminiServerMessage) []provide
 		for _, call := range message.ToolCall.FunctionCalls {
 			args := call.Args
 			if len(args) == 0 || string(args) == "null" {
-				args = json.RawMessage("{}")
+				args = jsontext.Value("{}")
 			}
 			arguments, err := json.Marshal(args)
 			if err != nil {

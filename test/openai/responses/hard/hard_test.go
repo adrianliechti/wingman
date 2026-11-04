@@ -7,7 +7,7 @@ package hard_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 	"sync"
@@ -271,7 +271,7 @@ func TestArgumentlessTool(t *testing.T) {
 					t.Fatalf("[%s] no function call streamed", tg.label)
 				}
 				for id, a := range args {
-					if !json.Valid([]byte(a)) {
+					if !jsontext.Value([]byte(a)).IsValid() {
 						t.Errorf("[%s] arguments for %s are not JSON: %q", tg.label, id, a)
 					}
 					if done[id] != a {
@@ -309,7 +309,7 @@ func TestStreamingReassembly(t *testing.T) {
 					t.Fatalf("[%s] no function call streamed", tg.label)
 				}
 				for id, a := range args {
-					if !json.Valid([]byte(a)) || argsDone[id] != a {
+					if !jsontext.Value([]byte(a)).IsValid() || argsDone[id] != a {
 						t.Errorf("[%s] arguments for %s: deltas %q done %q", tg.label, id, a, argsDone[id])
 					}
 				}

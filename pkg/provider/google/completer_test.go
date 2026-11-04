@@ -3,12 +3,13 @@ package google
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"reflect"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"google.golang.org/genai/interactions/models/interactions"
 )
 
@@ -21,7 +22,7 @@ func TestComplete_InteractionRequest(t *testing.T) {
 		if r.Header.Get("x-goog-api-key") != "test-token" {
 			t.Error("missing authentication")
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := json.UnmarshalRead(r.Body, &request); err != nil {
 			t.Error(err)
 		}
 		interactionEvents(createdEvent, completedEvent)(w, r)
@@ -151,7 +152,7 @@ func TestConvertMessages_PreservesNumericArgumentsAndTextResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(steps[1].FunctionCallStep.Arguments)
+	encoded, err := json.Marshal(steps[1].FunctionCallStep.Arguments, json.Deterministic(true))
 	if err != nil || string(encoded) != `{"decimal":0.1234567890123456789,"id":9007199254740993}` {
 		t.Fatalf("tool argument precision lost: %s (%v)", encoded, err)
 	}

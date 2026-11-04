@@ -2,7 +2,7 @@ package google_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -47,7 +47,7 @@ func TestTranslateOAuthText(t *testing.T) {
 					Target   string   `json:"targetLanguageCode"`
 					Source   string   `json:"sourceLanguageCode"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Errorf("decode text request: %v", err)
 				}
 				if body.Parent != "projects/test-project/locations/us-central1" || len(body.Contents) != 1 || body.Contents[0] != "Hello <world> & friends &amp;" || body.Type != "text/plain" || body.Target != tt.language || body.Source != "" {

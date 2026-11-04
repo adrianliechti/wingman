@@ -2,7 +2,7 @@ package anthropic
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +21,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/xai"
 	"github.com/adrianliechti/wingman/server/openai/responses"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/go-chi/chi/v5"
 )
@@ -34,7 +35,7 @@ func featureClient(t *testing.T, wire string, capture func(*http.Request, map[st
 	return &http.Client{Transport: featureTransport(func(r *http.Request) (*http.Response, error) {
 		defer r.Body.Close()
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			return nil, err
 		}
 		capture(r, body)

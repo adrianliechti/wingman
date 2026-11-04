@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"iter"
 	"mime"
 	"path"
@@ -207,7 +208,7 @@ func (t *Transcriber) convertTranscription(id, raw, text string) *provider.Trans
 		} `json:"languages"`
 
 		Segments []struct {
-			ID json.RawMessage `json:"id"`
+			ID jsontext.Value `json:"id"`
 
 			Speaker string `json:"speaker"`
 
@@ -313,7 +314,7 @@ func transcriptionResponseFormat(options *provider.TranscribeOptions) openai.Aud
 	return openai.AudioResponseFormatJSON
 }
 
-func segmentID(raw json.RawMessage, index int) string {
+func segmentID(raw jsontext.Value, index int) string {
 	value := strings.TrimSpace(string(raw))
 
 	if value == "" || value == "null" {

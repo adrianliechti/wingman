@@ -1,14 +1,15 @@
 package typesafe
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 )
 
 // APIError retains TypeSafe's structured detail for callers using errors.As.
 type APIError struct {
-	Detail json.RawMessage
+	Detail jsontext.Value
 }
 
 func (e *APIError) Error() string {
@@ -64,7 +65,7 @@ func (e *APIError) errorType() string {
 		}
 		return object.Code
 	}
-	var issues []json.RawMessage
+	var issues []jsontext.Value
 	if json.Unmarshal(e.Detail, &issues) == nil && len(issues) > 0 {
 		return "validation_error"
 	}

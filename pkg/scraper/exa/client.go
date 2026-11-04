@@ -3,7 +3,7 @@ package exa
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -69,7 +69,7 @@ func (c *Client) Scrape(ctx context.Context, url string, options *scraper.Scrape
 
 	var data ContentsResponse
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &data); err != nil {
 		return nil, err
 	}
 

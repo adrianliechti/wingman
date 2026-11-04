@@ -3,7 +3,7 @@ package anthropic
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 )
@@ -50,7 +51,7 @@ func TestEndpointRouting(t *testing.T) {
 					t.Error("incorrect authentication source")
 				}
 				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				path := tc.wantPath

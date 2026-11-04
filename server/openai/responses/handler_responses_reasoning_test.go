@@ -3,7 +3,8 @@ package responses
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -181,7 +182,7 @@ func TestResponsesPreserveReasoningStatus(t *testing.T) {
 				var result *response
 				added := make(map[string]string)
 				done := make(map[string]string)
-				summaryDone := make(map[string]json.RawMessage)
+				summaryDone := make(map[string]jsontext.Value)
 				if stream {
 					for _, line := range strings.Split(rec.Body.String(), "\n") {
 						data, ok := strings.CutPrefix(line, "data: ")
@@ -189,11 +190,11 @@ func TestResponsesPreserveReasoningStatus(t *testing.T) {
 							continue
 						}
 						var event struct {
-							Type     string          `json:"type"`
-							ItemID   string          `json:"item_id"`
-							Status   json.RawMessage `json:"status"`
-							Item     outputItem      `json:"item"`
-							Response *response       `json:"response"`
+							Type     string         `json:"type"`
+							ItemID   string         `json:"item_id"`
+							Status   jsontext.Value `json:"status"`
+							Item     outputItem     `json:"item"`
+							Response *response      `json:"response"`
 						}
 						if err := json.Unmarshal([]byte(data), &event); err != nil {
 							t.Fatalf("unmarshal event: %v", err)

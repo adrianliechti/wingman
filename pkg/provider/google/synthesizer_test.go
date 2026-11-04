@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -121,8 +121,7 @@ func TestSynthesize_RequestShape(t *testing.T) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.Query()
 		gotKey = r.Header.Get("x-goog-api-key")
-
-		json.NewDecoder(r.Body).Decode(&gotBody)
+		json.UnmarshalRead(r.Body, &gotBody)
 
 		serveSSE(sseAudio("audio/l16; rate=24000; channels=1", []byte{1, 0, 2, 0}))(w, r)
 	})

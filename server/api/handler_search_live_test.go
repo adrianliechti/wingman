@@ -2,7 +2,7 @@ package api_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -49,7 +49,7 @@ func TestLiveNativeSearchText(t *testing.T) {
 						t.Fatalf("HTTP %d", response.StatusCode)
 					}
 					var hits []map[string]any
-					if err := json.NewDecoder(response.Body).Decode(&hits); err != nil {
+					if err := json.UnmarshalRead(response.Body, &hits); err != nil {
 						t.Fatal(err)
 					}
 					if len(hits) != 1 {

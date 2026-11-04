@@ -3,7 +3,8 @@ package codex
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,9 +38,9 @@ type cliEvent struct {
 }
 
 type outcome struct {
-	Answer string
-	Read   bool
-	Edited bool
+	Answer string `json:"answer"`
+	Read   bool   `json:"read"`
+	Edited bool   `json:"edited"`
 }
 
 type codexRunOptions struct {
@@ -145,7 +146,7 @@ exporter = "none"
 // while preserving the actual model name in requests.
 func codexCatalog(t *testing.T, model string) []byte {
 	t.Helper()
-	data, err := json.MarshalIndent(map[string]any{"models": []any{map[string]any{
+	data, err := json.Marshal(map[string]any{"models": []any{map[string]any{
 		"slug": model, "display_name": model, "description": "CLI compatibility test model",
 		"base_instructions":          "You are a coding assistant. Complete the user's task using the provided tools. Use the shell tool to read files and the apply_patch tool to edit files. Invoke apply_patch directly, never through the shell. Respect the sandbox and approval settings. Keep the final answer concise.",
 		"default_reasoning_level":    "low",
@@ -156,7 +157,7 @@ func codexCatalog(t *testing.T, model string) []byte {
 		"truncation_policy": map[string]any{"mode": "tokens", "limit": 10000},
 		"context_window":    128000, "input_modalities": []string{"text", "image"},
 		"experimental_supported_tools": []string{},
-	}}}, "", "  ")
+	}}}, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +228,7 @@ func runCodexWithOptions(t *testing.T, binary string, endpoint harness.Endpoint,
 	exchanges := r.Exchanges()
 	writeArtifact(t, filepath.Join(dir, "stdout.jsonl"), stdout.Bytes())
 	writeArtifact(t, filepath.Join(dir, "stderr.log"), stderr.Bytes())
-	data, err := json.MarshalIndent(exchanges, "", "  ")
+	data, err := json.Marshal(exchanges, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,13 +237,13 @@ func runCodexWithOptions(t *testing.T, binary string, endpoint harness.Endpoint,
 	if runErr != nil {
 		t.Errorf("Codex failed: %v (context: %v)\n%s", runErr, ctx.Err(), stderr.String())
 	}
-	decoder := json.NewDecoder(&stdout)
+	decoder := jsontext.NewDecoder(&stdout)
 	var result outcome
 	var events []cliEvent
 	completed := false
 	for {
 		var event cliEvent
-		if err := decoder.Decode(&event); err == io.EOF {
+		if err := json.UnmarshalDecode(decoder, &event); err == io.EOF {
 			break
 		} else if err != nil {
 			t.Fatalf("invalid Codex JSON output: %v", err)

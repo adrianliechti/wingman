@@ -1,7 +1,7 @@
 package perplexity
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -30,7 +30,7 @@ data: [DONE]
 
 `
 	client, _ := New("test", WithModel("configured-model"), WithClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(req.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream))}, nil

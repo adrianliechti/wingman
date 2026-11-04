@@ -1,7 +1,7 @@
 package responses
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
@@ -41,8 +41,12 @@ func TestFailedResponsesNeverFinalizeOpenCalls(t *testing.T) {
 					}
 				}
 				var result struct {
-					Status string
-					Output []struct{ Type, Status, Arguments string }
+					Status string `json:"status"`
+					Output []struct {
+						Type      string `json:"type"`
+						Status    string `json:"status"`
+						Arguments string `json:"arguments"`
+					} `json:"output"`
 				}
 				if err := json.Unmarshal(payload, &result); err != nil {
 					t.Fatal(err)
@@ -131,8 +135,15 @@ func TestResponsesMixedReasoningArrays(t *testing.T) {
 				}
 				payload, wire := reviewRequestBody(t, c, stream, req)
 				var result struct {
-					Status string
-					Output []struct{ Content, Summary []struct{ Text string } }
+					Status string `json:"status"`
+					Output []struct {
+						Content []struct {
+							Text string `json:"text"`
+						} `json:"content"`
+						Summary []struct {
+							Text string `json:"text"`
+						} `json:"summary"`
+					} `json:"output"`
 				}
 				if err := json.Unmarshal(payload, &result); err != nil {
 					t.Fatal(err)
@@ -178,9 +189,15 @@ func TestRefusalWithToolsIsIncompleteInHTTPAndSSE(t *testing.T) {
 			}}
 			payload, wire := reviewRequest(t, c, stream)
 			var result struct {
-				Status            string
-				IncompleteDetails struct{ Reason string } `json:"incomplete_details"`
-				Output            []struct{ Type, Status, Arguments string }
+				Status            string `json:"status"`
+				IncompleteDetails struct {
+					Reason string `json:"reason"`
+				} `json:"incomplete_details"`
+				Output []struct {
+					Type      string `json:"type"`
+					Status    string `json:"status"`
+					Arguments string `json:"arguments"`
+				} `json:"output"`
 			}
 			if err := json.Unmarshal(payload, &result); err != nil {
 				t.Fatal(err)
@@ -206,9 +223,14 @@ func TestRefusalAfterHostedToolSearchIsCompletedInHTTPAndSSE(t *testing.T) {
 			}}
 			payload, wire := reviewRequest(t, c, stream)
 			var result struct {
-				Status            string
-				IncompleteDetails *struct{ Reason string } `json:"incomplete_details"`
-				Output            []struct{ Type, Status string }
+				Status            string `json:"status"`
+				IncompleteDetails *struct {
+					Reason string `json:"reason"`
+				} `json:"incomplete_details"`
+				Output []struct {
+					Type   string `json:"type"`
+					Status string `json:"status"`
+				} `json:"output"`
 			}
 			if err := json.Unmarshal(payload, &result); err != nil {
 				t.Fatal(err)
@@ -238,8 +260,12 @@ func TestOutOfOrderReasoningPartsMatchHTTPAndSSE(t *testing.T) {
 			chunks = append(chunks, provider.Completion{Status: provider.CompletionStatusCompleted})
 			payload, wire := reviewRequest(t, responsesContractCompleter{chunks: chunks}, stream)
 			var result struct {
-				Status string
-				Output []struct{ Summary []struct{ Text string } }
+				Status string `json:"status"`
+				Output []struct {
+					Summary []struct {
+						Text string `json:"text"`
+					} `json:"summary"`
+				} `json:"output"`
 			}
 			if err := json.Unmarshal(payload, &result); err != nil {
 				t.Fatal(err)

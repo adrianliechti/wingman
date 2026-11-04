@@ -3,7 +3,8 @@ package anthropic
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
+	"github.com/anthropics/anthropic-sdk-go/v2/shared/constant"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -949,9 +951,9 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 				if c.ToolCall != nil {
 					if c.ToolCall.Kind == provider.ToolKindToolSearch && c.ToolCall.Execution != "client" {
-						arguments := json.RawMessage(c.ToolCall.Arguments)
+						arguments := jsontext.Value(c.ToolCall.Arguments)
 						if len(arguments) == 0 {
-							arguments = json.RawMessage("{}")
+							arguments = jsontext.Value("{}")
 						}
 						blocks = append(blocks, anthropic.BetaContentBlockParamUnion{OfServerToolUse: &anthropic.BetaServerToolUseBlockParam{
 							ID: toolSearchID(c.ToolCall.ID), Name: anthropic.BetaServerToolUseBlockParamName(toolSearchCallName(*c.ToolCall, options.Tools)), Input: arguments,
@@ -967,10 +969,10 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 						arguments = custom.Wrap(arguments)
 					}
 
-					var input map[string]json.RawMessage
+					var input map[string]jsontext.Value
 
 					if err := json.Unmarshal([]byte(arguments), &input); err != nil || input == nil {
-						input = map[string]json.RawMessage{}
+						input = map[string]jsontext.Value{}
 					}
 
 					blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
@@ -1119,14 +1121,14 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		}
 
 		// Keep opaque schema values raw: the SDK decoder uses float64 and
-		// its encoder can encode json.Number nested in Properties as strings.
-		type inputSchema anthropic.BetaToolInputSchemaParam
+		// its encoder can encode jsonutil.Number nested in Properties as strings.
 		var decoded struct {
-			inputSchema
-			Properties json.RawMessage `json:"properties"`
+			Properties jsontext.Value  `json:"properties"`
+			Required   []string        `json:"required"`
+			Type       constant.Object `json:"type"`
 		}
 
-		schemaData, err := json.Marshal(params)
+		schemaData, err := json.Marshal(params, json.Deterministic(true))
 		if err != nil {
 			return nil, errors.New("invalid tool parameters schema")
 		}
@@ -1134,7 +1136,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 		if err := json.Unmarshal(schemaData, &decoded); err != nil {
 			return nil, errors.New("invalid tool parameters schema")
 		}
-		schema := anthropic.BetaToolInputSchemaParam(decoded.inputSchema)
+		schema := anthropic.BetaToolInputSchemaParam{Type: decoded.Type, Required: decoded.Required}
 		if len(decoded.Properties) > 0 {
 			schema.Properties = decoded.Properties
 		}
@@ -1149,8 +1151,8 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				if schema.ExtraFields == nil {
 					schema.ExtraFields = map[string]any{}
 				}
-				data, _ := json.Marshal(value) // params was validated above
-				schema.ExtraFields[key] = json.RawMessage(data)
+				data, _ := json.Marshal(value, json.Deterministic(true)) // params was validated above
+				schema.ExtraFields[key] = jsontext.Value(data)
 			}
 		}
 

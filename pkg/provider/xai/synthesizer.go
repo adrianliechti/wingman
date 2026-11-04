@@ -3,7 +3,7 @@ package xai
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"iter"
 	"net/http"
@@ -40,15 +40,15 @@ func NewSynthesizer(model string, options ...Option) (*Synthesizer, error) {
 
 type ttsRequest struct {
 	Text         string           `json:"text"`
-	VoiceID      string           `json:"voice_id,omitempty"`
-	Language     string           `json:"language,omitempty"`
-	OutputFormat *ttsOutputFormat `json:"output_format,omitempty"`
+	VoiceID      string           `json:"voice_id,omitzero"`
+	Language     string           `json:"language,omitzero"`
+	OutputFormat *ttsOutputFormat `json:"output_format,omitzero"`
 }
 
 type ttsOutputFormat struct {
-	Codec      string `json:"codec,omitempty"`
-	SampleRate int    `json:"sample_rate,omitempty"`
-	BitRate    int    `json:"bit_rate,omitempty"`
+	Codec      string `json:"codec,omitzero"`
+	SampleRate int    `json:"sample_rate,omitzero"`
+	BitRate    int    `json:"bit_rate,omitzero"`
 }
 
 func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *provider.SynthesizeOptions) iter.Seq2[*provider.Synthesis, error] {

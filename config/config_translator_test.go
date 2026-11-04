@@ -2,7 +2,7 @@ package config
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func TestGoogleTranslatorConfiguration(t *testing.T) {
 		var body struct {
 			Target string `json:"target"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
 		if body.Target != "de" {
@@ -112,7 +112,7 @@ func TestGoogleTranslatorDocumentConfiguration(t *testing.T) {
 						Native   bool   `json:"isTranslateNativePdfOnly"`
 						Rotation bool   `json:"enableRotationCorrection"`
 					}
-					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					if err := json.UnmarshalRead(r.Body, &request); err != nil {
 						t.Errorf("decode document request: %v", err)
 					}
 					if request.Target != "en" || request.Native || !request.Rotation {

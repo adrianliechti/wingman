@@ -1,7 +1,7 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,7 +38,7 @@ func TestResearchStreamProgressAndCitations(t *testing.T) {
 			t.Error("expected bearer authentication without X-Api-Key")
 		}
 		var body map[string]any
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(req.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body["stream"] != true {
@@ -86,7 +86,7 @@ func TestResearchContinuesPausedTurn(t *testing.T) {
 	client, _ := New("test", WithClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		calls++
 		var body map[string]any
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(req.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		if calls == 1 {

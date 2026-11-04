@@ -3,7 +3,8 @@ package chat_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -189,8 +190,8 @@ func TestChatInputAudioRoundtrip(t *testing.T) {
 	// Decode the upstream payload and walk to the input_audio part.
 	var upstream1 struct {
 		Messages []struct {
-			Role    string            `json:"role"`
-			Content []json.RawMessage `json:"content"`
+			Role    string           `json:"role"`
+			Content []jsontext.Value `json:"content"`
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(upstreamReqBodies[0], &upstream1); err != nil {

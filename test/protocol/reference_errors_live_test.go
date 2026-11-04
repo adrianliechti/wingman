@@ -2,13 +2,15 @@ package protocol_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 )
 
 func compareUnsupportedChatTool(t *testing.T, protocol string, native capturedResponse, status int, headers http.Header, raw []byte) {
@@ -36,7 +38,7 @@ func compareUnsupportedChatTool(t *testing.T, protocol string, native capturedRe
 		}, got)
 	case "gemini":
 		compareExactFields(t, "error envelope", map[string]any{
-			"error": map[string]any{"code": json.Number("400"), "status": "INVALID_ARGUMENT", "message": message},
+			"error": map[string]any{"code": jsonutil.Number("400"), "status": "INVALID_ARGUMENT", "message": message},
 		}, got)
 	}
 }

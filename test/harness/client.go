@@ -3,7 +3,7 @@ package harness
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -14,23 +14,23 @@ import (
 
 // RawResponse holds the unmarshalled JSON body plus HTTP metadata.
 type RawResponse struct {
-	StatusCode int
-	Headers    http.Header
-	Body       map[string]any // parsed JSON
-	RawBody    []byte
+	StatusCode int            `json:"statusCode"`
+	Headers    http.Header    `json:"headers"`
+	Body       map[string]any `json:"body"` // parsed JSON
+	RawBody    []byte         `json:"rawBody"`
 }
 
 // SSEEvent represents a single server-sent event.
 type SSEEvent struct {
-	Event string
-	Data  map[string]any // parsed JSON from data field
-	Raw   string         // raw data string
+	Event string         `json:"event"`
+	Data  map[string]any `json:"data"` // parsed JSON from data field
+	Raw   string         `json:"raw"`  // raw data string
 }
 
 // Client is a thin, SDK-free HTTP client for the OpenAI-compatible API.
 type Client struct {
-	HTTP    *http.Client
-	Timeout time.Duration
+	HTTP    *http.Client  `json:"http"`
+	Timeout time.Duration `json:"timeout"`
 }
 
 // NewClient creates a Client with sensible defaults.
@@ -132,16 +132,16 @@ func (c *Client) PostRaw(ctx context.Context, ep Endpoint, path string, body any
 
 // MultipartField is a single form value. Repeat a name to send an array field.
 type MultipartField struct {
-	Name  string
-	Value string
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // MultipartFile is a file part of a multipart request.
 type MultipartFile struct {
-	Name        string
-	Filename    string
-	ContentType string
-	Content     []byte
+	Name        string `json:"name"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"contentType"`
+	Content     []byte `json:"content"`
 }
 
 // PostMultipart sends a multipart/form-data POST request. Unlike Post it

@@ -1,7 +1,8 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -154,7 +155,7 @@ func TestToolReplayPreservesJSONNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got, want map[string]json.RawMessage
+	var got, want map[string]jsontext.Value
 	_ = json.Unmarshal(data, &got)
 	_ = json.Unmarshal([]byte(arguments), &want)
 	for key, value := range want {

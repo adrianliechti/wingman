@@ -1,7 +1,8 @@
 package claudecode
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/adrianliechti/wingman/test/anthropic"
 	"github.com/adrianliechti/wingman/test/hardtest"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -299,7 +301,7 @@ func saveUpstream(t *testing.T, env string, exchanges []harness.Exchange) {
 	if root == "" {
 		return
 	}
-	data, err := json.MarshalIndent(exchanges, "", "  ")
+	data, err := json.Marshal(exchanges, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}

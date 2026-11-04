@@ -3,7 +3,7 @@ package google
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -101,7 +101,7 @@ func TestTranscribe_RequestShape(t *testing.T) {
 
 	tr := newTestTranscriber(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		json.NewDecoder(r.Body).Decode(&gotBody)
+		json.UnmarshalRead(r.Body, &gotBody)
 
 		serveSSE(sseTranscription(utterance("Hello.", "spk:0", [3]string{"Hello.", "0.100s", "0.500s"})))(w, r)
 	})
@@ -163,7 +163,7 @@ func TestTranscribe_KeywordsWithoutTimestamps(t *testing.T) {
 	var gotBody map[string]any
 
 	tr := newTestTranscriber(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&gotBody)
+		json.UnmarshalRead(r.Body, &gotBody)
 
 		serveSSE(sseTranscription(utterance("Hello Wingman.", "")))(w, r)
 	})

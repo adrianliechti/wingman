@@ -2,7 +2,7 @@ package google
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -253,7 +253,7 @@ func TestComplete_DisabledThinkingUsesLowWithoutRetry(t *testing.T) {
 				ThinkingSummaries string `json:"thinking_summaries"`
 			} `json:"generation_config"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
 		if body.GenerationConfig.ThinkingLevel != "low" || body.GenerationConfig.ThinkingSummaries != "none" {

@@ -2,7 +2,7 @@ package audio
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http/httptest"
 	"strings"

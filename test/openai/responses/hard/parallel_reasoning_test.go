@@ -1,7 +1,7 @@
 package hard_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"reflect"
 	"testing"
 
@@ -71,7 +71,7 @@ func TestParallelToolsReasoningStreamReplay(t *testing.T) {
 						continue
 					}
 					arguments := item["arguments"].(string)
-					if !json.Valid([]byte(arguments)) {
+					if !jsontext.Value([]byte(arguments)).IsValid() {
 						t.Fatalf("invalid final tool arguments: %s", arguments)
 					}
 					calls++

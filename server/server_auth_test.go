@@ -1,7 +1,7 @@
 package server
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,7 +21,7 @@ func TestWriteUnauthorized(t *testing.T) {
 			t.Fatalf("%s: HTTP %d: %s", path, rec.Code, rec.Body.String())
 		}
 
-		if body, _ := json.Marshal(got); string(body) != want {
+		if body, _ := json.Marshal(got, json.Deterministic(true)); string(body) != want {
 			t.Errorf("%s: got %s, want %s", path, body, want)
 		}
 	}

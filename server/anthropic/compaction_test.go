@@ -2,7 +2,7 @@ package anthropic
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/anthropic"
 	"github.com/adrianliechti/wingman/server/openai/responses"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -27,7 +28,7 @@ func TestCompactionRoundTrip(t *testing.T) {
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					requests++
 					var body map[string]any
-					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					if err := json.UnmarshalRead(r.Body, &body); err != nil {
 						t.Error(err)
 						return
 					}

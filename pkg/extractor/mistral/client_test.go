@@ -3,7 +3,7 @@ package mistral
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -39,7 +39,7 @@ func TestExtractDocumentAndImageRequests(t *testing.T) {
 					Model    string            `json:"model"`
 					Document map[string]string `json:"document"`
 				}
-				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(req.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				kind, key := "document_url", "document_url"

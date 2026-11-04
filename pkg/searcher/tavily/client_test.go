@@ -2,7 +2,7 @@ package tavily
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"reflect"
@@ -24,7 +24,7 @@ func TestSearchDepth(t *testing.T) {
 	for _, depth := range []string{"advanced", "basic", "fast", "ultra-fast"} {
 		c, err := New("test", WithDepth(depth), WithClient(&http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			var body map[string]any
-			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			if err := json.UnmarshalRead(req.Body, &body); err != nil {
 				t.Fatal(err)
 			}
 			if body["search_depth"] != depth {
@@ -51,7 +51,7 @@ func TestSearchTopicsDatesAndPublication(t *testing.T) {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
 		}
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body["topic"] != "news" || body["start_date"] != "2031-05-01" || body["max_results"] != float64(4) || body["include_published_date"] != true || body["filter_by_published_date"] != true {
@@ -100,7 +100,7 @@ func TestSearchGeneralCountryAndOptionalDates(t *testing.T) {
 		t.Run(code, func(t *testing.T) {
 			httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				var body map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Fatal(err)
 				}
 				if body["country"] != country || body["topic"] != "general" || body["include_published_date"] != true {
@@ -152,7 +152,7 @@ func TestSearchExactDateWindow(t *testing.T) {
 	until, _ := time.Parse(time.RFC3339, "2026-10-10T12:00:00Z")
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		if body["start_date"] != "2026-10-10" || body["end_date"] != "2026-10-11" || body["filter_by_published_date"] != true {
@@ -174,7 +174,7 @@ func TestSearchAllowsDocumentedResultLimits(t *testing.T) {
 	for _, limit := range []int{0, 20} {
 		c, _ := New("test", WithClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			var body map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := json.UnmarshalRead(r.Body, &body); err != nil {
 				t.Fatal(err)
 			}
 			if body["max_results"] != float64(limit) {

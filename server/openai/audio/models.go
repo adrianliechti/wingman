@@ -1,7 +1,8 @@
 package audio
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 )
 
@@ -10,36 +11,43 @@ type SpeechRequest struct {
 	Model string `json:"model"`
 	Input string `json:"input"`
 
-	Voice SpeechVoice `json:"voice,omitempty"`
-	Speed *float32    `json:"speed,omitempty"`
+	Voice SpeechVoice `json:"voice,omitzero"`
+	Speed *float32    `json:"speed,omitzero"`
 
-	Instructions string `json:"instructions,omitempty"`
+	Instructions string `json:"instructions,omitzero"`
 
-	ResponseFormat string `json:"response_format,omitempty"`
+	ResponseFormat string `json:"response_format,omitzero"`
 
-	StreamFormat string `json:"stream_format,omitempty"`
+	StreamFormat string `json:"stream_format,omitzero"`
 }
 
 // SpeechVoice accepts either a built-in voice name ("alloy") or a custom voice
 // reference object ({"id": "voice_1234"}).
 type SpeechVoice string
 
-func (v *SpeechVoice) UnmarshalJSON(data []byte) error {
-	var name string
-	if err := json.Unmarshal(data, &name); err == nil {
+func (v *SpeechVoice) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+	switch dec.PeekKind() {
+	case '"', 'n':
+		var name string
+		if err := json.UnmarshalDecode(dec, &name); err != nil {
+			return err
+		}
 		*v = SpeechVoice(name)
-		return nil
-	}
-
-	var custom struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(data, &custom); err == nil && custom.ID != "" {
+	case '{':
+		var custom struct {
+			ID string `json:"id"`
+		}
+		if err := json.UnmarshalDecode(dec, &custom); err != nil {
+			return err
+		}
+		if custom.ID == "" {
+			return errors.New("voice must be a string or an object with id")
+		}
 		*v = SpeechVoice(custom.ID)
-		return nil
+	default:
+		return errors.New("voice must be a string or an object with id")
 	}
-
-	return errors.New("voice must be a string or an object with id")
+	return nil
 }
 
 type SpeechDeltaEvent struct {
@@ -65,10 +73,10 @@ type TranscriptionWord struct {
 
 // https://platform.openai.com/docs/api-reference/audio/json-object
 type Transcription struct {
-	Task string `json:"task,omitempty"`
+	Task string `json:"task,omitzero"`
 
-	Language string  `json:"language,omitempty"`
-	Duration float64 `json:"duration,omitempty"`
+	Language string  `json:"language,omitzero"`
+	Duration float64 `json:"duration,omitzero"`
 
 	Text string `json:"text"`
 
@@ -79,7 +87,7 @@ type Transcription struct {
 type VerboseTranscription struct {
 	Task string `json:"task"`
 
-	Language string  `json:"language,omitempty"`
+	Language string  `json:"language,omitzero"`
 	Duration float64 `json:"duration"`
 
 	Text string `json:"text"`

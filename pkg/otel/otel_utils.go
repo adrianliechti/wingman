@@ -2,7 +2,7 @@ package otel
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net"
 	"strconv"
@@ -367,11 +367,11 @@ type outputMessage struct {
 type messagePart struct {
 	Type string `json:"type"`
 
-	Content   string `json:"content,omitempty"`   // text / reasoning
-	ID        string `json:"id,omitempty"`        // tool_call / tool_call_response
-	Name      string `json:"name,omitempty"`      // tool_call
-	Arguments any    `json:"arguments,omitempty"` // tool_call
-	Response  any    `json:"response,omitempty"`  // tool_call_response
+	Content   string `json:"content,omitzero"`   // text / reasoning
+	ID        string `json:"id,omitzero"`        // tool_call / tool_call_response
+	Name      string `json:"name,omitzero"`      // tool_call
+	Arguments any    `json:"arguments,omitzero"` // tool_call
+	Response  any    `json:"response,omitzero"`  // tool_call_response
 }
 
 // toolDefinition mirrors the GenAI semantic convention gen_ai.tool.definitions
@@ -379,7 +379,7 @@ type messagePart struct {
 type toolDefinition struct {
 	Type        string         `json:"type"`
 	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
+	Description string         `json:"description,omitzero"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 

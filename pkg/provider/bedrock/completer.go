@@ -3,7 +3,7 @@ package bedrock
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +11,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/internal/claude"
@@ -1161,9 +1163,7 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 
 			var data map[string]any
 
-			decoder := json.NewDecoder(strings.NewReader(arguments))
-			decoder.UseNumber()
-			if err := decoder.Decode(&data); err != nil || data == nil || decoder.Decode(new(any)) != io.EOF {
+			if err := jsonutil.Unmarshal([]byte(arguments), &data); err != nil || data == nil {
 				data = map[string]any{}
 			}
 

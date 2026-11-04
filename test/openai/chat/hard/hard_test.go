@@ -5,7 +5,8 @@ package hard_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
@@ -296,7 +297,7 @@ func TestArgumentlessToolStreaming(t *testing.T) {
 					t.Fatalf("[%s] no tool call streamed", tg.label)
 				}
 				for _, c := range calls {
-					if !json.Valid([]byte(c.arguments)) {
+					if !jsontext.Value([]byte(c.arguments)).IsValid() {
 						t.Errorf("[%s] arguments are not JSON: %q", tg.label, c.arguments)
 					}
 					if c.name != "get_time" || c.id == "" {

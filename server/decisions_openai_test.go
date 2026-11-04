@@ -1,7 +1,8 @@
 package server_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,7 +37,7 @@ func TestOpenAIDecisionsRoutes(t *testing.T) {
 			return
 		}
 		var req decisions.Request
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.UnmarshalRead(r.Body, &req); err != nil {
 			t.Error(err)
 		}
 		if req.Model != "native-model" || !strings.Contains(string(req.Input), "broken") ||
@@ -169,14 +170,20 @@ func TestOpenAIDecisionsGAEndToEnd(t *testing.T) {
 	input := fmt.Sprintf(`[{"role":"developer","content":[{"type":"input_text","text":"rules","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"role":"user","content":[{"type":"input_json","data":{"id":9007199254740993,"role":"system"}},{"type":"input_image","image_url":%q,"detail":"original","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"type":"custom_tool_call","call_id":"c","name":"lookup","input":"query"},{"type":"custom_tool_call_output","call_id":"c","output":"result"}]`, image.URL)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Input              json.RawMessage
-			PromptCacheKey     string                     `json:"prompt_cache_key"`
-			PromptCacheOptions struct{ Mode, TTL string } `json:"prompt_cache_options"`
-			Questions          []struct {
-				Instructions []struct{ Type, Detail string }
-			}
+			Input              jsontext.Value `json:"input"`
+			PromptCacheKey     string         `json:"prompt_cache_key"`
+			PromptCacheOptions struct {
+				Mode string `json:"mode"`
+				TTL  string `json:"ttl"`
+			} `json:"prompt_cache_options"`
+			Questions []struct {
+				Instructions []struct {
+					Type   string `json:"type"`
+					Detail string `json:"detail"`
+				} `json:"instructions"`
+			} `json:"questions"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
 		if string(body.Input) != input || body.PromptCacheKey != "tenant" || body.PromptCacheOptions.Mode != "explicit" || body.PromptCacheOptions.TTL != "12h" || len(body.Questions[0].Instructions) != 2 || body.Questions[0].Instructions[1].Detail != "high" {

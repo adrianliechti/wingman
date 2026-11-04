@@ -1,7 +1,7 @@
 package exa
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 
 	"github.com/adrianliechti/wingman/server/web"
 )
@@ -22,22 +22,22 @@ type SearchRequest struct {
 type Result struct {
 	ID            string   `json:"id"`
 	URL           string   `json:"url"`
-	Title         string   `json:"title,omitempty"`
-	PublishedDate string   `json:"publishedDate,omitempty"`
-	Text          *string  `json:"text,omitempty"`
+	Title         string   `json:"title,omitzero"`
+	PublishedDate string   `json:"publishedDate,omitzero"`
+	Text          *string  `json:"text,omitzero"`
 	Highlights    []string `json:"highlights,omitempty"`
 }
 
 type ContentOptions struct {
-	Text       json.RawMessage `json:"text"`
-	Highlights json.RawMessage `json:"highlights"`
+	Text       jsontext.Value `json:"text"`
+	Highlights jsontext.Value `json:"highlights"`
 }
 
 type ContentsRequest struct {
 	web.Selection
-	URLs web.URLList     `json:"urls"`
-	IDs  web.URLList     `json:"ids"`
-	Text json.RawMessage `json:"text"`
+	URLs web.URLList    `json:"urls"`
+	IDs  web.URLList    `json:"ids"`
+	Text jsontext.Value `json:"text"`
 }
 
 type Status struct {
@@ -45,12 +45,12 @@ type Status struct {
 	Status string `json:"status"`
 	Error  *struct {
 		Tag string `json:"tag"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 }
 
 type Response struct {
 	RequestID  string   `json:"requestId"`
 	Results    []Result `json:"results"`
 	Statuses   []Status `json:"statuses,omitempty"`
-	SearchTime float64  `json:"searchTime,omitempty"`
+	SearchTime float64  `json:"searchTime,omitzero"`
 }

@@ -3,7 +3,7 @@ package errors
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +18,7 @@ import (
 	"github.com/adrianliechti/wingman/server/openai/chat"
 	"github.com/adrianliechti/wingman/server/openai/responses"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	"github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
 	"github.com/go-chi/chi/v5"
 )
@@ -175,7 +176,9 @@ func anthropicErrorStream(t *testing.T, kind, errorType, message string, progres
 			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`,
 		} {
 			if kind == "sse" {
-				var event struct{ Type string }
+				var event struct {
+					Type string `json:"type"`
+				}
 				if err := json.Unmarshal([]byte(data), &event); err != nil {
 					t.Fatal(err)
 				}

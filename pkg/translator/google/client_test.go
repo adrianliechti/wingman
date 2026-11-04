@@ -2,7 +2,8 @@ package google_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -39,8 +40,8 @@ func TestTranslate(t *testing.T) {
 					t.Errorf("Content-Type = %q", r.Header.Get("Content-Type"))
 				}
 
-				var body map[string]json.RawMessage
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				var body map[string]jsontext.Value
+				if err := json.UnmarshalRead(r.Body, &body); err != nil {
 					t.Errorf("decode request: %v", err)
 					w.WriteHeader(http.StatusBadRequest)
 					return

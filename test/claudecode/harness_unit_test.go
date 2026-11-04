@@ -2,7 +2,7 @@ package claudecode
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -135,9 +135,11 @@ func TestClaudeCodeOffline(t *testing.T) {
 			return
 		}
 		var request struct {
-			Tools []struct{ Name string } `json:"tools"`
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
 		}
-		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+		if err := json.UnmarshalRead(req.Body, &request); err != nil {
 			t.Error(err)
 		}
 		names := map[string]bool{}

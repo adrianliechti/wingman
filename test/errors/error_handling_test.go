@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"iter"
 	"net/http"
@@ -47,7 +47,7 @@ func newMockOpenAIServer(statusCode int, retryAfter string, errBody mockOpenAIEr
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(statusCode)
-		json.NewEncoder(w).Encode(errBody)
+		json.MarshalWrite(w, errBody)
 	})
 
 	return httptest.NewServer(r)
@@ -307,7 +307,7 @@ func TestRateLimitError_HandlerLevel(t *testing.T) {
 	}
 
 	var errResp errorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -347,7 +347,7 @@ func TestServerError_HandlerLevel(t *testing.T) {
 	}
 
 	var errResp errorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -387,7 +387,7 @@ func TestAuthenticationError_HandlerLevel(t *testing.T) {
 	}
 
 	var errResp errorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -437,7 +437,7 @@ func TestStreamingPreStreamError_Responses(t *testing.T) {
 	}
 
 	var errResp errorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -481,7 +481,7 @@ func TestStreamingPreStreamError_Chat(t *testing.T) {
 	}
 
 	var errResp errorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &errResp); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -557,7 +557,7 @@ func TestStreamingPreStreamError_Anthropic(t *testing.T) {
 
 	// Verify Anthropic error envelope
 	var raw map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &raw); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -605,7 +605,7 @@ func TestStreamingPreStreamError_Anthropic_AuthError(t *testing.T) {
 	}
 
 	var raw map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &raw); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -654,7 +654,7 @@ func TestStreamingPreStreamError_Gemini(t *testing.T) {
 
 	// Verify Gemini error envelope
 	var raw map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &raw); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 
@@ -700,7 +700,7 @@ func TestStreamingPreStreamError_Gemini_BadRequest(t *testing.T) {
 	}
 
 	var raw map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &raw); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
 

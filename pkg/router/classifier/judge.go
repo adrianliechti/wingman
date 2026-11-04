@@ -2,7 +2,7 @@ package classifier
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"time"

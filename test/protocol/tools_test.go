@@ -1,7 +1,7 @@
 package protocol_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,7 +19,7 @@ func TestParallelToolRoundTrip(t *testing.T) {
 				var requests atomic.Int32
 				local := gateway(t, func(w http.ResponseWriter, r *http.Request) {
 					var body map[string]any
-					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					if err := json.UnmarshalRead(r.Body, &body); err != nil {
 						t.Error(err)
 						return
 					}

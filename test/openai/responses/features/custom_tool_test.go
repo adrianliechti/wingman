@@ -2,7 +2,8 @@ package features_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"os/exec"
 	"strings"
@@ -91,7 +92,7 @@ func requireFreeform(t *testing.T, label, input string) {
 		t.Fatalf("%s: empty tool input", label)
 	}
 
-	var wrapper map[string]json.RawMessage
+	var wrapper map[string]jsontext.Value
 
 	if err := json.Unmarshal([]byte(input), &wrapper); err == nil {
 		if _, leaked := wrapper["input"]; leaked {

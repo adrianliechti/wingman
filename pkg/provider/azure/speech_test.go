@@ -3,7 +3,7 @@ package azure
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"io"
 	"net/http"
@@ -99,8 +99,8 @@ func TestSynthesizeResourceRequest(t *testing.T) {
 					t.Errorf("output format = %s, want %s", got, tt.outputFormat)
 				}
 				var document struct {
-					XMLName xml.Name
-					Lang    string `xml:"http://www.w3.org/XML/1998/namespace lang,attr"`
+					XMLName xml.Name `json:"xmlName"`
+					Lang    string   `xml:"http://www.w3.org/XML/1998/namespace lang,attr"`
 					Voices  []struct {
 						Name    string `xml:"name,attr"`
 						Text    string `xml:",chardata"`
@@ -279,7 +279,7 @@ func TestTranscribeResourceRequest(t *testing.T) {
 						MaxSpeakers int  `json:"maxSpeakers"`
 					} `json:"diarization"`
 				}
-				if err := json.NewDecoder(part).Decode(&definition); err != nil {
+				if err := json.UnmarshalRead(part, &definition); err != nil {
 					t.Fatal(err)
 				}
 				if len(definition.Locales) != 1 || definition.Locales[0] != "de-CH" || !definition.Diarization.Enabled || definition.Diarization.MaxSpeakers != 2 {

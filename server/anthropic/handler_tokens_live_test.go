@@ -3,7 +3,7 @@ package anthropic
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"image"
 	"image/color"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
+
 	"github.com/joho/godotenv"
 )
 
@@ -170,7 +171,7 @@ func anthropicReference(t *testing.T, payload []byte) int {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.Error != nil {

@@ -1,7 +1,7 @@
 package custom
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 	"testing"
 
@@ -87,7 +87,7 @@ func TestWrapUnwrapRoundTrip(t *testing.T) {
 	for _, input := range inputs {
 		wrapped := Wrap(input)
 
-		if !json.Valid([]byte(wrapped)) {
+		if !jsontext.Value([]byte(wrapped)).IsValid() {
 			t.Fatalf("Wrap produced invalid JSON for %q: %s", input, wrapped)
 		}
 

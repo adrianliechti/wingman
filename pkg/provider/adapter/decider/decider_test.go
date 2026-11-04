@@ -2,13 +2,13 @@ package decider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"iter"
 	"math"
 	"strings"
 	"testing"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -26,7 +26,7 @@ func (f embedderFunc) Embed(ctx context.Context, texts []string, options *provid
 
 func decisionInput() *provider.DecisionInput {
 	return &provider.DecisionInput{
-		State: map[string]any{"ticket": "Payment failed", "id": json.Number("9007199254740993")},
+		State: map[string]any{"ticket": "Payment failed", "id": jsonutil.Number("9007199254740993")},
 		Questions: []provider.DecisionQuestion{
 			{ID: "private-noul-id", Instructions: map[string]any{"question": "Is it urgent?"}, Noul: &provider.NoulQuestion{True: []any{"Act now"}}},
 			{ID: "private-choice-id", Instructions: "Which department?", Choice: &provider.ChoiceQuestion{Options: []provider.DecisionOption{
@@ -227,7 +227,7 @@ func TestEmbeddingTextPreservesStructuredContent(t *testing.T) {
 	value := struct {
 		Details map[string]any `json:"details"`
 	}{Details: map[string]any{
-		"number": json.Number("9007199254740993"),
+		"number": jsonutil.Number("9007199254740993"),
 		"items":  []any{"first", map[string]any{"name": "second", "enabled": false}, nil},
 	}}
 	text, err := embeddingText(value)

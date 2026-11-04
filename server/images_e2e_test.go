@@ -3,7 +3,8 @@ package server_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"image"
 	"image/color"
@@ -50,7 +51,7 @@ func imageRequest(t *testing.T, endpoint string, fields map[string]string, files
 	var body bytes.Buffer
 	contentType := "application/json"
 	if endpoint == "/v1/images/generations" {
-		if err := json.NewEncoder(&body).Encode(fields); err != nil {
+		if err := json.MarshalWrite(&body, fields); err != nil {
 			t.Fatal(err)
 		}
 	} else {
@@ -167,8 +168,8 @@ func readImageWire(t *testing.T, backend string, r *http.Request) imageWireReque
 		got.prompt = got.fields["prompt"]
 		return got
 	}
-	var body map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	var body map[string]jsontext.Value
+	if err := json.UnmarshalRead(r.Body, &body); err != nil {
 		t.Error(err)
 		return got
 	}
@@ -196,10 +197,10 @@ func readImageWire(t *testing.T, backend string, r *http.Request) imageWireReque
 			Parts []struct {
 				Text       string `json:"text"`
 				InlineData *struct {
-					Data     []byte
+					Data     []byte `json:"data"`
 					MIMEType string `json:"mimeType"`
 				} `json:"inlineData"`
-			}
+			} `json:"parts"`
 		}
 		if err := json.Unmarshal(body["contents"], &contents); err != nil || len(contents) != 1 {
 			t.Errorf("invalid contents: %s (%v)", body["contents"], err)
@@ -215,8 +216,11 @@ func readImageWire(t *testing.T, backend string, r *http.Request) imageWireReque
 			}
 		}
 		var cfg struct {
-			ResponseModalities []string
-			ImageConfig        struct{ AspectRatio, ImageSize string }
+			ResponseModalities []string `json:"responseModalities"`
+			ImageConfig        struct {
+				AspectRatio string `json:"aspectRatio"`
+				ImageSize   string `json:"imageSize"`
+			} `json:"imageConfig"`
 		}
 		if err := json.Unmarshal(body["generationConfig"], &cfg); err != nil {
 			t.Error(err)
@@ -227,7 +231,9 @@ func readImageWire(t *testing.T, backend string, r *http.Request) imageWireReque
 		got.fields["aspect_ratio"], got.fields["resolution"] = cfg.ImageConfig.AspectRatio, cfg.ImageConfig.ImageSize
 	case "openrouter":
 		var refs []struct {
-			ImageURL struct{ URL string } `json:"image_url"`
+			ImageURL struct {
+				URL string `json:"url"`
+			} `json:"image_url"`
 		}
 		if raw := body["input_references"]; raw != nil {
 			if err := json.Unmarshal(raw, &refs); err != nil {
@@ -239,7 +245,9 @@ func readImageWire(t *testing.T, backend string, r *http.Request) imageWireReque
 		}
 	case "xai":
 		if raw := body["image"]; raw != nil {
-			var img struct{ URL string }
+			var img struct {
+				URL string `json:"url"`
+			}
 			if err := json.Unmarshal(raw, &img); err != nil {
 				t.Error(err)
 			}
@@ -308,7 +316,11 @@ func TestImagesEndToEnd(t *testing.T) {
 							t.Fatal("raw image response changed")
 						}
 					} else {
-						var response struct{ Data []struct{ URL string } }
+						var response struct {
+							Data []struct {
+								URL string `json:"url"`
+							} `json:"data"`
+						}
 						if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || len(response.Data) != 1 || response.Data[0].URL != "data:image/png;base64,"+base64.StdEncoding.EncodeToString(base) {
 							t.Fatalf("invalid response: %s", w.Body.String())
 						}
@@ -457,7 +469,10 @@ func TestImagesEndToEndErrors(t *testing.T) {
 					}
 					if endpoint != "/v1/render" {
 						var response struct {
-							Error struct{ Type, Message string }
+							Error struct {
+								Type    string `json:"type"`
+								Message string `json:"message"`
+							} `json:"error"`
 						}
 						if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 							t.Fatal(err)

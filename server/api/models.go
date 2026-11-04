@@ -1,10 +1,10 @@
 package api
 
 type Result struct {
-	Index int `json:"index,omitempty"`
+	Index int `json:"index,omitzero"`
 
-	Score   float64 `json:"score,omitempty"`
-	Segment `json:",inline"`
+	Score   float64 `json:"score,omitzero"`
+	Segment `json:",embed"`
 }
 
 type Segment struct {
@@ -12,18 +12,18 @@ type Segment struct {
 }
 
 type Document struct {
-	Text string `json:"text,omitempty"`
+	Text string `json:"text,omitzero"`
 
 	Pages  []Page  `json:"pages,omitempty"`
 	Blocks []Block `json:"blocks,omitempty"`
 }
 
 type Page struct {
-	Page int `json:"page,omitempty"`
+	Page int `json:"page,omitzero"`
 
-	Unit   string  `json:"unit,omitempty"`
-	Width  float64 `json:"width,omitempty"`
-	Height float64 `json:"height,omitempty"`
+	Unit   string  `json:"unit,omitzero"`
+	Width  float64 `json:"width,omitzero"`
+	Height float64 `json:"height,omitzero"`
 }
 
 type BlockState string
@@ -35,11 +35,11 @@ const (
 )
 
 type Block struct {
-	Page int `json:"page,omitempty"`
+	Page int `json:"page,omitzero"`
 
-	Text  string     `json:"text,omitempty"`
-	State BlockState `json:"state,omitempty"`
+	Text  string     `json:"text,omitzero"`
+	State BlockState `json:"state,omitzero"`
 
-	Score   float64      `json:"score,omitempty"`
+	Score   float64      `json:"score,omitzero"`
 	Polygon [][2]float64 `json:"polygon,omitempty"` // [[x1, y1], [x2, y2], [x3, y3], ...]
 }

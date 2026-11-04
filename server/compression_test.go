@@ -3,7 +3,7 @@ package server_test
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +55,7 @@ func TestCompressedAPIRoutes(t *testing.T) {
 				request.Header.Set("Content-Type", "application/json")
 				response := httptest.NewRecorder()
 				s.ServeHTTP(response, request)
-				if response.Code != http.StatusOK || backend.calls != 1 || !json.Valid(response.Body.Bytes()) {
+				if response.Code != http.StatusOK || backend.calls != 1 || !jsontext.Value(response.Body.Bytes()).IsValid() {
 					t.Fatalf("status %d, calls %d: %s", response.Code, backend.calls, response.Body.String())
 				}
 			})

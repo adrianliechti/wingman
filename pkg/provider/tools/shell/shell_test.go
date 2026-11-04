@@ -1,10 +1,10 @@
 package shell
 
 import (
-	"encoding/json"
 	"reflect"
 	"testing"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -35,7 +35,7 @@ func TestShellAction(t *testing.T) {
 	}
 
 	passthrough := ShellAction(`{"commands":["a","b"],"timeout_ms":500}`)
-	if passthrough["timeout_ms"] != json.Number("500") {
+	if passthrough["timeout_ms"] != jsonutil.Number("500") {
 		t.Fatalf("timeout: %+v", passthrough)
 	}
 }

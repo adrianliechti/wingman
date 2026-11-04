@@ -1,7 +1,7 @@
 package decisions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"flag"
 	"math"
 	"net/http"

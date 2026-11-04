@@ -3,7 +3,7 @@ package responses
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"iter"
 	"net/http"
 	"net/http/httptest"

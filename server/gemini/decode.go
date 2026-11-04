@@ -2,10 +2,11 @@ package gemini
 
 import (
 	"bytes"
-	"encoding/json"
-	"fmt"
+	"encoding/json/v2"
 	"io"
 	"strings"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 )
 
 // The Gemini REST API speaks protobuf JSON: field names may be written in
@@ -124,13 +125,5 @@ func camelCase(name string) string {
 // Keep opaque arguments, results and schema numbers out of float64. This is
 // separate from request normalization, which must not rewrite caller data.
 func decodeJSON(r io.Reader, target any) error {
-	decoder := json.NewDecoder(r)
-	decoder.UseNumber()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return fmt.Errorf("expected a single JSON value")
-	}
-	return nil
+	return jsonutil.UnmarshalRead(r, target)
 }

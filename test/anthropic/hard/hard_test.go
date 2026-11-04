@@ -5,7 +5,8 @@ package hard_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync"
@@ -256,7 +257,7 @@ func TestArgumentlessToolStreaming(t *testing.T) {
 					if input == "" {
 						input = "{}"
 					}
-					if !json.Valid([]byte(input)) || c.name != "get_time" || c.id == "" {
+					if !jsontext.Value([]byte(input)).IsValid() || c.name != "get_time" || c.id == "" {
 						t.Errorf("[%s] bad streamed tool_use: %+v", tg.label, c)
 					}
 				}

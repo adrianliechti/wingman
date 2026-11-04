@@ -1,14 +1,15 @@
 package decider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -236,10 +237,8 @@ func embeddingText(value any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
 	var normalized any
-	if err := decoder.Decode(&normalized); err != nil {
+	if err := jsonutil.Unmarshal(data, &normalized); err != nil {
 		return "", err
 	}
 	return embeddingValue(normalized), nil

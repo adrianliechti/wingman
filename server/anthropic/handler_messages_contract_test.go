@@ -2,7 +2,7 @@ package anthropic
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"iter"
@@ -17,6 +17,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	claude "github.com/anthropics/anthropic-sdk-go/v2"
 )
 

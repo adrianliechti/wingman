@@ -1,7 +1,7 @@
 package react
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -24,7 +24,7 @@ func TestToolExecutionPreservesNumbers(t *testing.T) {
 	if len(tools.executeCalls) != 1 {
 		t.Fatalf("executions: %v", tools.executeCalls)
 	}
-	data, err := json.Marshal(tools.executeCalls[0].Params)
+	data, err := json.Marshal(tools.executeCalls[0].Params, json.Deterministic(true))
 	if err != nil || string(data) != args {
 		t.Fatalf("arguments changed: %s (%v)", data, err)
 	}

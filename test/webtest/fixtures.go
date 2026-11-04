@@ -2,7 +2,7 @@ package webtest
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +21,9 @@ import (
 	"github.com/adrianliechti/wingman/server"
 )
 
-type TestPolicy struct{ Denied bool }
+type TestPolicy struct {
+	Denied bool `json:"denied"`
+}
 
 func (p TestPolicy) Verify(context.Context, policy.Resource, string, policy.Action) error {
 	if p.Denied {
@@ -31,14 +33,15 @@ func (p TestPolicy) Verify(context.Context, policy.Resource, string, policy.Acti
 }
 
 type Provider struct {
-	mu                sync.Mutex
-	Options           searcher.SearchOptions
-	Query             string
-	Searches, Scrapes int
-	Err               error
-	Score             *float64
-	Caps              searcher.Capabilities
-	Results           []searcher.Result
+	mu       sync.Mutex
+	Options  searcher.SearchOptions `json:"options"`
+	Query    string                 `json:"query"`
+	Searches int                    `json:"searches"`
+	Scrapes  int                    `json:"scrapes"`
+	Err      error                  `json:"err"`
+	Score    *float64               `json:"score"`
+	Caps     searcher.Capabilities  `json:"caps"`
+	Results  []searcher.Result      `json:"results"`
 }
 
 func (p *Provider) SearchCapabilities() searcher.Capabilities { return p.Caps }

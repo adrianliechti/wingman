@@ -3,7 +3,7 @@ package responses
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"image"
 	"image/color"
 	"image/png"
@@ -161,7 +161,7 @@ func openAIReference(t *testing.T, payload []byte) int {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.Error != nil {

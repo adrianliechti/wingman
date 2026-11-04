@@ -1,13 +1,15 @@
 package protocol_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 )
 
 func TestChatStreamIdentitySurvivesSparseMetadata(t *testing.T) {
@@ -93,9 +95,7 @@ func TestLargeFragmentedToolArguments(t *testing.T) {
 func exactObject(t *testing.T, raw []byte) map[string]any {
 	t.Helper()
 	var value map[string]any
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil {
+	if err := jsonutil.UnmarshalRead(strings.NewReader(string(raw)), &value); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	if value == nil {
@@ -163,7 +163,7 @@ func toolArguments(t *testing.T, protocol string, stream bool, raw []byte) map[s
 func TestConcurrentStreamsKeepRequestsIsolated(t *testing.T) {
 	local := gateway(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 			return
 		}

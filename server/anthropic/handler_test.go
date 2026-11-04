@@ -1,7 +1,8 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,13 +10,14 @@ import (
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/test/harness"
+
 	claude "github.com/anthropics/anthropic-sdk-go/v2"
 )
 
 func TestResponseEncodingFailure(t *testing.T) {
 	// Invalid upstream tool input must not produce an empty successful response
 	// or an SSE event with an empty data field.
-	message := Message{Content: []ContentBlock{{Type: "tool_use", Input: json.RawMessage(`{"broken":`)}}}
+	message := Message{Content: []ContentBlock{{Type: "tool_use", Input: jsontext.Value(`{"broken":`)}}}
 	t.Run("JSON", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		writeJson(rec, message)

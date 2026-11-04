@@ -3,7 +3,7 @@ package google
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"image"
 	"image/color"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/joho/godotenv"
 	"google.golang.org/genai"
 )
@@ -193,7 +194,9 @@ func TestComplete_LiveComparison(t *testing.T) {
 				messages = append(messages, *result.Message)
 				seen := map[string]bool{}
 				for _, call := range calls {
-					var args struct{ City string }
+					var args struct {
+						City string `json:"city"`
+					}
 					if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil || call.Name != "get_temperature" || call.ID == "" || seen[args.City] {
 						t.Fatalf("invalid tool call: %+v (%v)", call, err)
 					}

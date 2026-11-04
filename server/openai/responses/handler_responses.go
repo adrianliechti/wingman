@@ -2,13 +2,15 @@ package responses
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"maps"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -20,9 +22,7 @@ import (
 func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	var req ResponsesRequest
 
-	decoder := json.NewDecoder(r.Body)
-	decoder.UseNumber()
-	if err := decoder.Decode(&req); err != nil {
+	if err := jsonutil.UnmarshalRead(r.Body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -985,7 +985,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 						CallID:    event.ToolCallID,
 						Status:    "in_progress",
 						Execution: execution,
-						Arguments: json.RawMessage("{}"),
+						Arguments: jsontext.Value("{}"),
 					},
 				})
 

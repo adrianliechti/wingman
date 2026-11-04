@@ -2,7 +2,7 @@ package protocol_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -212,7 +212,7 @@ func TestMCPProxyRoundTrip(t *testing.T) {
 			t.Errorf("lost MCP path/session: %s %v", r.URL, r.Header)
 		}
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 			return
 		}

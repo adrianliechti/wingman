@@ -1,7 +1,7 @@
 package responses
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -115,9 +115,9 @@ func TestFunctionCallArgumentsDoneEventIncludesName(t *testing.T) {
 // each tool call should complete before the next one starts.
 func TestParallelToolCallsStreamSerially(t *testing.T) {
 	type ev struct {
-		Type        StreamEventType
-		ToolCallID  string
-		OutputIndex int
+		Type        StreamEventType `json:"type"`
+		ToolCallID  string          `json:"toolCallID"`
+		OutputIndex int             `json:"outputIndex"`
 	}
 
 	var events []ev
@@ -958,7 +958,7 @@ func TestApplyPatchSuppressFunctionCallArgumentsEvents(t *testing.T) {
 // layer in handler_responses.go, keyed by the tool's registered Kind.
 func TestApplyPatchToolCallEmitsNoArgumentsWireEvents(t *testing.T) {
 	type wireEv struct {
-		Type string
+		Type string `json:"type"`
 	}
 
 	var wire []wireEv

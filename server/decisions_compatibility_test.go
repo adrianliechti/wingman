@@ -3,7 +3,7 @@ package server_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -23,14 +23,17 @@ func TestSystemOneNativeImageRequests(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		var body struct {
-			State  string
+			State  string `json:"state"`
 			Assets map[string]struct {
-				Type, Format string
-				Data         string `json:"data_base64"`
-			}
-			Questions map[string]struct{ Type string }
+				Type   string `json:"type"`
+				Format string `json:"format"`
+				Data   string `json:"data_base64"`
+			} `json:"assets"`
+			Questions map[string]struct {
+				Type string `json:"type"`
+			} `json:"questions"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
 		if body.State != "photo" || body.Assets["photo"].Data != png || body.Questions["locate"].Type != "box" || r.Header.Get("TypeSafe-Danger-Zone-Images") != "true" {

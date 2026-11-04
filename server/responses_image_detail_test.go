@@ -2,7 +2,8 @@ package server_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,15 +39,16 @@ func TestResponsesPreservesImageDetail(t *testing.T) {
 						}
 						var body struct {
 							Input []struct {
-								Type            string
-								Content, Output []map[string]json.RawMessage
-							}
+								Type    string                      `json:"type"`
+								Content []map[string]jsontext.Value `json:"content"`
+								Output  []map[string]jsontext.Value `json:"output"`
+							} `json:"input"`
 						}
-						if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						if err := json.UnmarshalRead(r.Body, &body); err != nil {
 							t.Error(err)
 							return
 						}
-						var image map[string]json.RawMessage
+						var image map[string]jsontext.Value
 						for _, item := range body.Input {
 							parts := item.Content
 							if source != "message" {
@@ -90,7 +92,7 @@ func TestResponsesPreservesImageDetail(t *testing.T) {
 					}
 					image := map[string]any{"type": "input_image", "image_url": imageURL}
 					if tc.detail != "" {
-						image["detail"] = json.RawMessage(tc.detail)
+						image["detail"] = jsontext.Value(tc.detail)
 					}
 					var input []any
 					switch source {

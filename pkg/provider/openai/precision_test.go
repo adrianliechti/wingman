@@ -1,7 +1,7 @@
 package openai
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -20,7 +20,7 @@ func TestRequestSchemasPreserveNumbers(t *testing.T) {
 	options := &provider.CompleteOptions{
 		Tools: []provider.Tool{
 			{Name: "lookup", Parameters: schema},
-			{Kind: provider.ToolKindToolSearch, Execution: "client", Parameters: map[string]any{"type": "object", "properties": map[string]any{"maximum": json.Number("10"), "enum": []any{json.Number("1"), json.Number("2")}}}},
+			{Kind: provider.ToolKindToolSearch, Execution: "client", Parameters: map[string]any{"type": "object", "properties": map[string]any{"maximum": jsonutil.Number("10"), "enum": []any{jsonutil.Number("1"), jsonutil.Number("2")}}}},
 		},
 		Schema: &provider.Schema{Properties: schema},
 	}
@@ -35,7 +35,7 @@ func TestRequestSchemasPreserveNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, request := range []any{chat, response} {
-		data, err := json.Marshal(request)
+		data, err := json.Marshal(request, json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,7 +43,7 @@ func TestRequestSchemasPreserveNumbers(t *testing.T) {
 			t.Fatalf("schema numbers changed: %s", data)
 		}
 	}
-	responseData, err := json.Marshal(response)
+	responseData, err := json.Marshal(response, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestToolSearchReplayPreservesJSONNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(input.OfInputItemList[0].OfToolSearchCall.Arguments)
+	data, err := json.Marshal(input.OfInputItemList[0].OfToolSearchCall.Arguments, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestToolSearchOutputPreservesSchemaNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(input.OfInputItemList[0].OfToolSearchOutput.Tools)
+	data, err := json.Marshal(input.OfInputItemList[0].OfToolSearchOutput.Tools, json.Deterministic(true))
 	if err != nil || string(data) != payload {
 		t.Fatalf("schema changed: %s (%v)", data, err)
 	}

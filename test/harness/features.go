@@ -1,7 +1,7 @@
 package harness
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,9 +11,9 @@ import (
 // CLI run can be inventoried for request parameters, tool types, betas and
 // the item or block types the API answered with. Counts are per exchange.
 type Features struct {
-	Requests  map[string]int
-	Responses map[string]int
-	Errors    []string
+	Requests  map[string]int `json:"requests"`
+	Responses map[string]int `json:"responses"`
+	Errors    []string       `json:"errors"`
 }
 
 // Inventory scans recorded exchanges of the Messages or Responses API.

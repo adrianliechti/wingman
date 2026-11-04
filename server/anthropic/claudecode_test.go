@@ -1,7 +1,8 @@
 package anthropic
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"reflect"
 	"slices"
@@ -80,7 +81,7 @@ func TestThinkingRetentionOptions(t *testing.T) {
 		{`"invalid"`, ""},
 	} {
 		t.Run(tc.keep, func(t *testing.T) {
-			options, err := toCompleteOptions(MessageRequest{ContextManagement: &ContextManagement{Edits: []ContextManagementEdit{{Type: "clear_thinking_20251015", Keep: json.RawMessage(tc.keep)}}}})
+			options, err := toCompleteOptions(MessageRequest{ContextManagement: &ContextManagement{Edits: []ContextManagementEdit{{Type: "clear_thinking_20251015", Keep: jsontext.Value(tc.keep)}}}})
 			if tc.want == "" {
 				if err == nil {
 					t.Fatal("accepted unsupported thinking retention")

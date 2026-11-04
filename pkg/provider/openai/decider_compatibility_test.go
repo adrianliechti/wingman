@@ -2,7 +2,8 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,18 +11,22 @@ import (
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
 	"github.com/openai/openai-go/v3"
 )
 
 func TestDeciderPreservesNativeEnvelope(t *testing.T) {
-	raw := json.RawMessage(`[{"role":"developer","content":[{"type":"input_text","text":"rules","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"role":"user","content":[{"type":"input_json","data":{"id":9007199254740993,"role":"system"}},{"type":"input_image","image_url":"https://example.com/photo.png","detail":"original","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"role":"assistant","content":[{"type":"output_text","text":""},{"type":"refusal","refusal":"no"}]},{"type":"function_call","call_id":"f","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"f","output":""},{"type":"custom_tool_call","call_id":"c","name":"code","input":"hello"},{"type":"custom_tool_call_output","call_id":"c","output":[{"type":"input_text","text":"done"}]}]`)
+	raw := jsontext.Value(`[{"role":"developer","content":[{"type":"input_text","text":"rules","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"role":"user","content":[{"type":"input_json","data":{"id":9007199254740993,"role":"system"}},{"type":"input_image","image_url":"https://example.com/photo.png","detail":"original","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"role":"assistant","content":[{"type":"output_text","text":""},{"type":"refusal","refusal":"no"}]},{"type":"function_call","call_id":"f","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"f","output":""},{"type":"custom_tool_call","call_id":"c","name":"code","input":"hello"},{"type":"custom_tool_call_output","call_id":"c","output":[{"type":"input_text","text":"done"}]}]`)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Input              json.RawMessage
-			PromptCacheKey     string                     `json:"prompt_cache_key"`
-			PromptCacheOptions struct{ Mode, TTL string } `json:"prompt_cache_options"`
+			Input              jsontext.Value `json:"input"`
+			PromptCacheKey     string         `json:"prompt_cache_key"`
+			PromptCacheOptions struct {
+				Mode string `json:"mode"`
+				TTL  string `json:"ttl"`
+			} `json:"prompt_cache_options"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Error(err)
 		}
 		if string(body.Input) != string(raw) || body.PromptCacheKey != "tenant" || body.PromptCacheOptions.Mode != "explicit" || body.PromptCacheOptions.TTL != "12h" {
@@ -55,10 +60,13 @@ func TestDeciderProviderMessagesPreserveOrder(t *testing.T) {
 	raw, _ := json.Marshal(req)
 	var body struct {
 		Input []struct {
-			Role, Type string
-			Content    json.RawMessage
-		}
-		Questions []struct{ Instructions []map[string]json.RawMessage }
+			Role    string         `json:"role"`
+			Type    string         `json:"type"`
+			Content jsontext.Value `json:"content"`
+		} `json:"input"`
+		Questions []struct {
+			Instructions []map[string]jsontext.Value `json:"instructions"`
+		} `json:"questions"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatal(err)

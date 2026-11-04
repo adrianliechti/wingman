@@ -3,7 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -222,7 +222,7 @@ func (c *Client) Result(name string, value any) provider.ToolResult {
 	}
 
 	if result.StructuredContent != nil {
-		data, err := json.Marshal(result.StructuredContent)
+		data, err := json.Marshal(result.StructuredContent, json.Deterministic(true))
 		if err != nil {
 			failure := tool.TextResult("Error: invalid structured tool result: " + err.Error())
 			failure.IsError = true
@@ -244,7 +244,7 @@ func containsStructuredContent(parts []provider.Part, data []byte) bool {
 	for _, part := range parts {
 		var value any
 		if jsonutil.Unmarshal([]byte(part.Text), &value) == nil {
-			encoded, _ := json.Marshal(value)
+			encoded, _ := json.Marshal(value, json.Deterministic(true))
 			if bytes.Equal(encoded, data) {
 				return true
 			}
@@ -284,7 +284,7 @@ func resultText(result *mcp.CallToolResult) string {
 	}
 
 	if len(parts) == 0 && result.StructuredContent != nil {
-		data, _ := json.Marshal(result.StructuredContent)
+		data, _ := json.Marshal(result.StructuredContent, json.Deterministic(true))
 		return string(data)
 	}
 	return strings.Join(parts, "\n")

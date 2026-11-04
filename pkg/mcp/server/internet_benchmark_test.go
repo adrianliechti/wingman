@@ -3,7 +3,8 @@ package server
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"net/http/httptest"
@@ -38,6 +39,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/tool/research"
 	"github.com/adrianliechti/wingman/pkg/tool/scrape"
 	"github.com/adrianliechti/wingman/pkg/tool/search"
+
 	"github.com/joho/godotenv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.yaml.in/yaml/v4"
@@ -68,27 +70,32 @@ type internetBenchmarkCase struct {
 }
 
 type internetBenchmarkRun struct {
-	Provider       string
-	Case           string
-	Repeat         int
-	Milliseconds   int64
-	TargetMS       int64
-	LatencyOK      bool
-	TermRecall     float64
-	SourceRecall   float64
-	UnexpectedURLs []string
-	QualityOK      bool
-	ReportWords    int
-	LengthOK       bool
-	Updates        []liveResearchUpdate
-	Output         string
-	Error          string
+	Provider       string               `json:"provider"`
+	Case           string               `json:"case"`
+	Repeat         int                  `json:"repeat"`
+	Milliseconds   int64                `json:"milliseconds"`
+	TargetMS       int64                `json:"targetMS"`
+	LatencyOK      bool                 `json:"latencyOK"`
+	TermRecall     float64              `json:"termRecall"`
+	SourceRecall   float64              `json:"sourceRecall"`
+	UnexpectedURLs []string             `json:"unexpectedURLs"`
+	QualityOK      bool                 `json:"qualityOK"`
+	ReportWords    int                  `json:"reportWords"`
+	LengthOK       bool                 `json:"lengthOK"`
+	Updates        []liveResearchUpdate `json:"updates"`
+	Output         string               `json:"output"`
+	Error          string               `json:"error"`
 }
 
 type internetBenchmarkSummary struct {
-	Provider, Case              string
-	Samples, Successes, Quality int
-	P50MS, P95MS, TargetMS      int64
+	Provider  string `json:"provider"`
+	Case      string `json:"case"`
+	Samples   int    `json:"samples"`
+	Successes int    `json:"successes"`
+	Quality   int    `json:"quality"`
+	P50MS     int64  `json:"p50MS"`
+	P95MS     int64  `json:"p95MS"`
+	TargetMS  int64  `json:"targetMS"`
 }
 
 type benchmarkBackend struct {
@@ -303,13 +310,14 @@ func TestInternetBenchmark(t *testing.T) {
 		t.Fatal(err)
 	}
 	summaries := summarizeInternetRuns(runs)
-	data, err := json.MarshalIndent(struct {
-		GeneratedAt           string
-		Model, AnthropicModel string
-		Note                  string
-		Runs                  []internetBenchmarkRun
-		Summaries             []internetBenchmarkSummary
-	}{time.Now().UTC().Format(time.RFC3339), model, claude, "Small-sample live comparison. Targets are engineering goals; literal fact/source checks do not prove citation entailment. Inspect output before selecting a provider.", runs, summaries}, "", "  ")
+	data, err := json.Marshal(struct {
+		GeneratedAt    string                     `json:"generatedAt"`
+		Model          string                     `json:"model"`
+		AnthropicModel string                     `json:"anthropicModel"`
+		Note           string                     `json:"note"`
+		Runs           []internetBenchmarkRun     `json:"runs"`
+		Summaries      []internetBenchmarkSummary `json:"summaries"`
+	}{time.Now().UTC().Format(time.RFC3339), model, claude, "Small-sample live comparison. Targets are engineering goals; literal fact/source checks do not prove citation entailment. Inspect output before selecting a provider.", runs, summaries}, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,9 +353,12 @@ func TestInternetBenchmarkReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	var report struct {
-		GeneratedAt, Model, AnthropicModel, Note string
-		Runs                                     []internetBenchmarkRun
-		Summaries                                []internetBenchmarkSummary
+		GeneratedAt    string                     `json:"generatedAt"`
+		Model          string                     `json:"model"`
+		AnthropicModel string                     `json:"anthropicModel"`
+		Note           string                     `json:"note"`
+		Runs           []internetBenchmarkRun     `json:"runs"`
+		Summaries      []internetBenchmarkSummary `json:"summaries"`
 	}
 	if err := json.Unmarshal(data, &report); err != nil {
 		t.Fatal(err)
@@ -370,7 +381,7 @@ func TestInternetBenchmarkReplay(t *testing.T) {
 		}
 	}
 	report.Summaries = summarizeInternetRuns(report.Runs)
-	data, err = json.MarshalIndent(report, "", "  ")
+	data, err = json.Marshal(report, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,9 +550,10 @@ func TestInternetClientRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	var runs []struct {
-		Case, Expected string
-		Calls          []provider.ToolCall
-		Milliseconds   int64
+		Case         string              `json:"case"`
+		Expected     string              `json:"expected"`
+		Calls        []provider.ToolCall `json:"calls"`
+		Milliseconds int64               `json:"milliseconds"`
 	}
 	repeats, _ := strconv.Atoi(os.Getenv("INTERNET_ROUTING_REPEATS"))
 	if repeats < 1 {
@@ -581,9 +593,10 @@ func TestInternetClientRouting(t *testing.T) {
 				}
 				calls := result.Message.ToolCalls()
 				runs = append(runs, struct {
-					Case, Expected string
-					Calls          []provider.ToolCall
-					Milliseconds   int64
+					Case         string              `json:"case"`
+					Expected     string              `json:"expected"`
+					Calls        []provider.ToolCall `json:"calls"`
+					Milliseconds int64               `json:"milliseconds"`
 				}{tt.name, tt.want, calls, time.Since(start).Milliseconds()})
 				if len(calls) != 1 || calls[0].Name != tt.want {
 					t.Fatalf("calls=%+v, want one %s", calls, tt.want)
@@ -632,10 +645,11 @@ func TestInternetClientRouting(t *testing.T) {
 		}
 	}
 	if path := os.Getenv("INTERNET_ROUTING_OUTPUT"); path != "" {
-		data, err := json.MarshalIndent(struct {
-			Model, Instructions string
-			Runs                any
-		}{model, instructions, runs}, "", "  ")
+		data, err := json.Marshal(struct {
+			Model        string `json:"model"`
+			Instructions string `json:"instructions"`
+			Runs         any    `json:"runs"`
+		}{model, instructions, runs}, jsontext.WithIndent("  "), json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -3,7 +3,7 @@ package openrouter
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 
@@ -46,5 +46,5 @@ func doRequest(ctx context.Context, client *http.Client, url, token string, body
 		}
 	}
 
-	return json.NewDecoder(resp.Body).Decode(result)
+	return json.UnmarshalRead(resp.Body, result)
 }

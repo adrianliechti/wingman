@@ -2,7 +2,8 @@ package server_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -86,9 +87,9 @@ func TestDecisionsRoutes(t *testing.T) {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
 	var result struct {
-		Model   string
-		Answers map[string]map[string]json.RawMessage
-		Usage   map[string]int
+		Model   string                               `json:"model"`
+		Answers map[string]map[string]jsontext.Value `json:"answers"`
+		Usage   map[string]int                       `json:"usage"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
@@ -160,7 +161,7 @@ func TestDecisionsValidation(t *testing.T) {
 			_, s := decisionsServer(t, backend)
 			w := httptest.NewRecorder()
 			s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/systemone", strings.NewReader(body)))
-			if w.Code != http.StatusBadRequest || backend.calls != 0 || !json.Valid(w.Body.Bytes()) {
+			if w.Code != http.StatusBadRequest || backend.calls != 0 || !jsontext.Value(w.Body.Bytes()).IsValid() {
 				t.Fatalf("status %d: %s, calls %d", w.Code, w.Body.String(), backend.calls)
 			}
 		})
@@ -181,11 +182,11 @@ func TestDecisionsMultimodalAndBox(t *testing.T) {
 	}
 	var result struct {
 		Answers map[string]struct {
-			Type       string
-			Noul       float64
-			Box        *provider.BoxCoordinates
-			Confidence *float64
-		}
+			Type       string                   `json:"type"`
+			Noul       float64                  `json:"noul"`
+			Box        *provider.BoxCoordinates `json:"box"`
+			Confidence *float64                 `json:"confidence"`
+		} `json:"answers"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)

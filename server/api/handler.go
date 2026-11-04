@@ -1,7 +1,8 @@
 package api
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
+	"fmt"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
@@ -43,12 +44,13 @@ func (h *Handler) Attach(r chi.Router) {
 }
 
 func writeJson(w http.ResponseWriter, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("encode response: %w", err))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-
-	enc.Encode(v)
+	w.Write(data)
 }
 
 func writeError(w http.ResponseWriter, code int, err error) {

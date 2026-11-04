@@ -2,12 +2,14 @@ package custom
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/tool"
+
 	"google.golang.org/grpc"
 )
 
@@ -54,9 +56,9 @@ func TestExecute_DecodesJSONAndPreservesPlainText(t *testing.T) {
 		data string
 		want any
 	}{
-		{`{"answer":42}`, map[string]any{"answer": json.Number("42")}}, {`["a","b"]`, []any{"a", "b"}},
+		{`{"answer":42}`, map[string]any{"answer": jsonutil.Number("42")}}, {`["a","b"]`, []any{"a", "b"}},
 		{`"Report\nwith citations"`, "Report\nwith citations"},
-		{"42", json.Number("42")}, {"true", true}, {"null", nil},
+		{"42", jsonutil.Number("42")}, {"true", true}, {"null", nil},
 		{"Plain text\nwith a source", "Plain text\nwith a source"},
 		{"answer: yes", map[string]any{"answer": "yes"}},
 	} {
