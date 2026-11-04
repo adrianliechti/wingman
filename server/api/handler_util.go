@@ -3,14 +3,17 @@ package api
 import (
 	"errors"
 	"io"
+	"maps"
 	"mime"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/server/files"
 )
 
 func valueURL(r *http.Request) string {
@@ -200,26 +203,8 @@ func (h *Handler) extractText(r *http.Request, file *provider.File) (string, err
 
 func readFile(r *http.Request) (*provider.File, error) {
 	if err := r.ParseMultipartForm(32 << 20); err == nil {
-		if file, header, err := r.FormFile("file"); err == nil {
-			defer file.Close()
-			data, err := io.ReadAll(file)
-
-			if err != nil {
-				return nil, err
-			}
-
-			contentType := header.Header.Get("Content-Type")
-
-			if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
-				contentType = mediatype
-			}
-
-			return &provider.File{
-				Name: header.Filename,
-
-				Content:     data,
-				ContentType: contentType,
-			}, nil
+		if headers := r.MultipartForm.File["file"]; len(headers) > 0 {
+			return files.FromMultipart(headers[0])
 		}
 
 		return nil, errors.New("no file found in multipart form")
@@ -253,59 +238,55 @@ func readFile(r *http.Request) (*provider.File, error) {
 		Name: filename,
 
 		Content:     data,
-		ContentType: contentType,
+		ContentType: files.ContentType(contentType, data),
 	}, nil
 }
 
-func readFiles(r *http.Request) ([]provider.File, error) {
-	var files []provider.File
+// readNamedFile returns an optional file from an already parsed form.
+func readNamedFile(r *http.Request, field string) (*provider.File, error) {
+	if r.MultipartForm == nil || len(r.MultipartForm.File[field]) == 0 {
+		return nil, nil
+	}
 
-	// Try to parse multipart form with a reasonable max memory (32MB)
-	if err := r.ParseMultipartForm(32 << 20); err == nil {
-		if r.MultipartForm == nil || r.MultipartForm.File == nil {
-			return nil, errors.New("no files found in multipart form")
+	return files.FromMultipart(r.MultipartForm.File[field][0])
+}
+
+// readFiles returns every uploaded file except those under the skipped
+// multipart fields, falling back to a raw request body.
+func readFiles(r *http.Request, skip ...string) ([]provider.File, error) {
+	var uploads []provider.File
+
+	if r.MultipartForm != nil {
+		// Repeated file parts retain their order. Sort other field names so
+		// a guide's target cannot change with Go's map iteration order.
+		fields := slices.Sorted(maps.Keys(r.MultipartForm.File))
+		if i := slices.Index(fields, "file"); i >= 0 {
+			fields = append([]string{"file"}, slices.Delete(fields, i, i+1)...)
 		}
+		for _, field := range fields {
+			if slices.Contains(skip, field) {
+				continue
+			}
 
-		for _, fileHeaders := range r.MultipartForm.File {
-			for _, header := range fileHeaders {
-				file, err := header.Open()
-
+			for _, header := range r.MultipartForm.File[field] {
+				file, err := files.FromMultipart(header)
 				if err != nil {
 					return nil, err
 				}
-
-				data, err := io.ReadAll(file)
-				file.Close()
-
-				if err != nil {
-					return nil, err
-				}
-
-				contentType := header.Header.Get("Content-Type")
-
-				if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
-					contentType = mediatype
-				}
-
-				files = append(files, provider.File{
-					Name: header.Filename,
-
-					Content:     data,
-					ContentType: contentType,
-				})
+				uploads = append(uploads, *file)
 			}
 		}
+		return uploads, nil
 	}
 
-	if len(files) == 0 {
-		file, err := readFile(r)
-
-		if err != nil {
-			return nil, err
-		}
-
-		files = append(files, *file)
+	contentType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if r.ContentLength == 0 || contentType == "application/x-www-form-urlencoded" {
+		return nil, nil
 	}
 
-	return files, nil
+	file, err := readFile(r)
+	if err != nil {
+		return nil, err
+	}
+	return []provider.File{*file}, nil
 }

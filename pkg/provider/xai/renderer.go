@@ -49,8 +49,24 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		Model: r.model,
 	}
 
-	if len(options.Images) == 0 {
-		data, err := r.generate(ctx, input)
+	// The edit endpoint takes a single image and no mask, so a mask cannot be
+	// honored or emulated; a markup is composited onto that image.
+	if options.Mask != nil {
+		return nil, &provider.ProviderError{
+			Code:    http.StatusBadRequest,
+			Type:    "invalid_request_error",
+			Message: "mask is not supported by xAI image models",
+		}
+	}
+
+	prompt, images, err := provider.EmulateEditGuides(input, options.Images, nil, options.Markup)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(images) == 0 {
+		data, err := r.generate(ctx, prompt)
 
 		if err != nil {
 			return nil, err
@@ -59,7 +75,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		result.Content = data
 		result.ContentType = http.DetectContentType(data)
 	} else {
-		data, err := r.edit(ctx, input, options.Images)
+		data, err := r.edit(ctx, prompt, images)
 
 		if err != nil {
 			return nil, err

@@ -3,12 +3,11 @@ package image
 import (
 	"encoding/base64"
 	"errors"
-	"io"
-	"mime"
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/server/files"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 )
 
@@ -38,30 +37,14 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 	if r.MultipartForm != nil && r.MultipartForm.File != nil {
 		for _, field := range []string{"image", "image[]"} {
 			for _, header := range r.MultipartForm.File[field] {
-				file, err := header.Open()
-				if err != nil {
-					writeError(w, http.StatusBadRequest, err)
-					return
-				}
-
-				data, err := io.ReadAll(file)
-				file.Close()
+				file, err := files.FromMultipart(header)
 
 				if err != nil {
 					writeError(w, http.StatusBadRequest, err)
 					return
 				}
 
-				contentType := header.Header.Get("Content-Type")
-				if mediatype, _, err := mime.ParseMediaType(contentType); err == nil {
-					contentType = mediatype
-				}
-
-				images = append(images, provider.File{
-					Name:        header.Filename,
-					Content:     data,
-					ContentType: contentType,
-				})
+				images = append(images, *file)
 			}
 		}
 	}
@@ -71,8 +54,24 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mask, err := formFile(r, "mask")
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	markup, err := formFile(r, "markup")
+
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
 	options := &provider.RenderOptions{
 		Images: images,
+		Mask:   mask,
+		Markup: markup,
 
 		Aspect:     parseAspect(r.FormValue("size"), r.FormValue("aspect_ratio")),
 		Quality:    parseQuality(r.FormValue("quality")),
@@ -106,4 +105,14 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJson(w, result)
+}
+
+// formFile returns the first file uploaded under the given form field, or
+// nil when the field is absent.
+func formFile(r *http.Request, field string) (*provider.File, error) {
+	if r.MultipartForm == nil || len(r.MultipartForm.File[field]) == 0 {
+		return nil, nil
+	}
+
+	return files.FromMultipart(r.MultipartForm.File[field][0])
 }
