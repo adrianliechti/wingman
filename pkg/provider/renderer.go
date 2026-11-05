@@ -28,6 +28,11 @@ type RenderOptions struct {
 	Aspect     AspectRatio
 	Quality    Quality
 	Resolution Resolution
+	Complexity string
+
+	FrameCount      *int64
+	FrameDurationMS *int64
+	SVGModel        string
 
 	Background Background
 	Format     ImageFormat
@@ -92,6 +97,8 @@ const (
 	ImageFormatPNG  ImageFormat = "png"
 	ImageFormatJPEG ImageFormat = "jpeg"
 	ImageFormatWEBP ImageFormat = "webp"
+	ImageFormatGIF  ImageFormat = "gif"
+	ImageFormatSVG  ImageFormat = "svg"
 )
 
 func ParseAspect(value string) AspectRatio {
@@ -155,6 +162,10 @@ func ParseFormat(value string) ImageFormat {
 		return ImageFormatJPEG
 	case "webp":
 		return ImageFormatWEBP
+	case "gif":
+		return ImageFormatGIF
+	case "svg":
+		return ImageFormatSVG
 	}
 
 	return ""

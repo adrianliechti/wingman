@@ -33,6 +33,8 @@ func TestRendererSizeFor(t *testing.T) {
 		{"gpt-image-2.5-sunburst", provider.AspectRatio21x9, provider.Resolution4K, "3840x1648"},
 		{"gpt-image-2.5-sunburst", provider.AspectRatio9x16, provider.Resolution512, "672x1184"},
 		{"gpt-image-2.5-sunburst", "", provider.Resolution2K, "1920x1920"},
+		{"gpt-image-2.6-flare", provider.AspectRatio16x9, provider.Resolution2K, "2560x1440"},
+		{"gpt-image-2.6-sunburst", provider.AspectRatio4x3, "", "1456x1088"},
 	}
 
 	for _, tt := range tests {
@@ -114,6 +116,27 @@ func TestCustomSizeAllAspects(t *testing.T) {
 	}
 }
 
+func TestGIFSize(t *testing.T) {
+	for _, tt := range []struct {
+		aspect  provider.AspectRatio
+		quality provider.Quality
+		want    string
+	}{
+		{"", "", "384x384"},
+		{provider.AspectRatio1x1, provider.QualityLow, "256x256"},
+		{provider.AspectRatio16x9, provider.QualityMedium, "384x224"},
+		{provider.AspectRatio16x9, provider.QualityHigh, "512x288"},
+		{provider.AspectRatio9x16, provider.QualityXHigh, "288x512"},
+		{provider.AspectRatio1x1, provider.QualityMax, "512x512"},
+		{provider.AspectRatio4x1, provider.QualityLow, "256x96"},
+		{provider.AspectRatio1x4, provider.QualityLow, "96x256"},
+	} {
+		if got := gifSize(tt.aspect, tt.quality); got != tt.want {
+			t.Errorf("aspect=%q quality=%q: got %q, want %q", tt.aspect, tt.quality, got, tt.want)
+		}
+	}
+}
+
 func TestRendererQualityFor(t *testing.T) {
 	tests := []struct {
 		model   string
@@ -127,6 +150,8 @@ func TestRendererQualityFor(t *testing.T) {
 		{"gpt-image-2.5-flare", provider.QualityLow, "low"},
 		{"gpt-image-2.5-flare", provider.QualityXHigh, "xhigh"},
 		{"gpt-image-2.5-sunburst", provider.QualityMax, "max"},
+		{"gpt-image-2.6-flare", provider.QualityXHigh, "xhigh"},
+		{"gpt-image-2.6-sunburst", provider.QualityMax, "max"},
 	}
 
 	for _, tt := range tests {
@@ -145,6 +170,8 @@ func TestRendererSupportsTransparent(t *testing.T) {
 		"gpt-image-2":            false,
 		"gpt-image-2.5-flare":    true,
 		"GPT-Image-2.5-Sunburst": true,
+		"gpt-image-2.6-flare":    true,
+		"GPT-Image-2.6-Sunburst": true,
 	}
 
 	for model, want := range tests {

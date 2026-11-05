@@ -34,9 +34,16 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 		Aspect:     parseAspect(req.Size, req.AspectRatio),
 		Quality:    parseQuality(req.Quality),
 		Resolution: provider.ParseResolution(req.Resolution),
+		Complexity: req.Complexity,
+
+		FrameCount:      req.FrameCount,
+		FrameDurationMS: req.FrameDurationMS,
 
 		Background: provider.ParseBackground(req.Background),
 		Format:     provider.ParseFormat(req.OutputFormat),
+	}
+	if req.SVG != nil {
+		options.SVGModel = req.SVG.Model
 	}
 
 	image, err := renderer.Render(r.Context(), req.Prompt, options)

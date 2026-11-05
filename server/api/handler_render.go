@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -39,9 +40,25 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 		Aspect:     valueAspect(r),
 		Quality:    provider.ParseQuality(r.FormValue("quality")),
 		Resolution: provider.ParseResolution(r.FormValue("resolution")),
+		Complexity: r.FormValue("complexity"),
+		SVGModel:   r.FormValue("svg_model"),
 
 		Background: provider.ParseBackground(r.FormValue("background")),
 		Format:     acceptFormat(r),
+	}
+
+	for field, target := range map[string]**int64{
+		"frame_count":       &options.FrameCount,
+		"frame_duration_ms": &options.FrameDurationMS,
+	} {
+		if value := r.FormValue(field); value != "" {
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			*target = &n
+		}
 	}
 
 	options.Images, err = readFiles(r, "mask", "markup")

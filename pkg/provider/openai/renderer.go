@@ -57,6 +57,31 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		return nil, err
 	}
 
+	if len(options.Images) > 0 && (options.Format == provider.ImageFormatGIF || options.Format == provider.ImageFormatSVG) {
+		return nil, errors.New("GIF and SVG output are only supported for image generation")
+	}
+	if (options.FrameCount != nil || options.FrameDurationMS != nil) && options.Format != provider.ImageFormatGIF {
+		return nil, errors.New("frame_count and frame_duration_ms require GIF output")
+	}
+	if options.SVGModel != "" && options.Format != provider.ImageFormatSVG {
+		return nil, errors.New("svg.model requires SVG output")
+	}
+
+	// The pinned SDK does not yet expose GPT Image 2.6's request fields.
+	extra := map[string]any{}
+	if options.Complexity != "" {
+		extra["complexity"] = options.Complexity
+	}
+	if options.FrameCount != nil {
+		extra["frame_count"] = *options.FrameCount
+	}
+	if options.FrameDurationMS != nil {
+		extra["frame_duration_ms"] = *options.FrameDurationMS
+	}
+	if options.SVGModel != "" {
+		extra["svg"] = map[string]any{"model": options.SVGModel}
+	}
+
 	transparent := r.supportsTransparent()
 	var image *openai.ImagesResponse
 	var err error
@@ -66,8 +91,11 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 			Model:  r.model,
 			Prompt: input,
 		}
+		params.SetExtraFields(extra)
 
-		if size := r.sizeFor(options.Aspect, options.Resolution); size != "" {
+		if options.Format == provider.ImageFormatGIF {
+			params.Size = openai.ImageGenerateParamsSize(gifSize(options.Aspect, options.Quality))
+		} else if size := r.sizeFor(options.Aspect, options.Resolution); size != "" {
 			params.Size = openai.ImageGenerateParamsSize(size)
 		}
 
@@ -169,6 +197,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 				OfFileArray: files,
 			},
 		}
+		params.SetExtraFields(extra)
 
 		if mask := options.Mask; mask != nil {
 			params.Mask = openai.File(bytes.NewReader(mask.Content), "mask.png", "image/png")
@@ -206,6 +235,9 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 	}
 	result.Content = data
 	result.ContentType = http.DetectContentType(data)
+	if options.Format == provider.ImageFormatSVG {
+		result.ContentType = "image/svg+xml"
+	}
 
 	return result, nil
 }
@@ -216,7 +248,7 @@ type aspectSize struct {
 }
 
 // gpt-image-1 / -mini only support the three base sizes. gpt-image-2 adds the
-// 16:9 / 9:16 sizes. gpt-image-2.5 (flare, sunburst) accepts arbitrary
+// 16:9 / 9:16 sizes. gpt-image-2.5 and 2.6 (flare, sunburst) accept arbitrary
 // WIDTHxHEIGHT sizes (multiples of 16, aspect 1:3 to 3:1, up to 4K), so any
 // aspect ratio and resolution is mapped to a custom size for those models.
 // dall-e is no longer supported.
@@ -237,7 +269,7 @@ var (
 )
 
 const (
-	// custom size limits of gpt-image-2.5
+	// custom size limits of gpt-image-2.5 and 2.6
 	customSizeStep  = 16
 	customSizeEdge  = 3840
 	customSizeMinPx = 655360
@@ -255,9 +287,13 @@ func (r *Renderer) isGPTImage25() bool {
 	return strings.HasPrefix(strings.ToLower(r.model), "gpt-image-2.5")
 }
 
+func (r *Renderer) isGPTImage26() bool {
+	return strings.HasPrefix(strings.ToLower(r.model), "gpt-image-2.6")
+}
+
 func (r *Renderer) isGPTImage2() bool {
 	model := strings.ToLower(r.model)
-	return strings.HasPrefix(model, "gpt-image-2") && !strings.HasPrefix(model, "gpt-image-2.5")
+	return strings.HasPrefix(model, "gpt-image-2") && !r.isGPTImage25() && !r.isGPTImage26()
 }
 
 func (r *Renderer) isGPTImage1() bool {
@@ -265,7 +301,7 @@ func (r *Renderer) isGPTImage1() bool {
 }
 
 func (r *Renderer) sizes() []aspectSize {
-	if r.isGPTImage2() || r.isGPTImage25() {
+	if r.isGPTImage2() || r.isGPTImage25() || r.isGPTImage26() {
 		return gptImage2Sizes
 	}
 
@@ -273,20 +309,20 @@ func (r *Renderer) sizes() []aspectSize {
 }
 
 func (r *Renderer) supportsTransparent() bool {
-	return r.isGPTImage1() || r.isGPTImage25()
+	return r.isGPTImage1() || r.isGPTImage25() || r.isGPTImage26()
 }
 
 func (r *Renderer) supportsCustomSize() bool {
-	return r.isGPTImage25()
+	return r.isGPTImage25() || r.isGPTImage26()
 }
 
 func (r *Renderer) supportsExtendedQuality() bool {
-	return r.isGPTImage25()
+	return r.isGPTImage25() || r.isGPTImage26()
 }
 
 // sizeFor picks the size to request for the given aspect ratio and
 // resolution. Models with a fixed size list get the nearest supported size;
-// gpt-image-2.5 gets a custom size once the request leaves the fixed list
+// gpt-image-2.5 and 2.6 get a custom size once the request leaves the fixed list
 // (an aspect ratio not in the list or an explicit resolution).
 func (r *Renderer) sizeFor(aspect provider.AspectRatio, resolution provider.Resolution) string {
 	sizes := r.sizes()
@@ -338,7 +374,35 @@ func sizeFor(sizes []aspectSize, aspect provider.AspectRatio) string {
 	return ""
 }
 
-// customSize builds a WIDTHxHEIGHT string for gpt-image-2.5: edges are
+// gifSize uses conservative frame sizes instead of still-image resolutions.
+// Wingman's long-edge defaults are 256px for low quality, 384px for medium
+// or unspecified quality, and 512px for high and above. Missing aspect is square.
+func gifSize(aspect provider.AspectRatio, quality provider.Quality) string {
+	ratio, ok := aspectValue(aspect)
+	if !ok || math.IsNaN(ratio) {
+		ratio = 1
+	}
+	ratio = math.Min(math.Max(ratio, customAspectMin), customAspectMax)
+
+	edge := 384.0
+	switch quality {
+	case provider.QualityLow:
+		edge = 256
+	case provider.QualityHigh, provider.QualityXHigh, provider.QualityMax:
+		edge = 512
+	}
+
+	width, height := edge, edge
+	// Round the short edge up to keep the aspect within the supported range.
+	if ratio > 1 {
+		height = math.Ceil(edge/ratio/customSizeStep) * customSizeStep
+	} else {
+		width = math.Ceil(edge*ratio/customSizeStep) * customSizeStep
+	}
+	return fmt.Sprintf("%dx%d", int(width), int(height))
+}
+
+// customSize builds a WIDTHxHEIGHT string for gpt-image-2.5 and 2.6: edges are
 // multiples of 16, at most 3840, the aspect ratio is clamped to 1:3..3:1 and
 // the pixel count stays within the model's range.
 func customSize(aspect provider.AspectRatio, resolution provider.Resolution) string {
@@ -436,7 +500,7 @@ func roundStep(value float64, step int) int {
 }
 
 // qualityFor maps the requested quality to the model's vocabulary. Only
-// gpt-image-2.5 knows xhigh / max; older models get high instead.
+// gpt-image-2.5 and 2.6 know xhigh / max; older models get high instead.
 func (r *Renderer) qualityFor(quality provider.Quality) string {
 	switch quality {
 	case provider.QualityXHigh, provider.QualityMax:
@@ -492,6 +556,10 @@ func formatValue(format provider.ImageFormat) string {
 		return "jpeg"
 	case provider.ImageFormatWEBP:
 		return "webp"
+	case provider.ImageFormatGIF:
+		return "gif"
+	case provider.ImageFormatSVG:
+		return "svg"
 	}
 
 	return ""

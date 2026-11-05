@@ -10,10 +10,16 @@ type ImageCreateRequest struct {
 
 	Quality    string `json:"quality,omitzero"`
 	Resolution string `json:"resolution,omitzero"`
+	Complexity string `json:"complexity,omitzero"`
 
 	Background string `json:"background,omitzero"`
 
-	OutputFormat string `json:"output_format,omitzero"`
+	OutputFormat    string `json:"output_format,omitzero"`
+	FrameCount      *int64 `json:"frame_count,omitzero"`
+	FrameDurationMS *int64 `json:"frame_duration_ms,omitzero"`
+	SVG             *struct {
+		Model string `json:"model"`
+	} `json:"svg,omitzero"`
 
 	ResponseFormat string `json:"response_format,omitzero"`
 }

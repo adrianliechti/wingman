@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/png"
 	"io"
 	"mime/multipart"
@@ -102,6 +103,8 @@ func imageServer(t *testing.T, backend string, handler http.HandlerFunc) http.Ha
 	switch backend {
 	case "openai":
 		renderer, err = openai.NewRenderer(upstream.URL, "gpt-image-2.5-flare", openai.WithMaxRetries(0))
+	case "gpt-image-2.6-flare", "gpt-image-2.6-sunburst":
+		renderer, err = openai.NewRenderer(upstream.URL, backend, openai.WithMaxRetries(0))
 	case "google":
 		renderer, err = google.NewRenderer("gemini-nano-banana-2.1", google.WithToken("test"), google.WithClient(client))
 	case "openrouter":
@@ -391,6 +394,154 @@ func TestImagesEndToEnd(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestGPTImage26GenerationEndToEnd(t *testing.T) {
+	var animation bytes.Buffer
+	frame := image.NewPaletted(image.Rect(0, 0, 2, 2), color.Palette{color.Black, color.White})
+	if err := gif.EncodeAll(&animation, &gif.GIF{Image: []*image.Paletted{frame, frame}, Delay: []int{12, 12}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+		for _, tt := range []struct {
+			name, format, mime, size, aspect, quality, wantSize string
+			content                                             []byte
+			frames                                              bool
+		}{
+			{"gif", "gif", "image/gif", "256x256", "", "max", "512x512", animation.Bytes(), true},
+			{"gif defaults", "gif", "image/gif", "auto", "", "", "384x384", animation.Bytes(), false},
+			{"gif landscape", "gif", "image/gif", "", "16:9", "low", "256x144", animation.Bytes(), true},
+			{"gif portrait", "gif", "image/gif", "1080x1920", "", "high", "288x512", animation.Bytes(), true},
+			{"svg", "svg", "image/svg+xml", "1024x1024", "", "max", "1024x1024", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), false},
+			{"png", "png", "image/png", "1024x1024", "", "max", "1024x1024", imagePNG(t, 4, false), false},
+		} {
+			for _, response := range []string{"b64_json", "url", "raw"} {
+				t.Run(model+"/"+tt.name+"/"+response, func(t *testing.T) {
+					calls := 0
+					s := imageServer(t, model, func(w http.ResponseWriter, r *http.Request) {
+						calls++
+						if !strings.HasSuffix(r.URL.Path, "/images/generations") {
+							t.Errorf("upstream path = %s", r.URL.Path)
+						}
+						var body map[string]any
+						if err := json.UnmarshalRead(r.Body, &body); err != nil {
+							t.Error(err)
+						}
+						want := map[string]any{"model": model, "prompt": "draw a loop", "output_format": tt.format, "complexity": "low", "size": tt.wantSize}
+						if tt.format == "svg" {
+							want["svg"] = map[string]any{"model": "gpt-6.1-sol"}
+						} else if body["svg"] != nil {
+							t.Errorf("unexpected SVG options: %v", body["svg"])
+						}
+						if tt.quality != "" {
+							want["quality"] = tt.quality
+						} else if body["quality"] != nil {
+							t.Errorf("unexpected quality: %v", body["quality"])
+						}
+						if tt.frames {
+							want["frame_count"], want["frame_duration_ms"] = float64(2), float64(120)
+						} else if body["frame_count"] != nil || body["frame_duration_ms"] != nil {
+							t.Errorf("unexpected animation controls: %v", body)
+						}
+						for key, value := range want {
+							if !reflect.DeepEqual(body[key], value) {
+								t.Errorf("%s = %v, want %v", key, body[key], value)
+							}
+						}
+						w.Header().Set("Content-Type", "application/json")
+						fmt.Fprintf(w, `{"data":[{"b64_json":%q}]}`, base64.StdEncoding.EncodeToString(tt.content))
+					})
+					fields := map[string]any{"model": "image-test", "prompt": "draw a loop", "output_format": tt.format, "complexity": "low", "response_format": response}
+					if tt.format == "svg" {
+						fields["svg"] = map[string]string{"model": "gpt-6.1-sol"}
+					}
+					for key, value := range map[string]string{"size": tt.size, "aspect_ratio": tt.aspect, "quality": tt.quality} {
+						if value != "" {
+							fields[key] = value
+						}
+					}
+					if tt.frames {
+						fields["frame_count"], fields["frame_duration_ms"] = 2, 120
+					}
+					body, err := json.Marshal(fields)
+					if err != nil {
+						t.Fatal(err)
+					}
+					r := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+					r.Header.Set("Content-Type", "application/json")
+					if response == "raw" {
+						form := url.Values{}
+						for key, value := range fields {
+							if key != "svg" {
+								form.Set(key, fmt.Sprint(value))
+							}
+						}
+						if tt.format == "svg" {
+							form.Set("svg_model", "gpt-6.1-sol")
+						}
+						r = httptest.NewRequest(http.MethodPost, "/v1/render", strings.NewReader(form.Encode()))
+						r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+						r.Header.Set("Accept", tt.mime)
+					}
+					w := httptest.NewRecorder()
+					s.ServeHTTP(w, r)
+					if w.Code != 200 || calls != 1 {
+						t.Fatalf("response = %d %s, calls = %d", w.Code, w.Body.String(), calls)
+					}
+					if response == "raw" {
+						if !bytes.Equal(w.Body.Bytes(), tt.content) || w.Header().Get("Content-Type") != tt.mime {
+							t.Fatal("raw output bytes or MIME type changed")
+						}
+						return
+					}
+					var result struct {
+						Data []map[string]string `json:"data"`
+					}
+					if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || len(result.Data) != 1 {
+						t.Fatalf("invalid response: %s", w.Body.String())
+					}
+					want := base64.StdEncoding.EncodeToString(tt.content)
+					if response == "url" {
+						want = "data:" + tt.mime + ";base64," + want
+					}
+					if result.Data[0][response] != want {
+						t.Errorf("output bytes or MIME type changed: %s", w.Body.String())
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestGPTImage26EditEndToEnd(t *testing.T) {
+	base := imagePNG(t, 4, false)
+	for _, model := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+		for _, format := range []string{"png", "gif", "svg"} {
+			t.Run(model+"/"+format, func(t *testing.T) {
+				calls := 0
+				s := imageServer(t, model, func(w http.ResponseWriter, r *http.Request) {
+					calls++
+					wire := readImageWire(t, "openai", r)
+					for key, want := range map[string]string{"model": model, "quality": "xhigh", "complexity": "medium", "background": "transparent", "output_format": "png", "size": "2560x1440"} {
+						if wire.fields[key] != want {
+							t.Errorf("%s = %q, want %q", key, wire.fields[key], want)
+						}
+					}
+					w.Header().Set("Content-Type", "application/json")
+					fmt.Fprintf(w, `{"data":[{"b64_json":%q}]}`, base64.StdEncoding.EncodeToString(base))
+				})
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, imageRequest(t, "/v1/images/edits", map[string]string{"model": "image-test", "prompt": "draw", "complexity": "medium", "quality": "xhigh", "aspect_ratio": "16:9", "resolution": "2K", "background": "transparent", "output_format": format}, []imageUpload{{"image", base}}))
+				wantStatus, wantCalls := 200, 1
+				if format != "png" {
+					wantStatus, wantCalls = 400, 0
+				}
+				if w.Code != wantStatus || calls != wantCalls {
+					t.Fatalf("response = %d %s, calls = %d", w.Code, w.Body.String(), calls)
+				}
+			})
 		}
 	}
 }

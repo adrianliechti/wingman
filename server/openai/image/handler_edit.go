@@ -76,6 +76,7 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 		Aspect:     parseAspect(r.FormValue("size"), r.FormValue("aspect_ratio")),
 		Quality:    parseQuality(r.FormValue("quality")),
 		Resolution: provider.ParseResolution(r.FormValue("resolution")),
+		Complexity: r.FormValue("complexity"),
 
 		Background: provider.ParseBackground(r.FormValue("background")),
 		Format:     provider.ParseFormat(r.FormValue("output_format")),

@@ -79,6 +79,10 @@ func acceptFormat(r *http.Request) provider.ImageFormat {
 			return provider.ImageFormatJPEG
 		case "image/webp":
 			return provider.ImageFormatWEBP
+		case "image/gif":
+			return provider.ImageFormatGIF
+		case "image/svg+xml":
+			return provider.ImageFormatSVG
 		}
 	}
 
