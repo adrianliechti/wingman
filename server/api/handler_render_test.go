@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -63,5 +64,51 @@ func TestRenderSeparatesGuidesFromImages(t *testing.T) {
 
 	if o.Mask == nil || string(o.Mask.Content) != "alpha" || o.Markup == nil || string(o.Markup.Content) != "ring" {
 		t.Errorf("mask = %+v, markup = %+v", o.Mask, o.Markup)
+	}
+}
+
+func TestRenderDurationUnits(t *testing.T) {
+	for _, test := range []struct {
+		field, value string
+		valid        bool
+	}{
+		{"duration_seconds", "15", true}, {"frame_duration_ms", "200", true},
+		{"duration_seconds", "0", false}, {"duration_seconds", "-1", false},
+		{"duration_seconds", "1.5", false}, {"duration_seconds", "9223372036854775807", false},
+		{"frame_duration_ms", "9223372036854775807", false}, {"frame_duration_ms", "-1", false},
+	} {
+		t.Run(test.field+"="+test.value, func(t *testing.T) {
+			var body bytes.Buffer
+			form := multipart.NewWriter(&body)
+			form.WriteField("input", "fox")
+			form.WriteField(test.field, test.value)
+			form.Close()
+			request := httptest.NewRequest(http.MethodPost, "/render", &body)
+			request.Header.Set("Content-Type", form.FormDataContentType())
+			request.Header.Set("Accept", "video/mp4")
+			renderer := &recordingRenderer{}
+			cfg := &config.Config{Policy: translatePolicy{}}
+			cfg.RegisterRenderer("", renderer)
+			response := httptest.NewRecorder()
+			New(cfg).handleRender(response, request)
+			if !test.valid {
+				if response.Code != http.StatusBadRequest || renderer.options != nil {
+					t.Fatalf("response=%d, options=%+v", response.Code, renderer.options)
+				}
+				return
+			}
+			if response.Code != http.StatusOK {
+				t.Fatalf("response=%s", response.Body)
+			}
+			if renderer.options.Format != provider.RenderFormatMP4 {
+				t.Errorf("format=%s", renderer.options.Format)
+			}
+			if test.field == "duration_seconds" && (renderer.options.Duration == nil || *renderer.options.Duration != 15*time.Second) {
+				t.Errorf("duration=%v", renderer.options.Duration)
+			}
+			if test.field == "frame_duration_ms" && (renderer.options.FrameDuration == nil || *renderer.options.FrameDuration != 200*time.Millisecond) {
+				t.Errorf("frame duration=%v", renderer.options.FrameDuration)
+			}
+		})
 	}
 }

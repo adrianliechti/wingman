@@ -2,8 +2,10 @@ package api
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -48,8 +50,7 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for field, target := range map[string]**int64{
-		"frame_count":       &options.FrameCount,
-		"frame_duration_ms": &options.FrameDurationMS,
+		"frame_count": &options.FrameCount,
 	} {
 		if value := r.FormValue(field); value != "" {
 			n, err := strconv.ParseInt(value, 10, 64)
@@ -58,6 +59,23 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			*target = &n
+		}
+	}
+
+	for field, spec := range map[string]struct {
+		target **time.Duration
+		unit   time.Duration
+	}{
+		"duration_seconds":  {&options.Duration, time.Second},
+		"frame_duration_ms": {&options.FrameDuration, time.Millisecond},
+	} {
+		if value := r.FormValue(field); value != "" {
+			n, parseErr := strconv.ParseInt(value, 10, 64)
+			if parseErr != nil || n <= 0 || n > math.MaxInt64/int64(spec.unit) {
+				writeError(w, http.StatusBadRequest, errors.New(field+" must be a positive integer within duration range"))
+				return
+			}
+			*spec.target = new(time.Duration(n) * spec.unit)
 		}
 	}
 

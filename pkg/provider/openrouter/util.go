@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
@@ -37,7 +38,7 @@ func doRequest(ctx context.Context, client *http.Client, url, token string, body
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && !(strings.HasSuffix(url, "/videos") && resp.StatusCode == http.StatusAccepted) {
 		body, _ := io.ReadAll(resp.Body)
 
 		return &provider.ProviderError{

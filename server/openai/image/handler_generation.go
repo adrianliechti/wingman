@@ -3,7 +3,10 @@ package image
 import (
 	"encoding/base64"
 	"encoding/json/v2"
+	"errors"
+	"math"
 	"net/http"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -36,11 +39,17 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 		Resolution: provider.ParseResolution(req.Resolution),
 		Complexity: req.Complexity,
 
-		FrameCount:      req.FrameCount,
-		FrameDurationMS: req.FrameDurationMS,
+		FrameCount: req.FrameCount,
 
 		Background: provider.ParseBackground(req.Background),
 		Format:     provider.ParseFormat(req.OutputFormat),
+	}
+	if req.FrameDurationMS != nil {
+		if *req.FrameDurationMS <= 0 || *req.FrameDurationMS > math.MaxInt64/int64(time.Millisecond) {
+			writeError(w, http.StatusBadRequest, errors.New("frame_duration_ms must be a positive integer within duration range"))
+			return
+		}
+		options.FrameDuration = new(time.Duration(*req.FrameDurationMS) * time.Millisecond)
 	}
 	if req.SVG != nil {
 		options.SVGModel = req.SVG.Model

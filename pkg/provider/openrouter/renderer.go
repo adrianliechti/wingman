@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -16,11 +18,13 @@ var _ provider.Renderer = (*Renderer)(nil)
 
 type Renderer struct {
 	*Config
+	videoPollInterval time.Duration
 }
 
 func NewRenderer(model string, options ...Option) (*Renderer, error) {
 	return &Renderer{
-		Config: newConfig(model, options...),
+		Config:            newConfig(model, options...),
+		videoPollInterval: 5 * time.Second,
 	}, nil
 }
 
@@ -36,6 +40,13 @@ type imageData struct {
 func (r *Renderer) Render(ctx context.Context, input string, options *provider.RenderOptions) (*provider.Rendering, error) {
 	if options == nil {
 		options = new(provider.RenderOptions)
+	}
+
+	if options.Format == provider.RenderFormatMP4 || strings.Contains(strings.ToLower(r.model), "gemini-omni-") {
+		return r.renderVideo(ctx, input, options)
+	}
+	if err := provider.ValidateImageRenderOptions(options); err != nil {
+		return nil, err
 	}
 
 	// The images endpoint has no mask or markup field, so both guides

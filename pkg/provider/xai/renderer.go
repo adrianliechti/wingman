@@ -45,6 +45,10 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		options = new(provider.RenderOptions)
 	}
 
+	if err := provider.ValidateImageRenderOptions(options); err != nil {
+		return nil, err
+	}
+
 	result := &provider.Rendering{
 		ID:    uuid.NewString(),
 		Model: r.model,

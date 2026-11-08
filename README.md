@@ -450,6 +450,7 @@ providers:
       - gemini-3.8-flash-tts
       - gemini-3.5-transcribe
       - gemini-3.1-flash-image
+      - gemini-omni-1.2-flash # video renderer
       - gemini-embedding-2
 ```
 
@@ -1229,3 +1230,29 @@ Google's authentication library signs the service account's OAuth assertion, obt
 curl -X POST -F "model=google" -F "input=Hello world" -F "language=de" http://localhost:4242/v1/translate
 curl -X POST -H "Accept: application/pdf" -F "model=google" -F "file=@document.pdf" -F "language=de" http://localhost:4242/v1/translate -o translated.pdf
 ```
+
+### Video rendering
+
+Configure `gemini-omni-1.2-flash` under a Google provider to generate MP4 videos
+through `/v1/render`. Send `Accept: video/mp4`, an `input` prompt, and optional
+`duration_seconds` (whole seconds, 3–15), `aspect_ratio` (`16:9` or `9:16`), and
+`resolution` (`360p`, `720p`, `1080p`, `4K`). Repeated `file` parts supply reference
+images. The response contains video bytes with `Content-Type: video/mp4`.
+Generation is synchronous and follows request cancellation. Video editing and
+continuation are not exposed by this endpoint yet.
+
+Go renderer options use `*time.Duration` for `Duration` and `FrameDuration`.
+GIF HTTP fields remain `frame_count` and `frame_duration_ms`.
+
+OpenRouter renderer models use its dedicated Image API for image formats and its
+Video API for MP4 (`Accept: video/mp4`). Video submission, polling and content
+download run inside `Render`, respecting the caller's context. Reference images
+map to `input_references`. Configure other video models explicitly with
+`type: renderer` when their IDs do not identify a known video family. Duration,
+resolution and aspect support depend on the selected OpenRouter model.
+
+Gemini video URI delivery requires a temporarily stored interaction. The adapter
+waits for the generated file to become `ACTIVE`, downloads its bytes, and attempts
+to delete the generated file and interaction afterward, including on errors or
+cancellation. Cleanup is best effort and bounded; failures are logged without
+discarding a successfully downloaded video.

@@ -147,6 +147,11 @@ func DetectModelType(id string) ModelType {
 	}
 
 	renderers := []string{
+		"gemini-omni-",
+		"veo-",
+		"seedance-",
+		"hailuo-",
+		"wan-",
 		"dall-e",
 		"flux",
 		"gpt-image",

@@ -36,6 +36,13 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		options = new(provider.RenderOptions)
 	}
 
+	if strings.HasPrefix(strings.ToLower(r.model), "gemini-omni-") {
+		return r.renderVideo(ctx, input, options)
+	}
+	if err := provider.ValidateImageRenderOptions(options); err != nil {
+		return nil, err
+	}
+
 	// Gemini has no mask or markup field (inpainting is prompt-driven), so
 	// both guides become input images with an instruction.
 	prompt, images, err := provider.EmulateEditGuides(input, options.Images, options.Mask, options.Markup)

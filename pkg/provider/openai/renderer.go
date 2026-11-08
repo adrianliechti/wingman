@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -48,6 +49,10 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		options = new(provider.RenderOptions)
 	}
 
+	if err := provider.ValidateImageRenderOptions(options); err != nil {
+		return nil, err
+	}
+
 	result := &provider.Rendering{
 		ID:    uuid.NewString(),
 		Model: r.model,
@@ -60,7 +65,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 	if len(options.Images) > 0 && (options.Format == provider.ImageFormatGIF || options.Format == provider.ImageFormatSVG) {
 		return nil, errors.New("GIF and SVG output are only supported for image generation")
 	}
-	if (options.FrameCount != nil || options.FrameDurationMS != nil) && options.Format != provider.ImageFormatGIF {
+	if (options.FrameCount != nil || options.FrameDuration != nil) && options.Format != provider.ImageFormatGIF {
 		return nil, errors.New("frame_count and frame_duration_ms require GIF output")
 	}
 	if options.SVGModel != "" && options.Format != provider.ImageFormatSVG {
@@ -75,8 +80,11 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 	if options.FrameCount != nil {
 		extra["frame_count"] = *options.FrameCount
 	}
-	if options.FrameDurationMS != nil {
-		extra["frame_duration_ms"] = *options.FrameDurationMS
+	if options.FrameDuration != nil {
+		if *options.FrameDuration <= 0 || *options.FrameDuration%time.Millisecond != 0 {
+			return nil, errors.New("frame_duration_ms must be a positive whole number of milliseconds")
+		}
+		extra["frame_duration_ms"] = options.FrameDuration.Milliseconds()
 	}
 	if options.SVGModel != "" {
 		extra["svg"] = map[string]any{"model": options.SVGModel}

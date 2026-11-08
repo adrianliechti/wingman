@@ -64,7 +64,7 @@ func valueAspect(r *http.Request) provider.AspectRatio {
 	return provider.ParseSizeAspect(r.FormValue("size"))
 }
 
-func acceptFormat(r *http.Request) provider.ImageFormat {
+func acceptFormat(r *http.Request) provider.RenderFormat {
 	for value := range strings.SplitSeq(r.Header.Get("Accept"), ",") {
 		media := strings.TrimSpace(value)
 
@@ -73,6 +73,8 @@ func acceptFormat(r *http.Request) provider.ImageFormat {
 		}
 
 		switch strings.ToLower(media) {
+		case "video/mp4":
+			return provider.RenderFormatMP4
 		case "image/png":
 			return provider.ImageFormatPNG
 		case "image/jpeg", "image/jpg":

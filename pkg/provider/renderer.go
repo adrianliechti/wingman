@@ -2,9 +2,11 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Renderer interface {
@@ -30,12 +32,15 @@ type RenderOptions struct {
 	Resolution Resolution
 	Complexity string
 
-	FrameCount      *int64
-	FrameDurationMS *int64
-	SVGModel        string
+	// Duration is the requested video length; nil uses the model default.
+	Duration   *time.Duration
+	FrameCount *int64
+	// FrameDuration is the animated GIF time per frame; nil uses the model default.
+	FrameDuration *time.Duration
+	SVGModel      string
 
 	Background Background
-	Format     ImageFormat
+	Format     RenderFormat
 }
 
 type Rendering struct {
@@ -78,10 +83,13 @@ const (
 type Resolution string
 
 const (
-	Resolution512 Resolution = "0.5K"
-	Resolution1K  Resolution = "1K"
-	Resolution2K  Resolution = "2K"
-	Resolution4K  Resolution = "4K"
+	Resolution360p  Resolution = "360p"
+	Resolution720p  Resolution = "720p"
+	Resolution1080p Resolution = "1080p"
+	Resolution512   Resolution = "0.5K"
+	Resolution1K    Resolution = "1K"
+	Resolution2K    Resolution = "2K"
+	Resolution4K    Resolution = "4K"
 )
 
 type Background string
@@ -91,7 +99,20 @@ const (
 	BackgroundOpaque      Background = "opaque"
 )
 
-type ImageFormat string
+type RenderFormat string
+
+// ImageFormat is retained for existing image renderer callers.
+type ImageFormat = RenderFormat
+
+const RenderFormatMP4 RenderFormat = "mp4"
+
+// ValidateImageRenderOptions prevents video requests from silently producing images.
+func ValidateImageRenderOptions(options *RenderOptions) error {
+	if options.Format == RenderFormatMP4 || options.Duration != nil {
+		return errors.New("video output requires a video renderer model")
+	}
+	return nil
+}
 
 const (
 	ImageFormatPNG  ImageFormat = "png"
@@ -130,6 +151,12 @@ func ParseQuality(value string) Quality {
 
 func ParseResolution(value string) Resolution {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "360P":
+		return Resolution360p
+	case "720P":
+		return Resolution720p
+	case "1080P":
+		return Resolution1080p
 	case "0.5K", "512", "512PX":
 		return Resolution512
 	case "1K", "1024":
@@ -154,8 +181,10 @@ func ParseBackground(value string) Background {
 	return ""
 }
 
-func ParseFormat(value string) ImageFormat {
+func ParseFormat(value string) RenderFormat {
 	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "mp4":
+		return RenderFormatMP4
 	case "png":
 		return ImageFormatPNG
 	case "jpeg", "jpg":
