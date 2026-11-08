@@ -106,8 +106,24 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		var tier provider.Tier
 		var searchCallID string
 		emittedToolCalls := make(map[string]provider.ToolCall)
+		type textKey struct {
+			item  string
+			index int64
+		}
+		emittedText := make(map[textKey]string)
+		messagePhases := make(map[string]provider.MessagePhase)
+		closedText := make(map[textKey]bool)
+		var activeText textKey
+		closeText := func() {
+			if _, ok := emittedText[activeText]; ok {
+				closedText[activeText] = true
+			}
+		}
 
 		emit := func(content provider.Content, status provider.CompletionStatus) bool {
+			if content.ToolCall != nil || content.Reasoning != nil || content.Compaction != nil {
+				closeText()
+			}
 			if call := content.ToolCall; call != nil && call.ID != "" {
 				seen := emittedToolCalls[call.ID]
 				seen.ID = call.ID
@@ -164,7 +180,56 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		// A message item starts with an ID-only part; its text and refusal
 		// deltas carry the same ID so accumulators can group them.
 		emitMessageStart := func(item responses.ResponseOutputMessage) bool {
-			return emit(provider.Content{MessageID: item.ID, Phase: provider.MessagePhase(item.Phase)}, "")
+			phase := provider.MessagePhase(item.Phase)
+			previous, seen := messagePhases[item.ID]
+			if seen && (phase == "" || phase == previous) {
+				return true
+			}
+			if activeText.item != item.ID {
+				closeText()
+			}
+			messagePhases[item.ID] = phase
+			return emit(provider.Content{MessageID: item.ID, Phase: phase}, "")
+		}
+
+		// Text streams are append-only. Recover omitted suffixes, but fail if a
+		// snapshot rewrites text or tries to grow a part already closed downstream.
+		emitText := func(key textKey, delta string) bool {
+			if activeText != key {
+				closeText()
+			}
+			activeText = key
+			if _, seen := messagePhases[key.item]; !seen {
+				messagePhases[key.item] = ""
+			}
+			emittedText[key] += delta
+			return emit(provider.Content{MessageID: key.item, Text: delta, TextPresent: true}, "")
+		}
+		reconcileText := func(key textKey, final string) bool {
+			seen, exists := emittedText[key]
+			if !strings.HasPrefix(final, seen) {
+				yield(nil, fmt.Errorf("openai: final text for message %s does not match streamed deltas", key.item))
+				return false
+			}
+			if exists && final == seen {
+				return true
+			}
+			if closedText[key] {
+				yield(nil, fmt.Errorf("openai: final text for closed message %s is missing streamed deltas", key.item))
+				return false
+			}
+			return emitText(key, strings.TrimPrefix(final, seen))
+		}
+		reconcileMessage := func(item responses.ResponseOutputMessage) bool {
+			if !emitMessageStart(item) {
+				return false
+			}
+			for index, part := range item.Content {
+				if part.Type == "output_text" && !reconcileText(textKey{item.ID, int64(index)}, part.Text) {
+					return false
+				}
+			}
+			return true
 		}
 
 		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage) bool {
@@ -260,11 +325,11 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case responses.ResponseContentPartAddedEvent:
-				if event.Part.Type == "output_text" && !emit(provider.Content{MessageID: event.ItemID, TextPresent: true}, "") {
+				if event.Part.Type == "output_text" && !emitText(textKey{event.ItemID, event.ContentIndex}, event.Part.Text) {
 					return
 				}
 			case responses.ResponseTextDeltaEvent:
-				if !emit(provider.Content{MessageID: event.ItemID, Text: event.Delta}, "") {
+				if !emitText(textKey{event.ItemID, event.ContentIndex}, event.Delta) {
 					return
 				}
 
@@ -288,6 +353,9 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case responses.ResponseTextDoneEvent:
+				if !reconcileText(textKey{event.ItemID, event.ContentIndex}, event.Text) {
+					return
+				}
 			case responses.ResponseReasoningTextDoneEvent:
 			case responses.ResponseReasoningSummaryTextDoneEvent:
 			case responses.ResponseReasoningSummaryPartDoneEvent:
@@ -312,8 +380,16 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseFunctionCallArgumentsDoneEvent:
 			case responses.ResponseCustomToolCallInputDoneEvent:
 			case responses.ResponseContentPartDoneEvent:
+				if event.Part.Type == "output_text" && !reconcileText(textKey{event.ItemID, event.ContentIndex}, event.Part.Text) {
+					return
+				}
 			case responses.ResponseOutputItemDoneEvent:
 				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseOutputMessage:
+					if !reconcileMessage(item) {
+						return
+					}
+
 				case responses.ResponseFunctionToolCall:
 					if !reconcileToolCall(provider.ToolCall{ID: item.CallID, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Arguments}, item.JSON.Arguments.Valid()) {
 						return
@@ -411,6 +487,11 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			case responses.ResponseCompletedEvent:
 				for _, output := range event.Response.Output {
 					switch item := output.AsAny().(type) {
+					case responses.ResponseOutputMessage:
+						if !reconcileMessage(item) {
+							return
+						}
+
 					case responses.ResponseFunctionToolCall:
 						if !reconcileToolCall(provider.ToolCall{ID: item.CallID, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Arguments}, item.JSON.Arguments.Valid()) {
 							return

@@ -5,6 +5,7 @@ package signatures
 import (
 	"context"
 	"iter"
+	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/internal/toolid"
@@ -49,16 +50,33 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 	}
 
 	return func(yield func(*provider.Completion, error) bool) {
-		for completion, err := range c.completer.Complete(ctx, messages, options) {
-			if completion != nil && completion.Message != nil {
-				if c.realm == "" {
-					completion.Message.Content = resolveContents(completion.Message.Content, "")
-				} else {
-					completion.Message.Content = tagContents(completion.Message.Content, c.realm)
+		input := messages
+		for attempt := 0; attempt < 2; attempt++ {
+			emitted, retry := false, false
+			for completion, err := range c.completer.Complete(ctx, input, options) {
+				// Never restart a response after forwarding a completion, and
+				// never discard compaction state to recover a reasoning failure.
+				if err != nil && completion == nil && !emitted && ctx.Err() == nil && reasoningReplayError(err) {
+					if stripped, changed := withoutReasoningSignatures(input); changed {
+						input, retry = stripped, true
+						break
+					}
+				}
+				if completion != nil {
+					emitted = true
+					if completion.Message != nil {
+						if c.realm == "" {
+							completion.Message.Content = resolveContents(completion.Message.Content, "")
+						} else {
+							completion.Message.Content = tagContents(completion.Message.Content, c.realm)
+						}
+					}
+				}
+				if !yield(completion, err) {
+					return
 				}
 			}
-
-			if !yield(completion, err) {
+			if !retry {
 				return
 			}
 		}
@@ -79,12 +97,19 @@ func StripToolSignatures(messages []provider.Message) []provider.Message {
 }
 
 func resolveMessages(messages []provider.Message, realm string) []provider.Message {
+	return mapMessages(messages, func(contents []provider.Content) []provider.Content {
+		return resolveContents(contents, realm)
+	})
+}
+
+// mapMessages rewrites every message's contents and drops turns left empty,
+// e.g. an assistant message holding only a foreign compaction block.
+func mapMessages(messages []provider.Message, rewrite func([]provider.Content) []provider.Content) []provider.Message {
 	result := make([]provider.Message, 0, len(messages))
 
 	for _, m := range messages {
-		contents := resolveContents(m.Content, realm)
+		contents := rewrite(m.Content)
 
-		// e.g. an assistant message holding only a foreign compaction block
 		if len(m.Content) > 0 && len(contents) == 0 {
 			continue
 		}
@@ -122,14 +147,8 @@ func resolveContents(contents []provider.Content, realm string) []provider.Conte
 
 			if raw, ok := own(realm, reasoning.Signature); ok {
 				reasoning.Signature = raw
-			} else if reasoning.Redacted {
+			} else if reasoning, ok = unsigned(reasoning); !ok {
 				continue
-			} else {
-				reasoning.Signature = ""
-
-				if reasoning.Text() == "" && reasoning.SummaryText() == "" {
-					continue
-				}
 			}
 
 			c.Reasoning = &reasoning
@@ -228,4 +247,82 @@ func stripOptions(options *provider.CompleteOptions) *provider.CompleteOptions {
 	copy.CompactionOptions = nil
 
 	return &copy
+}
+
+// Only known input-replay failures qualify; auth, rate limits, and transport
+// errors must retain their normal error/retry policy.
+func reasoningReplayError(err error) bool {
+	switch provider.CodeFromError(err, 0) {
+	case 0, 400, 413, 422:
+	default:
+		return false
+	}
+	if provider.TypeFromError(err) == "invalid_encrypted_content" {
+		return true
+	}
+
+	message := strings.ToLower(strings.ReplaceAll(err.Error(), "`", ""))
+
+	// Every fragment of a group must appear for the message to qualify.
+	for _, fragments := range [][]string{
+		{"invalid_encrypted_content"},
+		{"encrypted content could not be verified"},
+		{"reasoning", "required following item"},
+		{"thinking", "invalid signature"},
+		{"thinking", "signature verification failed"},
+		{"the final block in an assistant message cannot be thinking"},
+	} {
+		matched := true
+
+		for _, fragment := range fragments {
+			matched = matched && strings.Contains(message, fragment)
+		}
+
+		if matched {
+			return true
+		}
+	}
+
+	return false
+}
+
+// unsigned drops a reasoning block's signature. Text survives on its own; a
+// redacted block is nothing but its blob and is not kept.
+func unsigned(reasoning provider.Reasoning) (provider.Reasoning, bool) {
+	reasoning.Signature = ""
+
+	if reasoning.Redacted || reasoning.Text() == "" && reasoning.SummaryText() == "" {
+		return reasoning, false
+	}
+
+	return reasoning, true
+}
+
+// withoutReasoningSignatures removes every reasoning signature from a replay
+// history, exactly as foreign signatures are removed on resolve.
+func withoutReasoningSignatures(messages []provider.Message) ([]provider.Message, bool) {
+	changed := false
+
+	result := mapMessages(messages, func(contents []provider.Content) []provider.Content {
+		result := make([]provider.Content, 0, len(contents))
+
+		for _, c := range contents {
+			if c.Reasoning != nil && c.Reasoning.Signature != "" {
+				changed = true
+
+				reasoning, ok := unsigned(*c.Reasoning)
+				if !ok {
+					continue
+				}
+
+				c.Reasoning = &reasoning
+			}
+
+			result = append(result, c)
+		}
+
+		return result
+	})
+
+	return result, changed
 }
