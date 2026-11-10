@@ -172,7 +172,7 @@ func TestConvertConverseInput_MidConversationSystem(t *testing.T) {
 		}},
 	}
 
-	for _, model := range []string{"eu.anthropic.claude-opus-5", "eu.anthropic.claude-opus-4-8", "eu.anthropic.claude-fable-5", "anthropic.claude-sonnet-4-6"} {
+	for _, model := range []string{"eu.anthropic.claude-opus-5", "eu.anthropic.claude-opus-4-8", "eu.anthropic.claude-fable-5", "anthropic.claude-fable-5-2", "anthropic.claude-sonnet-4-6"} {
 		t.Run(model, func(t *testing.T) {
 			c := &Completer{Config: &Config{model: model}}
 			req, err := c.convertConverseInput(history, &provider.CompleteOptions{})

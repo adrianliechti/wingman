@@ -379,6 +379,8 @@ func TestConvertRequest_UnsupportedForcedToolChoiceIsRejected(t *testing.T) {
 	}{
 		{name: "any", model: "claude-fable-5-1"},
 		{name: "named tool", model: "claude-mythos-5-1", allowed: []string{"get_weather"}},
+		{name: "fable 5.2", model: "claude-fable-5-2"},
+		{name: "mythos 5.2 named tool", model: "claude-mythos-5-2", allowed: []string{"get_weather"}},
 		{name: "opus 5.5", model: "claude-opus-5-5"},
 		{name: "sonnet 5.5", model: "claude-sonnet-5-5"},
 	} {

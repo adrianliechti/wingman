@@ -29,6 +29,8 @@ func TestResolveThinking(t *testing.T) {
 		{"legacy ignores everything", "claude-sonnet-4-5", adaptive, false, thinking{}},
 		{"forced tool disables", "claude-sonnet-4-6", adaptive, true, thinking{Disabled: true, Summarized: true, Effort: anthropic.BetaOutputConfigEffortMax}},
 		{"always-thinking cannot disable", "claude-fable-5-1", disabled, false, thinking{Effort: anthropic.BetaOutputConfigEffortMax}},
+		{"fable 5.2 cannot disable", "claude-fable-5-2", disabled, false, thinking{Effort: anthropic.BetaOutputConfigEffortMax}},
+		{"fable 5.2 updates", "claude-fable-5-2", updates, false, thinking{Enabled: true, Updates: true, Effort: anthropic.BetaOutputConfigEffortLow}},
 		{"disabled effort is capped", "claude-opus-5", disabled, false, thinking{Disabled: true, Effort: anthropic.BetaOutputConfigEffortHigh}},
 		{"opus 5.5 cannot disable", "claude-opus-5-5", disabled, false, thinking{Effort: anthropic.BetaOutputConfigEffortMax}},
 		{"updates on a progress-update model", "claude-sonnet-5-5", updates, false, thinking{Enabled: true, Updates: true, Effort: anthropic.BetaOutputConfigEffortLow}},

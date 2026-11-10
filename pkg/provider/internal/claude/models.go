@@ -25,7 +25,9 @@ var DefaultThinkingModels = []string{
 // the caller's requirement to automatic selection.
 var NoForcedToolChoiceModels = []string{
 	"fable-5-1",
+	"fable-5-2",
 	"mythos-5-1",
+	"mythos-5-2",
 
 	"opus-5-5",
 	"sonnet-5-5",

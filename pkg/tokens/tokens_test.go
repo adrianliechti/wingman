@@ -53,6 +53,8 @@ func TestFamilyFor(t *testing.T) {
 		"claude-opus-4-8":           Claude2026,
 		"claude-opus-5":             Claude2026,
 		"claude-opus-5-5":           Claude2026,
+		"claude-fable-5-2":          Claude2026,
+		"claude-mythos-5-2":         Claude2026,
 		"claude-sonnet-5-5":         Claude2026,
 		"claude-haiku-5-5":          Claude2026,
 		"claude-haiku-4-5-20251001": ClaudeLegacy,

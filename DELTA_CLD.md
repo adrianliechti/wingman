@@ -13,9 +13,9 @@ Out of scope: Files/Skills, Managed Agents, admin endpoints, advisor pairings.
 ## P1
 
 - [ ] **Computer/browser toolsets.** Accept `computer_toolset_20260801` and
-      `browser_toolset_20260801` (rejected today). Opus 5.5, Sonnet 5.5, and Haiku 5.5
-      reject `computer_20251124` on the Claude API, so computer use is broken
-      there; Bedrock still takes the legacy tool.
+      `browser_toolset_20260801` (rejected today). Fable/Mythos 5.2, Opus 5.5,
+      Sonnet 5.5, and Haiku 5.5 reject `computer_20251124` on the Claude API,
+      so computer use is broken there; Bedrock still takes the legacy tool.
       - Define member schemas + a portable browser-state result on
         `provider.Tool.Tools`; carry `toolset_name` on calls/results.
       - Claude adapter: send the toolset instead of `computer_20251124`
@@ -109,9 +109,32 @@ Out of scope: Files/Skills, Managed Agents, admin endpoints, advisor pairings.
 ## Tests
 
 - [ ] `max_tokens: 0` on non-Claude backends.
-- [ ] Fable 5.1 signed replay with default binding enforcement.
+- [ ] Fable 5.1/5.2 signed replay with default binding enforcement (5.2
+      enforces the prefix check on every account).
 - [ ] JSON and SSE wire fixtures for every stop reason and envelope / usage
       field presence.
+
+## Release review — November 10, 2026
+
+Reviewed [Claude Fable 5.2](https://platform.claude.com/docs/en/models/fable-5-2/overview)
+(`claude-fable-5-2`, `claude-mythos-5-2`; Bedrock `anthropic.claude-fable-5-2`),
+released November 9, against the current adapters.
+
+- **Adopted: Fable/Mythos 5.2.** The `fable-5` / `mythos-5` substring
+  patterns already cover always-on adaptive thinking, progress updates,
+  positional system messages, Bedrock all-turn retention, and the 2026
+  tokenizer. Added the 5.2 identifiers to the forced-tool-choice rejection
+  list and the per-message effort allowlist, which matched 5.1 only. Fast
+  mode (`speed: "fast"`) needs no beta header on 5.2 and is passed through
+  unchanged; the standard-speed fallback covers platforms without it.
+- **Breaking on 5.2, tracked above:** the preserved-thinking prefix check
+  applies on every account (the Tests item), `computer_20251124` returns 400
+  on every platform except Bedrock (the P1 toolsets item), and only 5.2
+  models read 5.2 thinking blocks, so a router that moves a conversation to
+  Opus 5.5 or Fable 5.1 loses its reasoning. Advisor pairings stay out of
+  scope.
+- **Operational:** Fable 5.2 costs $8 / $40 per MTok (cache reads $0.20);
+  there is no static price table here to update.
 
 ## Release review — October 8, 2026
 

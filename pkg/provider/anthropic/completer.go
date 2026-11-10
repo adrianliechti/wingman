@@ -611,7 +611,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 	forcedTool := options != nil && options.ToolOptions != nil && options.ToolOptions.Choice == provider.ToolChoiceAny
 	pinnedEffort := (disabledThinking && claude.MatchesModel(c.model, claude.BetweenToolsModels)) ||
 		((disabledThinking || forcedTool) && claude.MatchesModel(c.model, []string{"haiku-5"}))
-	if pinnedEffort || !claude.MatchesModel(c.model, []string{"fable-5-1", "mythos-5-1", "opus-5", "sonnet-5-5", "haiku-5"}) {
+	if pinnedEffort || !claude.MatchesModel(c.model, []string{"fable-5-1", "fable-5-2", "mythos-5-1", "mythos-5-2", "opus-5", "sonnet-5-5", "haiku-5"}) {
 		input, options = provider.ResolveConfigurationUpdates(input, options)
 	}
 	if options == nil {

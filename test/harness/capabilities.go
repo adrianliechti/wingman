@@ -21,11 +21,11 @@ type Capabilities struct {
 }
 
 // RejectsForcedToolChoice reports whether a Claude model rejects forced tool
-// choice (Fable/Mythos 5.1, Opus 5.5, Sonnet 5.5).
+// choice (Fable/Mythos 5.1 and 5.2, Opus 5.5, Sonnet 5.5).
 func RejectsForcedToolChoice(name string) bool {
 	n := strings.ToLower(name)
 
-	for _, p := range []string{"fable-5-1", "mythos-5-1", "opus-5-5", "sonnet-5-5"} {
+	for _, p := range []string{"fable-5-1", "fable-5-2", "mythos-5-1", "mythos-5-2", "opus-5-5", "sonnet-5-5"} {
 		if strings.Contains(n, p) {
 			return true
 		}
