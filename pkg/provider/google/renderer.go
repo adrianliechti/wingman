@@ -171,5 +171,7 @@ func imageConfig(options *provider.RenderOptions, aspects []provider.AspectRatio
 	return &genai.GenerateContentConfig{
 		ResponseModalities: []string{"IMAGE"},
 		ImageConfig:        config,
+
+		Store: new(false),
 	}
 }

@@ -96,6 +96,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 
 		generateConfig := &genai.GenerateContentConfig{
 			AudioTranscriptionConfig: config,
+			Store: new(false),
 		}
 
 		id := uuid.NewString()

@@ -231,7 +231,7 @@ func convertMessages(messages []provider.Message) ([]interactions.Step, error) {
 				}
 				parts := make([]interactions.FunctionResultSubcontent, 0, len(result.Parts))
 				var text strings.Builder
-				var hasImage bool
+				var hasMedia bool
 				for _, part := range result.Parts {
 					if part.Text != "" {
 						text.WriteString(part.Text)
@@ -244,8 +244,17 @@ func convertMessages(messages []provider.Message) ([]interactions.Step, error) {
 						}
 						switch {
 						case media.ImageContent != nil:
-							hasImage = true
+							hasMedia = true
 							parts = append(parts, interactions.NewFunctionResultSubcontent(*media.ImageContent))
+						case media.DocumentContent != nil:
+							hasMedia = true
+							parts = append(parts, interactions.NewFunctionResultSubcontent(*media.DocumentContent))
+						case media.AudioContent != nil:
+							hasMedia = true
+							parts = append(parts, interactions.NewFunctionResultSubcontent(*media.AudioContent))
+						case media.VideoContent != nil:
+							hasMedia = true
+							parts = append(parts, interactions.NewFunctionResultSubcontent(*media.VideoContent))
 						case media.TextContent != nil:
 							text.WriteString(media.TextContent.Text)
 							parts = append(parts, interactions.NewFunctionResultSubcontent(*media.TextContent))
@@ -257,7 +266,7 @@ func convertMessages(messages []provider.Message) ([]interactions.Step, error) {
 				// A text result is a string. Content arrays are multimodal,
 				// which older models reject even if every element is text.
 				output := interactions.NewFunctionResultStepResultUnion(text.String())
-				if hasImage {
+				if hasMedia {
 					output = interactions.NewFunctionResultStepResultUnion(parts)
 				}
 				response := interactions.FunctionResultStep{
@@ -287,6 +296,26 @@ func toolArguments(arguments string) (map[string]any, error) {
 	return object, nil
 }
 
+// documentTypes are the formats Gemini's document parser accepts, inline or
+// by URI. Other text formats are sent as plain text.
+var documentTypes = map[string]bool{
+	"application/pdf": true,
+	"text/csv":        true,
+
+	"application/msword": true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.template": true,
+	"application/vnd.oasis.opendocument.text":                                 true,
+
+	"application/vnd.ms-powerpoint":                                             true,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
+	"application/vnd.oasis.opendocument.presentation":                           true,
+
+	"application/vnd.ms-excel": true,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
+	"application/vnd.oasis.opendocument.spreadsheet":                    true,
+}
+
 func fileContent(file *provider.File) (interactions.Content, error) {
 	mediaType, _, err := mime.ParseMediaType(file.ContentType)
 	if err != nil {
@@ -307,7 +336,7 @@ func fileContent(file *provider.File) (interactions.Content, error) {
 		return interactions.NewContent(interactions.AudioContent{Data: data, URI: uri, MimeType: new(interactions.AudioContentMimeType(mediaType))}), nil
 	case strings.HasPrefix(mediaType, "video/"):
 		return interactions.NewContent(interactions.VideoContent{Data: data, URI: uri, MimeType: new(interactions.VideoContentMimeType(mediaType))}), nil
-	case mediaType == "application/pdf" || mediaType == "text/csv":
+	case documentTypes[mediaType]:
 		return interactions.NewContent(interactions.DocumentContent{Data: data, URI: uri, MimeType: new(interactions.DocumentContentMimeType(mediaType))}), nil
 	case strings.HasPrefix(mediaType, "text/") || mediaType == "application/json":
 		return interactions.NewContent(interactions.TextContent{Text: string(file.Content)}), nil

@@ -70,6 +70,8 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 					},
 				},
 			},
+
+			Store: new(false),
 		}
 
 		streaming := strings.EqualFold(options.Format, "pcm")

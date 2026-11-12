@@ -142,6 +142,10 @@ func TestSynthesize_RequestShape(t *testing.T) {
 		t.Errorf("expected the token as x-goog-api-key, got %q", gotKey)
 	}
 
+	if gotBody["store"] != false {
+		t.Errorf("expected request logging to be disabled, got store=%v", gotBody["store"])
+	}
+
 	config, _ := gotBody["generationConfig"].(map[string]any)
 
 	if modalities, _ := config["responseModalities"].([]any); len(modalities) != 1 || modalities[0] != "AUDIO" {

@@ -225,11 +225,62 @@ func TestConvertMessages_RejectsInvalidContent(t *testing.T) {
 		{{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "lookup", Arguments: `[1]`})}}},
 		{{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "lookup", Arguments: `{} {}`})}}},
 		{{Role: provider.MessageRoleUser, Content: []provider.Content{provider.FileContent(&provider.File{ContentType: "application/octet-stream", Content: []byte("binary")})}}},
-		{{Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(provider.ToolResult{ID: "c1", Parts: []provider.Part{{File: &provider.File{ContentType: "audio/wav", Content: []byte("audio")}}}})}}},
+		{{Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(provider.ToolResult{ID: "c1", Parts: []provider.Part{{File: &provider.File{ContentType: "application/zip", Content: []byte("archive")}}}})}}},
 	} {
 		if _, err := convertMessages(messages); err == nil {
 			t.Fatal("expected explicit invalid request")
 		}
+	}
+}
+
+// Function results accept documents, audio, and video besides images.
+func TestConvertMessages_MediaToolResults(t *testing.T) {
+	const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	steps, err := convertMessages([]provider.Message{
+		{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Signature: "sig"}), provider.ToolCallContent(provider.ToolCall{ID: "c1", Name: "fetch", Arguments: `{}`})}},
+		{Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(provider.ToolResult{ID: "c1", Parts: []provider.Part{
+			{Text: "report"},
+			{File: &provider.File{ContentType: "application/pdf", Content: []byte("pdf")}},
+			{File: &provider.File{ContentType: docx, Content: []byte("docx")}},
+			{File: &provider.File{ContentType: "audio/wav", Content: []byte("audio")}},
+			{File: &provider.File{ContentType: "video/mp4", Content: []byte("https://example.com/clip.mp4")}},
+		}})}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := steps[2].FunctionResultStep.Result.ArrayOfFunctionResultSubcontent
+	if len(parts) != 5 || parts[0].TextContent.Text != "report" {
+		t.Fatalf("tool result lost: %+v", parts)
+	}
+	if pdf := parts[1].DocumentContent; pdf == nil || value(pdf.MimeType) != "application/pdf" || value(pdf.Data) != base64.StdEncoding.EncodeToString([]byte("pdf")) {
+		t.Fatalf("PDF result lost: %+v", parts[1])
+	}
+	if office := parts[2].DocumentContent; office == nil || value(office.MimeType) != docx {
+		t.Fatalf("Office result lost: %+v", parts[2])
+	}
+	if audio := parts[3].AudioContent; audio == nil || value(audio.MimeType) != "audio/wav" {
+		t.Fatalf("audio result lost: %+v", parts[3])
+	}
+	if video := parts[4].VideoContent; video == nil || value(video.URI) != "https://example.com/clip.mp4" || video.Data != nil {
+		t.Fatalf("video result lost: %+v", parts[4])
+	}
+}
+
+func TestFileContent_Documents(t *testing.T) {
+	for mediaType := range documentTypes {
+		content, err := fileContent(&provider.File{ContentType: mediaType + "; charset=binary", Content: []byte("data")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if content.DocumentContent == nil || string(value(content.DocumentContent.MimeType)) != mediaType {
+			t.Errorf("%s: not sent as a document: %+v", mediaType, content)
+		}
+	}
+	// Markup stays inline text; the document parser would only extract it.
+	content, err := fileContent(&provider.File{ContentType: "text/markdown", Content: []byte("# title")})
+	if err != nil || content.TextContent == nil || content.TextContent.Text != "# title" {
+		t.Fatalf("text file changed: %+v (%v)", content, err)
 	}
 }
 

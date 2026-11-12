@@ -35,6 +35,9 @@ func TestRendererAspects(t *testing.T) {
 		if len(config.ResponseModalities) != 1 || config.ResponseModalities[0] != "IMAGE" {
 			t.Errorf("%s: must explicitly request image output", tt.model)
 		}
+		if config.Store == nil || *config.Store {
+			t.Errorf("%s: request logging must be disabled", tt.model)
+		}
 
 		if got != tt.want {
 			t.Errorf("%s aspect=%q: got %q, want %q", tt.model, tt.aspect, got, tt.want)

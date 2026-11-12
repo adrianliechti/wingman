@@ -427,13 +427,16 @@ to test both SDK routes with streaming. It reads `AWS_BEARER_TOKEN_BEDROCK` and
 
 Gemini completions use the [Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview)
 with full conversation history and `store=false`. Tool calls, results, and thought
-signatures are replayed as execution steps. Reasoning effort maps to thinking
+signatures are replayed as execution steps. Tool results can carry images,
+documents, audio, and video; PDF, CSV, Office, and OpenDocument files are sent
+as documents. Reasoning effort maps to thinking
 levels: `minimal`, `low`, and disabled thinking use `low`, `medium` stays `medium`, and
 `high`, `xhigh`, and `max` use `high`. Omitted effort keeps the model default.
 Sampling parameters are omitted, following the current
 [Gemini migration guidance](https://ai.google.dev/gemini-api/docs/latest-model#migration-checklist).
 Embeddings, image rendering, transcription, speech synthesis, and Live
-realtime retain their dedicated integrations.
+realtime retain their dedicated integrations. Image rendering, transcription,
+and speech synthesis use `generateContent` and also send `store=false`.
 
 To compare Interactions against `generateContent` with real API calls, run
 `WINGMAN_GOOGLE_LIVE=1 go test -v ./pkg/provider/google -run TestComplete_LiveComparison -count=1`.
@@ -452,10 +455,11 @@ providers:
     # {alias}:
     #   - id: {gemini api model name}
     models:
+      - gemini-4-carbon
       - gemini-3.8-flash
       - gemini-3.8-flash-tts
       - gemini-3.5-transcribe
-      - gemini-3.1-flash-image
+      - gemini-nano-banana-2.1
       - gemini-omni-1.2-flash # video renderer
       - gemini-embedding-2
       - gemini-decision-1 # native decisions, detected automatically

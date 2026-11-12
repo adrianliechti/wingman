@@ -36,8 +36,6 @@ belong.
 
 ### Thinking
 
-- [ ] **Exact `thinkingBudget`.** Pass the budget to Gemini backends instead
-      of a coarse level.
 - [ ] **`thinkingBudget: 0`.** Disable thinking on its own; today only
       together with `includeThoughts`. (Sonnet 5.5 can only go down to
       `between_tools`.)
@@ -89,7 +87,8 @@ belong.
       `mcpServers`, `googleMaps`; represent `Part.toolCall`,
       `Part.toolResponse`, `executableCode`, `codeExecutionResult`.
 - [ ] **Media.** Files API and `gs://` URIs in `fileData` (rejected);
-      `videoMetadata`, per-part `mediaResolution`, `partMetadata`.
+      `videoMetadata`, per-part `mediaResolution`, `partMetadata`;
+      `mediaProcessing` (agentic video) on parts and function-response parts.
 - [ ] **Response metadata.** `citationMetadata`, `groundingAttributions`,
       `groundingMetadata`, `avgLogprobs`, `logprobsResult`,
       `urlContextMetadata`, `modelStatus`; `usageMetadata` modality details,

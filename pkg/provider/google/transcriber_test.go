@@ -143,6 +143,10 @@ func TestTranscribe_RequestShape(t *testing.T) {
 		t.Errorf("expected the instructions as a text part, got %v", prompt)
 	}
 
+	if gotBody["store"] != false {
+		t.Errorf("expected request logging to be disabled, got store=%v", gotBody["store"])
+	}
+
 	generation, _ := gotBody["generationConfig"].(map[string]any)
 	config, _ := generation["audioTranscriptionConfig"].(map[string]any)
 
