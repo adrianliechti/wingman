@@ -72,7 +72,7 @@ The platform integrates with a wide range of LLM providers:
 - Custom tools via gRPC plugins
 
 **Additional Capabilities:**
-- Typed decisions (Noul, Choice, Score) using existing chat or embedding models
+- Typed decisions (Noul, Choice, Score) using native OpenAI, Gemini, TypeSafe, or existing chat and embedding models
 - Text summarization (via chat models)
 - Language translation
 - Content rendering and formatting
@@ -257,7 +257,7 @@ A single ingress supports existing model, retrieval, and MCP clients:
 | --- | --- | --- |
 | **OpenAI** (compatible) | `/v1` | `chat/completions`, `responses`, `decisions`, `embeddings`, `audio/{speech,transcriptions}`, `images/{generations,edits}`, `models` |
 | **Anthropic** (compatible) | `/v1` | `messages`, `messages/count_tokens` |
-| **Gemini** (compatible) | `/v1beta` | `models/{model}:generateContent`, `:streamGenerateContent`, `:countTokens` |
+| **Gemini** (compatible) | `/v1beta` | `decisions`, `models/{model}:generateContent`, `:streamGenerateContent`, `:countTokens` |
 | **Tavily** (compatible subset) | `/v1/tavily` | `search`, `extract` — over any configured searcher/scraper |
 | **Exa** (compatible subset) | `/v1/exa` | `search`, `contents` — over any configured searcher/scraper |
 | **MCP** (native) | `/v1` | `mcp/{name}` — each configured MCP server, over HTTP-stream or SSE |
@@ -288,7 +288,13 @@ deciders:
 The same name continues to work for completions. A different alias name also
 works, and embedding models use the same configuration. Adapters require this
 explicit opt-in; other completion and embedding models cannot serve decisions.
-When `model` is omitted on either decision endpoint, the first native decider in
+`POST /v1beta/decisions` accepts Gemini's shared multimodal input and named
+`noul`, `choice`, and `score` questions. Add `gemini-decision-1` to a `gemini`
+or `google` provider to use Google's native Decisions API. It also serves the
+other decision endpoints within the selected backend's input limits.
+See [Gemini Decisions](API.md#gemini-decisions).
+
+When `model` is omitted on any decision endpoint, the first native decider in
 configuration order takes priority, followed by the first `deciders` alias.
 See [Decisions](API.md#decisions).
 
@@ -452,7 +458,17 @@ providers:
       - gemini-3.1-flash-image
       - gemini-omni-1.2-flash # video renderer
       - gemini-embedding-2
+      - gemini-decision-1 # native decisions, detected automatically
 ```
+
+Gemini decisions use the [Decisions API](https://aistudio.google.com/docs/decisions-api)
+over REST with API-key authentication. They support shared text, images, audio,
+video, and PDFs, and text-only question instructions. Conversation history,
+tool traces, and box questions are rejected before an upstream call. The
+backend preserves returned probabilities and choice/score confidence and reports
+aggregate token usage. Per-modality usage is omitted. Configure `max_retries`
+at provider or model level (default: 2); `0` disables retries. An optional `url`
+can point to a base URL, `/v1beta`, or the full `/v1beta/decisions` endpoint.
 
 
 #### AWS Bedrock

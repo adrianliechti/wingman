@@ -13,7 +13,7 @@ func TestDecisionInputValidation(t *testing.T) {
 		"empty choice":        {Questions: []DecisionQuestion{{Choice: &ChoiceQuestion{}}}},
 		"too many options":    {Questions: []DecisionQuestion{{Choice: &ChoiceQuestion{Options: make([]DecisionOption, 256)}}}},
 		"empty score levels":  {Questions: []DecisionQuestion{{Score: &ScoreQuestion{}}}},
-		"too many levels":     {Questions: []DecisionQuestion{{Score: &ScoreQuestion{Levels: make([]any, 11)}}}},
+		"too many levels":     {Questions: []DecisionQuestion{{Score: &ScoreQuestion{Levels: make([]any, 256)}}}},
 		"duplicate score val": {Questions: []DecisionQuestion{{Score: &ScoreQuestion{Levels: []any{"a", "b"}, Values: []int{1, 1}}}}},
 		"empty message file":  {Messages: []Message{{Role: MessageRoleUser, Content: []Content{{File: &File{}}}}}, Questions: []DecisionQuestion{{Noul: &NoulQuestion{}}}},
 		"invalid state":       {State: map[string]any{"bad": make(chan int)}, Questions: []DecisionQuestion{{Noul: &NoulQuestion{}}}},

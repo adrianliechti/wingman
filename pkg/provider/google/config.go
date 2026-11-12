@@ -15,9 +15,15 @@ type Config struct {
 
 	client          *http.Client
 	affectiveDialog bool
+	maxRetries      int
 }
 
 type Option func(*Config)
+
+// WithMaxRetries sets the retry limit for Decisions API requests.
+func WithMaxRetries(retries int) Option {
+	return func(c *Config) { c.maxRetries = max(0, retries) }
+}
 
 func WithClient(client *http.Client) Option {
 	return func(c *Config) {

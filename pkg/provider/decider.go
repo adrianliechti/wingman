@@ -191,8 +191,8 @@ func (q DecisionQuestion) validate() error {
 		if q.Score.Values != nil && len(q.Score.Values) != len(q.Score.Levels) {
 			return errors.New("score values must match the level count")
 		}
-		if len(q.Score.Levels) < 1 || len(q.Score.Levels) > 10 {
-			return errors.New("score requires 1 to 10 levels")
+		if len(q.Score.Levels) < 1 || len(q.Score.Levels) > 255 {
+			return errors.New("score requires 1 to 255 levels")
 		}
 		seenValues := make(map[int]bool, len(q.Score.Values))
 		for _, v := range q.Score.Values {

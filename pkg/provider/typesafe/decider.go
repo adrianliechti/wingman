@@ -207,6 +207,9 @@ func (d *Decider) Decide(ctx context.Context, input *provider.DecisionInput) (*p
 			}
 			question.Criteria = criteria
 		case q.Score != nil:
+			if len(q.Score.Levels) > 10 {
+				return nil, provider.InvalidRequest(errors.New("TypeSafe score questions support at most 10 levels"))
+			}
 			question.Type = "score"
 			levels := make([]any, len(q.Score.Levels))
 			for i, v := range q.Score.Levels {

@@ -8,6 +8,7 @@ func TestDetectDecisionModels(t *testing.T) {
 		want ModelType
 	}{
 		{"microsoft-decision-1", ModelTypeDecider},
+		{"gemini-decision-1", ModelTypeDecider},
 		{"MICROSOFT-DECISION-1", ModelTypeDecider},
 		{"custom-decider", ModelTypeDecider},
 		{"typesafe-jev", ModelTypeDecider},

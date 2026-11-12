@@ -83,7 +83,7 @@ func (d *Decider) convertDecisionRequest(input *provider.DecisionInput) (*openai
 			}
 			req.Questions = append(req.Questions, openai.DecisionNewParamsQuestionUnion{OfChoice: question})
 		case q.Score != nil:
-			if len(q.Score.Levels) < 2 {
+			if len(q.Score.Levels) < 2 || len(q.Score.Levels) > 10 {
 				return nil, &provider.ProviderError{Code: 400, Message: "OpenAI score questions require 2 to 10 levels"}
 			}
 			instr, err := convertScoreInstructions(q)

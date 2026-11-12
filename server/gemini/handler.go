@@ -25,6 +25,7 @@ func New(cfg *config.Config) *Handler {
 }
 
 func (h *Handler) Attach(r chi.Router) {
+	r.Post("/decisions", h.handleDecisions)
 	r.Post("/models/{model}:generateContent", h.handleGenerateContent)
 	r.Post("/models/{model}:streamGenerateContent", h.handleStreamGenerateContent)
 	r.Post("/models/{model}:countTokens", h.handleCountTokens)
