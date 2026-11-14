@@ -33,7 +33,8 @@ func (p *realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 		return nil, err
 	}
 	s := &realtimeSession{RealtimeSession: session, reporter: p.reporter, ctx: ctx, session: r,
-		events: make(chan provider.RealtimeEvent, 16), denied: make(chan error, 1), stop: make(chan struct{}), done: make(chan struct{})}
+		transcriptionOnly: p.Realtime.RealtimeCapabilities().TranscriptionOnly,
+		events:            make(chan provider.RealtimeEvent, 16), denied: make(chan error, 1), stop: make(chan struct{}), done: make(chan struct{})}
 	go s.relay()
 	return s, nil
 }
@@ -41,15 +42,16 @@ func (p *realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 type realtimeSession struct {
 	provider.RealtimeSession
 	reporter
-	ctx        context.Context
-	session    *Report // nil for system work; holds the session's identity
-	events     chan provider.RealtimeEvent
-	denied     chan error
-	checking   bool
-	reported   bool
-	stop, done chan struct{}
-	closeOnce  sync.Once
-	closeErr   error
+	ctx               context.Context
+	session           *Report // nil for system work; holds the session's identity
+	events            chan provider.RealtimeEvent
+	denied            chan error
+	checking          bool
+	reported          bool
+	stop, done        chan struct{}
+	closeOnce         sync.Once
+	closeErr          error
+	transcriptionOnly bool
 }
 
 func (s *realtimeSession) Events() <-chan provider.RealtimeEvent { return s.events }
@@ -128,6 +130,14 @@ func (s *realtimeSession) relay() {
 		case event, ok := <-s.RealtimeSession.Events():
 			if !ok {
 				return
+			}
+			// Dedicated transcription sessions have no response.done. Their ASR
+			// usage belongs to this model; auxiliary transcription in a conversation
+			// must not be charged at the conversational model's token prices.
+			if s.transcriptionOnly && event.Type == provider.RealtimeEventContentDone && event.TranscriptionUsage != nil {
+				// Duration-only usage has no token counts in the budget contract.
+				s.report(event.TranscriptionUsage.Tokens)
+				s.recheck()
 			}
 			if u := event.Usage; u != nil {
 				if event.ResponseID == "" {

@@ -208,6 +208,12 @@ func TestGeminiSetupMapsTranscriptionAndVAD(t *testing.T) {
 		t.Errorf("endOfSpeechSensitivity = %v", got)
 	}
 
+	options.InputTranscription = &provider.RealtimeTranscription{Languages: []string{"de-CH", "en-US"}}
+	several := geminiSetup("gemini-3.1-flash-live-preview", options)["setup"].(map[string]any)
+	if languages := several["inputAudioTranscription"].(map[string]any)["languageCodes"].([]string); len(languages) != 2 || languages[1] != "en-US" {
+		t.Fatalf("input transcription languages = %#v, want de-CH and en-US", languages)
+	}
+
 	options.TurnDetection = nil
 	manual := geminiSetup("gemini-3.1-flash-live-preview", options)["setup"].(map[string]any)
 	manualDetection := manual["realtimeInputConfig"].(map[string]any)["automaticActivityDetection"].(map[string]any)
@@ -550,7 +556,7 @@ func TestGeminiLiveToolNumbers(t *testing.T) {
 	case message := <-messages:
 		responses := message["toolResponse"].(map[string]any)["functionResponses"].([]any)
 		result := responses[0].(map[string]any)["response"].(map[string]any)["result"]
-		data, err := json.Marshal(result)
+		data, err := json.Marshal(result, json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -43,7 +43,7 @@ func TestSystemOneHTTP(t *testing.T) {
 	if harness.ConfiguredModels(ep.BaseURL, ep.APIKey) == nil {
 		t.Skip("wingman not reachable — start it with task server")
 	}
-	for _, model := range []string{"nimble", "jev-1.13"} {
+	for _, model := range []string{"nimble", "jev-1.14"} {
 		t.Run(model, func(t *testing.T) {
 			harness.SkipUnlessConfigured(t, ep.BaseURL, ep.APIKey, model)
 			levels := []string{"Can wait for the next release", "Should be fixed this week", "Blocking revenue right now"}

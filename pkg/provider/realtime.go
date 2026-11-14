@@ -39,6 +39,11 @@ type RealtimeSession interface {
 // between stateful providers. Wire adapters can use it to avoid inventing
 // acknowledgements that a provider will emit itself.
 type RealtimeCapabilities struct {
+	// Dedicated transcription and translation models cannot be selected as the
+	// default conversational model, even when registered under an arbitrary alias.
+	TranscriptionOnly bool
+	TranslationOnly   bool
+
 	SessionUpdates      bool
 	AudioBufferClearing bool
 	ResponseRequests    bool
@@ -55,6 +60,8 @@ func UnsupportedRealtimeOperation(operation string) error {
 type RealtimeOptions struct {
 	Instructions string
 	Voice        string
+
+	OutputLanguage string
 
 	InputAudio  RealtimeAudioFormat
 	OutputAudio RealtimeAudioFormat
@@ -106,9 +113,11 @@ const (
 )
 
 type RealtimeTranscription struct {
-	Model    string
-	Language string
-	Prompt   string
+	Model     string
+	Language  string
+	Languages []string
+	Prompt    string
+	Delay     string
 }
 
 type RealtimeNoiseReduction string
@@ -201,6 +210,11 @@ type RealtimeEvent struct {
 	Usage      *RealtimeUsage
 	RateLimits []RealtimeRateLimit
 
+	// TranscriptionUsage is separate from generation usage: an auxiliary ASR
+	// model may be billed independently of the conversational model. Providers
+	// that report only aggregate usage should leave this nil.
+	TranscriptionUsage *RealtimeTranscriptionUsage
+
 	AudioStart time.Duration
 	AudioEnd   time.Duration
 
@@ -246,4 +260,11 @@ type RealtimeUsage struct {
 
 	OutputTextTokens  int
 	OutputAudioTokens int
+}
+
+// RealtimeTranscriptionUsage describes one completed transcription. Exactly one
+// field is set when usage is known; neither is set when the provider omitted it.
+type RealtimeTranscriptionUsage struct {
+	Tokens        *RealtimeUsage
+	AudioDuration *time.Duration
 }

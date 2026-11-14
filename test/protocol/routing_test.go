@@ -25,7 +25,7 @@ func TestAuthenticationOnPublicRoutes(t *testing.T) {
 	}
 	local := configuredGateway(t, &config.Config{Policy: noop.New(), Authorizers: []auth.Provider{authorizer}})
 	routes := map[string][]string{
-		http.MethodGet: {"/v1/models", "/v1/models/model", "/v1/realtime?model=model", "/v1/token", "/v1/mcp", "/v1/mcp/test/icon", "/v1/mcp/test/events"},
+		http.MethodGet: {"/v1/models", "/v1/models/model", "/v1/realtime?model=model", "/v1/realtime/translations?model=model", "/v1/token", "/v1/mcp", "/v1/mcp/test/icon", "/v1/mcp/test/events"},
 		http.MethodPost: {
 			"/v1/chat/completions", "/v1/responses", "/v1/responses/input_tokens", "/v1/decisions", "/v1/embeddings",
 			"/v1/audio/speech", "/v1/audio/transcriptions", "/v1/images/generations", "/v1/images/edits",

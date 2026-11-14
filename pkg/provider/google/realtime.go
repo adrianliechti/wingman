@@ -94,6 +94,7 @@ func (r *Realtime) Defaults() provider.RealtimeOptions {
 
 func (r *Realtime) RealtimeCapabilities() provider.RealtimeCapabilities {
 	return provider.RealtimeCapabilities{
+		TranscriptionOnly: matchesModel(r.model, LiveTranscriptionModels),
 		// Gemini reports automatic and manually-signaled activity using native
 		// voiceActivity messages.
 		InputActivityEvents: true,
@@ -346,8 +347,12 @@ func geminiSetup(model string, options provider.RealtimeOptions) map[string]any 
 	setup["realtimeInputConfig"] = geminiRealtimeInputConfig(options.TurnDetection)
 	if options.InputTranscription != nil {
 		transcription := map[string]any{}
+		languages := options.InputTranscription.Languages
 		if language := strings.TrimSpace(options.InputTranscription.Language); language != "" {
-			transcription["languageCodes"] = []string{language}
+			languages = []string{language}
+		}
+		if len(languages) > 0 {
+			transcription["languageCodes"] = languages
 		}
 		setup["inputAudioTranscription"] = transcription
 	}

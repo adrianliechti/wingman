@@ -62,6 +62,41 @@ type responseState struct {
 }
 
 func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error {
+	if s.config.Type == sessionTypeTranslation {
+		switch event.Type {
+		case provider.RealtimeEventAudioDelta:
+			return s.write(map[string]any{
+				"type": "session.output_audio.delta", "delta": base64.StdEncoding.EncodeToString(event.Audio),
+				"format": "pcm16", "sample_rate": 24000, "channels": 1,
+				"elapsed_ms": event.AudioEnd.Milliseconds(),
+			})
+
+		case provider.RealtimeEventTextDelta:
+			eventType := "session.output_transcript.delta"
+			if event.Role == provider.MessageRoleUser {
+				eventType = "session.input_transcript.delta"
+			}
+			return s.write(map[string]any{
+				"type": eventType, "delta": event.Text, "elapsed_ms": event.AudioEnd.Milliseconds(),
+			})
+
+		case provider.RealtimeEventResponseDone:
+			s.done = true
+			return s.write(map[string]any{"type": "session.closed"})
+		}
+	}
+
+	if s.transcribing() {
+		switch event.Type {
+		case provider.RealtimeEventContentStarted, provider.RealtimeEventTextDelta, provider.RealtimeEventContentDone:
+			return s.handleTranscript(event)
+
+		case provider.RealtimeEventResponseStarted, provider.RealtimeEventAudioDelta, provider.RealtimeEventToolCall,
+			provider.RealtimeEventUsage, provider.RealtimeEventInterrupted, provider.RealtimeEventResponseDone:
+			return nil
+		}
+	}
+
 	switch event.Type {
 	case provider.RealtimeEventResponseStarted:
 		return s.startResponse(event.ResponseID)
@@ -240,6 +275,66 @@ func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error 
 		}
 
 		return s.writeTypedError(clientEventID, errorType, code, message, param)
+	}
+
+	return nil
+}
+
+// Deltas can precede the commit, which is what announces the item.
+func (s *openAISession) handleTranscript(event provider.RealtimeEvent) error {
+	switch event.Type {
+	case provider.RealtimeEventContentStarted:
+		if event.Role != provider.MessageRoleUser {
+			return nil
+		}
+		// Gemini reuses one item id for every turn.
+		itemID := event.ItemID
+		if itemID == "" || s.transcribed[itemID] {
+			itemID = newID("item")
+		}
+		s.contents[event.ContentID] = &contentState{typeName: event.ContentType, role: event.Role, itemID: itemID}
+		return nil
+
+	case provider.RealtimeEventTextDelta:
+		state := s.contents[event.ContentID]
+		if state == nil || event.Text == "" {
+			return nil
+		}
+		state.text.WriteString(event.Text)
+		return s.write(map[string]any{
+			"type":    "conversation.item.input_audio_transcription.delta",
+			"item_id": state.itemID, "content_index": 0, "delta": event.Text,
+		})
+
+	case provider.RealtimeEventContentDone:
+		state := s.contents[event.ContentID]
+		if state == nil {
+			return nil
+		}
+		delete(s.contents, event.ContentID)
+		s.transcribed[state.itemID] = true
+
+		// Gemini's live transcriber reports no commit.
+		if !s.itemStarted[state.itemID] {
+			if err := s.write(map[string]any{
+				"type": "input_audio_buffer.committed", "item_id": state.itemID, "previous_item_id": nil,
+			}); err != nil {
+				return err
+			}
+			if err := s.writeConversationItem(inputAudioItem(state.itemID, "completed", ""), ""); err != nil {
+				return err
+			}
+		}
+
+		transcript := state.text.String()
+		if event.Text != "" {
+			transcript = event.Text
+		}
+		return s.write(map[string]any{
+			"type":    "conversation.item.input_audio_transcription.completed",
+			"item_id": state.itemID, "content_index": 0, "transcript": transcript,
+			"usage": transcriptionUsageObject(event.TranscriptionUsage),
+		})
 	}
 
 	return nil
@@ -533,11 +628,14 @@ func (s *openAISession) finishContent(event provider.RealtimeEvent) error {
 
 	if state.role == provider.MessageRoleUser {
 		transcript := state.text.String()
+		if event.Text != "" {
+			transcript = event.Text
+		}
 		if s.config.Transcription != nil {
 			if err := s.write(map[string]any{
 				"type":    "conversation.item.input_audio_transcription.completed",
 				"item_id": state.itemID, "content_index": 0, "transcript": transcript,
-				"usage": map[string]any{"type": "tokens", "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+				"usage": transcriptionUsageObject(event.TranscriptionUsage),
 			}); err != nil {
 				return err
 			}
@@ -704,6 +802,23 @@ func inputAudioItem(id, status, transcript string) map[string]any {
 		"id": id, "object": "realtime.item", "type": "message", "status": status,
 		"role": "user", "content": []map[string]any{{"type": "input_audio", "transcript": transcript}},
 	}
+}
+
+func transcriptionUsageObject(usage *provider.RealtimeTranscriptionUsage) any {
+	if usage == nil {
+		return nil
+	}
+	if usage.AudioDuration != nil {
+		return map[string]any{"type": "duration", "seconds": usage.AudioDuration.Seconds()}
+	}
+	if tokens := usage.Tokens; tokens != nil {
+		return map[string]any{
+			"type": "tokens", "input_tokens": tokens.InputTokens, "output_tokens": tokens.OutputTokens,
+			"total_tokens":        tokens.InputTokens + tokens.OutputTokens,
+			"input_token_details": map[string]any{"text_tokens": tokens.InputTextTokens, "audio_tokens": tokens.InputAudioTokens},
+		}
+	}
+	return nil
 }
 
 func usageObject(usage *provider.RealtimeUsage) any {

@@ -269,39 +269,23 @@ use an Exa searcher, or an Exa client can use a Tavily scraper. See
 [Web retrieval compatibility](API.md#web-retrieval-compatibility) for supported
 options, SDK examples, and live cross-provider tests.
 
-`POST /v1/systemone` accepts TypeSafe state and typed questions using a native
-`typesafe` provider or an explicitly enabled completion or embedding adapter. TypeSafe SDKs
-can point their base URL at Wingman and use a configured Wingman model.
+`POST /v1/systemone` accepts TypeSafe state and typed questions using a
+configured decision model. TypeSafe SDKs can point their base URL at Wingman and
+use a configured Wingman model.
 See [System One](API.md#system-one) for the request format and response fields.
 
 `POST /v1/decisions` accepts OpenAI's ordered predicate, choice, and score
-questions. Configure an OpenAI model with `type: decider` to call the native
-Decisions API. To adapt an existing completion or embedding model, add an alias:
-
-```yaml
-deciders:
-  gpt-6-luna:
-    model: gpt-6-luna
-    effort: low  # optional, completion adapters only
-```
-
-The same name continues to work for completions. A different alias name also
-works, and embedding models use the same configuration. Adapters require this
-explicit opt-in; other completion and embedding models cannot serve decisions.
+questions. Under the `openai` provider, `gpt-6-luna` serves OpenAI's Decisions
+API as well as completions; give a model `type: decider` to use it for decisions
+only. Other completion and embedding models cannot serve decisions.
 `POST /v1beta/decisions` accepts Gemini's shared multimodal input and named
 `noul`, `choice`, and `score` questions. Add `gemini-decision-1` to a `gemini`
 or `google` provider to use Google's native Decisions API. It also serves the
 other decision endpoints within the selected backend's input limits.
 See [Gemini Decisions](API.md#gemini-decisions).
 
-When `model` is omitted on any decision endpoint, the first native decider in
-configuration order takes priority, followed by the first `deciders` alias.
-See [Decisions](API.md#decisions).
-
-Omitting `effort` preserves the adapter's disabled reasoning request. Supported
-values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`, subject
-to the underlying model's support. Verbosity stays unset because the adapter
-returns a fixed schema of probabilities.
+When `model` is omitted on any decision endpoint, the first decision model in
+configuration order is used. See [Decisions](API.md#decisions).
 
 
 ## Integrations & Configuration
@@ -311,6 +295,31 @@ returns a fixed schema of probabilities.
 Wingman uses each model's default sampling behavior. Temperature, top-p, and
 top-k are not configurable through provider options, agent configuration, or API
 requests. Use reasoning effort to control reasoning where the model supports it.
+
+Each model is served through the API its type selects: `completer`, `embedder`,
+`reranker`, `renderer`, `synthesizer`, `transcriber`, `realtime`, or `decider`.
+Wingman detects the type from the model name. Set `type` in the model mapping to
+override it; `type` takes one type or a list when a model serves several APIs:
+
+```yaml
+    models:
+      local-whisper:
+        id: whisper-large-v3
+        type: [transcriber, realtime]
+```
+
+Under the `openai` provider, file transcription models such as `gpt-transcribe`
+and `whisper-1` are detected as both `transcriber` and `realtime`, so they also
+work as the model of a realtime transcription session
+(`/v1/realtime?intent=transcription`). Likewise `gpt-6-luna` is detected as both
+`completer` and `decider`. An explicit single `type` keeps such a model to that
+one API.
+
+In realtime transcription sessions, select the model with `session.update`
+before sending audio. Once audio starts, changing the model requires a new
+WebSocket session so pending transcripts and usage can finish on the original
+stream. Dedicated transcription and translation models never become the
+default conversational model, including when configured under an alias.
 
 #### OpenAI Platform
 
@@ -431,12 +440,19 @@ signatures are replayed as execution steps. Tool results can carry images,
 documents, audio, and video; PDF, CSV, Office, and OpenDocument files are sent
 as documents. Reasoning effort maps to thinking
 levels: `minimal`, `low`, and disabled thinking use `low`, `medium` stays `medium`, and
-`high`, `xhigh`, and `max` use `high`. Omitted effort keeps the model default.
+`high` stays `high`. Gemini 4 Hydrogen preserves `xhigh` and maps `max` to
+`xhigh`; other models map both to `high`. Omitted effort keeps the model default.
 Sampling parameters are omitted, following the current
 [Gemini migration guidance](https://ai.google.dev/gemini-api/docs/latest-model#migration-checklist).
 Embeddings, image rendering, transcription, speech synthesis, and Live
 realtime retain their dedicated integrations. Image rendering, transcription,
 and speech synthesis use `generateContent` and also send `store=false`.
+
+[Gemini 4 Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen)
+uses `gemini-4-hydrogen`, defaults to `high` thinking, and supports `low`, `medium`,
+`high`, and `xhigh`. Input, thinking, and output share a 1,048,576-token window;
+synchronous output supports up to 65,536 tokens. Longer output requires long
+decode, which this integration does not enable.
 
 To compare Interactions against `generateContent` with real API calls, run
 `WINGMAN_GOOGLE_LIVE=1 go test -v ./pkg/provider/google -run TestComplete_LiveComparison -count=1`.
@@ -456,10 +472,12 @@ providers:
     #   - id: {gemini api model name}
     models:
       - gemini-4-carbon
+      - gemini-4-hydrogen
       - gemini-3.8-flash
       - gemini-3.8-flash-tts
       - gemini-3.5-transcribe
       - gemini-nano-banana-2.1
+      - gemini-3.1-flash-lite-image
       - gemini-omni-1.2-flash # video renderer
       - gemini-embedding-2
       - gemini-decision-1 # native decisions, detected automatically
@@ -623,7 +641,7 @@ The `typesafe` provider calls a native decision API and preserves its returned
 probabilities, confidence, model, and token usage. `url` is the complete evaluation
 endpoint; it defaults to `https://api.typesafe.ai/v1/systemone`.
 Models under this provider default to the `decider` role.
-Model names containing `decider`, `decision`, or `jev` are also detected as native deciders
+Model names containing `decider`, `decision`, or `jev` are also detected as deciders
 by the automatic model type matcher. An explicit model `type` takes precedence;
 the provider type still determines the upstream API protocol.
 
@@ -644,9 +662,8 @@ providers:
 
 The local endpoint must implement the System One API. To use TypeSafe's hosted
 API, omit `url`, set `token: ${TYPESAFE_API_KEY}`, and configure `jev-latest`.
-Native decision models and adapter aliases are listed in `/v1/models` and used
-through `/v1/systemone` or `/v1/decisions`. Native providers support `max_retries`
-at provider or model level.
+Decision models are listed in `/v1/models` and used through `/v1/systemone` or
+`/v1/decisions`. They support `max_retries` at provider or model level.
 
 > **Provider interfaces.** Each model serves one of seven roles, inferred from its `type` or set explicitly per model: **completer** (chat/reason), **decider** (typed decisions), **embedder** (vectors), **renderer** (text→image), **synthesizer** (text→speech), **transcriber** (speech→text), **reranker** (relevance). See [`docs/architecture.png`](docs/architecture.png) for the interface × backend matrix.
 

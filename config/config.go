@@ -151,10 +151,6 @@ func Parse(path string) (*Config, error) {
 		return nil, err
 	}
 
-	if err := c.registerDeciders(file); err != nil {
-		return nil, err
-	}
-
 	if err := c.registerMCP(file); err != nil {
 		return nil, err
 	}
@@ -170,7 +166,6 @@ type configFile struct {
 	Budget *budgetConfig `yaml:"budget"`
 
 	Providers []providerConfig `yaml:"providers"`
-	Deciders  yaml.Node        `yaml:"deciders"`
 
 	Extractors  yaml.Node `yaml:"extractors"`
 	Segmenters  yaml.Node `yaml:"segmenters"`

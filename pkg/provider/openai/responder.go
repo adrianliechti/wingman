@@ -612,11 +612,10 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 
 		Input: input,
 		Tools: tools,
-
-		Truncation: responses.ResponseNewParamsTruncationAuto,
 	}
-	if hasConfigurationUpdate {
-		req.Truncation = responses.ResponseNewParamsTruncationDisabled
+
+	if truncation := options.TruncationOptions; truncation != nil {
+		req.Truncation = responses.ResponseNewParamsTruncation(truncation.Mode)
 	}
 
 	if cache := options.CacheOptions; cache != nil {

@@ -55,14 +55,14 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 
 	case "llama":
 		cfg.URL = normalizeURL(cfg.URL, "/v1")
-		return openaiCompleter(cfg, model, true)
+		return openaiCompleter(cfg, model, false)
 
 	case "mistral":
 		if cfg.URL == "" {
 			cfg.URL = "https://api.mistral.ai/v1/"
 		}
 
-		return openaiCompleter(cfg, model, true)
+		return openaiCompleter(cfg, model, false)
 
 	case "ollama":
 		if cfg.URL == "" {
@@ -70,17 +70,17 @@ func createCompleter(cfg providerConfig, model modelContext) (provider.Completer
 		}
 
 		cfg.URL = normalizeURL(cfg.URL, "/v1")
-		return openaiCompleter(cfg, model, true)
+		return openaiCompleter(cfg, model, false)
 
 	case "nim", "nvidia":
-		return openaiCompleter(cfg, model, true)
+		return openaiCompleter(cfg, model, false)
 
 	case "openrouter":
 		if cfg.URL == "" {
 			cfg.URL = "https://openrouter.ai/api/v1"
 		}
 
-		return openaiCompleter(cfg, model, true)
+		return openaiCompleter(cfg, model, false)
 
 	case "openai":
 		return openaiCompleter(cfg, model, false)

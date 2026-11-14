@@ -49,16 +49,22 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				m.ID = id
 			}
 
-			if m.Type == "" && strings.EqualFold(p.Type, "typesafe") {
-				m.Type = ModelTypeDecider
+			types := []ModelType(m.Type)
+
+			if len(types) == 0 && strings.EqualFold(p.Type, "typesafe") {
+				types = []ModelType{ModelTypeDecider}
 			}
 
-			if m.Type == "" {
-				m.Type = DetectModelType(m.ID)
+			if len(types) == 0 {
+				types = detectModelTypes(p.Type, m.ID)
 			}
 
-			if m.Type == "" {
-				m.Type = DetectModelType(id)
+			if len(types) == 0 {
+				types = detectModelTypes(p.Type, id)
+			}
+
+			if len(types) == 0 {
+				return errors.New("invalid model type: " + id)
 			}
 
 			maxRetries := m.MaxRetries
@@ -69,8 +75,6 @@ func (cfg *Config) registerProviders(f *configFile) error {
 
 			context := modelContext{
 				ID: m.ID,
-
-				Type: m.Type,
 
 				Name:        m.Name,
 				Description: m.Description,
@@ -88,145 +92,147 @@ func (cfg *Config) registerProviders(f *configFile) error {
 				context.Client = client
 			}
 
-			switch context.Type {
-			case ModelTypeDecider:
-				decider, err := createDecider(p, context)
-				if err != nil {
-					return err
+			for _, modelType := range types {
+				switch modelType {
+				case ModelTypeDecider:
+					decider, err := createDecider(p, context)
+					if err != nil {
+						return err
+					}
+					if cfg.Budget != nil {
+						decider = budget.NewDecider(p.Type, m.ID, decider, cfg.Budget)
+					}
+					if _, ok := decider.(otel.Decider); !ok {
+						decider = otel.NewDecider(p.Type, m.ID, decider)
+					}
+					cfg.RegisterDecider(id, decider)
+
+				case ModelTypeCompleter:
+					completer, err := createCompleter(p, context)
+
+					if err != nil {
+						return err
+					}
+
+					if cfg.Budget != nil {
+						completer = budget.NewCompleter(p.Type, m.ID, completer, cfg.Budget)
+					}
+
+					if p.ReasoningSignatures != nil && !*p.ReasoningSignatures {
+						completer = signatures.FromCompleter(completer)
+					} else {
+						// signatures only replay into the model that produced them
+						completer = signatures.ScopedTo(id, completer)
+					}
+
+					if _, ok := completer.(otel.Completer); !ok {
+						completer = otel.NewCompleter(p.Type, m.ID, completer)
+					}
+
+					cfg.RegisterCompleter(id, completer)
+					cfg.RegisterReranker(id, reranker.FromCompleter(id, completer))
+
+				case ModelTypeEmbedder:
+					embedder, err := createEmbedder(p, context)
+
+					if err != nil {
+						return err
+					}
+
+					if cfg.Budget != nil {
+						embedder = budget.NewEmbedder(p.Type, m.ID, embedder, cfg.Budget)
+					}
+
+					if _, ok := embedder.(otel.Embedder); !ok {
+						embedder = otel.NewEmbedder(p.Type, m.ID, embedder)
+					}
+
+					cfg.RegisterEmbedder(id, embedder)
+					cfg.RegisterReranker(id, reranker.FromEmbedder(id, embedder))
+
+				case ModelTypeReranker:
+					reranker, err := createReranker(p, context)
+
+					if err != nil {
+						return err
+					}
+
+					if cfg.Budget != nil {
+						reranker = budget.NewReranker(p.Type, m.ID, reranker, cfg.Budget)
+					}
+					if _, ok := reranker.(otel.Reranker); !ok {
+						reranker = otel.NewReranker(p.Type, m.ID, reranker)
+					}
+
+					cfg.RegisterReranker(id, reranker)
+
+					if firstReranker == nil {
+						firstReranker = reranker
+					}
+
+				case ModelTypeRealtime:
+					realtime, err := createRealtime(p, context)
+
+					if err != nil {
+						return err
+					}
+
+					if cfg.Budget != nil {
+						realtime = budget.NewRealtime(p.Type, m.ID, realtime, cfg.Budget)
+					}
+					cfg.RegisterRealtime(id, realtime)
+
+				case ModelTypeRenderer:
+					renderer, err := createRenderer(p, context)
+
+					if err != nil {
+						return err
+					}
+
+					if cfg.Budget != nil {
+						renderer = budget.NewRenderer(p.Type, m.ID, renderer, cfg.Budget)
+					}
+					if _, ok := renderer.(otel.Renderer); !ok {
+						renderer = otel.NewRenderer(p.Type, m.ID, renderer)
+					}
+
+					cfg.RegisterRenderer(id, renderer)
+
+				case ModelTypeSynthesizer:
+					synthesizer, err := createSynthesizer(p, context)
+
+					if err != nil {
+						return err
+					}
+
+					if cfg.Budget != nil {
+						synthesizer = budget.NewSynthesizer(p.Type, m.ID, synthesizer, cfg.Budget)
+					}
+					if _, ok := synthesizer.(otel.Synthesizer); !ok {
+						synthesizer = otel.NewSynthesizer(p.Type, m.ID, synthesizer)
+					}
+
+					cfg.RegisterSynthesizer(id, synthesizer)
+
+				case ModelTypeTranscriber:
+					transcriber, err := createTranscriber(p, context)
+
+					if err != nil {
+						return err
+					}
+
+					if cfg.Budget != nil {
+						transcriber = budget.NewTranscriber(p.Type, m.ID, transcriber, cfg.Budget)
+					}
+					if _, ok := transcriber.(otel.Transcriber); !ok {
+						transcriber = otel.NewTranscriber(p.Type, m.ID, transcriber)
+					}
+
+					cfg.RegisterTranscriber(id, transcriber)
+
+				default:
+					return errors.New("invalid model type: " + id)
 				}
-				if cfg.Budget != nil {
-					decider = budget.NewDecider(p.Type, m.ID, decider, cfg.Budget)
-				}
-				if _, ok := decider.(otel.Decider); !ok {
-					decider = otel.NewDecider(p.Type, m.ID, decider)
-				}
-				cfg.RegisterDecider(id, decider)
-
-			case ModelTypeCompleter:
-				completer, err := createCompleter(p, context)
-
-				if err != nil {
-					return err
-				}
-
-				if cfg.Budget != nil {
-					completer = budget.NewCompleter(p.Type, m.ID, completer, cfg.Budget)
-				}
-
-				if p.ReasoningSignatures != nil && !*p.ReasoningSignatures {
-					completer = signatures.FromCompleter(completer)
-				} else {
-					// signatures only replay into the model that produced them
-					completer = signatures.ScopedTo(id, completer)
-				}
-
-				if _, ok := completer.(otel.Completer); !ok {
-					completer = otel.NewCompleter(p.Type, m.ID, completer)
-				}
-
-				cfg.RegisterCompleter(id, completer)
-				cfg.RegisterReranker(id, reranker.FromCompleter(id, completer))
-
-			case ModelTypeEmbedder:
-				embedder, err := createEmbedder(p, context)
-
-				if err != nil {
-					return err
-				}
-
-				if cfg.Budget != nil {
-					embedder = budget.NewEmbedder(p.Type, m.ID, embedder, cfg.Budget)
-				}
-
-				if _, ok := embedder.(otel.Embedder); !ok {
-					embedder = otel.NewEmbedder(p.Type, m.ID, embedder)
-				}
-
-				cfg.RegisterEmbedder(id, embedder)
-				cfg.RegisterReranker(id, reranker.FromEmbedder(id, embedder))
-
-			case ModelTypeReranker:
-				reranker, err := createReranker(p, context)
-
-				if err != nil {
-					return err
-				}
-
-				if cfg.Budget != nil {
-					reranker = budget.NewReranker(p.Type, m.ID, reranker, cfg.Budget)
-				}
-				if _, ok := reranker.(otel.Reranker); !ok {
-					reranker = otel.NewReranker(p.Type, m.ID, reranker)
-				}
-
-				cfg.RegisterReranker(id, reranker)
-
-				if firstReranker == nil {
-					firstReranker = reranker
-				}
-
-			case ModelTypeRealtime:
-				realtime, err := createRealtime(p, context)
-
-				if err != nil {
-					return err
-				}
-
-				if cfg.Budget != nil {
-					realtime = budget.NewRealtime(p.Type, m.ID, realtime, cfg.Budget)
-				}
-				cfg.RegisterRealtime(id, realtime)
-
-			case ModelTypeRenderer:
-				renderer, err := createRenderer(p, context)
-
-				if err != nil {
-					return err
-				}
-
-				if cfg.Budget != nil {
-					renderer = budget.NewRenderer(p.Type, m.ID, renderer, cfg.Budget)
-				}
-				if _, ok := renderer.(otel.Renderer); !ok {
-					renderer = otel.NewRenderer(p.Type, m.ID, renderer)
-				}
-
-				cfg.RegisterRenderer(id, renderer)
-
-			case ModelTypeSynthesizer:
-				synthesizer, err := createSynthesizer(p, context)
-
-				if err != nil {
-					return err
-				}
-
-				if cfg.Budget != nil {
-					synthesizer = budget.NewSynthesizer(p.Type, m.ID, synthesizer, cfg.Budget)
-				}
-				if _, ok := synthesizer.(otel.Synthesizer); !ok {
-					synthesizer = otel.NewSynthesizer(p.Type, m.ID, synthesizer)
-				}
-
-				cfg.RegisterSynthesizer(id, synthesizer)
-
-			case ModelTypeTranscriber:
-				transcriber, err := createTranscriber(p, context)
-
-				if err != nil {
-					return err
-				}
-
-				if cfg.Budget != nil {
-					transcriber = budget.NewTranscriber(p.Type, m.ID, transcriber, cfg.Budget)
-				}
-				if _, ok := transcriber.(otel.Transcriber); !ok {
-					transcriber = otel.NewTranscriber(p.Type, m.ID, transcriber)
-				}
-
-				cfg.RegisterTranscriber(id, transcriber)
-
-			default:
-				return errors.New("invalid model type: " + id)
 			}
 		}
 	}

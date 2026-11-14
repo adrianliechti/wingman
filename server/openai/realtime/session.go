@@ -26,6 +26,8 @@ type openAISession struct {
 	capabilities provider.RealtimeCapabilities
 	model        string
 
+	resolve func(ctx context.Context, model string) (provider.Realtime, error)
+
 	id             string
 	conversationID string
 
@@ -55,6 +57,10 @@ type openAISession struct {
 	itemStarted  map[string]bool
 	itemDone     map[string]bool
 	itemPrevious map[string]string
+
+	transcribed map[string]bool
+
+	done bool
 }
 
 func newOpenAISession(conn *websocket.Conn, realtime provider.Realtime, model string) *openAISession {
@@ -76,6 +82,27 @@ func newOpenAISession(conn *websocket.Conn, realtime provider.Realtime, model st
 	}
 }
 
+func newTranscriptionSession(conn *websocket.Conn, resolve func(context.Context, string) (provider.Realtime, error)) *openAISession {
+	return &openAISession{
+		conn:    conn,
+		resolve: resolve,
+
+		id: newID("sess"),
+
+		config: newTranscriptionConfig(),
+
+		contents:     make(map[string]*contentState),
+		itemStarted:  make(map[string]bool),
+		itemDone:     make(map[string]bool),
+		itemPrevious: make(map[string]string),
+		transcribed:  make(map[string]bool),
+	}
+}
+
+func (s *openAISession) transcribing() bool {
+	return s.config.Type == sessionTypeTranscription
+}
+
 type readResult struct {
 	data []byte
 	err  error
@@ -88,13 +115,15 @@ func (s *openAISession) run(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.write(map[string]any{
-		"type": "conversation.created",
-		"conversation": map[string]any{
-			"id": s.conversationID, "object": "realtime.conversation",
-		},
-	}); err != nil {
-		return err
+	if s.config.Type == sessionTypeRealtime {
+		if err := s.write(map[string]any{
+			"type": "conversation.created",
+			"conversation": map[string]any{
+				"id": s.conversationID, "object": "realtime.conversation",
+			},
+		}); err != nil {
+			return err
+		}
 	}
 
 	reads := make(chan readResult)
@@ -106,7 +135,7 @@ func (s *openAISession) run(ctx context.Context) error {
 		}
 	}()
 
-	for {
+	for !s.done {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -141,6 +170,8 @@ func (s *openAISession) run(ctx context.Context) error {
 			}
 		}
 	}
+
+	return s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
 }
 
 func (s *openAISession) read(ctx context.Context, results chan<- readResult) {
@@ -166,6 +197,28 @@ func (s *openAISession) handleClientEvent(ctx context.Context, data []byte) erro
 	var event clientEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		return s.writeError("", "invalid_json", "Client event is not valid JSON", "")
+	}
+
+	if s.config.Type == sessionTypeTranslation {
+		switch event.Type {
+		case "session.update":
+		case "session.input_audio_buffer.append":
+			event.Type = "input_audio_buffer.append"
+		case "session.close":
+			return s.closeTranslation(ctx, event)
+		default:
+			return s.writeError(event.EventID, "invalid_request", fmt.Sprintf("unsupported client event type %q", event.Type), "type")
+		}
+	}
+
+	if s.transcribing() {
+		switch event.Type {
+		case "response.create":
+			return s.writeError(event.EventID, "response_create_for_transcription_session", "response.create received for transcription session", "")
+
+		case "response.cancel", "conversation.item.create", "conversation.item.truncate", "conversation.item.delete":
+			return s.writeError(event.EventID, "invalid_request", fmt.Sprintf("client event %q is not supported in a transcription session", event.Type), "type")
+		}
 	}
 
 	var err error
@@ -259,6 +312,26 @@ func (s *openAISession) updateSession(ctx context.Context, event clientEvent) er
 		return err
 	}
 
+	// The transcription model selects the provider.
+	if s.transcribing() && updated.Transcription != nil && updated.Transcription.Model != s.model {
+		// Providers have different commit, transcription and usage boundaries.
+		// Keep a started stream alive so late results cannot be discarded.
+		if s.upstream != nil {
+			return errors.New("cannot change the transcription model after audio has started; open a new session")
+		}
+		realtime, err := s.resolve(ctx, updated.Transcription.Model)
+		if err != nil {
+			return err
+		}
+		if !updated.turnDetectionSet {
+			updated.TurnDetection = cloneTurnDetection(realtime.Defaults().TurnDetection)
+		}
+
+		s.provider = realtime
+		s.capabilities = realtime.RealtimeCapabilities()
+		s.model = updated.Transcription.Model
+	}
+
 	if s.upstream != nil {
 		if !s.capabilities.SessionUpdates {
 			return provider.UnsupportedRealtimeOperation("session update after the provider stream has started")
@@ -290,7 +363,8 @@ func (s *openAISession) appendAudio(ctx context.Context, encoded string) error {
 		return errors.New("audio event exceeds the 15 MiB limit")
 	}
 
-	if s.config.TurnDetection == nil {
+	// Only a conversation holds manual turns back until the commit.
+	if s.config.Type == sessionTypeRealtime && s.config.TurnDetection == nil {
 		_, err := s.manualAudio.Write(audio)
 		return err
 	}
@@ -369,6 +443,18 @@ func (s *openAISession) commitAudio(ctx context.Context) error {
 
 	s.inputCommitted = true
 	s.turnAudioBytes = 0
+	return nil
+}
+
+func (s *openAISession) closeTranslation(ctx context.Context, event clientEvent) error {
+	if s.upstream == nil {
+		s.done = true
+		return s.write(map[string]any{"type": "session.closed"})
+	}
+
+	if err := s.upstream.CommitAudio(ctx); err != nil {
+		return s.writeError(event.EventID, "invalid_request", err.Error(), "type")
+	}
 	return nil
 }
 
@@ -506,7 +592,7 @@ func (s *openAISession) forgetItem(itemID string) {
 func (s *openAISession) createResponse(ctx context.Context, data jsontext.Value) error {
 	var nextOutputModalities []string
 	var nextResponseMetadata map[string]string
-	if len(data) > 0 && string(data) != "null" && string(data) != "{}" {
+	if len(data) > 0 && data.Kind() != 'n' {
 		var fields map[string]jsontext.Value
 		if err := json.Unmarshal(data, &fields); err != nil {
 			return errors.New("response configuration is invalid")
@@ -574,6 +660,10 @@ func (s *openAISession) createResponse(ctx context.Context, data jsontext.Value)
 func (s *openAISession) ensureProvider(ctx context.Context, history []provider.Message) error {
 	if s.upstream != nil {
 		return nil
+	}
+
+	if s.transcribing() && s.config.Transcription == nil {
+		return errors.New("session.audio.input.transcription.model must be set before audio is sent")
 	}
 
 	options := s.config.options(history)

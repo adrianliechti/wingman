@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -17,22 +18,23 @@ import (
 	"github.com/adrianliechti/wingman/pkg/policy"
 	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/adapter/decider"
 	"github.com/adrianliechti/wingman/server"
 )
 
-type decisionCompleter struct {
-	output   string
-	err      error
-	calls    int
-	prompt   string
-	messages []provider.Message
+// decisionBackend serves "chat" as a completion model and as a decider that
+// answers every question with one configured option.
+type decisionBackend struct {
+	output string
+	err    error
+	calls  int
+	input  *provider.DecisionInput
+
+	noul float64
+	pick int
 }
 
-func (p *decisionCompleter) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+func (p *decisionBackend) Complete(ctx context.Context, messages []provider.Message, options *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
 	p.calls++
-	p.messages = messages
-	p.prompt = messages[len(messages)-1].Text()
 	return func(yield func(*provider.Completion, error) bool) {
 		if p.err != nil {
 			yield(nil, p.err)
@@ -43,10 +45,50 @@ func (p *decisionCompleter) Complete(ctx context.Context, messages []provider.Me
 	}
 }
 
-type decisionEmbedder struct{}
-
-func (decisionEmbedder) Embed(context.Context, []string, *provider.EmbedOptions) (*provider.Embedding, error) {
-	return &provider.Embedding{Model: "embedding-model", Embeddings: [][]float32{{1, 0}, {1, 0}, {0, 1}}}, nil
+func (p *decisionBackend) Decide(_ context.Context, input *provider.DecisionInput) (*provider.Decision, error) {
+	p.calls++
+	p.input = input
+	if p.err != nil {
+		return nil, p.err
+	}
+	decision := &provider.Decision{Model: "actual-model", Usage: &provider.Usage{InputTokens: 50, OutputTokens: 20}}
+	for _, q := range input.Questions {
+		answer := provider.DecisionAnswer{ID: q.ID}
+		switch {
+		case q.Noul != nil:
+			answer.Noul = &provider.NoulAnswer{Probability: p.noul}
+		case q.Choice != nil:
+			probabilities := map[string]float64{}
+			for i, option := range q.Choice.Options {
+				probabilities[option.Label] = 0
+				if i == p.pick {
+					probabilities[option.Label] = 1
+				}
+			}
+			answer.Choice = &provider.ChoiceAnswer{Choice: q.Choice.Options[p.pick].Label, Probabilities: probabilities}
+		case q.Score != nil:
+			score := &provider.ScoreAnswer{}
+			for i, description := range q.Score.Levels {
+				level := provider.ScoreLevel{Value: i, Description: description}
+				if i < len(q.Score.Values) {
+					level.Value = q.Score.Values[i]
+				}
+				if i < len(q.Score.Labels) {
+					level.Label = q.Score.Labels[i]
+				}
+				if i == p.pick {
+					level.Probability = 1
+					score.Score = float64(level.Value)
+				}
+				score.Levels = append(score.Levels, level)
+			}
+			answer.Score = score
+		case q.Box != nil:
+			answer.Box = &provider.BoxAnswer{Box: provider.BoxCoordinates{Top: 0.2, Bottom: 0.66, Left: 0.19, Right: 0.68}}
+		}
+		decision.Answers = append(decision.Answers, answer)
+	}
+	return decision, nil
 }
 
 type decisionPolicy struct {
@@ -59,13 +101,11 @@ func (p *decisionPolicy) Verify(ctx context.Context, resource policy.Resource, i
 	return p.err
 }
 
-func decisionsServer(t *testing.T, backend *decisionCompleter) (*config.Config, *server.Server) {
+func decisionsServer(t *testing.T, backend *decisionBackend) (*config.Config, *server.Server) {
 	t.Helper()
 	cfg := &config.Config{Policy: noop.New()}
 	cfg.RegisterCompleter("chat", backend)
-	cfg.RegisterEmbedder("embedding", decisionEmbedder{})
-	cfg.RegisterDecisionAdapter("chat", decider.FromCompleter("chat", backend))
-	cfg.RegisterDecisionAdapter("embedding", decider.FromEmbedder("embedding", decisionEmbedder{}))
+	cfg.RegisterDecider("chat", backend)
 	s, err := server.New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +114,7 @@ func decisionsServer(t *testing.T, backend *decisionCompleter) (*config.Config, 
 }
 
 func TestDecisionsRoutes(t *testing.T) {
-	backend := &decisionCompleter{output: `{"q0":{"0":0.5,"1":0.5},"q1":{"0":0,"1":1},"q2":{"0":1,"1":0}}`}
+	backend := &decisionBackend{}
 	_, s := decisionsServer(t, backend)
 	body := `{"model":"chat","state":{"ticket":"hello","id":9007199254740993},"questions":{
 		"choice":{"type":"choice","instructions":{"ask":"Which team?"},"criteria":{"billing":null,"sales":["Plans"]}},
@@ -103,8 +143,9 @@ func TestDecisionsRoutes(t *testing.T) {
 	if string(result.Answers["score"]["score"]) != "0" || string(result.Answers["choice"]["confidence"]) != "0" {
 		t.Fatalf("missing zero values: %s", w.Body.String())
 	}
-	if !strings.Contains(string(result.Answers["score"]["legend"]), `"id":9007199254740993`) || !strings.Contains(backend.prompt, `"id":9007199254740993`) {
-		t.Fatalf("large integers lost: %s", w.Body.String())
+	state, _ := json.Marshal(backend.input.State)
+	if !strings.Contains(string(result.Answers["score"]["legend"]), `"id":9007199254740993`) || !strings.Contains(string(state), `"id":9007199254740993`) {
+		t.Fatalf("large integers lost: %s; state %s", w.Body.String(), state)
 	}
 }
 
@@ -114,27 +155,18 @@ func TestDecisionsStateForms(t *testing.T) {
 		{`{"text":"hello"}`, `{"text":"hello"}`}, {`null`, `null`},
 	} {
 		t.Run(tc.state, func(t *testing.T) {
-			backend := &decisionCompleter{output: `{"q0":{"0":1,"1":0}}`}
+			backend := &decisionBackend{}
 			_, s := decisionsServer(t, backend)
 			body := `{"model":"chat","state":` + tc.state + `,"questions":{"q":{"type":"noul"}}}`
 			w := httptest.NewRecorder()
 			s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/systemone", strings.NewReader(body)))
-			if w.Code != http.StatusOK || !strings.HasSuffix(backend.prompt, "State:\n"+tc.want) {
-				t.Fatalf("status %d: %s; prompt %s", w.Code, w.Body.String(), backend.prompt)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			if state, _ := json.Marshal(backend.input.State); string(state) != tc.want {
+				t.Fatalf("state = %s, want %s", state, tc.want)
 			}
 		})
-	}
-}
-
-func TestDecisionsEmbedder(t *testing.T) {
-	backend := &decisionCompleter{}
-	_, s := decisionsServer(t, backend)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/systemone", strings.NewReader(
-		`{"model":"embedding","state":"payment","questions":{"q":{"type":"choice","criteria":{"billing":null,"sales":null}}}}`,
-	)))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"choice":"billing"`) || backend.calls != 0 {
-		t.Fatalf("status %d: %s, chat calls %d", w.Code, w.Body.String(), backend.calls)
 	}
 }
 
@@ -157,7 +189,7 @@ func TestDecisionsValidation(t *testing.T) {
 		"trailing json":             `{"model":"chat","state":{},"questions":{"q":{"type":"noul"}}} {}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			backend := &decisionCompleter{}
+			backend := &decisionBackend{}
 			_, s := decisionsServer(t, backend)
 			w := httptest.NewRecorder()
 			s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/systemone", strings.NewReader(body)))
@@ -169,7 +201,7 @@ func TestDecisionsValidation(t *testing.T) {
 }
 
 func TestDecisionsMultimodalAndBox(t *testing.T) {
-	backend := &decisionCompleter{output: `{"q0":{"box":{"top":0.2,"bottom":0.66,"left":0.19,"right":0.68},"confidence":null},"q1":{"0":0.8,"1":0.2}}`}
+	backend := &decisionBackend{noul: 0.8}
 	_, s := decisionsServer(t, backend)
 	body := `{"model":"chat","state":["photo","caption"],"assets":{"photo":{"type":"image","format":"png","data_base64":"aGk="}},"questions":{
 		"box":{"type":"box","instructions":"Locate the object"},
@@ -194,8 +226,8 @@ func TestDecisionsMultimodalAndBox(t *testing.T) {
 	if result.Answers["box"].Box == nil || result.Answers["box"].Box.Right != 0.68 || result.Answers["box"].Confidence != nil || result.Answers["noul"].Noul != 0.8 || !strings.Contains(w.Body.String(), `"confidence":null`) {
 		t.Fatalf("unexpected result: %s", w.Body.String())
 	}
-	if len(backend.messages) < 3 || backend.messages[2].Content[1].File == nil {
-		t.Fatalf("image asset not attached: %+v", backend.messages)
+	if backend.input.Assets["photo"] == nil {
+		t.Fatalf("image asset not attached: %+v", backend.input)
 	}
 }
 
@@ -210,10 +242,10 @@ func TestDecisionsAccessAndErrors(t *testing.T) {
 		{"auth", http.StatusUnauthorized, nil},
 		{"rate limit", http.StatusTooManyRequests, &provider.ProviderError{Code: 429, Type: "rate_limit", Message: "slow down", RetryAfter: 2 * time.Second}},
 		{"overloaded", 529, &provider.ProviderError{Code: 529, Message: "overloaded"}},
-		{"malformed output", http.StatusBadGateway, nil},
+		{"backend failure", http.StatusBadGateway, errors.New("broken")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			backend := &decisionCompleter{err: tc.err}
+			backend := &decisionBackend{err: tc.err}
 			cfg, s := decisionsServer(t, backend)
 			p := &decisionPolicy{}
 			cfg.Policy = p

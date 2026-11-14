@@ -175,8 +175,8 @@ func TestGPT6AstraResponsesFeaturesRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if payload.Truncation != "disabled" {
-		t.Fatalf("truncation = %q, want disabled", payload.Truncation)
+	if payload.Truncation != "" {
+		t.Fatalf("truncation = %q, want omitted", payload.Truncation)
 	}
 	if len(payload.Input) != 6 {
 		t.Fatalf("input item count = %d, want 6: %s", len(payload.Input), data)
@@ -278,6 +278,46 @@ func TestConvertResponsesRequest_ReasoningMax(t *testing.T) {
 // Replayed reasoning without encrypted_content is not portable across
 // Responses API backends. Omit it in the OpenAI provider even when visible
 // summary or reasoning text remains.
+func TestConvertResponsesRequest_Truncation(t *testing.T) {
+	responder, err := NewResponder("", "gpt-6-luna")
+	if err != nil {
+		t.Fatalf("new responder: %v", err)
+	}
+
+	for _, mode := range []provider.TruncationMode{provider.TruncationModeDefault, provider.TruncationModeAuto, provider.TruncationModeDisabled} {
+		options := &provider.CompleteOptions{}
+		if mode != provider.TruncationModeDefault {
+			options.TruncationOptions = &provider.TruncationOptions{Mode: mode}
+		}
+
+		req, err := responder.convertResponsesRequest([]provider.Message{provider.UserMessage("hi")}, options)
+		if err != nil {
+			t.Fatalf("convert: %v", err)
+		}
+
+		data, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+
+		var payload map[string]any
+		if err := json.Unmarshal(data, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		got, ok := payload["truncation"]
+		if mode == provider.TruncationModeDefault {
+			if ok {
+				t.Fatalf("truncation = %v, want omitted", got)
+			}
+			continue
+		}
+		if got != string(mode) {
+			t.Fatalf("truncation = %v, want %q", got, mode)
+		}
+	}
+}
+
 func TestConvertResponsesRequest_SkipsUnsignedReasoning(t *testing.T) {
 	messages := []provider.Message{
 		{

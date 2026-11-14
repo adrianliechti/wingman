@@ -37,7 +37,7 @@ func convertInteraction(model string, messages []provider.Message, options *prov
 		ThinkingSummaries: new(interactions.ThinkingSummariesNone),
 	}
 	if reasoning := options.ReasoningOptions; reasoning != nil {
-		level, err := thinkingLevel(reasoning)
+		level, err := thinkingLevel(model, reasoning)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +101,7 @@ func convertInteraction(model string, messages []provider.Message, options *prov
 
 // Low is the common floor for Gemini text models: several models do not
 // support minimal or disabling thinking. An omitted effort keeps the default.
-func thinkingLevel(reasoning *provider.ReasoningOptions) (*interactions.ThinkingLevel, error) {
+func thinkingLevel(model string, reasoning *provider.ReasoningOptions) (*interactions.ThinkingLevel, error) {
 	if reasoning.Type == provider.ReasoningTypeDisabled {
 		return new(interactions.ThinkingLevelLow), nil
 	}
@@ -112,7 +112,13 @@ func thinkingLevel(reasoning *provider.ReasoningOptions) (*interactions.Thinking
 		return new(interactions.ThinkingLevelLow), nil
 	case provider.EffortMedium:
 		return new(interactions.ThinkingLevelMedium), nil
-	case provider.EffortHigh, provider.EffortXHigh, provider.EffortMax:
+	case provider.EffortXHigh, provider.EffortMax:
+		if strings.TrimPrefix(model, "models/") == "gemini-4-hydrogen" {
+			// The SDK does not yet name Hydrogen's fourth thinking level.
+			return new(interactions.ThinkingLevel("xhigh")), nil
+		}
+		return new(interactions.ThinkingLevelHigh), nil
+	case provider.EffortHigh:
 		return new(interactions.ThinkingLevelHigh), nil
 	default:
 		return nil, fmt.Errorf("gemini: unsupported reasoning effort %q", reasoning.Effort)

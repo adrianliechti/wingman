@@ -1,9 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/adrianliechti/wingman/pkg/budget"
 )
 
 func TestRealtimeProviderConfiguration(t *testing.T) {
@@ -127,6 +130,7 @@ providers:
     token: test-openai-token
     models:
       - gpt-live-transcribe
+      - gpt-realtime-translate
       - gpt-realtime-2.1
       - gpt-realtime-2.1-mini
 `)
@@ -145,5 +149,69 @@ providers:
 	}
 	if want, err := cfg.Realtime("gpt-realtime-2.1"); err != nil || realtime != want {
 		t.Error("default realtime should be gpt-realtime-2.1, not the transcription-only gpt-live-transcribe")
+	}
+}
+
+func TestRealtimeDefaultUsesProviderCapabilitiesThroughAliases(t *testing.T) {
+	const dedicated = `
+providers:
+  - type: openai
+    token: test
+    models:
+      speech: {id: whisper-1}
+      dictation: {id: gpt-live-transcribe}
+      interpreter: {id: gpt-realtime-translate}
+  - type: gemini
+    token: test
+    models:
+      captions: {id: gemini-3.5-transcribe-live}
+`
+	cfg, err := parseTestConfig(t, dedicated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Realtime(""); err == nil {
+		t.Fatal("dedicated models supplied a default conversation")
+	}
+	for _, tc := range []struct{ provider, model string }{
+		{"openai", "gpt-realtime-2.1"},
+		{"gemini", "gemini-3.8-live"},
+		{"bedrock", "amazon.nova-2-sonic-v1:0"},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			// This conversational alias deliberately contains a formerly excluded word.
+			cfg, err := parseTestConfig(t, dedicated+fmt.Sprintf(`
+  - type: %s
+    token: test
+    vars: {region: us-east-1}
+    models:
+      translation-chat: {id: %s, type: realtime}
+`, tc.provider, tc.model))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := cfg.Realtime("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := cfg.Realtime("translation-chat")
+			if err != nil || got != want {
+				t.Fatal("default did not select the conversational provider")
+			}
+
+			wrapped := &Config{}
+			for _, alias := range []string{"speech", "dictation", "interpreter", "captions", "translation-chat"} {
+				p, err := cfg.Realtime(alias)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wrapped.RegisterRealtime(alias, budget.NewRealtime(tc.provider, alias, p, nil))
+			}
+			got, err = wrapped.Realtime("")
+			want, _ = wrapped.Realtime("translation-chat")
+			if err != nil || got != want {
+				t.Fatal("budget wrapping lost the model's capabilities")
+			}
+		})
 	}
 }

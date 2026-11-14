@@ -73,6 +73,10 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		CacheOptions: shared.CacheOptions(req.PromptCacheKey, req.PromptCacheRetention, req.PromptCacheOptions),
 	}
 
+	if req.Truncation != "" {
+		options.TruncationOptions = &provider.TruncationOptions{Mode: provider.TruncationMode(req.Truncation)}
+	}
+
 	if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {
 		if options.ToolOptions == nil {
 			options.ToolOptions = &provider.ToolOptions{Choice: provider.ToolChoiceAuto}

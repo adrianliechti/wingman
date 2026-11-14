@@ -26,7 +26,7 @@ func TestCompressedAPIRoutes(t *testing.T) {
 	} {
 		for _, encoding := range []string{"", "gzip", "x-gzip", "zstd"} {
 			t.Run(route.name+"/"+encoding, func(t *testing.T) {
-				backend := &decisionCompleter{output: `{"q0":{"0":0.25,"1":0.75}}`}
+				backend := &decisionBackend{output: "hello"}
 				_, s := decisionsServer(t, backend)
 				// SDKs start compressing at 1 KiB.
 				body := []byte(route.body + strings.Repeat(" ", 2048))

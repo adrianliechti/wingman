@@ -19,17 +19,12 @@ func (cfg *Config) RegisterRealtime(id string, p provider.Realtime) {
 		cfg.realtime = make(map[string]provider.Realtime)
 	}
 
-	// Live transcribers (gpt-live-transcribe, gemini-3.5-transcribe-live) can't
-	// hold a conversation, so they are never the default.
-	if _, ok := cfg.realtime[""]; !ok && !isLiveTranscriber(id) {
+	capabilities := p.RealtimeCapabilities()
+	if _, ok := cfg.realtime[""]; !ok && !capabilities.TranscriptionOnly && !capabilities.TranslationOnly {
 		cfg.realtime[""] = p
 	}
 
 	cfg.realtime[id] = p
-}
-
-func isLiveTranscriber(id string) bool {
-	return strings.Contains(strings.ToLower(id), "transcri")
 }
 
 func (cfg *Config) Realtime(id string) (provider.Realtime, error) {
