@@ -269,39 +269,23 @@ use an Exa searcher, or an Exa client can use a Tavily scraper. See
 [Web retrieval compatibility](API.md#web-retrieval-compatibility) for supported
 options, SDK examples, and live cross-provider tests.
 
-`POST /v1/systemone` accepts TypeSafe state and typed questions using a native
-`typesafe` provider or an explicitly enabled completion or embedding adapter. TypeSafe SDKs
-can point their base URL at Wingman and use a configured Wingman model.
+`POST /v1/systemone` accepts TypeSafe state and typed questions using a
+configured decision model. TypeSafe SDKs can point their base URL at Wingman and
+use a configured Wingman model.
 See [System One](API.md#system-one) for the request format and response fields.
 
 `POST /v1/decisions` accepts OpenAI's ordered predicate, choice, and score
-questions. Configure an OpenAI model with `type: decider` to call the native
-Decisions API. To adapt an existing completion or embedding model, add an alias:
-
-```yaml
-deciders:
-  gpt-6-luna:
-    model: gpt-6-luna
-    effort: low  # optional, completion adapters only
-```
-
-The same name continues to work for completions. A different alias name also
-works, and embedding models use the same configuration. Adapters require this
-explicit opt-in; other completion and embedding models cannot serve decisions.
+questions. Under the `openai` provider, `gpt-6-luna` serves OpenAI's Decisions
+API as well as completions; give a model `type: decider` to use it for decisions
+only. Other completion and embedding models cannot serve decisions.
 `POST /v1beta/decisions` accepts Gemini's shared multimodal input and named
 `noul`, `choice`, and `score` questions. Add `gemini-decision-1` to a `gemini`
 or `google` provider to use Google's native Decisions API. It also serves the
 other decision endpoints within the selected backend's input limits.
 See [Gemini Decisions](API.md#gemini-decisions).
 
-When `model` is omitted on any decision endpoint, the first native decider in
-configuration order takes priority, followed by the first `deciders` alias.
-See [Decisions](API.md#decisions).
-
-Omitting `effort` preserves the adapter's disabled reasoning request. Supported
-values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`, subject
-to the underlying model's support. Verbosity stays unset because the adapter
-returns a fixed schema of probabilities.
+When `model` is omitted on any decision endpoint, the first decision model in
+configuration order is used. See [Decisions](API.md#decisions).
 
 
 ## Integrations & Configuration
@@ -327,8 +311,9 @@ override it; `type` takes one type or a list when a model serves several APIs:
 Under the `openai` provider, file transcription models such as `gpt-transcribe`
 and `whisper-1` are detected as both `transcriber` and `realtime`, so they also
 work as the model of a realtime transcription session
-(`/v1/realtime?intent=transcription`). An explicit `type: transcriber` keeps such
-a model to file transcription.
+(`/v1/realtime?intent=transcription`). Likewise `gpt-6-luna` is detected as both
+`completer` and `decider`. An explicit single `type` keeps such a model to that
+one API.
 
 #### OpenAI Platform
 
@@ -641,7 +626,7 @@ The `typesafe` provider calls a native decision API and preserves its returned
 probabilities, confidence, model, and token usage. `url` is the complete evaluation
 endpoint; it defaults to `https://api.typesafe.ai/v1/systemone`.
 Models under this provider default to the `decider` role.
-Model names containing `decider`, `decision`, or `jev` are also detected as native deciders
+Model names containing `decider`, `decision`, or `jev` are also detected as deciders
 by the automatic model type matcher. An explicit model `type` takes precedence;
 the provider type still determines the upstream API protocol.
 
@@ -662,9 +647,8 @@ providers:
 
 The local endpoint must implement the System One API. To use TypeSafe's hosted
 API, omit `url`, set `token: ${TYPESAFE_API_KEY}`, and configure `jev-latest`.
-Native decision models and adapter aliases are listed in `/v1/models` and used
-through `/v1/systemone` or `/v1/decisions`. Native providers support `max_retries`
-at provider or model level.
+Decision models are listed in `/v1/models` and used through `/v1/systemone` or
+`/v1/decisions`. They support `max_retries` at provider or model level.
 
 > **Provider interfaces.** Each model serves one of seven roles, inferred from its `type` or set explicitly per model: **completer** (chat/reason), **decider** (typed decisions), **embedder** (vectors), **renderer** (text→image), **synthesizer** (text→speech), **transcriber** (speech→text), **reranker** (relevance). See [`docs/architecture.png`](docs/architecture.png) for the interface × backend matrix.
 

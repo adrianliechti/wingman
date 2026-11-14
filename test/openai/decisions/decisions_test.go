@@ -64,8 +64,8 @@ func TestNativeHTTP(t *testing.T) {
 	}})
 }
 
-// Run the same contract and classification checks across enabled decision
-// aliases. TEST_DECISIONS_MODELS overrides the decisions alias in config.yaml.
+// Run the same contract and classification checks across decision models.
+// TEST_DECISIONS_MODELS overrides the default model.
 func TestCrossModelHTTP(t *testing.T) {
 	h := openai.New(t)
 	if *configPath != "" {
@@ -92,7 +92,7 @@ func TestCrossModelHTTP(t *testing.T) {
 			}
 		}
 	} else {
-		models = []string{"decisions"}
+		models = []string{"gpt-6-luna"}
 	}
 	if len(models) == 0 {
 		t.Fatal("TEST_DECISIONS_MODELS contains no models")

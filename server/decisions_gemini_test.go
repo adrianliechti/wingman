@@ -100,19 +100,18 @@ func TestGeminiDecisionsAcrossAPIs(t *testing.T) {
 	}
 }
 
-func TestGeminiDecisionsAdaptersAndErrors(t *testing.T) {
-	backend := &decisionCompleter{output: `{"q0":{"0":1,"1":0}}`}
+func TestGeminiDecisionsErrors(t *testing.T) {
+	backend := &decisionBackend{noul: 1}
 	_, s := decisionsServer(t, backend)
 	body := `{"model":"chat","input":{"type":"text","text":"hello"},"questions":{"has_damage":{"type":"noul","instructions":"Damaged?"}}}`
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest("POST", "/v1beta/decisions", strings.NewReader(body)))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"noul":1`) || !strings.Contains(w.Body.String(), `"total_output_tokens":20`) {
-		t.Fatalf("adapter response: %d %s", w.Code, w.Body.String())
+		t.Fatalf("response: %d %s", w.Code, w.Body.String())
 	}
-	if backend.messages[len(backend.messages)-2].Content[0].Text != "hello" {
-		t.Fatal("native text block lost on fallback")
+	if state, _ := json.Marshal(backend.input.State); !strings.Contains(string(state), "hello") {
+		t.Fatalf("text block lost: %s", state)
 	}
-	// Exercise Google error formatting and Retry-After with the existing adapter.
 	backend.err = &provider.ProviderError{Code: 429, Message: "busy", RetryAfter: 2 * time.Second}
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest("POST", "/v1beta/decisions", strings.NewReader(body)))

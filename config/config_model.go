@@ -112,9 +112,16 @@ func detectModelTypes(providerType, id string) []ModelType {
 
 	types := []ModelType{primary}
 
-	// OpenAI also runs its file transcription models in realtime sessions.
-	if primary == ModelTypeTranscriber && strings.EqualFold(providerType, "openai") {
-		types = append(types, ModelTypeRealtime)
+	if strings.EqualFold(providerType, "openai") {
+		// OpenAI also runs its file transcription models in realtime sessions.
+		if primary == ModelTypeTranscriber {
+			types = append(types, ModelTypeRealtime)
+		}
+
+		// OpenAI's Decisions API accepts this one model.
+		if strings.EqualFold(id, "gpt-6-luna") {
+			types = append(types, ModelTypeDecider)
+		}
 	}
 
 	return types

@@ -66,7 +66,9 @@ func TestDetectModelTypes(t *testing.T) {
 		{"OpenAI", "whisper-1", []ModelType{ModelTypeTranscriber, ModelTypeRealtime}},
 		{"openai", "gpt-live-transcribe", []ModelType{ModelTypeRealtime}},
 		{"openai", "gpt-realtime-whisper", []ModelType{ModelTypeRealtime}},
-		{"openai", "gpt-6-luna", []ModelType{ModelTypeCompleter}},
+		{"openai", "gpt-6-luna", []ModelType{ModelTypeCompleter, ModelTypeDecider}},
+		{"openai", "gpt-6-sol", []ModelType{ModelTypeCompleter}},
+		{"openai-compatible", "gpt-6-luna", []ModelType{ModelTypeCompleter}},
 		{"openai-compatible", "whisper-large-v3", []ModelType{ModelTypeTranscriber}},
 		{"openrouter", "openai/gpt-4o-transcribe", []ModelType{ModelTypeTranscriber}},
 		{"mistral", "voxtral-mini-transcribe", []ModelType{ModelTypeTranscriber}},
@@ -153,6 +155,46 @@ providers:
 		t.Fatal("no default realtime model")
 	} else if want, _ := cfg.Realtime("gpt-realtime-2.1"); realtime != want {
 		t.Error("default realtime model is not gpt-realtime-2.1")
+	}
+}
+
+func TestModelTypeKeepsModelToOneAPI(t *testing.T) {
+	cfg, err := parseTestConfig(t, `
+providers:
+  - type: openai
+    token: test-openai-token
+    models:
+      gpt-6-luna:
+        type: completer
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Completer("gpt-6-luna"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cfg.Decider("gpt-6-luna"); err == nil {
+		t.Fatal("an explicit completer was also registered as a decider")
+	}
+}
+
+func TestModelTypeListServesBothAPIs(t *testing.T) {
+	cfg, err := parseTestConfig(t, `
+providers:
+  - type: openai-compatible
+    models:
+      both:
+        id: gpt-6-luna
+        type: [completer, decider]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Completer("both"); err != nil {
+		t.Fatal(err)
+	}
+	if model, _, err := cfg.Decider(""); err != nil || model != "both" {
+		t.Fatalf("default decider = %q, %v", model, err)
 	}
 }
 

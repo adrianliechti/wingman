@@ -123,8 +123,8 @@ providers:
 	}
 }
 
-func TestOpenAIDecisionsAdapterAndValidation(t *testing.T) {
-	backend := &decisionCompleter{output: `{"q0":{"0":1,"1":0},"q1":{"0":0,"1":1},"q2":{"0":1,"1":0}}`}
+func TestOpenAIDecisionsAnswersAndValidation(t *testing.T) {
+	backend := &decisionBackend{noul: 1, pick: 1}
 	_, s := decisionsServer(t, backend)
 	body := `{"model":"chat","input":[{"role":"user","content":[{"type":"input_text","text":"hello"},{"type":"input_image","image_url":"data:image/png;base64,aGk="}]}],"questions":[
   {"type":"binary","id":"q_bin","instructions":[{"type":"input_text","text":"check"},{"type":"input_image","image_url":"data:image/png;base64,aGk="}]},
@@ -140,9 +140,9 @@ func TestOpenAIDecisionsAdapterAndValidation(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &result)
 	if result.Answers[0].Type != "binary" || result.Answers[0].ID == nil || *result.Answers[0].ID != "q_bin" ||
 		result.Answers[1].Choice != "false" || result.Answers[0].Name != nil || result.Answers[2].Name != nil ||
-		result.Answers[2].ID == nil || *result.Answers[2].ID != "q_score" || *result.Answers[2].Score != 1 ||
+		result.Answers[2].ID == nil || *result.Answers[2].ID != "q_score" || *result.Answers[2].Score != 5 ||
 		result.Answers[2].Probabilities[0].Value != float64(1) || result.Answers[2].Probabilities[1].Value != float64(5) {
-		t.Fatalf("lost adapted answer: %s", w.Body.String())
+		t.Fatalf("lost answer: %s", w.Body.String())
 	}
 	calls := backend.calls
 	for _, invalid := range []string{

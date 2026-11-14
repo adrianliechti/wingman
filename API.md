@@ -95,9 +95,8 @@ Evaluate shared text or inline images with ordered questions, following the
 [OpenAI Decisions format](https://developers.openai.com/api/docs/guides/decisions).
 The supported request fields are `model`, `input`, `questions`,
 `prompt_cache_key`, and `prompt_cache_options`.
-`model` is optional: Wingman selects the first native decider in provider/model
-configuration order, or the first configured decision adapter alias when no
-native decider exists. Requests fail if neither is configured.
+`model` is optional: Wingman selects the first decision model in provider/model
+configuration order. Requests fail if none is configured.
 
 | Question type | Required fields | Result |
 |---------------|-----------------|--------|
@@ -120,23 +119,22 @@ or `explicit`, `ttl`: `30m` or `12h`), and `prompt_cache_breakpoint: {"mode":"ex
 on shared text and image parts. Question instructions cannot contain cache
 breakpoints. Usage includes cache reads and writes within the input token total.
 
-Configure a native OpenAI decision model:
+Under the `openai` provider, `gpt-6-luna` is a decision model as well as a
+completion model. An alias with `type: decider` exposes it for decisions only:
 
 ```yaml
 providers:
   - type: openai
     token: ${OPENAI_API_KEY}
     models:
-      decisions:
-        id: gpt-6-luna
-        type: decider
+      - gpt-6-luna
 ```
 
 ```bash
 curl http://localhost:8080/v1/decisions \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "decisions",
+    "model": "gpt-6-luna",
     "input": "The package arrived with a broken screen.",
     "questions": [{
       "type": "predicate",
@@ -147,48 +145,16 @@ curl http://localhost:8080/v1/decisions \
 ```
 
 Responses contain `model`, an ordered `answers` array, and `usage`.
-The native provider also works through `/v1/systemone`, mapping `noul` to
-`predicate` and serializing structured state and criteria as text.
-Completion and embedding models can serve text decisions when explicitly enabled
-with a `deciders` alias. The alias may reuse the completion or embedding model's
-name, keeping its existing API available:
-
-```yaml
-providers:
-  - type: openai
-    token: ${OPENAI_API_KEY}
-    models:
-      - gpt-6-luna
-      - text-embedding-3-small
-
-deciders:
-  gpt-6-luna:
-    model: gpt-6-luna
-    effort: low
-  embedding-decisions:
-    model: text-embedding-3-small
-```
-
-Here `gpt-6-luna` supports completions and decisions, while
-`embedding-decisions` enables decisions backed by `text-embedding-3-small`.
-Other completion and embedding models remain unavailable for decisions unless
-they have a `deciders` entry. Access policies check the selected decision alias,
+The model also works through `/v1/systemone`, mapping `noul` to `predicate` and
+serializing structured state and criteria as text. Other completion and embedding
+models cannot serve decisions. Access policies check the selected decision model,
 including when `model` is omitted.
-
-Completion-backed aliases accept optional `effort`: `none`, `minimal`, `low`,
-`medium`, `high`, `xhigh`, or `max`. Omitting it or setting `none` keeps the
-adapter's disabled reasoning request; provider compatibility rules may select a
-minimum effort for models that require reasoning. Other values enable adaptive
-reasoning at that effort, subject to the underlying provider's model support.
-The strict probability schema always applies, and verbosity is left unset.
-Embedding-backed aliases do not accept effort.
 
 Run live native and cross-model checks with `go test -v ./test/openai/decisions`.
 The native test compares an in-process Wingman server with direct OpenAI.
 The cross-model test uses a running Wingman server and defaults to `gpt-6-luna`;
-set `TEST_DECISIONS_MODELS` to a comma-separated list of enabled decision aliases
-or native deciders to test other models. Each adapted model needs a `deciders`
-entry. `TEST_DECISIONS_NATIVE_MODEL` overrides the native reference model.
+set `TEST_DECISIONS_MODELS` to a comma-separated list of decision models to test
+others. `TEST_DECISIONS_NATIVE_MODEL` overrides the native reference model.
 To start an isolated server instead, append
 `-args -decisions-config /path/to/config.yaml` to the test command.
 
@@ -317,9 +283,9 @@ Gemini-compatible endpoints. See [Gemini API Reference](https://ai.google.dev/ap
 
 Uses the [Gemini Decisions format](https://aistudio.google.com/docs/decisions-api).
 Configure `gemini-decision-1` under a `gemini` or `google` provider. The model is
-automatically registered as a native decider, available on all three decision
+automatically registered as a decider, available on all three decision
 endpoints. As on the other decision endpoints, omitting `model` selects the
-first configured native decider, then the first enabled adapter alias.
+first configured decision model.
 
 | Field | Type | Description |
 |---|---|---|
@@ -366,9 +332,7 @@ curl http://localhost:4242/v1beta/decisions \
 Responses contain `answers` keyed by the question IDs and `usage` with
 `total_input_tokens`, `total_output_tokens`, and `total_tokens`. The native Gemini
 backend bills no output tokens. Wingman reports aggregate usage and omits the
-optional per-modality breakdown. Completion and embedding adapters can serve this
-endpoint when explicitly enabled in `deciders`; their probabilities and confidence
-remain estimates and their output token usage is reported normally.
+optional per-modality breakdown.
 
 Google's backend rejects conversation history, tool/thought blocks, box questions,
 and media in question instructions or criteria. The OpenAI and System One
@@ -807,13 +771,12 @@ curl -X POST -H "Content-Type: application/json" \
 
 **Endpoint:** `POST /v1/systemone`
 
-Evaluate application state with typed questions using a configured native decision
-model or an explicitly enabled completion or embedding adapter. Requests and
-responses follow the [TypeSafe System One format](https://docs.typesafe.ai/api/system-one).
+Evaluate application state with typed questions using a configured decision
+model. Requests and responses follow the [TypeSafe System One format](https://docs.typesafe.ai/api/system-one).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `model` | String | Optional decision model ID or alias; defaults to the first native decider, then the first `deciders` alias in configuration order |
+| `model` | String | Optional decision model ID or alias; defaults to the first decision model in configuration order |
 | `state` | Object, string, array, or null | Required state to evaluate |
 | `questions` | Object | Required, nonempty map of question IDs to questions |
 
@@ -858,11 +821,9 @@ selects the highest probability, using alphabetical order for ties. Score is a
 zero-based, probability-weighted index: three levels yield a value from 0 to 2,
 including fractions. `legend` retains the input level descriptions.
 
-Native `typesafe` providers preserve the upstream answers and usage. Completion
-and embedding adapters estimate probabilities and derive confidence from those
-estimates. Configure the complete upstream evaluation URL to use TypeSafe,
-OpenRouter, or a local System One server; see [TypeSafe configuration](README.md#typesafe--system-one).
-Enable adapters with `deciders` entries as shown in [Decisions](#decisions).
+`typesafe` providers preserve the upstream answers and usage. Configure the
+complete upstream evaluation URL to use TypeSafe, OpenRouter, or a local System
+One server; see [TypeSafe configuration](README.md#typesafe--system-one).
 An omitted `model` uses the same selection and alias access policy as
 `/v1/decisions`; requests fail when no decision model is configured.
 
