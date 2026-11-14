@@ -333,7 +333,7 @@ func (s *openAISession) handleTranscript(event provider.RealtimeEvent) error {
 		return s.write(map[string]any{
 			"type":    "conversation.item.input_audio_transcription.completed",
 			"item_id": state.itemID, "content_index": 0, "transcript": transcript,
-			"usage": map[string]any{"type": "tokens", "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+			"usage": transcriptionUsageObject(event.TranscriptionUsage),
 		})
 	}
 
@@ -635,7 +635,7 @@ func (s *openAISession) finishContent(event provider.RealtimeEvent) error {
 			if err := s.write(map[string]any{
 				"type":    "conversation.item.input_audio_transcription.completed",
 				"item_id": state.itemID, "content_index": 0, "transcript": transcript,
-				"usage": map[string]any{"type": "tokens", "input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+				"usage": transcriptionUsageObject(event.TranscriptionUsage),
 			}); err != nil {
 				return err
 			}
@@ -802,6 +802,23 @@ func inputAudioItem(id, status, transcript string) map[string]any {
 		"id": id, "object": "realtime.item", "type": "message", "status": status,
 		"role": "user", "content": []map[string]any{{"type": "input_audio", "transcript": transcript}},
 	}
+}
+
+func transcriptionUsageObject(usage *provider.RealtimeTranscriptionUsage) any {
+	if usage == nil {
+		return nil
+	}
+	if usage.AudioDuration != nil {
+		return map[string]any{"type": "duration", "seconds": usage.AudioDuration.Seconds()}
+	}
+	if tokens := usage.Tokens; tokens != nil {
+		return map[string]any{
+			"type": "tokens", "input_tokens": tokens.InputTokens, "output_tokens": tokens.OutputTokens,
+			"total_tokens":        tokens.InputTokens + tokens.OutputTokens,
+			"input_token_details": map[string]any{"text_tokens": tokens.InputTextTokens, "audio_tokens": tokens.InputAudioTokens},
+		}
+	}
+	return nil
 }
 
 func usageObject(usage *provider.RealtimeUsage) any {

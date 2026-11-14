@@ -556,7 +556,7 @@ func TestGeminiLiveToolNumbers(t *testing.T) {
 	case message := <-messages:
 		responses := message["toolResponse"].(map[string]any)["functionResponses"].([]any)
 		result := responses[0].(map[string]any)["response"].(map[string]any)["result"]
-		data, err := json.Marshal(result)
+		data, err := json.Marshal(result, json.Deterministic(true))
 		if err != nil {
 			t.Fatal(err)
 		}

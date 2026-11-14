@@ -3,6 +3,7 @@ package openai
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -368,5 +369,33 @@ func TestTranslateCurrentInputEvents(t *testing.T) {
 	got := segment[0]
 	if got.ItemID != "msg_011" || got.ContentIndex != 2 || got.Text != "hello" || got.SegmentID != "seg_0001" || got.Speaker != "spk_1" || got.SegmentStart != 0.1 || got.SegmentEnd != 0.4 {
 		t.Fatalf("segment event = %#v", got)
+	}
+}
+
+func TestTranslateTranscriptionUsage(t *testing.T) {
+	duration := 1250 * time.Millisecond
+	for _, tc := range []struct {
+		name  string
+		usage string
+		want  provider.RealtimeTranscriptionUsage
+	}{
+		{"tokens", `,"usage":{"type":"tokens","input_tokens":100,"output_tokens":2,"total_tokens":102,"input_token_details":{"audio_tokens":96,"text_tokens":4}}`, provider.RealtimeTranscriptionUsage{Tokens: &provider.RealtimeUsage{InputTokens: 100, OutputTokens: 2, InputAudioTokens: 96, InputTextTokens: 4}}},
+		{"duration", `,"usage":{"type":"duration","seconds":1.25}`, provider.RealtimeTranscriptionUsage{AudioDuration: &duration}},
+		{"missing", "", provider.RealtimeTranscriptionUsage{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := &openAIRealtimeSession{transcripts: make(map[string]bool)}
+			events := session.translate([]byte(`{"type":"conversation.item.input_audio_transcription.completed","item_id":"item_1","content_index":0,"transcript":"Hello"` + tc.usage + `}`))
+			if len(events) != 3 {
+				t.Fatalf("events = %+v", events)
+			}
+			done := events[2]
+			if done.Type != provider.RealtimeEventContentDone || !reflect.DeepEqual(done.TranscriptionUsage, &tc.want) {
+				t.Fatalf("completion = %+v, want transcription usage %+v", done, tc.want)
+			}
+			if done.Usage != nil {
+				t.Fatal("ASR usage must remain separate from generation usage")
+			}
+		})
 	}
 }

@@ -314,19 +314,17 @@ func (s *openAISession) updateSession(ctx context.Context, event clientEvent) er
 
 	// The transcription model selects the provider.
 	if s.transcribing() && updated.Transcription != nil && updated.Transcription.Model != s.model {
+		// Providers have different commit, transcription and usage boundaries.
+		// Keep a started stream alive so late results cannot be discarded.
+		if s.upstream != nil {
+			return errors.New("cannot change the transcription model after audio has started; open a new session")
+		}
 		realtime, err := s.resolve(ctx, updated.Transcription.Model)
 		if err != nil {
 			return err
 		}
 		if !updated.turnDetectionSet {
 			updated.TurnDetection = cloneTurnDetection(realtime.Defaults().TurnDetection)
-		}
-
-		// Uncommitted audio is not carried over to the new provider.
-		if s.upstream != nil {
-			_ = s.upstream.Close()
-			s.upstream, s.upstreamEvents = nil, nil
-			s.turnAudioBytes = 0
 		}
 
 		s.provider = realtime

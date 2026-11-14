@@ -118,6 +118,8 @@ func isTranslationModel(model string) bool {
 
 func (r *Realtime) RealtimeCapabilities() provider.RealtimeCapabilities {
 	return provider.RealtimeCapabilities{
+		TranscriptionOnly:   isTranscriptionModel(r.model),
+		TranslationOnly:     isTranslationModel(r.model),
 		SessionUpdates:      true,
 		AudioBufferClearing: true,
 		ResponseRequests:    true,
@@ -757,22 +759,23 @@ func (s *openAIRealtimeSession) emit(event provider.RealtimeEvent) {
 }
 
 type openAIRealtimeEvent struct {
-	Type           string  `json:"type"`
-	EventID        string  `json:"event_id"`
-	ID             string  `json:"id"`
-	ItemID         string  `json:"item_id"`
-	PreviousItemID string  `json:"previous_item_id"`
-	ResponseID     string  `json:"response_id"`
-	ContentIndex   int     `json:"content_index"`
-	AudioStartMS   int64   `json:"audio_start_ms"`
-	AudioEndMS     int64   `json:"audio_end_ms"`
-	ElapsedMS      int64   `json:"elapsed_ms"`
-	Delta          string  `json:"delta"`
-	Text           string  `json:"text"`
-	Transcript     string  `json:"transcript"`
-	Speaker        string  `json:"speaker"`
-	Start          float64 `json:"start"`
-	End            float64 `json:"end"`
+	Type           string                    `json:"type"`
+	EventID        string                    `json:"event_id"`
+	ID             string                    `json:"id"`
+	ItemID         string                    `json:"item_id"`
+	PreviousItemID string                    `json:"previous_item_id"`
+	ResponseID     string                    `json:"response_id"`
+	ContentIndex   int                       `json:"content_index"`
+	AudioStartMS   int64                     `json:"audio_start_ms"`
+	AudioEndMS     int64                     `json:"audio_end_ms"`
+	ElapsedMS      int64                     `json:"elapsed_ms"`
+	Delta          string                    `json:"delta"`
+	Text           string                    `json:"text"`
+	Transcript     string                    `json:"transcript"`
+	Speaker        string                    `json:"speaker"`
+	Start          float64                   `json:"start"`
+	End            float64                   `json:"end"`
+	Usage          *openAITranscriptionUsage `json:"usage"`
 	Response       struct {
 		ID            string `json:"id"`
 		Status        string `json:"status"`
@@ -822,6 +825,12 @@ type openAIRealtimeUsage struct {
 		TextTokens  int `json:"text_tokens"`
 		AudioTokens int `json:"audio_tokens"`
 	} `json:"output_token_details"`
+}
+
+type openAITranscriptionUsage struct {
+	openAIRealtimeUsage
+	Type    string  `json:"type"`
+	Seconds float64 `json:"seconds"`
 }
 
 func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent {
@@ -889,7 +898,11 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 		}
 		delete(s.transcripts, contentID)
 		// The final transcript drops the leading space of the first delta.
-		events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ContentID: contentID, ItemID: value.ItemID, ContentType: provider.RealtimeContentText, Text: value.Transcript})
+		events = append(events, provider.RealtimeEvent{
+			Type: provider.RealtimeEventContentDone, ContentID: contentID, ItemID: value.ItemID,
+			ContentType: provider.RealtimeContentText, Text: value.Transcript,
+			TranscriptionUsage: convertOpenAITranscriptionUsage(value.Usage),
+		})
 		return events
 
 	case "session.output_audio.delta":
@@ -996,6 +1009,20 @@ func convertOpenAIRealtimeUsage(value *openAIRealtimeUsage) *provider.RealtimeUs
 		InputTextTokens: value.InputTokenDetails.TextTokens, InputAudioTokens: value.InputTokenDetails.AudioTokens,
 		OutputTextTokens: value.OutputTokenDetails.TextTokens, OutputAudioTokens: value.OutputTokenDetails.AudioTokens,
 	}
+}
+
+func convertOpenAITranscriptionUsage(value *openAITranscriptionUsage) *provider.RealtimeTranscriptionUsage {
+	usage := &provider.RealtimeTranscriptionUsage{}
+	if value != nil {
+		switch value.Type {
+		case "tokens":
+			usage.Tokens = convertOpenAIRealtimeUsage(&value.openAIRealtimeUsage)
+		case "duration":
+			duration := time.Duration(value.Seconds * float64(time.Second))
+			usage.AudioDuration = &duration
+		}
+	}
+	return usage
 }
 
 func realtimeID(prefix string) string {

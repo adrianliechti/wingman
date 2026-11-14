@@ -315,6 +315,12 @@ work as the model of a realtime transcription session
 `completer` and `decider`. An explicit single `type` keeps such a model to that
 one API.
 
+In realtime transcription sessions, select the model with `session.update`
+before sending audio. Once audio starts, changing the model requires a new
+WebSocket session so pending transcripts and usage can finish on the original
+stream. Dedicated transcription and translation models never become the
+default conversational model, including when configured under an alias.
+
 #### OpenAI Platform
 
 https://platform.openai.com/docs/api-reference
@@ -434,12 +440,19 @@ signatures are replayed as execution steps. Tool results can carry images,
 documents, audio, and video; PDF, CSV, Office, and OpenDocument files are sent
 as documents. Reasoning effort maps to thinking
 levels: `minimal`, `low`, and disabled thinking use `low`, `medium` stays `medium`, and
-`high`, `xhigh`, and `max` use `high`. Omitted effort keeps the model default.
+`high` stays `high`. Gemini 4 Hydrogen preserves `xhigh` and maps `max` to
+`xhigh`; other models map both to `high`. Omitted effort keeps the model default.
 Sampling parameters are omitted, following the current
 [Gemini migration guidance](https://ai.google.dev/gemini-api/docs/latest-model#migration-checklist).
 Embeddings, image rendering, transcription, speech synthesis, and Live
 realtime retain their dedicated integrations. Image rendering, transcription,
 and speech synthesis use `generateContent` and also send `store=false`.
+
+[Gemini 4 Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen)
+uses `gemini-4-hydrogen`, defaults to `high` thinking, and supports `low`, `medium`,
+`high`, and `xhigh`. Input, thinking, and output share a 1,048,576-token window;
+synchronous output supports up to 65,536 tokens. Longer output requires long
+decode, which this integration does not enable.
 
 To compare Interactions against `generateContent` with real API calls, run
 `WINGMAN_GOOGLE_LIVE=1 go test -v ./pkg/provider/google -run TestComplete_LiveComparison -count=1`.
@@ -459,10 +472,12 @@ providers:
     #   - id: {gemini api model name}
     models:
       - gemini-4-carbon
+      - gemini-4-hydrogen
       - gemini-3.8-flash
       - gemini-3.8-flash-tts
       - gemini-3.5-transcribe
       - gemini-nano-banana-2.1
+      - gemini-3.1-flash-lite-image
       - gemini-omni-1.2-flash # video renderer
       - gemini-embedding-2
       - gemini-decision-1 # native decisions, detected automatically

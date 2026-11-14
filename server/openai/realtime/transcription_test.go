@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json/jsontext"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -17,6 +19,7 @@ import (
 // newFakeTranscriber has no turn detection by default, like a live transcriber.
 func newFakeTranscriber() *fakeRealtime {
 	transcriber := newFakeRealtime()
+	transcriber.capabilities.TranscriptionOnly = true
 	transcriber.defaults = &provider.RealtimeOptions{}
 	return transcriber
 }
@@ -218,13 +221,17 @@ func TestTranscriptionSessionModelSwitch(t *testing.T) {
 
 	writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-transcribe"}}))
 	assertEventType(t, readWireEvent(t, conn), "session.updated")
-	appendTestAudio(t, conn)
-	waitSignal(t, first.session.audioSent, "audio for the first model")
-
+	// Selection can change before any audio opens a provider stream.
 	writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-segmented", "languages": []string{"en"}}}))
 	transcription, _ := sessionInput(t, readWireEvent(t, conn))["transcription"].(map[string]any)
 	if transcription["model"] != "test-segmented" {
 		t.Fatalf("transcription = %#v, want the new model", transcription)
+	}
+	first.mu.Lock()
+	firstCalls := len(first.options)
+	first.mu.Unlock()
+	if firstCalls != 0 {
+		t.Fatal("the initial model opened a stream before receiving audio")
 	}
 
 	appendTestAudio(t, conn)
@@ -242,6 +249,113 @@ func TestTranscriptionSessionModelSwitch(t *testing.T) {
 	)
 	if delta := readWireEvent(t, conn); delta["item_id"] != "item_b" || delta["delta"] != "Hello" {
 		t.Fatalf("delta after the switch = %#v", delta)
+	}
+}
+
+func TestTranscriptionModelSwitchPreservesStartedStream(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		updates, activity bool
+	}{
+		{"openai", true, true},
+		{"gemini", false, true},
+		{"bedrock", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first, second := newFakeTranscriber(), newFakeTranscriber()
+			first.capabilities.SessionUpdates = tc.updates
+			first.capabilities.InputActivityEvents = tc.activity
+			conn := openTestTranscription(t, first, second)
+			assertEventType(t, readWireEvent(t, conn), "session.created")
+			writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-transcribe"}}))
+			assertEventType(t, readWireEvent(t, conn), "session.updated")
+			appendTestAudio(t, conn)
+			waitSignal(t, first.session.audioSent, "original provider audio")
+			writeWireEvent(t, conn, map[string]any{"type": "input_audio_buffer.commit"})
+			waitSignal(t, first.session.committed, "original provider commit")
+			if !tc.activity {
+				readThrough(t, conn, "conversation.item.done")
+			}
+
+			rejectSwitch := func() {
+				t.Helper()
+				writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-segmented"}}))
+				reply := readWireEvent(t, conn)
+				assertEventType(t, reply, "error")
+				if message, _ := reply["error"].(map[string]any)["message"].(string); !strings.Contains(message, "open a new session") {
+					t.Fatalf("switch rejection = %#v", reply)
+				}
+			}
+			// The switch arrives before any upstream commit acknowledgement or delta.
+			rejectSwitch()
+			if tc.activity {
+				first.session.emit(provider.RealtimeEvent{Type: provider.RealtimeEventInputCommitted, ItemID: "original"})
+				readThrough(t, conn, "conversation.item.done")
+			}
+			first.session.emit(
+				provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ContentID: "original:0", ItemID: "original", Role: provider.MessageRoleUser},
+				provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ContentID: "original:0", Text: "Hello"},
+			)
+			assertEventType(t, readWireEvent(t, conn), "conversation.item.input_audio_transcription.delta")
+			rejectSwitch()
+			first.session.emit(provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ContentID: "original:0", Text: "Hello."})
+			events := readThrough(t, conn, "conversation.item.input_audio_transcription.completed")
+			if completed := events[len(events)-1]; completed["transcript"] != "Hello." || completed["item_id"] != "original" {
+				t.Fatalf("original transcript lost: %#v", completed)
+			}
+			// A completed transcript does not guarantee that final usage has arrived.
+			rejectSwitch()
+			appendTestAudio(t, conn)
+			waitSignal(t, first.session.audioSent, "audio after rejected model changes")
+			second.mu.Lock()
+			calls := len(second.options)
+			second.mu.Unlock()
+			if calls != 0 {
+				t.Fatal("rejected model change opened the second provider")
+			}
+		})
+	}
+}
+
+func TestTranscriptionUsageOnWire(t *testing.T) {
+	duration := 1250 * time.Millisecond
+	for _, mode := range []string{"transcription", "realtime"} {
+		for _, tc := range []struct {
+			name  string
+			usage *provider.RealtimeTranscriptionUsage
+			want  any
+		}{
+			{"tokens", &provider.RealtimeTranscriptionUsage{Tokens: &provider.RealtimeUsage{InputTokens: 100, OutputTokens: 2, InputAudioTokens: 96, InputTextTokens: 4}}, map[string]any{"type": "tokens", "input_tokens": float64(100), "output_tokens": float64(2), "total_tokens": float64(102), "input_token_details": map[string]any{"audio_tokens": float64(96), "text_tokens": float64(4)}}},
+			{"duration", &provider.RealtimeTranscriptionUsage{AudioDuration: &duration}, map[string]any{"type": "duration", "seconds": 1.25}},
+			{"unknown", &provider.RealtimeTranscriptionUsage{}, nil},
+			{"aggregate-provider", nil, nil},
+		} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				upstream := newFakeRealtime()
+				var conn *websocket.Conn
+				if mode == "transcription" {
+					conn = openTestTranscription(t, upstream, newFakeTranscriber())
+					assertEventType(t, readWireEvent(t, conn), "session.created")
+					writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-transcribe"}}))
+				} else {
+					conn = openTestRealtime(t, upstream)
+					assertEventType(t, readWireEvent(t, conn), "session.created")
+					assertEventType(t, readWireEvent(t, conn), "conversation.created")
+					writeWireEvent(t, conn, wingmanSessionUpdate(false))
+				}
+				assertEventType(t, readWireEvent(t, conn), "session.updated")
+				appendTestAudio(t, conn)
+				waitSignal(t, upstream.session.audioSent, "audio")
+				upstream.session.emit(
+					provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ContentID: "input", ItemID: "item_input", ContentType: provider.RealtimeContentText, Role: provider.MessageRoleUser},
+					provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ContentID: "input", Text: "Hello", TranscriptionUsage: tc.usage},
+				)
+				events := readThrough(t, conn, "conversation.item.input_audio_transcription.completed")
+				if got := events[len(events)-1]["usage"]; !reflect.DeepEqual(got, tc.want) {
+					t.Fatalf("wire usage = %#v, want %#v", got, tc.want)
+				}
+			})
+		}
 	}
 }
 

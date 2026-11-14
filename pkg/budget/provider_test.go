@@ -361,8 +361,11 @@ func TestEarlyConsumerStopStillReportsObservedUsage(t *testing.T) {
 
 type testRealtime struct {
 	provider.Realtime
-	session *testRealtimeSession
+	session      *testRealtimeSession
+	capabilities provider.RealtimeCapabilities
 }
+
+func (p testRealtime) RealtimeCapabilities() provider.RealtimeCapabilities { return p.capabilities }
 
 func (p testRealtime) Connect(context.Context, *provider.RealtimeOptions) (provider.RealtimeSession, error) {
 	return p.session, nil
@@ -484,6 +487,79 @@ func TestRealtimeEndsSessionWhenBudgetRunsOut(t *testing.T) {
 	}
 	if len(b.reports) != 1 || source.closes.Load() != 1 || b.checks.Load() != 2 {
 		t.Fatalf("reports=%d closes=%d checks=%d", len(b.reports), source.closes.Load(), b.checks.Load())
+	}
+}
+
+func TestRealtimeTranscriptionReportsAndRechecksWithoutResponse(t *testing.T) {
+	duration := time.Second
+	for _, tc := range []struct {
+		name  string
+		usage provider.RealtimeTranscriptionUsage
+	}{
+		{"tokens", provider.RealtimeTranscriptionUsage{Tokens: &provider.RealtimeUsage{InputTokens: 100, OutputTokens: 2}}},
+		{"duration", provider.RealtimeTranscriptionUsage{AudioDuration: &duration}},
+		{"unknown", provider.RealtimeTranscriptionUsage{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &testBudget{decision: &Result{Allowed: true}, reports: make(chan *Report, 2)}
+			source := &testRealtimeSession{events: make(chan provider.RealtimeEvent)}
+			upstream := testRealtime{session: source, capabilities: provider.RealtimeCapabilities{TranscriptionOnly: true}}
+			session, err := NewRealtime("openai", "dictation", upstream, b).Connect(context.WithValue(t.Context(), auth.UserContextKey, "user"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+			b.decision = &Result{Message: "limit reached"}
+			source.events <- provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, TranscriptionUsage: &tc.usage}
+			timeout := time.After(time.Second)
+			var last provider.RealtimeEvent
+		loop:
+			for {
+				select {
+				case event, ok := <-session.Events():
+					if !ok {
+						break loop
+					}
+					last = event
+				case <-timeout:
+					t.Fatal("transcription session continued after budget denial")
+				}
+			}
+			if last.Error == nil || last.Error.Code != "insufficient_quota" || b.checks.Load() != 2 {
+				t.Fatalf("last event = %+v, checks = %d", last, b.checks.Load())
+			}
+			report := receiveReport(t, b.reports)
+			if tc.usage.Tokens == nil {
+				if report.Usage != nil {
+					t.Fatalf("fabricated token counts: %+v", report.Usage)
+				}
+			} else if report.Usage == nil || report.Usage.InputTokens != 100 || report.Usage.OutputTokens != 2 {
+				t.Fatalf("transcription usage = %+v", report.Usage)
+			}
+			if report.Model != "dictation" || report.UserID != "user" || len(b.reports) != 0 {
+				t.Fatalf("report = %+v, extra reports = %d", report, len(b.reports))
+			}
+		})
+	}
+}
+
+func TestRealtimeAuxiliaryTranscriptionDoesNotChangeGenerationUsage(t *testing.T) {
+	b := &testBudget{decision: &Result{Allowed: true}, reports: make(chan *Report, 3)}
+	source := &testRealtimeSession{events: make(chan provider.RealtimeEvent, 3)}
+	source.events <- provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, TranscriptionUsage: &provider.RealtimeTranscriptionUsage{Tokens: &provider.RealtimeUsage{InputTokens: 100, OutputTokens: 2}}}
+	source.events <- provider.RealtimeEvent{Type: provider.RealtimeEventUsage, ResponseID: "response", Usage: &provider.RealtimeUsage{InputTokens: 10, OutputTokens: 3}}
+	source.events <- provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: "response"}
+	close(source.events)
+	session, err := NewRealtime("openai", "conversation", testRealtime{session: source}, b).Connect(context.WithValue(t.Context(), auth.UserContextKey, "user"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range session.Events() {
+	}
+	session.Close()
+	report := receiveReport(t, b.reports)
+	if report.Usage == nil || report.Usage.InputTokens != 10 || report.Usage.OutputTokens != 3 || len(b.reports) != 0 {
+		t.Fatalf("ASR usage was charged as generation: %+v, extra reports=%d", report, len(b.reports))
 	}
 }
 

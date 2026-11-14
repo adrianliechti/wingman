@@ -17,6 +17,7 @@ import (
 
 func newFakeTranslator() *fakeRealtime {
 	translator := newFakeRealtime()
+	translator.capabilities.TranslationOnly = true
 	translator.defaults = &provider.RealtimeOptions{OutputLanguage: "es"}
 	return translator
 }

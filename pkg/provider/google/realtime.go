@@ -94,6 +94,7 @@ func (r *Realtime) Defaults() provider.RealtimeOptions {
 
 func (r *Realtime) RealtimeCapabilities() provider.RealtimeCapabilities {
 	return provider.RealtimeCapabilities{
+		TranscriptionOnly: matchesModel(r.model, LiveTranscriptionModels),
 		// Gemini reports automatic and manually-signaled activity using native
 		// voiceActivity messages.
 		InputActivityEvents: true,
