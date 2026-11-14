@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+
+	"go.yaml.in/yaml/v4"
 )
 
 func (cfg *Config) RegisterModel(id string) {
@@ -62,7 +64,7 @@ const (
 type modelConfig struct {
 	ID string `yaml:"id"`
 
-	Type ModelType `yaml:"type"`
+	Type modelTypes `yaml:"type"`
 
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -73,13 +75,49 @@ type modelConfig struct {
 type modelContext struct {
 	ID string
 
-	Type ModelType
-
 	Name        string
 	Description string
 
 	Client     *http.Client
 	MaxRetries *int
+}
+
+// modelTypes is one type or a list of them.
+type modelTypes []ModelType
+
+func (t *modelTypes) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.SequenceNode {
+		return node.Decode((*[]ModelType)(t))
+	}
+
+	var value ModelType
+
+	if err := node.Decode(&value); err != nil {
+		return err
+	}
+
+	if value != ModelTypeAuto {
+		*t = modelTypes{value}
+	}
+
+	return nil
+}
+
+func detectModelTypes(providerType, id string) []ModelType {
+	primary := DetectModelType(id)
+
+	if primary == ModelTypeAuto {
+		return nil
+	}
+
+	types := []ModelType{primary}
+
+	// OpenAI also runs its file transcription models in realtime sessions.
+	if primary == ModelTypeTranscriber && strings.EqualFold(providerType, "openai") {
+		types = append(types, ModelTypeRealtime)
+	}
+
+	return types
 }
 
 func DetectModelType(id string) ModelType {

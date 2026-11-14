@@ -312,6 +312,24 @@ Wingman uses each model's default sampling behavior. Temperature, top-p, and
 top-k are not configurable through provider options, agent configuration, or API
 requests. Use reasoning effort to control reasoning where the model supports it.
 
+Each model is served through the API its type selects: `completer`, `embedder`,
+`reranker`, `renderer`, `synthesizer`, `transcriber`, `realtime`, or `decider`.
+Wingman detects the type from the model name. Set `type` in the model mapping to
+override it; `type` takes one type or a list when a model serves several APIs:
+
+```yaml
+    models:
+      local-whisper:
+        id: whisper-large-v3
+        type: [transcriber, realtime]
+```
+
+Under the `openai` provider, file transcription models such as `gpt-transcribe`
+and `whisper-1` are detected as both `transcriber` and `realtime`, so they also
+work as the model of a realtime transcription session
+(`/v1/realtime?intent=transcription`). An explicit `type: transcriber` keeps such
+a model to file transcription.
+
 #### OpenAI Platform
 
 https://platform.openai.com/docs/api-reference
