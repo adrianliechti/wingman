@@ -733,6 +733,7 @@ func emitAudioResponse(session *fakeRealtimeSession, responseID, itemID, content
 type fakeRealtime struct {
 	session      *fakeRealtimeSession
 	capabilities provider.RealtimeCapabilities
+	defaults     *provider.RealtimeOptions
 
 	mu      sync.Mutex
 	options []provider.RealtimeOptions
@@ -749,6 +750,9 @@ func newFakeRealtime() *fakeRealtime {
 }
 
 func (f *fakeRealtime) Defaults() provider.RealtimeOptions {
+	if f.defaults != nil {
+		return *f.defaults
+	}
 	return provider.RealtimeOptions{
 		Voice:            "alloy",
 		InputAudio:       provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1},

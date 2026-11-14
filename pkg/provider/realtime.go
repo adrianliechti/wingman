@@ -106,9 +106,11 @@ const (
 )
 
 type RealtimeTranscription struct {
-	Model    string
-	Language string
-	Prompt   string
+	Model     string
+	Language  string
+	Languages []string
+	Prompt    string
+	Delay     string
 }
 
 type RealtimeNoiseReduction string
