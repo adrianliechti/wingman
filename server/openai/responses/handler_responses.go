@@ -272,6 +272,27 @@ func responseStatus(status provider.CompletionStatus) string {
 	}
 }
 
+// Codex samples again when a completed response reports end_turn false.
+func responseEndTurn(completion *provider.Completion) *bool {
+	if completion == nil || completion.Status == provider.CompletionStatusIncomplete || completion.Status == provider.CompletionStatusFailed {
+		return nil
+	}
+	if completion.EndTurn != nil {
+		return completion.EndTurn
+	}
+	if completion.Status == provider.CompletionStatusRefused {
+		return new(true)
+	}
+	switch completion.StopReason {
+	case provider.StopReasonEndTurn, provider.StopReasonStopSequence, provider.StopReasonRefusal:
+		return new(true)
+	case provider.StopReasonPauseTurn, provider.StopReasonCompaction:
+		return new(false)
+	}
+	// Pending tool calls and providers without a native boundary make no claim.
+	return nil
+}
+
 func itemStatus(incomplete bool) string {
 	if incomplete {
 		return "incomplete"
@@ -347,6 +368,9 @@ func responseDefaults(resp *Response, req ResponsesRequest, completion *provider
 
 	if resp.Status == "incomplete" && resp.IncompleteDetails == nil {
 		resp.IncompleteDetails = &IncompleteDetails{Reason: "max_output_tokens"}
+	}
+	if resp.Status == "completed" {
+		resp.EndTurn = responseEndTurn(completion)
 	}
 
 	resp.Reasoning = &ResponseReasoning{Mode: "standard"}

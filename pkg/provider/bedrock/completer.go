@@ -100,7 +100,15 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			AdditionalModelRequestFields: req.AdditionalModelRequestFields,
 		}
 
+		continuations := provider.Continuations(messages)
 		resp, err := c.client.ConverseStream(ctx, params)
+		// OpenAI clients may end a conversation with an assistant turn; current Claude models reject that.
+		if err != nil && prefillUnsupported(err) && canContinueAssistant(params.Messages) {
+			last := len(params.Messages) - 1
+			continuations = append(continuations, provider.Continuation{Message: last, Blocks: len(params.Messages[last].Content)})
+			params.Messages = append(slices.Clone(params.Messages), assistantContinuationMessage())
+			resp, err = c.client.ConverseStream(ctx, params)
+		}
 
 		if err != nil {
 			yield(nil, convertError(err))
@@ -129,7 +137,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				ID: id, Model: c.model,
 				Message: &provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Signature: signature})},
+					Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Signature: provider.WrapContinuationSignature(signature, continuations)})},
 				},
 			}, nil)
 		}
@@ -260,7 +268,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 								Content: []provider.Content{
 									provider.ReasoningContent(provider.Reasoning{
-										Signature: base64.StdEncoding.EncodeToString(r.Value),
+										Signature: provider.WrapContinuationSignature(base64.StdEncoding.EncodeToString(r.Value), continuations),
 										Redacted:  true,
 									}),
 								},
@@ -987,6 +995,11 @@ func (c *Completer) convertMessagesPolicy(messages []provider.Message, cache cac
 		})
 	}
 
+	result, err := replayAssistantContinuations(result, provider.Continuations(messages))
+	if err != nil {
+		return nil, err
+	}
+
 	// Add cache point to the last user message for Claude models
 	if isClaudeModel(c.model) && !cache.explicit && len(result) > 0 {
 		for i := len(result) - 1; i >= 0; i-- {
@@ -1106,8 +1119,9 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 		}
 
 		if c.Reasoning != nil && c.Reasoning.Signature != "" {
+			signature, _ := provider.UnwrapContinuationSignature(c.Reasoning.Signature)
 			if c.Reasoning.Redacted {
-				data, err := base64.StdEncoding.DecodeString(c.Reasoning.Signature)
+				data, err := base64.StdEncoding.DecodeString(signature)
 
 				if err != nil {
 					return nil, err
@@ -1129,7 +1143,7 @@ func convertAssistantContent(m provider.Message) ([]types.ContentBlock, error) {
 					Value: &types.ReasoningContentBlockMemberReasoningText{
 						Value: types.ReasoningTextBlock{
 							Text:      aws.String(text),
-							Signature: aws.String(c.Reasoning.Signature),
+							Signature: aws.String(signature),
 						},
 					},
 				})

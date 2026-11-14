@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
@@ -33,6 +34,10 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		messages = provider.ResolveInstructions(messages)
 		messages, options = provider.ResolveConfigurationUpdates(messages, options)
 		messages, options = toolsearch.Inline(messages, options)
+		// The Interactions API rejects a request that ends with a model turn; OpenAI clients may send one.
+		if provider.EndsWithAssistantTurn(messages) {
+			messages = append(slices.Clone(messages), provider.UserMessage(provider.ContinuationText))
+		}
 
 		request, err := convertInteraction(c.model, messages, options)
 		if err != nil {

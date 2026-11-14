@@ -769,7 +769,9 @@ type Response struct {
 	Tier           *string        `json:"service_tier"`
 	AccessPrograms jsontext.Value `json:"access_programs"`
 
-	Status            string             `json:"status"` // completed, failed, in_progress, incomplete
+	Status string `json:"status"` // completed, failed, in_progress, incomplete
+	// Codex's turn boundary; set only when the provider reports one.
+	EndTurn           *bool              `json:"end_turn,omitzero"`
 	CreatedAt         int64              `json:"created_at"`
 	CompletedAt       *int64             `json:"completed_at"`
 	Error             *ResponseError     `json:"error"`
@@ -791,6 +793,9 @@ type Response struct {
 
 	Output []ResponseOutput `json:"output"`
 
+	// Omitted until the adapters report the reasoning they drop; an empty list would claim none was.
+	InputTransformations []InputTransformation `json:"input_transformations,omitzero"`
+
 	FrequencyPenalty float32 `json:"frequency_penalty"`
 	PresencePenalty  float32 `json:"presence_penalty"`
 	TopLogprobs      int     `json:"top_logprobs"`
@@ -808,6 +813,14 @@ type Response struct {
 	Usage     *Usage           `json:"usage"`
 	ToolUsage ToolUsage        `json:"tool_usage"`
 	Billing   *ResponseBilling `json:"billing,omitzero"`
+}
+
+// InputTransformation is a reasoning input withheld from the model.
+type InputTransformation struct {
+	ID     string `json:"id"`
+	Action string `json:"action"`
+	Reason string `json:"reason"`
+	Type   string `json:"type"`
 }
 
 // These hosted tools are not executed by the Responses gateway, so their

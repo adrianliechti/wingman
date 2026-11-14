@@ -343,6 +343,7 @@ type Completion struct {
 	StopReason   StopReason
 	StopDetails  *StopDetails
 	StopSequence string
+	EndTurn      *bool
 
 	Message *Message
 

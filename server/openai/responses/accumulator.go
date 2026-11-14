@@ -162,6 +162,7 @@ type StreamingAccumulator struct {
 	stopReason   provider.StopReason
 	stopDetails  *provider.StopDetails
 	stopSequence string
+	endTurn      *bool
 
 	message  *streamMessage
 	messages []*streamMessage
@@ -746,6 +747,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if c.StopReason != "" {
 		s.stopReason = c.StopReason
 	}
+	if c.EndTurn != nil {
+		s.endTurn = c.EndTurn
+	}
 	if c.StopDetails != nil {
 		s.stopDetails = c.StopDetails
 	}
@@ -1297,6 +1301,7 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 		StopReason:   s.stopReason,
 		StopDetails:  s.stopDetails,
 		StopSequence: s.stopSequence,
+		EndTurn:      s.endTurn,
 		Usage:        s.usage,
 		Reasoning:    s.reasoningContext,
 		Tier:         s.tier,

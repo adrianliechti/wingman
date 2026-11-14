@@ -72,7 +72,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		// A paused turn (stop_reason pause_turn, raised by server tools) is
 		// passed through as the native stop reason; the caller resends the
 		// conversation to continue, as the API documents.
-		continuations := assistantContinuations(messages)
+		continuations := provider.Continuations(messages)
 		for {
 			emitted, fallback, resume := false, false, false
 			c.streamMessage(ctx, req, options, continuations)(func(delta *provider.Completion, err error) bool {
@@ -97,7 +97,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			}
 			if resume {
 				last := len(req.Messages) - 1
-				continuations = append(continuations, assistantContinuation{Message: last, Blocks: len(req.Messages[last].OfAssistant.Content)})
+				continuations = append(continuations, provider.Continuation{Message: last, Blocks: len(req.Messages[last].OfAssistant.Content)})
 				continued := *req
 				continued.Messages = append(slices.Clone(req.Messages), assistantContinuationMessage())
 				req = &continued
@@ -108,7 +108,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 	}
 }
 
-func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessageNewParams, options *provider.CompleteOptions, continuations []assistantContinuation) iter.Seq2[*provider.Completion, error] {
+func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessageNewParams, options *provider.CompleteOptions, continuations []provider.Continuation) iter.Seq2[*provider.Completion, error] {
 	return func(yield func(*provider.Completion, error) bool) {
 		toolAliases := provider.ToolAliases(options.Tools)
 		notes := progressNotes(req.Thinking) || (options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary)
@@ -136,7 +136,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 				ID: message.ID, Model: c.model,
 				Message: &provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Signature: wrapContinuationSignature(message.Content[index].Signature, continuations)})},
+					Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Signature: provider.WrapContinuationSignature(message.Content[index].Signature, continuations)})},
 				},
 			}, nil)
 		}
@@ -245,7 +245,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 
 							Content: []provider.Content{
 								provider.ReasoningContent(provider.Reasoning{
-									Signature: wrapContinuationSignature(event.Data, continuations),
+									Signature: provider.WrapContinuationSignature(event.Data, continuations),
 									Redacted:  true,
 								}),
 							},
@@ -923,7 +923,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 				}
 
 				if c.Reasoning != nil && c.Reasoning.Signature != "" {
-					signature, _ := unwrapContinuationSignature(c.Reasoning.Signature)
+					signature, _ := provider.UnwrapContinuationSignature(c.Reasoning.Signature)
 					// Include thinking blocks for conversation continuity.
 					// Adaptive signatures carry the encrypted chain of thought,
 					// so empty text still resumes reasoning on replay.
@@ -1324,7 +1324,7 @@ func (c *Completer) convertMessageRequest(input []provider.Message, options *pro
 
 	if len(messages) > 0 {
 		var err error
-		req.Messages, err = replayAssistantContinuations(messages, assistantContinuations(input))
+		req.Messages, err = replayAssistantContinuations(messages, provider.Continuations(input))
 		if err != nil {
 			return nil, err
 		}

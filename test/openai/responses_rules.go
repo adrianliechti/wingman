@@ -41,12 +41,16 @@ func DefaultResponsesResponseRules() map[string]harness.FieldRule {
 		// Native OpenAI also reports its image context-compression setting.
 		"image": harness.FieldOptional,
 
-		"billing":           harness.FieldIgnore,
-		"store":             harness.FieldIgnore,
-		"reasoning.summary": harness.FieldIgnore,
-		"reasoning.effort":  harness.FieldPresence,
-		"reasoning.context": harness.FieldPresence,
-		"service_tier":      harness.FieldPresence,
+		// Codex's turn boundary is reported only for providers with a native one.
+		"end_turn": harness.FieldOptional,
+		// Wingman does not yet report the reasoning inputs its adapters withhold.
+		"input_transformations": harness.FieldOptional,
+		"billing":               harness.FieldIgnore,
+		"store":                 harness.FieldIgnore,
+		"reasoning.summary":     harness.FieldIgnore,
+		"reasoning.effort":      harness.FieldPresence,
+		"reasoning.context":     harness.FieldPresence,
+		"service_tier":          harness.FieldPresence,
 	}
 }
 
@@ -85,6 +89,8 @@ func DefaultResponsesSSERules() map[string]harness.FieldRule {
 		"response.text.format.description":                      harness.FieldIgnore,
 		"response.prompt_cache_retention":                       harness.FieldIgnore,
 		"response.image":                                        harness.FieldOptional,
+		"response.end_turn":                                     harness.FieldOptional,
+		"response.input_transformations":                        harness.FieldOptional,
 		"response.billing":                                      harness.FieldIgnore,
 		"response.store":                                        harness.FieldIgnore,
 		"response.service_tier":                                 harness.FieldPresence,

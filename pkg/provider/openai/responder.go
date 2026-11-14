@@ -232,11 +232,12 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			return true
 		}
 
-		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage) bool {
+		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage, endTurn *bool) bool {
 			return yield(&provider.Completion{
 				ID:        responseID,
 				Model:     responseModel,
 				Status:    status,
+				EndTurn:   endTurn,
 				Usage:     usage,
 				Reasoning: reasoningContext,
 				Tier:      tier,
@@ -513,7 +514,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					status = provider.CompletionStatusIncomplete
 				}
 
-				emitStatus(status, toResponseUsage(event.Response.Usage))
+				emitStatus(status, toResponseUsage(event.Response.Usage), responseEndTurn(event.Response))
 				return
 
 			case responses.ResponseErrorEvent:
@@ -540,7 +541,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				return
 
 			case responses.ResponseIncompleteEvent:
-				emitStatus(provider.CompletionStatusIncomplete, toResponseUsage(event.Response.Usage))
+				emitStatus(provider.CompletionStatusIncomplete, toResponseUsage(event.Response.Usage), nil)
 				return
 
 			default:
@@ -562,6 +563,15 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			yield(nil, fmt.Errorf("openai: response stream ended without a terminal event: %w", io.ErrUnexpectedEOF))
 		}
 	}
+}
+
+// Codex backends report the turn boundary in a field the SDK does not type.
+func responseEndTurn(response responses.Response) *bool {
+	var endTurn *bool
+	if err := json.Unmarshal([]byte(response.JSON.ExtraFields["end_turn"].Raw()), &endTurn); err != nil {
+		return nil
+	}
+	return endTurn
 }
 
 func (r *Responder) convertResponsesRequest(messages []provider.Message, options *provider.CompleteOptions) (*responses.ResponseNewParams, error) {

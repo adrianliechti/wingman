@@ -79,9 +79,9 @@ func TestAssistantContinuationDoesNotReplaceNativeFlows(t *testing.T) {
 }
 
 func TestContinuationReplayAcrossMultipleRequests(t *testing.T) {
-	boundaries := []assistantContinuation{{Message: 1, Blocks: 1}, {Message: 3, Blocks: 2}}
+	boundaries := []provider.Continuation{{Message: 1, Blocks: 1}, {Message: 3, Blocks: 2}}
 	for _, redacted := range []bool{false, true} {
-		signature := wrapContinuationSignature("SIG", boundaries)
+		signature := provider.WrapContinuationSignature("SIG", boundaries)
 		messages := []provider.Message{
 			provider.UserMessage("start"),
 			provider.AssistantMessage("first response"),

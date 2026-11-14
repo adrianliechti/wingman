@@ -13,6 +13,7 @@ type CompletionAccumulator struct {
 	stopReason   StopReason
 	stopDetails  *StopDetails
 	stopSequence string
+	endTurn      *bool
 
 	role     MessageRole
 	messages []*accumulatedMessage
@@ -90,6 +91,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.StopReason != "" {
 		a.stopReason = c.StopReason
+	}
+
+	if c.EndTurn != nil {
+		a.endTurn = c.EndTurn
 	}
 
 	if c.StopDetails != nil {
@@ -366,6 +371,7 @@ func (a *CompletionAccumulator) Result() *Completion {
 		StopReason:   a.stopReason,
 		StopDetails:  a.stopDetails,
 		StopSequence: a.stopSequence,
+		EndTurn:      a.endTurn,
 
 		Message: &Message{
 			Role:    a.role,

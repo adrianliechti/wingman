@@ -1,8 +1,6 @@
 package anthropic
 
 import (
-	"encoding/base64"
-	"encoding/json/v2"
 	"errors"
 	"strings"
 
@@ -10,22 +8,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
 )
-
-const assistantContinuationText = "Continue the previous response without repeating completed work."
-const continuationSignaturePrefix = "wm:claude-continuation:"
-
-// The inserted user turn must be reconstructed on later requests: thinking
-// signatures bind to the native conversation, including this adapter's turns.
-// Carry the boundaries in opaque reasoning state, leaving client history alone.
-type assistantContinuation struct {
-	Message int `json:"m"`
-	Blocks  int `json:"b"`
-}
-
-type continuationSignature struct {
-	Signature     string                  `json:"s"`
-	Continuations []assistantContinuation `json:"c"`
-}
 
 func prefillUnsupported(err error) bool {
 	apiError, ok := errors.AsType[*anthropic.Error](err)
@@ -54,51 +36,10 @@ func canContinueAssistant(req *anthropic.BetaMessageNewParams, options *provider
 }
 
 func assistantContinuationMessage() anthropic.BetaMessageParam {
-	return anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(assistantContinuationText))
+	return anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(provider.ContinuationText))
 }
 
-func wrapContinuationSignature(signature string, continuations []assistantContinuation) string {
-	if signature == "" || len(continuations) == 0 {
-		return signature
-	}
-	realm, raw := provider.ParseSignature(signature)
-	data, _ := json.Marshal(continuationSignature{Signature: raw, Continuations: continuations})
-	return provider.TagSignature(realm, continuationSignaturePrefix+base64.RawURLEncoding.EncodeToString(data))
-}
-
-func unwrapContinuationSignature(value string) (string, []assistantContinuation) {
-	realm, raw := provider.ParseSignature(value)
-	encoded, ok := strings.CutPrefix(raw, continuationSignaturePrefix)
-	if !ok {
-		return value, nil
-	}
-	data, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return value, nil
-	}
-	var state continuationSignature
-	if json.Unmarshal(data, &state) != nil || state.Signature == "" || len(state.Continuations) == 0 {
-		return value, nil
-	}
-	return provider.TagSignature(realm, state.Signature), state.Continuations
-}
-
-func assistantContinuations(input []provider.Message) []assistantContinuation {
-	var result []assistantContinuation
-	for _, message := range input {
-		for _, content := range message.Content {
-			if content.Reasoning != nil {
-				_, continuations := unwrapContinuationSignature(content.Reasoning.Signature)
-				if len(continuations) > len(result) {
-					result = continuations
-				}
-			}
-		}
-	}
-	return result
-}
-
-func replayAssistantContinuations(messages []anthropic.BetaMessageParam, continuations []assistantContinuation) ([]anthropic.BetaMessageParam, error) {
+func replayAssistantContinuations(messages []anthropic.BetaMessageParam, continuations []provider.Continuation) ([]anthropic.BetaMessageParam, error) {
 	for _, boundary := range continuations {
 		if boundary.Message < 0 || boundary.Message >= len(messages) || boundary.Blocks <= 0 {
 			return nil, errors.New("anthropic: invalid signature in thinking continuation history")
