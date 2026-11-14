@@ -127,6 +127,7 @@ providers:
     token: test-openai-token
     models:
       - gpt-live-transcribe
+      - gpt-realtime-translate
       - gpt-realtime-2.1
       - gpt-realtime-2.1-mini
 `)

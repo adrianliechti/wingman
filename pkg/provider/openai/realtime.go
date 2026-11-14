@@ -97,6 +97,12 @@ func (r *Realtime) Defaults() provider.RealtimeOptions {
 		}
 	}
 
+	if isTranslationModel(r.model) {
+		defaults.TurnDetection = nil
+		// OpenAI translates to Spanish until the session names a language.
+		defaults.OutputLanguage = "es"
+	}
+
 	return defaults
 }
 
@@ -104,6 +110,10 @@ func isTranscriptionModel(model string) bool {
 	model = strings.ToLower(model)
 
 	return strings.Contains(model, "transcribe") || strings.Contains(model, "whisper")
+}
+
+func isTranslationModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "translate")
 }
 
 func (r *Realtime) RealtimeCapabilities() provider.RealtimeCapabilities {
@@ -119,7 +129,8 @@ func (r *Realtime) RealtimeCapabilities() provider.RealtimeCapabilities {
 func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOptions) (provider.RealtimeSession, error) {
 	resolved := mergeOpenAIRealtimeOptions(r.Defaults(), options)
 	transcription := isTranscriptionModel(r.model)
-	if err := validateOpenAIRealtimeOptions(resolved, transcription); err != nil {
+	translation := isTranslationModel(r.model)
+	if err := validateOpenAIRealtimeOptions(resolved, transcription || translation); err != nil {
 		return nil, err
 	}
 
@@ -158,6 +169,7 @@ func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 		ready:       make(chan error, 1),
 		contents:    make(map[string]provider.RealtimeContentType),
 		transcripts: make(map[string]bool),
+		translation: translation,
 	}
 	if transcription {
 		session.transcriptionModel = r.model
@@ -213,6 +225,9 @@ func (r *Realtime) websocketURL() (string, error) {
 
 	if !strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/realtime") {
 		u.Path = strings.TrimRight(u.Path, "/") + "/realtime"
+	}
+	if isTranslationModel(r.model) {
+		u.Path = strings.TrimRight(u.Path, "/") + "/translations"
 	}
 	query := u.Query()
 	if isTranscriptionModel(r.model) {
@@ -290,9 +305,9 @@ func mergeOpenAIRealtimeOptions(defaults provider.RealtimeOptions, options *prov
 	return result
 }
 
-func validateOpenAIRealtimeOptions(options provider.RealtimeOptions, transcription bool) error {
+func validateOpenAIRealtimeOptions(options provider.RealtimeOptions, inputOnly bool) error {
 	formats := map[string]provider.RealtimeAudioFormat{"input": options.InputAudio}
-	if !transcription {
+	if !inputOnly {
 		formats["output"] = options.OutputAudio
 	}
 	for name, format := range formats {
@@ -313,7 +328,7 @@ func validateOpenAIRealtimeOptions(options provider.RealtimeOptions, transcripti
 		}
 	}
 
-	if !transcription && len(options.OutputModalities) != 1 {
+	if !inputOnly && len(options.OutputModalities) != 1 {
 		return errors.New("openai realtime: exactly one output modality is required")
 	}
 	return nil
@@ -335,6 +350,7 @@ type openAIRealtimeSession struct {
 	transcripts map[string]bool
 
 	transcriptionModel string
+	translation        bool
 }
 
 var _ provider.RealtimeSession = (*openAIRealtimeSession)(nil)
@@ -343,7 +359,7 @@ func (s *openAIRealtimeSession) Update(ctx context.Context, options *provider.Re
 	if options == nil {
 		return errors.New("openai realtime: session options are required")
 	}
-	if err := validateOpenAIRealtimeOptions(*options, s.transcriptionModel != ""); err != nil {
+	if err := validateOpenAIRealtimeOptions(*options, s.transcriptionModel != "" || s.translation); err != nil {
 		return err
 	}
 
@@ -351,12 +367,33 @@ func (s *openAIRealtimeSession) Update(ctx context.Context, options *provider.Re
 	if s.transcriptionModel != "" {
 		session = openAITranscriptionSessionObject(s.transcriptionModel, *options)
 	}
+	if s.translation {
+		session = openAITranslationSessionObject(*options)
+	}
 
 	return s.send(ctx, map[string]any{
 		"type":     "session.update",
 		"event_id": realtimeID("event"),
 		"session":  session,
 	})
+}
+
+func openAITranslationSessionObject(options provider.RealtimeOptions) map[string]any {
+	var transcription any
+	if options.InputTranscription != nil {
+		transcription = map[string]any{"model": options.InputTranscription.Model}
+	}
+	var noiseReduction any
+	if options.InputNoiseReduction != "" {
+		noiseReduction = map[string]any{"type": string(options.InputNoiseReduction)}
+	}
+
+	return map[string]any{
+		"audio": map[string]any{
+			"input":  map[string]any{"transcription": transcription, "noise_reduction": noiseReduction},
+			"output": map[string]any{"language": options.OutputLanguage},
+		},
+	}
 }
 
 func openAITranscriptionSessionObject(model string, options provider.RealtimeOptions) map[string]any {
@@ -528,14 +565,23 @@ func (s *openAIRealtimeSession) SendAudio(ctx context.Context, audio []byte) err
 	if len(audio) == 0 {
 		return nil
 	}
+	eventType := "input_audio_buffer.append"
+	if s.translation {
+		eventType = "session.input_audio_buffer.append"
+	}
 	return s.send(ctx, map[string]any{
-		"type": "input_audio_buffer.append", "event_id": realtimeID("event"),
+		"type": eventType, "event_id": realtimeID("event"),
 		"audio": base64.StdEncoding.EncodeToString(audio),
 	})
 }
 
 func (s *openAIRealtimeSession) CommitAudio(ctx context.Context) error {
-	return s.send(ctx, map[string]any{"type": "input_audio_buffer.commit", "event_id": realtimeID("event")})
+	eventType := "input_audio_buffer.commit"
+	if s.translation {
+		// A translation has no turns: committing flushes the stream and ends it.
+		eventType = "session.close"
+	}
+	return s.send(ctx, map[string]any{"type": eventType, "event_id": realtimeID("event")})
 }
 
 func (s *openAIRealtimeSession) ClearAudio(ctx context.Context) error {
@@ -689,6 +735,10 @@ func (s *openAIRealtimeSession) receive() {
 		for _, event := range s.translate(data) {
 			s.emit(event)
 		}
+		// OpenAI keeps the socket open after a translation ends.
+		if header.Type == "session.closed" {
+			return
+		}
 	}
 }
 
@@ -716,6 +766,7 @@ type openAIRealtimeEvent struct {
 	ContentIndex   int     `json:"content_index"`
 	AudioStartMS   int64   `json:"audio_start_ms"`
 	AudioEndMS     int64   `json:"audio_end_ms"`
+	ElapsedMS      int64   `json:"elapsed_ms"`
 	Delta          string  `json:"delta"`
 	Text           string  `json:"text"`
 	Transcript     string  `json:"transcript"`
@@ -840,6 +891,22 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 		// The final transcript drops the leading space of the first delta.
 		events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ContentID: contentID, ItemID: value.ItemID, ContentType: provider.RealtimeContentText, Text: value.Transcript})
 		return events
+
+	case "session.output_audio.delta":
+		audio, err := base64.StdEncoding.DecodeString(value.Delta)
+		if err != nil {
+			return []provider.RealtimeEvent{{Type: provider.RealtimeEventError, Err: fmt.Errorf("openai realtime: decode audio: %w", err)}}
+		}
+		return []provider.RealtimeEvent{{Type: provider.RealtimeEventAudioDelta, Audio: audio, AudioEnd: time.Duration(value.ElapsedMS) * time.Millisecond}}
+
+	case "session.output_transcript.delta":
+		return []provider.RealtimeEvent{{Type: provider.RealtimeEventTextDelta, Role: provider.MessageRoleAssistant, Text: value.Delta, AudioEnd: time.Duration(value.ElapsedMS) * time.Millisecond}}
+
+	case "session.input_transcript.delta":
+		return []provider.RealtimeEvent{{Type: provider.RealtimeEventTextDelta, Role: provider.MessageRoleUser, Text: value.Delta, AudioEnd: time.Duration(value.ElapsedMS) * time.Millisecond}}
+
+	case "session.closed":
+		return []provider.RealtimeEvent{{Type: provider.RealtimeEventResponseDone}}
 
 	case "input_audio_buffer.speech_started":
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventInputSpeechStarted, ItemID: value.ItemID, AudioStart: time.Duration(value.AudioStartMS) * time.Millisecond}}

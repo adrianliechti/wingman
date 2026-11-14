@@ -62,6 +62,30 @@ type responseState struct {
 }
 
 func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error {
+	if s.config.Type == sessionTypeTranslation {
+		switch event.Type {
+		case provider.RealtimeEventAudioDelta:
+			return s.write(map[string]any{
+				"type": "session.output_audio.delta", "delta": base64.StdEncoding.EncodeToString(event.Audio),
+				"format": "pcm16", "sample_rate": 24000, "channels": 1,
+				"elapsed_ms": event.AudioEnd.Milliseconds(),
+			})
+
+		case provider.RealtimeEventTextDelta:
+			eventType := "session.output_transcript.delta"
+			if event.Role == provider.MessageRoleUser {
+				eventType = "session.input_transcript.delta"
+			}
+			return s.write(map[string]any{
+				"type": eventType, "delta": event.Text, "elapsed_ms": event.AudioEnd.Milliseconds(),
+			})
+
+		case provider.RealtimeEventResponseDone:
+			s.done = true
+			return s.write(map[string]any{"type": "session.closed"})
+		}
+	}
+
 	if s.transcribing() {
 		switch event.Type {
 		case provider.RealtimeEventContentStarted, provider.RealtimeEventTextDelta, provider.RealtimeEventContentDone:
@@ -604,6 +628,9 @@ func (s *openAISession) finishContent(event provider.RealtimeEvent) error {
 
 	if state.role == provider.MessageRoleUser {
 		transcript := state.text.String()
+		if event.Text != "" {
+			transcript = event.Text
+		}
 		if s.config.Transcription != nil {
 			if err := s.write(map[string]any{
 				"type":    "conversation.item.input_audio_transcription.completed",

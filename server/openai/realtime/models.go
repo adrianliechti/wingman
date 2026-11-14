@@ -117,6 +117,7 @@ func (item conversationItem) audio() string {
 const (
 	sessionTypeRealtime      = "realtime"
 	sessionTypeTranscription = "transcription"
+	sessionTypeTranslation   = "translation"
 )
 
 type sessionConfig struct {
@@ -124,6 +125,7 @@ type sessionConfig struct {
 
 	Instructions string
 	Voice        string
+	Language     string
 
 	InputAudio  provider.RealtimeAudioFormat
 	OutputAudio provider.RealtimeAudioFormat
@@ -180,7 +182,77 @@ func newTranscriptionConfig() sessionConfig {
 	}
 }
 
+func newTranslationConfig(defaults provider.RealtimeOptions) sessionConfig {
+	return sessionConfig{
+		Type: sessionTypeTranslation,
+
+		Language:   defaults.OutputLanguage,
+		InputAudio: openAIAudioFormat(provider.RealtimeAudioPCM),
+	}
+}
+
+func (c *sessionConfig) applyTranslation(data jsontext.Value) error {
+	var session struct {
+		Audio struct {
+			Input struct {
+				Transcription  jsontext.Value `json:"transcription"`
+				NoiseReduction jsontext.Value `json:"noise_reduction"`
+			} `json:"input"`
+			Output struct {
+				Language *string `json:"language"`
+			} `json:"output"`
+		} `json:"audio"`
+	}
+	if err := json.Unmarshal(data, &session, json.RejectUnknownMembers(true)); err != nil {
+		var semantic *json.SemanticError
+		if errors.As(err, &semantic) && errors.Is(err, json.ErrUnknownName) {
+			return fmt.Errorf("session field %q is not supported", semantic.JSONPointer)
+		}
+		return fmt.Errorf("invalid session: %w", err)
+	}
+
+	updated := *c
+
+	if raw := session.Audio.Input.Transcription; raw.Kind() == 'n' {
+		updated.Transcription = nil
+	} else if len(raw) > 0 {
+		var transcription struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(raw, &transcription, json.RejectUnknownMembers(true)); err != nil || transcription.Model == "" {
+			return errors.New("session.audio.input.transcription must be null or an object with only a model")
+		}
+		updated.Transcription = &provider.RealtimeTranscription{Model: transcription.Model}
+	}
+
+	if raw := session.Audio.Input.NoiseReduction; len(raw) > 0 {
+		noiseReduction, err := parseNoiseReduction(raw)
+		if err != nil {
+			return fmt.Errorf("session.audio.input.noise_reduction: %w", err)
+		}
+		updated.NoiseReduction = noiseReduction
+	}
+
+	if language := session.Audio.Output.Language; language != nil {
+		updated.Language = *language
+	}
+
+	*c = updated
+	return nil
+}
+
 func (c sessionConfig) options(history []provider.Message) provider.RealtimeOptions {
+	if c.Type == sessionTypeTranslation {
+		return provider.RealtimeOptions{
+			OutputLanguage: c.Language,
+
+			InputAudio: c.InputAudio,
+
+			InputTranscription:  cloneTranscription(c.Transcription),
+			InputNoiseReduction: c.NoiseReduction,
+		}
+	}
+
 	if c.Type == sessionTypeTranscription {
 		return provider.RealtimeOptions{
 			InputAudio: c.InputAudio,
@@ -218,6 +290,9 @@ func (c sessionConfig) options(history []provider.Message) provider.RealtimeOpti
 func (c *sessionConfig) apply(data jsontext.Value) error {
 	if len(data) == 0 || data.Kind() == 'n' {
 		return errors.New("session is required")
+	}
+	if c.Type == sessionTypeTranslation {
+		return c.applyTranslation(data)
 	}
 
 	updated := *c
@@ -1004,6 +1079,22 @@ func toolChoiceObject(value provider.ToolChoice) string {
 }
 
 func (c sessionConfig) object(id, model string) map[string]any {
+	if c.Type == sessionTypeTranslation {
+		return map[string]any{
+			"id":      id,
+			"type":    sessionTypeTranslation,
+			"model":   model,
+			"include": nil,
+			"audio": map[string]any{
+				"input": map[string]any{
+					"transcription":   transcriptionObject(c.Transcription),
+					"noise_reduction": noiseReductionObject(c.NoiseReduction),
+				},
+				"output": map[string]any{"language": c.Language},
+			},
+		}
+	}
+
 	if c.Type == sessionTypeTranscription {
 		turnDetection := turnDetectionObject(c.TurnDetection)
 		if detection, ok := turnDetection.(map[string]any); ok {

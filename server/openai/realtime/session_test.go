@@ -261,6 +261,29 @@ func TestWingmanChatRealtimeToolsAndMultipleOutputItems(t *testing.T) {
 	assertEventType(t, readWireEvent(t, conn), "session.updated")
 }
 
+func TestRealtimeInputTranscriptUsesFinalText(t *testing.T) {
+	upstream := newFakeRealtime()
+	conn := openTestRealtime(t, upstream)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+	writeWireEvent(t, conn, wingmanSessionUpdate(false))
+	assertEventType(t, readWireEvent(t, conn), "session.updated")
+
+	writeWireEvent(t, conn, map[string]any{
+		"type": "input_audio_buffer.append", "audio": base64.StdEncoding.EncodeToString(make([]byte, 4800)),
+	})
+	waitSignal(t, upstream.session.audioSent, "audio append")
+	upstream.session.emit(
+		provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ContentID: "input", ItemID: "item_input", ContentType: provider.RealtimeContentText, Role: provider.MessageRoleUser},
+		provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ContentID: "input", ItemID: "item_input", Text: " Hi"},
+		provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ContentID: "input", ItemID: "item_input", ContentType: provider.RealtimeContentText, Text: "Hi"},
+	)
+	events := readThrough(t, conn, "conversation.item.input_audio_transcription.completed")
+	if completed := events[len(events)-1]; completed["transcript"] != "Hi" {
+		t.Fatalf("completed transcript = %q, want the provider's final text", completed["transcript"])
+	}
+}
+
 func TestWingmanChatRealtimeTranscriptionFailureContract(t *testing.T) {
 	upstream := newFakeRealtime()
 	conn := openTestRealtime(t, upstream)

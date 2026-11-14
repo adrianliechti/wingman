@@ -56,6 +56,8 @@ type RealtimeOptions struct {
 	Instructions string
 	Voice        string
 
+	OutputLanguage string
+
 	InputAudio  RealtimeAudioFormat
 	OutputAudio RealtimeAudioFormat
 

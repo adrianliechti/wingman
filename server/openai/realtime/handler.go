@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/policy"
@@ -25,11 +26,13 @@ func New(cfg *config.Config) *Handler {
 
 func (h *Handler) Attach(r chi.Router) {
 	r.HandleFunc("/realtime", h.handleRealtime)
+	r.HandleFunc("/realtime/translations", h.handleRealtime)
 }
 
 func (h *Handler) handleRealtime(w http.ResponseWriter, r *http.Request) {
 	model := r.URL.Query().Get("model")
-	transcription := r.URL.Query().Get("intent") == "transcription"
+	translation := strings.HasSuffix(r.URL.Path, "/translations")
+	transcription := !translation && r.URL.Query().Get("intent") == "transcription"
 
 	var realtime provider.Realtime
 
@@ -40,6 +43,11 @@ func (h *Handler) handleRealtime(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+	}
+
+	if translation && realtime.Defaults().OutputLanguage == "" {
+		http.Error(w, "realtime model does not translate: "+model, http.StatusBadRequest)
+		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -56,6 +64,10 @@ func (h *Handler) handleRealtime(w http.ResponseWriter, r *http.Request) {
 		session = newTranscriptionSession(conn, h.realtime)
 	} else {
 		session = newOpenAISession(conn, realtime, model)
+	}
+
+	if translation {
+		session.config = newTranslationConfig(realtime.Defaults())
 	}
 
 	if err := session.run(r.Context()); err != nil && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {

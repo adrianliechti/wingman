@@ -254,6 +254,79 @@ func TestOpenAIRealtimeTranscriptionSession(t *testing.T) {
 	}
 }
 
+func TestOpenAIRealtimeTranslationSession(t *testing.T) {
+	translator, err := NewRealtime("https://api.openai.com/v1", "gpt-realtime-translate", WithToken("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target, _ := translator.websocketURL(); target != "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate" {
+		t.Fatalf("translation URL = %q", target)
+	}
+	defaults := translator.Defaults()
+	if defaults.OutputLanguage != "es" || defaults.TurnDetection != nil {
+		t.Fatalf("translation defaults = %#v", defaults)
+	}
+
+	// What the gateway sends for a translation session.
+	options := provider.RealtimeOptions{
+		InputAudio:          defaults.InputAudio,
+		OutputLanguage:      "en",
+		InputTranscription:  &provider.RealtimeTranscription{Model: "gpt-realtime-whisper"},
+		InputNoiseReduction: provider.RealtimeNoiseReductionNear,
+	}
+
+	session, captured := newOpenAIWireCapture(t)
+	session.translation = true
+	if err := session.Update(t.Context(), &options); err != nil {
+		t.Fatal(err)
+	}
+	object, _ := readCaptured(t, captured)["session"].(map[string]any)
+	if len(object) != 1 {
+		t.Fatalf("session = %#v, want audio only", object)
+	}
+	audio := object["audio"].(map[string]any)
+	if language := audio["output"].(map[string]any)["language"]; language != "en" {
+		t.Fatalf("output language = %v", language)
+	}
+	input := audio["input"].(map[string]any)
+	if transcription := input["transcription"].(map[string]any); len(transcription) != 1 || transcription["model"] != "gpt-realtime-whisper" {
+		t.Fatalf("transcription = %#v, want the model only", transcription)
+	}
+	if noise := input["noise_reduction"].(map[string]any); noise["type"] != "near_field" {
+		t.Fatalf("noise reduction = %#v", noise)
+	}
+
+	if err := session.SendAudio(t.Context(), []byte{0, 0}); err != nil {
+		t.Fatal(err)
+	}
+	if appended := readCaptured(t, captured); appended["type"] != "session.input_audio_buffer.append" {
+		t.Fatalf("append event = %#v", appended)
+	}
+	if err := session.CommitAudio(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if closed := readCaptured(t, captured); closed["type"] != "session.close" {
+		t.Fatalf("flush event = %#v, want session.close", closed)
+	}
+
+	audioDelta := session.translate([]byte(`{"type":"session.output_audio.delta","delta":"AQIDBA==","elapsed_ms":200}`))
+	if len(audioDelta) != 1 || audioDelta[0].Type != provider.RealtimeEventAudioDelta || len(audioDelta[0].Audio) != 4 || audioDelta[0].AudioEnd.Milliseconds() != 200 {
+		t.Fatalf("audio events = %#v", audioDelta)
+	}
+	for eventType, role := range map[string]provider.MessageRole{
+		"session.output_transcript.delta": provider.MessageRoleAssistant,
+		"session.input_transcript.delta":  provider.MessageRoleUser,
+	} {
+		events := session.translate([]byte(`{"type":"` + eventType + `","delta":" Hi","elapsed_ms":400}`))
+		if len(events) != 1 || events[0].Type != provider.RealtimeEventTextDelta || events[0].Role != role || events[0].Text != " Hi" || events[0].AudioEnd.Milliseconds() != 400 {
+			t.Fatalf("%s events = %#v", eventType, events)
+		}
+	}
+	if closed := session.translate([]byte(`{"type":"session.closed"}`)); len(closed) != 1 || closed[0].Type != provider.RealtimeEventResponseDone {
+		t.Fatalf("closed events = %#v", closed)
+	}
+}
+
 func TestTranslateInputTranscriptCarriesFinalText(t *testing.T) {
 	session := &openAIRealtimeSession{
 		contents:    make(map[string]provider.RealtimeContentType),

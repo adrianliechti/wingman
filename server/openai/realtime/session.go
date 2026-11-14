@@ -59,6 +59,8 @@ type openAISession struct {
 	itemPrevious map[string]string
 
 	transcribed map[string]bool
+
+	done bool
 }
 
 func newOpenAISession(conn *websocket.Conn, realtime provider.Realtime, model string) *openAISession {
@@ -113,7 +115,7 @@ func (s *openAISession) run(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if !s.transcribing() {
+	if s.config.Type == sessionTypeRealtime {
 		if err := s.write(map[string]any{
 			"type": "conversation.created",
 			"conversation": map[string]any{
@@ -133,7 +135,7 @@ func (s *openAISession) run(ctx context.Context) error {
 		}
 	}()
 
-	for {
+	for !s.done {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -168,6 +170,8 @@ func (s *openAISession) run(ctx context.Context) error {
 			}
 		}
 	}
+
+	return s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
 }
 
 func (s *openAISession) read(ctx context.Context, results chan<- readResult) {
@@ -193,6 +197,18 @@ func (s *openAISession) handleClientEvent(ctx context.Context, data []byte) erro
 	var event clientEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		return s.writeError("", "invalid_json", "Client event is not valid JSON", "")
+	}
+
+	if s.config.Type == sessionTypeTranslation {
+		switch event.Type {
+		case "session.update":
+		case "session.input_audio_buffer.append":
+			event.Type = "input_audio_buffer.append"
+		case "session.close":
+			return s.closeTranslation(ctx, event)
+		default:
+			return s.writeError(event.EventID, "invalid_request", fmt.Sprintf("unsupported client event type %q", event.Type), "type")
+		}
 	}
 
 	if s.transcribing() {
@@ -298,16 +314,19 @@ func (s *openAISession) updateSession(ctx context.Context, event clientEvent) er
 
 	// The transcription model selects the provider.
 	if s.transcribing() && updated.Transcription != nil && updated.Transcription.Model != s.model {
-		if s.upstream != nil {
-			return errors.New("session.audio.input.transcription.model cannot be changed after audio has been sent")
-		}
-
 		realtime, err := s.resolve(ctx, updated.Transcription.Model)
 		if err != nil {
 			return err
 		}
 		if !updated.turnDetectionSet {
 			updated.TurnDetection = cloneTurnDetection(realtime.Defaults().TurnDetection)
+		}
+
+		// Uncommitted audio is not carried over to the new provider.
+		if s.upstream != nil {
+			_ = s.upstream.Close()
+			s.upstream, s.upstreamEvents = nil, nil
+			s.turnAudioBytes = 0
 		}
 
 		s.provider = realtime
@@ -346,8 +365,8 @@ func (s *openAISession) appendAudio(ctx context.Context, encoded string) error {
 		return errors.New("audio event exceeds the 15 MiB limit")
 	}
 
-	// Transcription streams audio right away: partial transcripts arrive while speaking.
-	if s.config.TurnDetection == nil && !s.transcribing() {
+	// Only a conversation holds manual turns back until the commit.
+	if s.config.Type == sessionTypeRealtime && s.config.TurnDetection == nil {
 		_, err := s.manualAudio.Write(audio)
 		return err
 	}
@@ -426,6 +445,18 @@ func (s *openAISession) commitAudio(ctx context.Context) error {
 
 	s.inputCommitted = true
 	s.turnAudioBytes = 0
+	return nil
+}
+
+func (s *openAISession) closeTranslation(ctx context.Context, event clientEvent) error {
+	if s.upstream == nil {
+		s.done = true
+		return s.write(map[string]any{"type": "session.closed"})
+	}
+
+	if err := s.upstream.CommitAudio(ctx); err != nil {
+		return s.writeError(event.EventID, "invalid_request", err.Error(), "type")
+	}
 	return nil
 }
 

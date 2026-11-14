@@ -21,11 +21,11 @@ func newFakeTranscriber() *fakeRealtime {
 	return transcriber
 }
 
-func openTestTranscription(t *testing.T, transcriber provider.Realtime) *websocket.Conn {
+func openTestTranscription(t *testing.T, transcriber, segmented provider.Realtime) *websocket.Conn {
 	t.Helper()
 	cfg := &config.Config{}
 	cfg.RegisterRealtime("test-transcribe", transcriber)
-	cfg.RegisterRealtime("test-segmented", newFakeRealtime())
+	cfg.RegisterRealtime("test-segmented", segmented)
 	router := chi.NewRouter()
 	New(cfg).Attach(router)
 	server := httptest.NewServer(router)
@@ -66,7 +66,7 @@ func appendTestAudio(t *testing.T, conn *websocket.Conn) {
 
 func TestTranscriptionSessionStreamsPartialTranscripts(t *testing.T) {
 	transcriber := newFakeTranscriber()
-	conn := openTestTranscription(t, transcriber)
+	conn := openTestTranscription(t, transcriber, newFakeRealtime())
 
 	created := readWireEvent(t, conn)
 	assertEventType(t, created, "session.created")
@@ -192,7 +192,7 @@ func TestTranscriptionSessionStreamsPartialTranscripts(t *testing.T) {
 }
 
 func TestTranscriptionSessionTurnDetectionDefaults(t *testing.T) {
-	conn := openTestTranscription(t, newFakeTranscriber())
+	conn := openTestTranscription(t, newFakeTranscriber(), newFakeRealtime())
 	assertEventType(t, readWireEvent(t, conn), "session.created")
 
 	// The model's default applies until the client chooses.
@@ -211,9 +211,43 @@ func TestTranscriptionSessionTurnDetectionDefaults(t *testing.T) {
 	}
 }
 
+func TestTranscriptionSessionModelSwitch(t *testing.T) {
+	first, second := newFakeTranscriber(), newFakeTranscriber()
+	conn := openTestTranscription(t, first, second)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+
+	writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-transcribe"}}))
+	assertEventType(t, readWireEvent(t, conn), "session.updated")
+	appendTestAudio(t, conn)
+	waitSignal(t, first.session.audioSent, "audio for the first model")
+
+	writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-segmented", "languages": []string{"en"}}}))
+	transcription, _ := sessionInput(t, readWireEvent(t, conn))["transcription"].(map[string]any)
+	if transcription["model"] != "test-segmented" {
+		t.Fatalf("transcription = %#v, want the new model", transcription)
+	}
+
+	appendTestAudio(t, conn)
+	waitSignal(t, second.session.audioSent, "audio for the second model")
+	second.mu.Lock()
+	options := second.options[0]
+	second.mu.Unlock()
+	if got := options.InputTranscription; got == nil || got.Model != "test-segmented" || strings.Join(got.Languages, ",") != "en" {
+		t.Fatalf("second provider transcription options = %#v", got)
+	}
+
+	second.session.emit(
+		provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ContentID: "item_b:0", ItemID: "item_b", Role: provider.MessageRoleUser},
+		provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ContentID: "item_b:0", Text: "Hello"},
+	)
+	if delta := readWireEvent(t, conn); delta["item_id"] != "item_b" || delta["delta"] != "Hello" {
+		t.Fatalf("delta after the switch = %#v", delta)
+	}
+}
+
 func TestTranscriptionSessionRejections(t *testing.T) {
 	transcriber := newFakeTranscriber()
-	conn := openTestTranscription(t, transcriber)
+	conn := openTestTranscription(t, transcriber, newFakeRealtime())
 	assertEventType(t, readWireEvent(t, conn), "session.created")
 
 	expectError := func(event map[string]any, code, message string) {
@@ -252,10 +286,6 @@ func TestTranscriptionSessionRejections(t *testing.T) {
 	// The session survives every rejection.
 	writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-transcribe"}}))
 	assertEventType(t, readWireEvent(t, conn), "session.updated")
-
-	appendTestAudio(t, conn)
-	waitSignal(t, transcriber.session.audioSent, "streamed transcription audio")
-	expectError(transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-segmented"}}), "", "cannot be changed after audio has been sent")
 }
 
 func TestRealtimeSessionRejectsTranscriptionUpdate(t *testing.T) {
