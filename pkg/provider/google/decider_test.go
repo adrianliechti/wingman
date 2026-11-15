@@ -222,7 +222,7 @@ func TestGeminiDecisionRetryAndErrors(t *testing.T) {
 		})
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	d, _ := NewDecider("", "gemini-decision-1", WithClient(newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+	d, _ := NewDecider("", "gemini-decision-1", WithMaxRetries(1), WithClient(newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "60")
 		w.WriteHeader(429)
 		cancel()

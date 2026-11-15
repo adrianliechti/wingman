@@ -67,6 +67,7 @@ func (cfg *Config) Options() ([]option.RequestOption, error) {
 
 	options := []option.RequestOption{
 		option.WithHTTPClient(client),
+		option.WithMaxRetries(0), // Clients own retries unless explicitly configured.
 	}
 
 	if cfg.maxRetries != nil {

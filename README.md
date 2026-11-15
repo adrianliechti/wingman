@@ -292,6 +292,11 @@ configuration order is used. See [Decisions](API.md#decisions).
 
 ### LLM Providers
 
+Provider SDK retries are disabled by default so clients control retry timing and
+budgets. OpenAI (including compatible endpoints and Azure), Anthropic, and
+Decisions providers support opting in with `max_retries` at provider or model
+level; a model setting overrides its provider setting.
+
 Wingman uses each model's default sampling behavior. Temperature, top-p, and
 top-k are not configurable through provider options, agent configuration, or API
 requests. Use reasoning effort to control reasoning where the model supports it.
@@ -489,8 +494,8 @@ video, and PDFs, and text-only question instructions. Conversation history,
 tool traces, and box questions are rejected before an upstream call. The
 backend preserves returned probabilities and choice/score confidence and reports
 aggregate token usage. Per-modality usage is omitted. Configure `max_retries`
-at provider or model level (default: 2); `0` disables retries. An optional `url`
-can point to a base URL, `/v1beta`, or the full `/v1beta/decisions` endpoint.
+at provider or model level (default: 0); a positive value enables retries. An
+optional `url` can point to a base URL, `/v1beta`, or the full `/v1beta/decisions` endpoint.
 
 
 #### AWS Bedrock
@@ -663,7 +668,7 @@ providers:
 The local endpoint must implement the System One API. To use TypeSafe's hosted
 API, omit `url`, set `token: ${TYPESAFE_API_KEY}`, and configure `jev-latest`.
 Decision models are listed in `/v1/models` and used through `/v1/systemone` or
-`/v1/decisions`. They support `max_retries` at provider or model level.
+`/v1/decisions`. They support `max_retries` at provider or model level (default: 0).
 
 > **Provider interfaces.** Each model serves one of seven roles, inferred from its `type` or set explicitly per model: **completer** (chat/reason), **decider** (typed decisions), **embedder** (vectors), **renderer** (text→image), **synthesizer** (text→speech), **transcriber** (speech→text), **reranker** (relevance). See [`docs/architecture.png`](docs/architecture.png) for the interface × backend matrix.
 
@@ -689,7 +694,7 @@ routers:
 ```
 
 > [!TIP]
-> Set `max_retries: 0` on models used as router members. Provider SDKs retry rate limits in place (honoring `Retry-After`, which can mean waiting 30s+ on the same backend) — disabling SDK retries lets the router fail over to another backend immediately.
+> Keep the default `max_retries: 0` for router members so the router can fail over immediately. Enabling upstream retries can delay failover while the same backend is retried.
 
 
 ### Web Access (Search · Scrape · Research)

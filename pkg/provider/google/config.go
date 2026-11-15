@@ -57,6 +57,9 @@ func (c *Config) newClient(ctx context.Context) (*genai.Client, error) {
 		Backend: genai.BackendGeminiAPI,
 
 		HTTPClient: client,
+		HTTPOptions: genai.HTTPOptions{
+			RetryOptions: &genai.HTTPRetryOptions{Attempts: new(int32(1))},
+		},
 	}
 
 	return genai.NewClient(ctx, config)

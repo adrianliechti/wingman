@@ -11,6 +11,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/tools/toolsearch"
 
 	"google.golang.org/genai/interactions/models/operations"
+	"google.golang.org/genai/interactions/retry"
 )
 
 var _ provider.Completer = (*Completer)(nil)
@@ -52,7 +53,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 		response, err := client.Interactions.Create(ctx, operations.CreateInteractionRequest{
 			Body: operations.NewCreateInteractionRequestBody(*request),
-		})
+		}, operations.WithRetries(retry.Config{Strategy: "none"})) // Interactions has its own retry policy.
 		if err != nil {
 			yield(nil, convertError(err))
 			return

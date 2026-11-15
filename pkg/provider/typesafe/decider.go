@@ -33,7 +33,7 @@ func NewDecider(endpoint, model string, options ...Option) (*Decider, error) {
 	if endpoint == "" {
 		endpoint = "https://api.typesafe.ai/v1/systemone"
 	}
-	cfg := &Config{endpoint: endpoint, model: model, maxRetries: 2}
+	cfg := &Config{endpoint: endpoint, model: model}
 	for _, option := range options {
 		option(cfg)
 	}

@@ -58,7 +58,7 @@ func NewRealtime(model string, options ...Option) (*Realtime, error) {
 		option(cfg)
 	}
 
-	var loadOptions []func(*config.LoadOptions) error
+	loadOptions := []func(*config.LoadOptions) error{config.WithRetryMaxAttempts(1)}
 
 	if cfg.client != nil {
 		loadOptions = append(loadOptions, config.WithHTTPClient(cfg.client))

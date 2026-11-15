@@ -50,7 +50,7 @@ func NewCompleter(model string, options ...Option) (*Completer, error) {
 		option(cfg)
 	}
 
-	var configOptions []func(*config.LoadOptions) error
+	configOptions := []func(*config.LoadOptions) error{config.WithRetryMaxAttempts(1)}
 
 	if cfg.client != nil {
 		configOptions = append(configOptions, config.WithHTTPClient(cfg.client))

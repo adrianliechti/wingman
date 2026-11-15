@@ -107,7 +107,7 @@ func TestDeciderUpstreamErrors(t *testing.T) {
 				io.WriteString(w, `{"error":{"message":"upstream failed","type":"upstream_error"}}`)
 			}))
 			defer upstream.Close()
-			d, _ := NewDecider(upstream.URL, "nimble", WithMaxRetries(0))
+			d, _ := NewDecider(upstream.URL, "nimble")
 			_, err := d.Decide(context.Background(), choiceInput())
 			var p *provider.ProviderError
 			if !errors.As(err, &p) || p.Code != status || p.Type != "upstream_error" || p.Message != "upstream failed" || p.RetryAfter != 2*time.Second || calls != 1 {
@@ -195,7 +195,7 @@ func TestDeciderCancellationDuringBackoff(t *testing.T) {
 		io.WriteString(w, `{"error":{"message":"slow down"}}`)
 	}))
 	defer upstream.Close()
-	d, _ := NewDecider(upstream.URL, "nimble")
+	d, _ := NewDecider(upstream.URL, "nimble", WithMaxRetries(1))
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	if _, err := d.Decide(ctx, choiceInput()); !errors.Is(err, context.DeadlineExceeded) || calls != 1 {

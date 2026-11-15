@@ -43,7 +43,7 @@ func NewDecider(endpoint, model string, options ...Option) (*Decider, error) {
 		}
 		endpoint += "/decisions"
 	}
-	cfg := &Config{model: model, maxRetries: 2}
+	cfg := &Config{model: model}
 	for _, option := range options {
 		option(cfg)
 	}

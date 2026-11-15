@@ -73,6 +73,7 @@ func (c *Config) Options() []option.RequestOption {
 	options := []option.RequestOption{
 		option.WithBaseURL(c.url),
 		option.WithHTTPClient(c.client),
+		option.WithMaxRetries(0), // Clients own retries unless explicitly configured.
 	}
 
 	if c.isAzure() && c.token != "" {
@@ -103,6 +104,7 @@ func (c *Config) AzureOptions() []option.RequestOption {
 	options := []option.RequestOption{
 		option.WithHTTPClient(c.client),
 		azure.WithEndpoint(c.url, "2025-04-01-preview"),
+		option.WithMaxRetries(0),
 	}
 
 	if c.token != "" {
