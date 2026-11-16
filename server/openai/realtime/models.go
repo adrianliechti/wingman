@@ -421,11 +421,12 @@ func (c *sessionConfig) apply(data jsontext.Value) error {
 	}
 
 	if raw, ok := fields["tool_choice"]; ok {
-		toolChoice, err := parseToolChoice(raw)
+		toolOptions, err := parseToolChoice(raw)
 		if err != nil {
 			return err
 		}
-		updated.ToolChoice = toolChoice
+		// Session options cannot name a tool, so a named choice requires any call.
+		updated.ToolChoice = toolOptions.Choice
 	}
 
 	if raw, ok := fields["truncation"]; ok {
@@ -869,7 +870,7 @@ func parseMaxTokens(data jsontext.Value) (*int, error) {
 	var value int
 	if data.Kind() == '0' && json.Unmarshal(data, &value) == nil {
 		if value < 1 || value > 4096 {
-			return nil, errors.New("session max output tokens must be between 1 and 4096")
+			return nil, errors.New("max_output_tokens must be between 1 and 4096")
 		}
 		return &value, nil
 	}
@@ -879,16 +880,16 @@ func parseMaxTokens(data jsontext.Value) (*int, error) {
 		return nil, nil
 	}
 
-	return nil, errors.New("session max output tokens must be a positive integer or \"inf\"")
+	return nil, errors.New("max_output_tokens must be a positive integer or \"inf\"")
 }
 
 func parseTools(data jsontext.Value) ([]provider.Tool, error) {
 	var fields []map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
-		return nil, errors.New("session.tools must be an array")
+		return nil, errors.New("tools must be an array")
 	}
 	if fields == nil {
-		return nil, errors.New("session.tools must be an array")
+		return nil, errors.New("tools must be an array")
 	}
 	for _, tool := range fields {
 		if err := validateObjectFields("realtime tool", tool, "type", "name", "description", "parameters"); err != nil {
@@ -902,7 +903,7 @@ func parseTools(data jsontext.Value) ([]provider.Tool, error) {
 		Parameters  map[string]any `json:"parameters"`
 	}
 	if err := jsonutil.Unmarshal(data, &values); err != nil {
-		return nil, errors.New("session.tools must be an array")
+		return nil, errors.New("tools must be an array")
 	}
 
 	tools := make([]provider.Tool, 0, len(values))
@@ -927,22 +928,75 @@ func parseTools(data jsontext.Value) ([]provider.Tool, error) {
 	return tools, nil
 }
 
-func parseToolChoice(data jsontext.Value) (provider.ToolChoice, error) {
+func parseToolChoice(data jsontext.Value) (*provider.ToolOptions, error) {
+	if data.Kind() == '{' {
+		var named struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(data, &named); err != nil || (named.Type != "function" && named.Type != "mcp") {
+			return nil, errors.New("tool_choice object must be a function or mcp choice")
+		}
+		options := &provider.ToolOptions{Choice: provider.ToolChoiceAny}
+		if named.Type == "function" && named.Name != "" {
+			options.Allowed = []string{named.Name}
+		}
+		return options, nil
+	}
+
 	var choice string
 	if json.Unmarshal(data, &choice) != nil {
-		return "", errors.New("session.tool_choice must be a string; named function choices are not supported")
+		return nil, errors.New("tool_choice must be a string or an object")
 	}
 
 	switch choice {
 	case "none":
-		return provider.ToolChoiceNone, nil
+		return &provider.ToolOptions{Choice: provider.ToolChoiceNone}, nil
 	case "required", "any":
-		return provider.ToolChoiceAny, nil
+		return &provider.ToolOptions{Choice: provider.ToolChoiceAny}, nil
 	case "auto":
-		return provider.ToolChoiceAuto, nil
+		return &provider.ToolOptions{Choice: provider.ToolChoiceAuto}, nil
 	}
 
-	return "", fmt.Errorf("session.tool_choice %q is unsupported", choice)
+	return nil, fmt.Errorf("tool_choice %q is unsupported", choice)
+}
+
+func parseResponseInput(data jsontext.Value) ([]provider.Message, error) {
+	var items []conversationItem
+	if err := json.Unmarshal(data, &items); err != nil || items == nil {
+		return nil, errors.New("response.input must be an array of items")
+	}
+
+	input := make([]provider.Message, 0, len(items))
+	for _, item := range items {
+		switch item.Type {
+		case "item_reference":
+			input = append(input, provider.Message{ID: item.ID})
+
+		case "function_call":
+			call := provider.ToolCall{ID: item.CallID, Name: item.Name, Arguments: item.Arguments}
+			input = append(input, provider.Message{ID: item.ID, Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolCallContent(call)}})
+
+		case "function_call_output":
+			result := provider.ToolResult{ID: item.CallID, Parts: []provider.Part{{Text: item.Output}}}
+			input = append(input, provider.Message{ID: item.ID, Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(result)}})
+
+		case "message":
+			if item.audio() != "" {
+				return nil, errors.New("response.input messages cannot contain audio")
+			}
+			message, err := item.message()
+			if err != nil {
+				return nil, err
+			}
+			input = append(input, message)
+
+		default:
+			return nil, fmt.Errorf("response.input item type %q is unsupported", item.Type)
+		}
+	}
+
+	return input, nil
 }
 
 func modalityStrings(values []provider.RealtimeModality) []string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -417,9 +418,9 @@ func openAITranscriptionSessionObject(model string, options provider.RealtimeOpt
 	}
 }
 
-func openAISessionObject(options provider.RealtimeOptions) map[string]any {
-	tools := make([]map[string]any, 0, len(options.Tools))
-	for _, tool := range options.Tools {
+func openAITools(values []provider.Tool) []map[string]any {
+	tools := make([]map[string]any, 0, len(values))
+	for _, tool := range values {
 		if tool.Name == "" {
 			continue
 		}
@@ -428,6 +429,11 @@ func openAISessionObject(options provider.RealtimeOptions) map[string]any {
 			"description": tool.Description, "parameters": tool.Parameters,
 		})
 	}
+	return tools
+}
+
+func openAISessionObject(options provider.RealtimeOptions) map[string]any {
+	tools := openAITools(options.Tools)
 
 	var maxTokens any = "inf"
 	if options.MaxTokens != nil {
@@ -591,26 +597,43 @@ func (s *openAIRealtimeSession) ClearAudio(ctx context.Context) error {
 }
 
 func (s *openAIRealtimeSession) SendMessage(ctx context.Context, message provider.Message) error {
-	text := message.Text()
-	if text == "" {
+	if message.Text() == "" {
 		return errors.New("openai realtime: text message is empty")
 	}
+	return s.send(ctx, map[string]any{
+		"type": "conversation.item.create", "event_id": realtimeID("event"), "item": openAIItem(message),
+	})
+}
 
+func openAIItem(message provider.Message) map[string]any {
 	contentType := "input_text"
 	if message.Role == provider.MessageRoleAssistant {
 		contentType = "output_text"
 	}
 	item := map[string]any{
 		"type": "message", "role": string(message.Role),
-		"content": []map[string]any{{"type": contentType, "text": text}},
+		"content": []map[string]any{{"type": contentType, "text": message.Text()}},
+	}
+	if message.Role == "" {
+		item = map[string]any{"type": "item_reference"}
+	}
+	for _, content := range message.Content {
+		if call := content.ToolCall; call != nil {
+			item = map[string]any{"type": "function_call", "call_id": call.ID, "name": call.Name, "arguments": call.Arguments}
+		}
+		if result := content.ToolResult; result != nil {
+			var output strings.Builder
+			for _, part := range result.Parts {
+				output.WriteString(part.Text)
+			}
+			item = map[string]any{"type": "function_call_output", "call_id": result.ID, "output": output.String()}
+		}
 	}
 	// Keeping the caller's item id lets it address the item later.
 	if message.ID != "" {
 		item["id"] = message.ID
 	}
-	return s.send(ctx, map[string]any{
-		"type": "conversation.item.create", "event_id": realtimeID("event"), "item": item,
-	})
+	return item
 }
 
 func (s *openAIRealtimeSession) DeleteItem(ctx context.Context, itemID string) error {
@@ -644,12 +667,51 @@ func (s *openAIRealtimeSession) TruncateOutput(ctx context.Context, itemID strin
 
 func (s *openAIRealtimeSession) Respond(ctx context.Context, options *provider.RealtimeResponseOptions) error {
 	event := map[string]any{"type": "response.create", "event_id": realtimeID("event")}
-	if options != nil && len(options.OutputModalities) > 0 {
+	if options == nil {
+		return s.send(ctx, event)
+	}
+	response := map[string]any{}
+	if options.Instructions != "" {
+		response["instructions"] = options.Instructions
+	}
+	if len(options.OutputModalities) > 0 {
 		modalities := make([]string, len(options.OutputModalities))
 		for i, modality := range options.OutputModalities {
 			modalities[i] = string(modality)
 		}
-		event["response"] = map[string]any{"output_modalities": modalities}
+		response["output_modalities"] = modalities
+	}
+	if options.MaxTokens != nil {
+		response["max_output_tokens"] = *options.MaxTokens
+	}
+	if options.Tools != nil {
+		response["tools"] = openAITools(options.Tools)
+	}
+	if tools := options.ToolOptions; tools != nil {
+		if tools.Choice == provider.ToolChoiceAny && len(tools.Allowed) == 1 {
+			response["tool_choice"] = map[string]any{"type": "function", "name": tools.Allowed[0]}
+		} else if tools.Choice != "" {
+			response["tool_choice"] = openAIToolChoice(tools.Choice)
+		}
+		if tools.DisableParallelToolCalls {
+			response["parallel_tool_calls"] = false
+		}
+	}
+	if reasoning := options.ReasoningOptions; reasoning != nil && reasoning.Effort != "" {
+		response["reasoning"] = map[string]any{"effort": string(reasoning.Effort)}
+	}
+	if options.OutOfBand {
+		response["conversation"] = "none"
+	}
+	if options.Input != nil {
+		input := make([]map[string]any, len(options.Input))
+		for i, message := range options.Input {
+			input[i] = openAIItem(message)
+		}
+		response["input"] = input
+	}
+	if len(response) > 0 {
+		event["response"] = response
 	}
 	return s.send(ctx, event)
 }
@@ -777,9 +839,10 @@ type openAIRealtimeEvent struct {
 	End            float64                   `json:"end"`
 	Usage          *openAITranscriptionUsage `json:"usage"`
 	Response       struct {
-		ID            string `json:"id"`
-		Status        string `json:"status"`
-		StatusDetails struct {
+		ID             string         `json:"id"`
+		ConversationID jsontext.Value `json:"conversation_id"`
+		Status         string         `json:"status"`
+		StatusDetails  struct {
 			Type   string `json:"type"`
 			Reason string `json:"reason"`
 		} `json:"status_details"`
@@ -842,7 +905,7 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 	contentID := fmt.Sprintf("%s:%d", value.ItemID, value.ContentIndex)
 	switch value.Type {
 	case "response.created":
-		return []provider.RealtimeEvent{{Type: provider.RealtimeEventResponseStarted, ResponseID: value.Response.ID}}
+		return []provider.RealtimeEvent{{Type: provider.RealtimeEventResponseStarted, ResponseID: value.Response.ID, OutOfBand: value.Response.ConversationID.Kind() == 'n'}}
 
 	case "response.content_part.added":
 		contentType := openAIContentType(value.Part.Type)

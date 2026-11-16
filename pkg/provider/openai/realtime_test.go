@@ -128,6 +128,76 @@ func TestOpenAIRealtimeConversationItemEditing(t *testing.T) {
 	}
 }
 
+func TestOpenAIRealtimeResponseOverrides(t *testing.T) {
+	session, captured := newOpenAIWireCapture(t)
+
+	if err := session.Respond(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if event := readCaptured(t, captured); event["type"] != "response.create" || event["response"] != nil {
+		t.Fatalf("plain response.create = %#v, want no response object", event)
+	}
+
+	maxTokens := 5
+	options := &provider.RealtimeResponseOptions{
+		Instructions:     "Summarize.",
+		OutputModalities: []provider.RealtimeModality{provider.RealtimeModalityText},
+		MaxTokens:        &maxTokens,
+		Tools:            []provider.Tool{},
+		ToolOptions:      &provider.ToolOptions{Choice: provider.ToolChoiceAny, Allowed: []string{"get_weather"}, DisableParallelToolCalls: true},
+		ReasoningOptions: &provider.ReasoningOptions{Effort: provider.EffortLow},
+		OutOfBand:        true,
+		Input: []provider.Message{
+			{ID: "item_1"},
+			{Role: provider.MessageRoleUser, Content: []provider.Content{provider.TextContent("hi")}},
+			{ID: "item_2", Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "get_weather", Arguments: "{}"})}},
+			{Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(provider.ToolResult{ID: "call_1", Parts: []provider.Part{{Text: "sunny"}}})}},
+		},
+	}
+	if err := session.Respond(t.Context(), options); err != nil {
+		t.Fatal(err)
+	}
+	response, _ := readCaptured(t, captured)["response"].(map[string]any)
+	want := map[string]any{
+		"instructions": "Summarize.", "output_modalities": []any{"text"}, "max_output_tokens": float64(5),
+		"tools": []any{}, "tool_choice": map[string]any{"type": "function", "name": "get_weather"},
+		"parallel_tool_calls": false, "reasoning": map[string]any{"effort": "low"}, "conversation": "none",
+		"input": []any{
+			map[string]any{"type": "item_reference", "id": "item_1"},
+			map[string]any{"type": "message", "role": "user", "content": []any{map[string]any{"type": "input_text", "text": "hi"}}},
+			map[string]any{"type": "function_call", "id": "item_2", "call_id": "call_1", "name": "get_weather", "arguments": "{}"},
+			map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "sunny"},
+		},
+	}
+	if !reflect.DeepEqual(response, want) {
+		t.Fatalf("response overrides = %#v\nwant %#v", response, want)
+	}
+
+	if err := session.Respond(t.Context(), &provider.RealtimeResponseOptions{Input: []provider.Message{}, ToolOptions: &provider.ToolOptions{Choice: provider.ToolChoiceAny, Allowed: []string{"a", "b"}}}); err != nil {
+		t.Fatal(err)
+	}
+	response, _ = readCaptured(t, captured)["response"].(map[string]any)
+	if want := map[string]any{"input": []any{}, "tool_choice": "required"}; !reflect.DeepEqual(response, want) {
+		t.Fatalf("response overrides = %#v, want %#v", response, want)
+	}
+}
+
+func TestTranslateOutOfBandResponse(t *testing.T) {
+	session := &openAIRealtimeSession{}
+	for _, test := range []struct {
+		conversation string
+		want         bool
+	}{{`null`, true}, {`"conv_1"`, false}} {
+		events := session.translate([]byte(`{"type":"response.created","response":{"id":"resp_1","conversation_id":` + test.conversation + `}}`))
+		if len(events) != 1 || events[0].OutOfBand != test.want {
+			t.Errorf("conversation_id %s: events = %#v, want OutOfBand %v", test.conversation, events, test.want)
+		}
+	}
+	if events := session.translate([]byte(`{"type":"response.created","response":{"id":"resp_1"}}`)); len(events) != 1 || events[0].OutOfBand {
+		t.Errorf("missing conversation_id: events = %#v, want an in-band response", events)
+	}
+}
+
 func TestValidateOpenAIRealtimeAudioFormats(t *testing.T) {
 	defaults := (&Realtime{Config: &Config{}}).Defaults()
 	for _, encoding := range []provider.RealtimeAudioEncoding{

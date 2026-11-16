@@ -84,7 +84,23 @@ type RealtimeOptions struct {
 }
 
 type RealtimeResponseOptions struct {
+	Instructions string
+
 	OutputModalities []RealtimeModality
+
+	MaxTokens *int
+
+	// Tools replaces the session tools when it is not nil.
+	Tools       []Tool
+	ToolOptions *ToolOptions
+
+	ReasoningOptions *ReasoningOptions
+
+	OutOfBand bool
+
+	// Input replaces the conversation as context when it is not nil. A
+	// message with only an ID references an existing conversation item.
+	Input []Message
 }
 
 type RealtimeModality string
@@ -198,6 +214,9 @@ type RealtimeEvent struct {
 	ContentID      string
 	ItemID         string
 	PreviousItemID string
+
+	// OutOfBand marks a started response that is not part of the conversation.
+	OutOfBand bool
 
 	ContentType RealtimeContentType
 	Role        MessageRole

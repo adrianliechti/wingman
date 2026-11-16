@@ -131,7 +131,7 @@ func TestNovaSonicLiveE2E(t *testing.T) {
 			"output": `{"city":"New York","temperature":72,"unit":"fahrenheit","condition":"sunny"}`,
 		},
 	})
-	writeLive(t, target.name, conn, map[string]any{"type": "response.create"})
+	writeLive(t, target.name, conn, map[string]any{"type": "response.create", "response": map[string]any{"tool_choice": "none"}})
 	postTool := readNovaUntil(t, target.name, conn, 45*time.Second, func(events []map[string]any) bool {
 		return hasLiveEvent(events, "response.output_audio.delta") && hasLiveEvent(events, "response.done")
 	})

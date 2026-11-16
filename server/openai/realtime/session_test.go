@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -198,8 +199,14 @@ func TestWingmanChatRealtimeToolsAndMultipleOutputItems(t *testing.T) {
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.created")
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.added")
 	assertEventType(t, readWireEvent(t, conn), "conversation.item.done")
-	writeWireEvent(t, conn, map[string]any{"type": "response.create"})
+	writeWireEvent(t, conn, map[string]any{
+		"type":     "response.create",
+		"response": map[string]any{"tool_choice": map[string]any{"type": "function", "name": "get_weather"}},
+	})
 	waitSignal(t, upstream.session.responded, "tool response.create")
+	if got := upstream.session.lastResponse().ToolOptions; !reflect.DeepEqual(got, &provider.ToolOptions{Choice: provider.ToolChoiceAny, Allowed: []string{"get_weather"}}) {
+		t.Fatalf("tool response tool options = %#v, want get_weather forced", got)
+	}
 
 	upstream.session.emit(
 		provider.RealtimeEvent{Type: provider.RealtimeEventResponseStarted, ResponseID: "resp_tools"},
@@ -245,8 +252,11 @@ func TestWingmanChatRealtimeToolsAndMultipleOutputItems(t *testing.T) {
 		t.Fatalf("provider tool results = %#v", results)
 	}
 
-	writeWireEvent(t, conn, map[string]any{"type": "response.create"})
+	writeWireEvent(t, conn, map[string]any{"type": "response.create", "response": map[string]any{"tool_choice": "none"}})
 	waitSignal(t, upstream.session.responded, "post-tool response.create")
+	if got := upstream.session.lastResponse().ToolOptions; got == nil || got.Choice != provider.ToolChoiceNone {
+		t.Fatalf("post-tool response tool options = %#v, want none", got)
+	}
 	emitAudioResponse(upstream.session, "resp_after_tools", "item_after_tools", "content_after_tools", "New York is 22 degrees and Zurich is 18.")
 	followup := readThrough(t, conn, "response.done")
 	assertCompletedResponse(t, findEvent(t, followup, "response.done"), 1)
@@ -589,25 +599,167 @@ func TestRealtimeAudioFormatParsing(t *testing.T) {
 
 func TestRealtimeToolChoiceParsing(t *testing.T) {
 	tests := []struct {
-		raw     string
-		want    provider.ToolChoice
-		wantErr bool
+		raw  string
+		want *provider.ToolOptions
 	}{
-		{`"auto"`, provider.ToolChoiceAuto, false},
-		{`"none"`, provider.ToolChoiceNone, false},
-		{`"required"`, provider.ToolChoiceAny, false},
-		{`"sometimes"`, "", true},
-		{`{"type":"function","name":"weather"}`, "", true},
+		{`"auto"`, &provider.ToolOptions{Choice: provider.ToolChoiceAuto}},
+		{`"none"`, &provider.ToolOptions{Choice: provider.ToolChoiceNone}},
+		{`"required"`, &provider.ToolOptions{Choice: provider.ToolChoiceAny}},
+		{`"sometimes"`, nil},
+		{`{"type":"function","name":"weather"}`, &provider.ToolOptions{Choice: provider.ToolChoiceAny, Allowed: []string{"weather"}}},
+		{`{"type":"mcp","server_label":"deepwiki"}`, &provider.ToolOptions{Choice: provider.ToolChoiceAny}},
+		{`{"type":"custom","name":"weather"}`, nil},
+		{`1`, nil},
 	}
 	for _, test := range tests {
 		got, err := parseToolChoice(jsontext.Value(test.raw))
-		if (err != nil) != test.wantErr {
-			t.Errorf("parseToolChoice(%s) error = %v, wantErr %v", test.raw, err, test.wantErr)
-		}
-		if got != test.want {
-			t.Errorf("parseToolChoice(%s) = %q, want %q", test.raw, got, test.want)
+		if (err != nil) != (test.want == nil) || !reflect.DeepEqual(got, test.want) {
+			t.Errorf("parseToolChoice(%s) = %#v, %v; want %#v", test.raw, got, err, test.want)
 		}
 	}
+}
+
+func TestRealtimeResponseInputParsing(t *testing.T) {
+	input, err := parseResponseInput(jsontext.Value(`[]`))
+	if err != nil || input == nil || len(input) != 0 {
+		t.Fatalf("empty input = %#v, %v; want an empty non-nil slice", input, err)
+	}
+	if _, err := parseResponseInput(jsontext.Value(`null`)); err == nil {
+		t.Fatal("null input was accepted")
+	}
+	if _, err := parseResponseInput(jsontext.Value(`[{"type":"message","role":"user","content":[{"type":"input_audio","audio":"AAA="}]}]`)); err == nil {
+		t.Fatal("input audio was accepted")
+	}
+
+	input, err = parseResponseInput(jsontext.Value(`[
+		{"type":"item_reference","id":"item_1"},
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},
+		{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{}"},
+		{"type":"function_call_output","call_id":"call_1","output":"sunny"}
+	]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []provider.Message{
+		{ID: "item_1"},
+		{Role: provider.MessageRoleUser, Content: []provider.Content{provider.TextContent("hi")}},
+		{Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "get_weather", Arguments: "{}"})}},
+		{Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(provider.ToolResult{ID: "call_1", Parts: []provider.Part{{Text: "sunny"}}})}},
+	}
+	if !reflect.DeepEqual(input, want) {
+		t.Fatalf("input = %#v\nwant %#v", input, want)
+	}
+}
+
+func TestRealtimeOutOfBandResponses(t *testing.T) {
+	upstream := newFakeRealtime()
+	conn := openTestRealtime(t, upstream)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+
+	writeWireEvent(t, conn, map[string]any{"type": "response.create"})
+	waitSignal(t, upstream.session.responded, "in-band response.create")
+	writeWireEvent(t, conn, map[string]any{
+		"type": "response.create",
+		"response": map[string]any{
+			"conversation": "none", "instructions": "Summarize.", "max_output_tokens": 5,
+			"metadata": map[string]any{"purpose": "summary"}, "output_modalities": []string{"text"},
+			"tools": []any{}, "tool_choice": "none", "parallel_tool_calls": false, "reasoning": map[string]any{"effort": "low"},
+			"input": []any{map[string]any{"type": "item_reference", "id": "item_1"}},
+		},
+	})
+	waitSignal(t, upstream.session.responded, "out-of-band response.create")
+	options := upstream.session.lastResponse()
+	want := provider.RealtimeResponseOptions{
+		Instructions: "Summarize.", OutputModalities: []provider.RealtimeModality{provider.RealtimeModalityText},
+		MaxTokens: options.MaxTokens, Tools: []provider.Tool{},
+		ToolOptions:      &provider.ToolOptions{Choice: provider.ToolChoiceNone, DisableParallelToolCalls: true},
+		ReasoningOptions: &provider.ReasoningOptions{Effort: provider.EffortLow},
+		OutOfBand:        true, Input: []provider.Message{{ID: "item_1"}},
+	}
+	if options.MaxTokens == nil || *options.MaxTokens != 5 || !reflect.DeepEqual(options, want) {
+		t.Fatalf("out-of-band options = %#v\nwant %#v", options, want)
+	}
+
+	// OpenAI interleaves the two responses and may finish them in either order.
+	text := provider.RealtimeContentText
+	upstream.session.emit(
+		provider.RealtimeEvent{Type: provider.RealtimeEventResponseStarted, ResponseID: "resp_in"},
+		provider.RealtimeEvent{Type: provider.RealtimeEventResponseStarted, ResponseID: "resp_oob", OutOfBand: true},
+		provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ResponseID: "resp_in", ContentID: "c_in", ItemID: "item_in", ContentType: provider.RealtimeContentAudio, Role: provider.MessageRoleAssistant},
+		provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ResponseID: "resp_oob", ContentID: "c_oob", ItemID: "item_oob", ContentType: text, Role: provider.MessageRoleAssistant},
+		provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ResponseID: "resp_in", ContentID: "c_in", ItemID: "item_in", Text: "Hello"},
+		provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ResponseID: "resp_oob", ContentID: "c_oob", ItemID: "item_oob", Text: "Summary"},
+	)
+	started := readThrough(t, conn, "response.output_text.delta")
+	writeWireEvent(t, conn, map[string]any{"type": "response.cancel", "response_id": "resp_oob"})
+	if message := readWireEvent(t, conn)["error"].(map[string]any)["message"]; message != "out-of-band responses cannot be cancelled" {
+		t.Errorf("cancel error = %v", message)
+	}
+	upstream.session.emit(
+		provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ResponseID: "resp_oob", ContentID: "c_oob", ItemID: "item_oob", ContentType: text},
+		provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: "resp_oob", StopReason: "completed"},
+	)
+	outOfBand := append(started, readThrough(t, conn, "response.done")...)
+	upstream.session.emit(
+		provider.RealtimeEvent{Type: provider.RealtimeEventContentDone, ResponseID: "resp_in", ContentID: "c_in", ItemID: "item_in", ContentType: provider.RealtimeContentAudio},
+		provider.RealtimeEvent{Type: provider.RealtimeEventResponseDone, ResponseID: "resp_in", StopReason: "completed"},
+	)
+	inBand := readThrough(t, conn, "response.done")
+
+	created := map[string]map[string]any{}
+	for _, event := range outOfBand {
+		if event["type"] == "response.created" {
+			response := event["response"].(map[string]any)
+			created[response["id"].(string)] = response
+		}
+		if event["type"] == "conversation.item.added" && event["item"].(map[string]any)["id"] == "item_oob" {
+			t.Errorf("out-of-band item was added to the conversation: %v", event)
+		}
+	}
+	if response := created["resp_oob"]; response["conversation_id"] != nil || response["max_output_tokens"] != float64(5) || response["metadata"].(map[string]any)["purpose"] != "summary" {
+		t.Errorf("out-of-band response.created = %v", response)
+	}
+	if response := created["resp_in"]; response["conversation_id"] == nil || response["max_output_tokens"] != "inf" || response["metadata"] != nil {
+		t.Errorf("in-band response.created = %v", response)
+	}
+	done := findEvent(t, outOfBand, "response.done")["response"].(map[string]any)
+	if done["id"] != "resp_oob" || done["conversation_id"] != nil {
+		t.Errorf("first response.done = %v, want the out-of-band response", done)
+	}
+	assertCompletedResponse(t, findEvent(t, outOfBand, "response.done"), 1)
+	if item := findEvent(t, outOfBand, "conversation.item.done")["item"].(map[string]any); item["id"] != "item_oob" {
+		t.Errorf("out-of-band conversation.item.done = %v", item)
+	}
+
+	done = findEvent(t, inBand, "response.done")["response"].(map[string]any)
+	output := done["output"].([]any)
+	if done["id"] != "resp_in" || len(output) != 1 || output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["transcript"] != "Hello" {
+		t.Errorf("in-band response.done = %v", done)
+	}
+	if countEvents(append(outOfBand, inBand...), "conversation.item.added") != 1 {
+		t.Errorf("want only the in-band item added to the conversation\n%s", formatTrace(append(outOfBand, inBand...)))
+	}
+}
+
+func TestRealtimeOutOfBandNeedsResponseRequests(t *testing.T) {
+	upstream := newFakeRealtime()
+	upstream.capabilities.ResponseRequests = false
+	conn := openTestRealtime(t, upstream)
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+	assertEventType(t, readWireEvent(t, conn), "conversation.created")
+
+	for _, response := range []map[string]any{{"conversation": "none"}, {"input": []any{}}} {
+		writeWireEvent(t, conn, map[string]any{"type": "response.create", "response": response})
+		event := readWireEvent(t, conn)
+		assertEventType(t, event, "error")
+		if message, _ := event["error"].(map[string]any)["message"].(string); !strings.Contains(message, "out-of-band") {
+			t.Errorf("error = %v", event)
+		}
+	}
+
+	writeWireEvent(t, conn, map[string]any{"type": "response.create", "response": map[string]any{"instructions": "Be brief.", "tool_choice": "none"}})
+	waitSignal(t, upstream.session.responded, "response.create with ignorable overrides")
 }
 
 func TestRealtimeTruncationAndMetadataParsing(t *testing.T) {
@@ -819,6 +971,7 @@ type fakeRealtimeSession struct {
 	messages    []provider.Message
 	toolResults []recordedToolResult
 	deleted     []string
+	responses   []provider.RealtimeResponseOptions
 }
 
 func newFakeRealtimeSession() *fakeRealtimeSession {
@@ -883,9 +1036,18 @@ func (s *fakeRealtimeSession) deletedSnapshot() []string {
 	return slices.Clone(s.deleted)
 }
 
-func (s *fakeRealtimeSession) Respond(context.Context, *provider.RealtimeResponseOptions) error {
+func (s *fakeRealtimeSession) Respond(_ context.Context, options *provider.RealtimeResponseOptions) error {
+	s.mu.Lock()
+	s.responses = append(s.responses, *options)
+	s.mu.Unlock()
 	s.responded <- struct{}{}
 	return nil
+}
+
+func (s *fakeRealtimeSession) lastResponse() provider.RealtimeResponseOptions {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.responses[len(s.responses)-1]
 }
 
 func (s *fakeRealtimeSession) Interrupt(context.Context) error {

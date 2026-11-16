@@ -47,12 +47,12 @@ type openAISession struct {
 	speechActive       bool
 	inputCommitted     bool
 
-	nextOutputModalities   []string
-	nextResponseMetadata   map[string]string
-	activeOutputModalities []string
+	nextResponse      *responseConfig
+	outOfBandRequests []responseConfig
 
-	response *responseState
-	contents map[string]*contentState
+	response  *responseState
+	outOfBand map[string]*responseState
+	contents  map[string]*contentState
 
 	itemStarted  map[string]bool
 	itemDone     map[string]bool
@@ -75,6 +75,7 @@ func newOpenAISession(conn *websocket.Conn, realtime provider.Realtime, model st
 
 		config: newSessionConfig(realtime.Defaults()),
 
+		outOfBand:    make(map[string]*responseState),
 		contents:     make(map[string]*contentState),
 		itemStarted:  make(map[string]bool),
 		itemDone:     make(map[string]bool),
@@ -266,7 +267,9 @@ func (s *openAISession) handleClientEvent(ctx context.Context, data []byte) erro
 		err = s.createResponse(ctx, event.Response)
 
 	case "response.cancel":
-		if s.upstream == nil {
+		if _, ok := s.outOfBand[event.ResponseID]; ok {
+			err = errors.New("out-of-band responses cannot be cancelled")
+		} else if s.upstream == nil {
 			err = errors.New("there is no active response to cancel")
 		} else if event.ResponseID != "" && s.response != nil && event.ResponseID != s.response.id {
 			err = fmt.Errorf("response %q is not active", event.ResponseID)
@@ -590,12 +593,23 @@ func (s *openAISession) forgetItem(itemID string) {
 }
 
 func (s *openAISession) createResponse(ctx context.Context, data jsontext.Value) error {
-	var nextOutputModalities []string
-	var nextResponseMetadata map[string]string
+	config := responseConfig{modalities: slices.Clone(s.config.OutputModalities), maxTokens: s.config.MaxTokens}
+	var options provider.RealtimeResponseOptions
 	if len(data) > 0 && data.Kind() != 'n' {
 		var fields map[string]jsontext.Value
 		if err := json.Unmarshal(data, &fields); err != nil {
 			return errors.New("response configuration is invalid")
+		}
+		if err := validateObjectFields("response", fields,
+			"instructions", "output_modalities", "metadata", "max_output_tokens", "tools", "tool_choice",
+			"parallel_tool_calls", "reasoning", "conversation", "input"); err != nil {
+			return err
+		}
+
+		if raw, ok := fields["instructions"]; ok {
+			if err := json.Unmarshal(raw, &options.Instructions); err != nil {
+				return errors.New("response.instructions must be a string")
+			}
 		}
 
 		if raw, ok := fields["output_modalities"]; ok {
@@ -608,7 +622,7 @@ func (s *openAISession) createResponse(ctx context.Context, data jsontext.Value)
 					return fmt.Errorf("unsupported response output modality %q", modality)
 				}
 			}
-			nextOutputModalities = modalities
+			config.modalities = modalities
 		}
 
 		if raw, ok := fields["metadata"]; ok {
@@ -616,17 +630,82 @@ func (s *openAISession) createResponse(ctx context.Context, data jsontext.Value)
 			if err != nil {
 				return err
 			}
-			nextResponseMetadata = metadata
+			config.metadata = metadata
 		}
 
-		for name := range fields {
-			if name != "output_modalities" && name != "metadata" {
-				return fmt.Errorf("response override %q is not supported", name)
+		if raw, ok := fields["max_output_tokens"]; ok {
+			maxTokens, err := parseMaxTokens(raw)
+			if err != nil {
+				return err
+			}
+			// "inf" cannot lift a session limit, so only a number overrides it.
+			if maxTokens != nil {
+				options.MaxTokens = maxTokens
+				config.maxTokens = maxTokens
 			}
 		}
+
+		if raw, ok := fields["tools"]; ok {
+			tools, err := parseTools(raw)
+			if err != nil {
+				return err
+			}
+			options.Tools = tools
+		}
+
+		if raw, ok := fields["tool_choice"]; ok {
+			toolOptions, err := parseToolChoice(raw)
+			if err != nil {
+				return err
+			}
+			options.ToolOptions = toolOptions
+		}
+
+		if raw, ok := fields["parallel_tool_calls"]; ok {
+			var parallel bool
+			if err := json.Unmarshal(raw, &parallel); err != nil {
+				return errors.New("response.parallel_tool_calls must be a boolean")
+			}
+			if !parallel {
+				if options.ToolOptions == nil {
+					options.ToolOptions = &provider.ToolOptions{}
+				}
+				options.ToolOptions.DisableParallelToolCalls = true
+			}
+		}
+
+		if raw, ok := fields["reasoning"]; ok {
+			var reasoning struct {
+				Effort provider.Effort `json:"effort"`
+			}
+			if err := json.Unmarshal(raw, &reasoning); err != nil {
+				return errors.New("response.reasoning must be an object")
+			}
+			options.ReasoningOptions = &provider.ReasoningOptions{Effort: reasoning.Effort}
+		}
+
+		if raw, ok := fields["conversation"]; ok {
+			var conversation string
+			if err := json.Unmarshal(raw, &conversation); err != nil || (conversation != "auto" && conversation != "none") {
+				return errors.New(`response.conversation must be "auto" or "none"`)
+			}
+			options.OutOfBand = conversation == "none"
+		}
+
+		if raw, ok := fields["input"]; ok {
+			input, err := parseResponseInput(raw)
+			if err != nil {
+				return err
+			}
+			options.Input = input
+		}
+
+		// Ignoring these would change what the response reads from or adds to the conversation.
+		if (options.OutOfBand || options.Input != nil) && !s.capabilities.ResponseRequests {
+			return provider.UnsupportedRealtimeOperation("out-of-band responses and response input")
+		}
 	}
-	s.nextOutputModalities = nextOutputModalities
-	s.nextResponseMetadata = nextResponseMetadata
+	options.OutputModalities = providerModalities(config.modalities)
 
 	if s.upstream == nil {
 		history := s.queued
@@ -651,10 +730,15 @@ func (s *openAISession) createResponse(ctx context.Context, data jsontext.Value)
 		}
 	}
 
-	selectedModalities := s.outputModalities()
-	s.activeOutputModalities = slices.Clone(selectedModalities)
-	modalities := providerModalities(selectedModalities)
-	return s.upstream.Respond(ctx, &provider.RealtimeResponseOptions{OutputModalities: modalities})
+	if err := s.upstream.Respond(ctx, &options); err != nil {
+		return err
+	}
+	if options.OutOfBand {
+		s.outOfBandRequests = append(s.outOfBandRequests, config)
+	} else {
+		s.nextResponse = &config
+	}
+	return nil
 }
 
 func (s *openAISession) ensureProvider(ctx context.Context, history []provider.Message) error {
@@ -751,16 +835,6 @@ func (s *openAISession) audioMilliseconds(size int64) int64 {
 	}
 
 	return size * 1000 / bytesPerSecond
-}
-
-func (s *openAISession) outputModalities() []string {
-	if len(s.nextOutputModalities) > 0 {
-		result := slices.Clone(s.nextOutputModalities)
-		s.nextOutputModalities = nil
-		return result
-	}
-
-	return slices.Clone(s.config.OutputModalities)
 }
 
 func (s *openAISession) write(event map[string]any) error {
