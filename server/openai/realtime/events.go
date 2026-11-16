@@ -12,6 +12,8 @@ import (
 )
 
 type contentState struct {
+	responseID string
+
 	typeName provider.RealtimeContentType
 	role     provider.MessageRole
 	stage    provider.RealtimeGenerationStage
@@ -47,10 +49,18 @@ type toolState struct {
 	done        bool
 }
 
-type responseState struct {
-	id         string
+type responseConfig struct {
 	modalities []string
 	metadata   map[string]string
+	maxTokens  *int
+}
+
+type responseState struct {
+	id         string
+	outOfBand  bool
+	modalities []string
+	metadata   map[string]string
+	maxTokens  *int
 	output     []map[string]any
 
 	assistant *assistantState
@@ -97,9 +107,29 @@ func (s *openAISession) handleProviderEvent(event provider.RealtimeEvent) error 
 		}
 	}
 
+	state, ok := s.outOfBand[event.ResponseID]
+	if !ok && !event.OutOfBand {
+		return s.handleConversationEvent(event)
+	}
+
+	// Out-of-band responses run beside the conversation's response; their
+	// state stands in for it while one of their events is handled.
+	inBand := s.response
+	s.response = state
+	err := s.handleConversationEvent(event)
+	if s.response != nil {
+		s.outOfBand[s.response.id] = s.response
+	} else {
+		delete(s.outOfBand, event.ResponseID)
+	}
+	s.response = inBand
+	return err
+}
+
+func (s *openAISession) handleConversationEvent(event provider.RealtimeEvent) error {
 	switch event.Type {
 	case provider.RealtimeEventResponseStarted:
-		return s.startResponse(event.ResponseID)
+		return s.startResponse(event.ResponseID, event.OutOfBand)
 
 	case provider.RealtimeEventContentStarted:
 		return s.startContent(event)
@@ -340,7 +370,7 @@ func (s *openAISession) handleTranscript(event provider.RealtimeEvent) error {
 	return nil
 }
 
-func (s *openAISession) startResponse(id string) error {
+func (s *openAISession) startResponse(id string, outOfBand bool) error {
 	if s.response != nil {
 		if id == "" || id == s.response.id {
 			return nil
@@ -350,16 +380,16 @@ func (s *openAISession) startResponse(id string) error {
 	if id == "" {
 		id = newID("resp")
 	}
-	modalities := slices.Clone(s.activeOutputModalities)
-	if len(modalities) == 0 {
-		modalities = slices.Clone(s.config.OutputModalities)
+	config := responseConfig{modalities: slices.Clone(s.config.OutputModalities), maxTokens: s.config.MaxTokens}
+	if outOfBand && len(s.outOfBandRequests) > 0 {
+		config, s.outOfBandRequests = s.outOfBandRequests[0], s.outOfBandRequests[1:]
+	} else if !outOfBand && s.nextResponse != nil {
+		config, s.nextResponse = *s.nextResponse, nil
 	}
-	s.activeOutputModalities = nil
 	s.response = &responseState{
-		id: id, modalities: modalities, metadata: maps.Clone(s.nextResponseMetadata),
-		tools: make(map[string]*toolState),
+		id: id, outOfBand: outOfBand, modalities: config.modalities, metadata: config.metadata,
+		maxTokens: config.maxTokens, tools: make(map[string]*toolState),
 	}
-	s.nextResponseMetadata = nil
 	return s.write(map[string]any{
 		"type": "response.created", "response": s.responseObject("in_progress", nil),
 	})
@@ -369,7 +399,7 @@ func (s *openAISession) ensureResponse(id string) error {
 	if s.response != nil {
 		return nil
 	}
-	return s.startResponse(id)
+	return s.startResponse(id, false)
 }
 
 func (s *openAISession) startContent(event provider.RealtimeEvent) error {
@@ -385,7 +415,8 @@ func (s *openAISession) startContent(event provider.RealtimeEvent) error {
 		itemID = newID("item")
 	}
 	state := &contentState{
-		typeName: event.ContentType, role: event.Role, stage: event.Stage, itemID: itemID,
+		responseID: event.ResponseID,
+		typeName:   event.ContentType, role: event.Role, stage: event.Stage, itemID: itemID,
 	}
 	if state.stage == "" {
 		state.stage = provider.RealtimeGenerationFinal
@@ -452,7 +483,7 @@ func (s *openAISession) ensureAssistant(event provider.RealtimeEvent) (*assistan
 	assistant.item["content"] = []map[string]any{}
 	s.response.assistant = assistant
 
-	if err := s.writeConversationItemStarted(assistant.item, ""); err != nil {
+	if err := s.writeResponseItemStarted(assistant.item); err != nil {
 		return nil, err
 	}
 	if err := s.write(map[string]any{
@@ -479,7 +510,8 @@ func (s *openAISession) writeTextDelta(event provider.RealtimeEvent) error {
 	state := s.contents[event.ContentID]
 	if state == nil {
 		state = &contentState{
-			typeName: provider.RealtimeContentText, role: provider.MessageRoleAssistant,
+			responseID: event.ResponseID,
+			typeName:   provider.RealtimeContentText, role: provider.MessageRoleAssistant,
 			stage: provider.RealtimeGenerationFinal, itemID: event.ItemID,
 		}
 		s.contents[event.ContentID] = state
@@ -580,7 +612,7 @@ func (s *openAISession) writeToolCall(event provider.RealtimeEvent) error {
 	}
 	s.response.tools[contentID] = tool
 
-	if err := s.writeConversationItemStarted(item, ""); err != nil {
+	if err := s.writeResponseItemStarted(item); err != nil {
 		return err
 	}
 	if err := s.write(map[string]any{
@@ -689,9 +721,25 @@ func (s *openAISession) finishResponse(event provider.RealtimeEvent) error {
 	if err := s.write(map[string]any{"type": "response.done", "response": response}); err != nil {
 		return err
 	}
+	finished := s.response
 	s.response = nil
-	s.contents = make(map[string]*contentState)
+	maps.DeleteFunc(s.contents, func(_ string, content *contentState) bool {
+		if finished.outOfBand {
+			return content.responseID == finished.id
+		}
+		_, running := s.outOfBand[content.responseID]
+		return !running
+	})
 	return nil
+}
+
+// OpenAI announces no conversation item for out-of-band output, yet still
+// sends conversation.item.done for it.
+func (s *openAISession) writeResponseItemStarted(item map[string]any) error {
+	if s.response.outOfBand {
+		return nil
+	}
+	return s.writeConversationItemStarted(item, "")
 }
 
 func (s *openAISession) finishAssistant() error {
@@ -762,23 +810,21 @@ func (s *openAISession) finishAssistant() error {
 
 func (s *openAISession) responseObject(status string, statusDetails any) map[string]any {
 	maxTokens := any("inf")
-	if s.config.MaxTokens != nil {
-		maxTokens = *s.config.MaxTokens
+	if s.response.maxTokens != nil {
+		maxTokens = *s.response.maxTokens
 	}
-	output := []map[string]any{}
-	modalities := slices.Clone(s.config.OutputModalities)
-	var usage any
-	var metadata any
-	if s.response != nil {
-		output = slices.Clone(s.response.output)
-		modalities = slices.Clone(s.response.modalities)
-		usage = usageObject(s.response.usage)
-		metadata = maps.Clone(s.response.metadata)
+	conversationID := any(s.conversationID)
+	if s.response.outOfBand {
+		conversationID = nil
 	}
+	output := slices.Clone(s.response.output)
+	modalities := slices.Clone(s.response.modalities)
+	usage := usageObject(s.response.usage)
+	metadata := maps.Clone(s.response.metadata)
 	return map[string]any{
 		"id": s.response.id, "object": "realtime.response", "status": status,
 		"status_details": statusDetails, "output": output,
-		"conversation_id": s.conversationID, "output_modalities": modalities,
+		"conversation_id": conversationID, "output_modalities": modalities,
 		"max_output_tokens": maxTokens, "metadata": metadata, "usage": usage,
 		"audio": map[string]any{"output": map[string]any{
 			"format": audioFormatObject(s.config.OutputAudio), "voice": s.config.Voice,

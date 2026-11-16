@@ -31,7 +31,7 @@ The platform integrates with a wide range of LLM providers:
 
 **Media Processing:**
 - Image generation: OpenAI DALL-E, Google Gemini, xAI
-- Speech-to-text: OpenAI Whisper, Mistral, Azure Speech
+- Speech-to-text: OpenAI Whisper, Mistral, Azure Speech, Microsoft MAI-Transcribe (realtime)
 - Text-to-speech: OpenAI TTS, Azure Speech, xAI
 
 ### Document Processing & RAG
@@ -326,6 +326,13 @@ WebSocket session so pending transcripts and usage can finish on the original
 stream. Dedicated transcription and translation models never become the
 default conversational model, including when configured under an alias.
 
+Turn detection is passed through to the provider. A session that sets
+`turn_detection` (an object, or `null` to commit turns manually) gets exactly
+that; one that leaves it unset keeps the model's own default. Until the client
+sets it, `session.updated` reports the default the model declares, or
+`server_vad` for services that decide themselves, such as OpenAI's
+transcription models and MAI-Transcribe.
+
 #### OpenAI Platform
 
 https://platform.openai.com/docs/api-reference
@@ -381,6 +388,27 @@ providers:
       text-embedding-ada-002:
         id: text-embedding-ada-002
 ```
+
+
+#### Microsoft Foundry (MAI-Transcribe Streaming)
+
+https://learn.microsoft.com/en-us/azure/ai-services/speech-service/mai-transcribe-2-streaming-realtime
+
+Realtime transcription with `MAI-Transcribe-2-Streaming` (public preview) over Foundry's OpenAI Realtime–style WebSocket API. Deploy the model on a Foundry resource in a supported region and point an `openai` provider at the resource's `/mai/v1` path:
+
+```yaml
+providers:
+  - type: openai
+    url: https://YOUR_RESOURCE.services.ai.azure.com/mai/v1
+    token: ${AZURE_MAI_API_KEY}
+
+    models:
+      - MAI-Transcribe-2-Streaming # the deployment name
+```
+
+Clients open `/v1/realtime?intent=transcription` and select the model with `session.update`; Wingman sends the key in the `api-key` header. The model has no server-side turn detection: leave `turn_detection` unset or `null`, and send `input_audio_buffer.commit` at pauses or at the end of the recording to finalize an item. Deltas stream before the commit. MAI's provisional `intermediate` transcripts are not forwarded. Input audio is PCM16 at 24 kHz. A session lasts at most one hour, and its settings are fixed once audio starts.
+
+Wingman detects the model as `realtime` from `-streaming` in its name. A deployment with another name needs `type: realtime` in the model mapping, and its `id` must contain `transcribe` for Wingman to open a transcription session upstream.
 
 
 #### Anthropic

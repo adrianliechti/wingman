@@ -137,6 +137,89 @@ func TestOpenAIRealtimeLiveConformance(t *testing.T) {
 	})
 	assertPartialOrder(t, "direct post-tool", direct.afterTool, audioResponseOrder())
 	assertPartialOrder(t, "adapter post-tool", adapted.afterTool, audioResponseOrder())
+	if hasLiveEvent(direct.afterTool, "response.function_call_arguments.done") {
+		t.Error("direct post-tool response called a tool despite response.tool_choice none")
+	}
+	if hasLiveEvent(adapted.afterTool, "response.function_call_arguments.done") {
+		t.Error("adapter post-tool response called a tool despite response.tool_choice none")
+	}
+
+	compareLiveTurn(t, "concurrent in-band and out-of-band responses", direct.outOfBand, adapted.outOfBand, []string{
+		"response.created",
+		"response.output_audio.delta",
+		"response.output_text.done",
+		"conversation.item.added",
+		"conversation.item.done",
+		"response.done",
+	})
+	assertOutOfBandResponse(t, "direct", direct.outOfBand)
+	assertOutOfBandResponse(t, "adapter", adapted.outOfBand)
+}
+
+func assertOutOfBandResponse(t *testing.T, label string, events []map[string]any) {
+	t.Helper()
+	var outOfBand, inBand map[string]any
+	for _, event := range events {
+		if event["type"] != "response.done" {
+			continue
+		}
+		response := event["response"].(map[string]any)
+		if response["conversation_id"] == nil {
+			outOfBand = response
+		} else {
+			inBand = response
+		}
+	}
+	if outOfBand == nil || inBand == nil {
+		t.Fatalf("%s: want one in-band and one out-of-band response.done\n%s", label, formatLiveTrace(events))
+	}
+	if outOfBand["status"] != "completed" || inBand["status"] != "completed" {
+		t.Errorf("%s: statuses = %v / %v, want completed", label, outOfBand["status"], inBand["status"])
+	}
+	if metadata, _ := outOfBand["metadata"].(map[string]any); metadata["purpose"] != "side" || outOfBand["max_output_tokens"] != float64(200) {
+		t.Errorf("%s: out-of-band response = %s", label, compactJSON(outOfBand))
+	}
+	if inBand["max_output_tokens"] != "inf" || inBand["metadata"] != nil {
+		t.Errorf("%s: in-band response = %s", label, compactJSON(inBand))
+	}
+
+	output, _ := outOfBand["output"].([]any)
+	if len(output) == 0 {
+		t.Fatalf("%s: out-of-band response has no output", label)
+	}
+	item := output[0].(map[string]any)
+	content, _ := item["content"].([]any)
+	if len(content) == 0 || !strings.Contains(strings.ToLower(compactJSON(content)), "text turn received") {
+		t.Errorf("%s: out-of-band output = %s, want the referenced item's phrase", label, compactJSON(item))
+	}
+	for _, event := range events {
+		if event["type"] == "conversation.item.added" && event["item"].(map[string]any)["id"] == item["id"] {
+			t.Errorf("%s: out-of-band item was added to the conversation", label)
+		}
+	}
+}
+
+func userItemID(t *testing.T, label string, events []map[string]any) string {
+	t.Helper()
+	for _, event := range events {
+		if item, _ := event["item"].(map[string]any); event["type"] == "conversation.item.done" && item["role"] == "user" {
+			if id, _ := item["id"].(string); id != "" {
+				return id
+			}
+		}
+	}
+	t.Fatalf("%s: no user conversation item in trace", label)
+	return ""
+}
+
+func countLiveEvents(events []map[string]any, eventType string) int {
+	count := 0
+	for _, event := range events {
+		if event["type"] == eventType {
+			count++
+		}
+	}
+	return count
 }
 
 type liveSettings struct {
@@ -160,6 +243,7 @@ type liveTrace struct {
 	text      []map[string]any
 	tool      []map[string]any
 	afterTool []map[string]any
+	outOfBand []map[string]any
 }
 
 func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings, hiAudio, weatherAudio []byte) liveTrace {
@@ -182,6 +266,7 @@ func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings,
 			t.Logf("%s text trace:\n%s", target.name, formatLiveTrace(trace.text))
 			t.Logf("%s tool trace:\n%s", target.name, formatLiveTrace(trace.tool))
 			t.Logf("%s post-tool trace:\n%s", target.name, formatLiveTrace(trace.afterTool))
+			t.Logf("%s out-of-band trace:\n%s", target.name, formatLiveTrace(trace.outOfBand))
 		}
 	}()
 
@@ -238,7 +323,7 @@ func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings,
 	writeLive(t, target.name, conn, map[string]any{
 		"type": "session.update",
 		"session": map[string]any{
-			"type": "realtime", "tool_choice": "required",
+			"type":         "realtime",
 			"instructions": "For the next weather question, call get_weather. Do not answer from memory.",
 		},
 	})
@@ -246,9 +331,13 @@ func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings,
 		return hasLiveEvent(events, "session.updated")
 	})
 
+	// The session still has tool_choice none, so only the response override can produce the call.
 	appendLivePCM(t, target.name, conn, weatherAudio)
 	writeLive(t, target.name, conn, map[string]any{"type": "input_audio_buffer.commit"})
-	writeLive(t, target.name, conn, map[string]any{"type": "response.create"})
+	writeLive(t, target.name, conn, map[string]any{
+		"type":     "response.create",
+		"response": map[string]any{"tool_choice": map[string]any{"type": "function", "name": "get_weather"}},
+	})
 	trace.tool = readLiveUntil(t, target.name, conn, 60*time.Second, func(events []map[string]any) bool {
 		return hasLiveEvent(events, "conversation.item.input_audio_transcription.completed") &&
 			hasLiveEvent(events, "response.function_call_arguments.done") &&
@@ -257,7 +346,7 @@ func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings,
 	callID := toolCallID(t, target.name, trace.tool)
 
 	writeLive(t, target.name, conn, map[string]any{
-		"type": "session.update", "session": map[string]any{"type": "realtime", "tool_choice": "none"},
+		"type": "session.update", "session": map[string]any{"type": "realtime", "tool_choice": "required"},
 	})
 	_ = readLiveUntil(t, target.name, conn, 20*time.Second, func(events []map[string]any) bool {
 		return hasLiveEvent(events, "session.updated")
@@ -269,9 +358,30 @@ func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings,
 			"output": `{"city":"New York","temperature_c":22,"condition":"sunny"}`,
 		},
 	})
-	writeLive(t, target.name, conn, map[string]any{"type": "response.create"})
+	writeLive(t, target.name, conn, map[string]any{"type": "response.create", "response": map[string]any{"tool_choice": "none"}})
 	trace.afterTool = readLiveUntil(t, target.name, conn, 60*time.Second, func(events []map[string]any) bool {
 		return hasLiveEvent(events, "response.done")
+	})
+
+	writeLive(t, target.name, conn, map[string]any{
+		"type": "conversation.item.create",
+		"item": map[string]any{
+			"type": "message", "role": "user",
+			"content": []map[string]any{{"type": "input_text", "text": "Reply with exactly: in-band turn"}},
+		},
+	})
+	writeLive(t, target.name, conn, map[string]any{"type": "response.create", "response": map[string]any{"tool_choice": "none"}})
+	writeLive(t, target.name, conn, map[string]any{
+		"type": "response.create",
+		"response": map[string]any{
+			"conversation": "none", "output_modalities": []string{"text"}, "tool_choice": "none",
+			"instructions":      "Repeat the phrase the user asked you to reply with, and nothing else.",
+			"max_output_tokens": 200, "metadata": map[string]any{"purpose": "side"},
+			"input": []map[string]any{{"type": "item_reference", "id": userItemID(t, target.name, trace.text)}},
+		},
+	})
+	trace.outOfBand = readLiveUntil(t, target.name, conn, 60*time.Second, func(events []map[string]any) bool {
+		return countLiveEvents(events, "response.done") == 2
 	})
 
 	validateLiveTrace(t, target.name+" opening", trace.opening)
@@ -279,6 +389,7 @@ func exerciseLiveSession(t *testing.T, target liveTarget, settings liveSettings,
 	validateLiveTrace(t, target.name+" text", trace.text)
 	validateLiveTrace(t, target.name+" tool", trace.tool)
 	validateLiveTrace(t, target.name+" post-tool", trace.afterTool)
+	validateLiveTrace(t, target.name+" out-of-band", trace.outOfBand)
 	return trace
 }
 

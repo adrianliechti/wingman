@@ -108,7 +108,7 @@ func TestNova2StartEventSequenceAndToolSchema(t *testing.T) {
 	stream := newRecordingBidirectionalStream()
 	defaults := (&Realtime{Config: &Config{voice: defaultRealtimeVoice}}).Defaults()
 	defaults.Instructions = "Be concise."
-	defaults.TurnDetection.Eagerness = "high"
+	defaults.Input.TurnDetection.Eagerness = "high"
 	defaults.History = []provider.Message{
 		provider.UserMessage("Earlier question"),
 		provider.AssistantMessage("Earlier answer"),

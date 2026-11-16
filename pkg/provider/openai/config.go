@@ -44,6 +44,13 @@ func (c *Config) isAzure() bool {
 	return strings.Contains(c.url, "openai.azure.com") || strings.Contains(c.url, "cognitiveservices.azure.com")
 }
 
+// isAzureResource reports whether the endpoint expects keys in an api-key
+// header. Unlike isAzure it covers Foundry resources (services.ai.azure.com),
+// which also host non-OpenAI models such as MAI-Transcribe.
+func (c *Config) isAzureResource() bool {
+	return c.isAzure() || strings.Contains(c.url, "services.ai.azure.com")
+}
+
 // isOpenAI reports whether the endpoint hosts OpenAI models and thus supports
 // built-in tools like apply_patch. OpenAI-compatible third-party endpoints
 // (xAI, proxies, …) get function-tool emulation instead.

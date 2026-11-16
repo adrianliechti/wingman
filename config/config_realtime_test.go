@@ -93,7 +93,7 @@ providers:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := nova.Defaults().Voice; got != "matthew" {
+	if got := nova.Defaults().Output.Voice; got != "matthew" {
 		t.Errorf("Nova default voice = %q, want matthew", got)
 	}
 }

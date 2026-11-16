@@ -106,34 +106,38 @@ func (r *Realtime) Defaults() provider.RealtimeOptions {
 		voice = defaultRealtimeVoice
 	}
 
+	audio := provider.RealtimeAudioFormat{
+		Encoding:   provider.RealtimeAudioPCM,
+		SampleRate: 24000,
+		SampleSize: 16,
+		Channels:   1,
+	}
+
 	return provider.RealtimeOptions{
 		Instructions: defaultInstructions,
-		Voice:        voice,
-
-		InputAudio: provider.RealtimeAudioFormat{
-			Encoding:   provider.RealtimeAudioPCM,
-			SampleRate: 24000,
-			SampleSize: 16,
-			Channels:   1,
-		},
-		OutputAudio: provider.RealtimeAudioFormat{
-			Encoding:   provider.RealtimeAudioPCM,
-			SampleRate: 24000,
-			SampleSize: 16,
-			Channels:   1,
-		},
 
 		MaxTokens: &maxTokens,
 
 		ToolChoice: provider.ToolChoiceAuto,
 
-		OutputModalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
-		TurnDetection: &provider.RealtimeTurnDetection{
-			Type:              provider.RealtimeTurnDetectionServer,
-			CreateResponse:    true,
-			InterruptResponse: true,
+		Input: provider.RealtimeInputOptions{
+			Audio: audio,
+
+			TurnDetection: &provider.RealtimeTurnDetection{
+				Type:              provider.RealtimeTurnDetectionServer,
+				CreateResponse:    true,
+				InterruptResponse: true,
+			},
 		},
-		OutputTranscription: true,
+
+		Output: provider.RealtimeOutputOptions{
+			Modalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
+
+			Audio: audio,
+			Voice: voice,
+
+			Transcription: true,
+		},
 	}
 }
 
@@ -200,14 +204,14 @@ func mergeRealtimeOptions(defaults provider.RealtimeOptions, options *provider.R
 
 	result := *options
 
-	if result.Voice == "" {
-		result.Voice = defaults.Voice
+	if result.Output.Voice == "" {
+		result.Output.Voice = defaults.Output.Voice
 	}
-	if result.InputAudio.Encoding == "" {
-		result.InputAudio = defaults.InputAudio
+	if result.Input.Audio.Encoding == "" {
+		result.Input.Audio = defaults.Input.Audio
 	}
-	if result.OutputAudio.Encoding == "" {
-		result.OutputAudio = defaults.OutputAudio
+	if result.Output.Audio.Encoding == "" {
+		result.Output.Audio = defaults.Output.Audio
 	}
 	if result.MaxTokens == nil {
 		result.MaxTokens = defaults.MaxTokens
@@ -215,8 +219,11 @@ func mergeRealtimeOptions(defaults provider.RealtimeOptions, options *provider.R
 	if result.ToolChoice == "" {
 		result.ToolChoice = defaults.ToolChoice
 	}
-	if len(result.OutputModalities) == 0 {
-		result.OutputModalities = defaults.OutputModalities
+	if len(result.Output.Modalities) == 0 {
+		result.Output.Modalities = defaults.Output.Modalities
+	}
+	if result.Input.TurnDetection == nil {
+		result.Input.TurnDetection = defaults.Input.TurnDetection
 	}
 
 	return result
@@ -224,8 +231,8 @@ func mergeRealtimeOptions(defaults provider.RealtimeOptions, options *provider.R
 
 func validateRealtimeOptions(options provider.RealtimeOptions) error {
 	for name, format := range map[string]provider.RealtimeAudioFormat{
-		"input":  options.InputAudio,
-		"output": options.OutputAudio,
+		"input":  options.Input.Audio,
+		"output": options.Output.Audio,
 	} {
 		if format.Encoding != provider.RealtimeAudioPCM {
 			return fmt.Errorf("bedrock realtime: %s audio encoding %q is unsupported; Nova Sonic requires linear PCM", name, format.Encoding)
@@ -276,9 +283,10 @@ func (s *realtimeSession) start(ctx context.Context) error {
 	session := map[string]any{
 		"inferenceConfiguration": configuration,
 	}
-	if s.options.TurnDetection != nil {
+	// Nova Sonic always detects turns; a disabled setting keeps its default.
+	if turn := s.options.Input.TurnDetection; turn != nil && !turn.Disabled() {
 		session["turnDetectionConfiguration"] = map[string]any{
-			"endpointingSensitivity": novaEndpointingSensitivity(s.options.TurnDetection),
+			"endpointingSensitivity": novaEndpointingSensitivity(turn),
 		}
 	}
 
@@ -291,7 +299,7 @@ func (s *realtimeSession) start(ctx context.Context) error {
 		"textOutputConfiguration": map[string]any{
 			"mediaType": "text/plain",
 		},
-		"audioOutputConfiguration": audioConfiguration(s.options.OutputAudio, voiceForNova(s.options.Voice)),
+		"audioOutputConfiguration": audioConfiguration(s.options.Output.Audio, voiceForNova(s.options.Output.Voice)),
 	}
 
 	if len(s.options.Tools) > 0 {
@@ -327,7 +335,7 @@ func (s *realtimeSession) start(ctx context.Context) error {
 		"type":                    "AUDIO",
 		"interactive":             true,
 		"role":                    "USER",
-		"audioInputConfiguration": audioConfiguration(s.options.InputAudio, ""),
+		"audioInputConfiguration": audioConfiguration(s.options.Input.Audio, ""),
 	}); err != nil {
 		return err
 	}
@@ -469,8 +477,8 @@ func (s *realtimeSession) CommitAudio(ctx context.Context) error {
 	// Nova owns turn detection and keeps one audio content block open for the
 	// entire session. A short silence gives its VAD an explicit push-to-talk
 	// boundary without closing that content block.
-	bytesPerSample := s.options.InputAudio.SampleSize / 8
-	silence := make([]byte, s.options.InputAudio.SampleRate*s.options.InputAudio.Channels*bytesPerSample/2)
+	bytesPerSample := s.options.Input.Audio.SampleSize / 8
+	silence := make([]byte, s.options.Input.Audio.SampleRate*s.options.Input.Audio.Channels*bytesPerSample/2)
 
 	return s.SendAudio(ctx, silence)
 }

@@ -1,6 +1,7 @@
 package google
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -69,25 +70,29 @@ func NewRealtime(rawURL, model string, options ...Option) (*Realtime, error) {
 
 func (r *Realtime) Defaults() provider.RealtimeOptions {
 	defaults := provider.RealtimeOptions{
-		Voice: "Kore",
-		InputAudio: provider.RealtimeAudioFormat{
-			Encoding: provider.RealtimeAudioPCM, SampleRate: 16000, SampleSize: 16, Channels: 1,
+		ToolChoice: provider.ToolChoiceAuto,
+		Input: provider.RealtimeInputOptions{
+			Audio: provider.RealtimeAudioFormat{
+				Encoding: provider.RealtimeAudioPCM, SampleRate: 16000, SampleSize: 16, Channels: 1,
+			},
+			TurnDetection: &provider.RealtimeTurnDetection{
+				Type:           provider.RealtimeTurnDetectionServer,
+				CreateResponse: true, InterruptResponse: true,
+			},
 		},
-		OutputAudio: provider.RealtimeAudioFormat{
-			Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1,
+		Output: provider.RealtimeOutputOptions{
+			Modalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
+			Audio: provider.RealtimeAudioFormat{
+				Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1,
+			},
+			Voice:         "Kore",
+			Transcription: true,
 		},
-		ToolChoice:       provider.ToolChoiceAuto,
-		OutputModalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
-		TurnDetection: &provider.RealtimeTurnDetection{
-			Type:           provider.RealtimeTurnDetectionServer,
-			CreateResponse: true, InterruptResponse: true,
-		},
-		OutputTranscription: true,
 	}
 	if matchesModel(r.model, LiveTranscriptionModels) {
-		defaults.OutputModalities = []provider.RealtimeModality{provider.RealtimeModalityText}
-		defaults.InputTranscription = &provider.RealtimeTranscription{}
-		defaults.OutputTranscription = false
+		defaults.Input.Transcription = &provider.RealtimeTranscription{}
+		defaults.Output.Modalities = []provider.RealtimeModality{provider.RealtimeModalityText}
+		defaults.Output.Transcription = false
 	}
 	return defaults
 }
@@ -239,44 +244,45 @@ func mergeGeminiRealtimeOptions(defaults provider.RealtimeOptions, options *prov
 	result := *options
 	result.Tools = slices.Clone(options.Tools)
 	result.History = slices.Clone(options.History)
-	result.OutputModalities = slices.Clone(options.OutputModalities)
-	if options.TurnDetection != nil {
-		turnDetection := *options.TurnDetection
-		result.TurnDetection = &turnDetection
+	result.Output.Modalities = slices.Clone(options.Output.Modalities)
+	// Unset turn detection is Gemini's automatic activity detection.
+	if turn := cmp.Or(options.Input.TurnDetection, defaults.Input.TurnDetection); turn != nil {
+		clone := *turn
+		result.Input.TurnDetection = &clone
 	}
-	if options.InputTranscription != nil {
-		transcription := *options.InputTranscription
-		result.InputTranscription = &transcription
+	if options.Input.Transcription != nil {
+		transcription := *options.Input.Transcription
+		result.Input.Transcription = &transcription
 	}
-	if result.Voice == "" {
-		result.Voice = defaults.Voice
+	if result.Output.Voice == "" {
+		result.Output.Voice = defaults.Output.Voice
 	}
-	if result.InputAudio.Encoding == "" {
-		result.InputAudio = defaults.InputAudio
+	if result.Input.Audio.Encoding == "" {
+		result.Input.Audio = defaults.Input.Audio
 	}
-	if result.OutputAudio.Encoding == "" {
-		result.OutputAudio = defaults.OutputAudio
+	if result.Output.Audio.Encoding == "" {
+		result.Output.Audio = defaults.Output.Audio
 	}
 	if result.ToolChoice == "" {
 		result.ToolChoice = defaults.ToolChoice
 	}
-	if len(result.OutputModalities) == 0 {
-		result.OutputModalities = slices.Clone(defaults.OutputModalities)
+	if len(result.Output.Modalities) == 0 {
+		result.Output.Modalities = slices.Clone(defaults.Output.Modalities)
 	}
 	return result
 }
 
 func validateGeminiRealtimeOptions(options provider.RealtimeOptions) error {
-	if options.InputAudio.Encoding != provider.RealtimeAudioPCM || options.InputAudio.SampleSize != 16 || options.InputAudio.Channels != 1 || options.InputAudio.SampleRate <= 0 {
+	if options.Input.Audio.Encoding != provider.RealtimeAudioPCM || options.Input.Audio.SampleSize != 16 || options.Input.Audio.Channels != 1 || options.Input.Audio.SampleRate <= 0 {
 		return errors.New("gemini live: input audio must be mono 16-bit PCM with a declared sample rate")
 	}
-	if options.OutputAudio.Encoding != provider.RealtimeAudioPCM || options.OutputAudio.SampleSize != 16 || options.OutputAudio.Channels != 1 || options.OutputAudio.SampleRate != 24000 {
+	if options.Output.Audio.Encoding != provider.RealtimeAudioPCM || options.Output.Audio.SampleSize != 16 || options.Output.Audio.Channels != 1 || options.Output.Audio.SampleRate != 24000 {
 		return errors.New("gemini live: output audio must be mono 16-bit PCM at 24000 Hz")
 	}
-	if len(options.OutputModalities) != 1 {
+	if len(options.Output.Modalities) != 1 {
 		return errors.New("gemini live: exactly one output modality is required")
 	}
-	if options.TurnDetection != nil && !options.TurnDetection.CreateResponse {
+	if turn := options.Input.TurnDetection; turn != nil && !turn.Disabled() && !turn.CreateResponse {
 		return errors.New("gemini live: automatic activity detection cannot disable automatic response creation")
 	}
 	if options.ToolChoice == provider.ToolChoiceAny {
@@ -289,10 +295,10 @@ func validateGeminiRealtimeModelOptions(model string, options provider.RealtimeO
 	if !matchesModel(model, LiveTranscriptionModels) {
 		return nil
 	}
-	if len(options.OutputModalities) != 1 || options.OutputModalities[0] != provider.RealtimeModalityText {
+	if len(options.Output.Modalities) != 1 || options.Output.Modalities[0] != provider.RealtimeModalityText {
 		return errors.New("gemini live transcription: response modality must be text")
 	}
-	if options.InputTranscription == nil {
+	if options.Input.Transcription == nil {
 		return errors.New("gemini live transcription: input audio transcription must be enabled")
 	}
 	if len(options.Tools) > 0 {
@@ -302,8 +308,8 @@ func validateGeminiRealtimeModelOptions(model string, options provider.RealtimeO
 }
 
 func geminiSetup(model string, options provider.RealtimeOptions) map[string]any {
-	modalities := make([]string, len(options.OutputModalities))
-	for i, modality := range options.OutputModalities {
+	modalities := make([]string, len(options.Output.Modalities))
+	for i, modality := range options.Output.Modalities {
 		modalities[i] = strings.ToUpper(string(modality))
 	}
 	generation := map[string]any{"responseModalities": modalities}
@@ -315,9 +321,9 @@ func geminiSetup(model string, options provider.RealtimeOptions) map[string]any 
 	if options.MaxTokens != nil {
 		generation["maxOutputTokens"] = *options.MaxTokens
 	}
-	if slices.Contains(options.OutputModalities, provider.RealtimeModalityAudio) && options.Voice != "" {
+	if slices.Contains(options.Output.Modalities, provider.RealtimeModalityAudio) && options.Output.Voice != "" {
 		generation["speechConfig"] = map[string]any{
-			"voiceConfig": map[string]any{"prebuiltVoiceConfig": map[string]any{"voiceName": voiceForGemini(options.Voice)}},
+			"voiceConfig": map[string]any{"prebuiltVoiceConfig": map[string]any{"voiceName": voiceForGemini(options.Output.Voice)}},
 		}
 	}
 
@@ -344,11 +350,13 @@ func geminiSetup(model string, options provider.RealtimeOptions) map[string]any 
 		}
 		setup["tools"] = []map[string]any{{"functionDeclarations": functions}}
 	}
-	setup["realtimeInputConfig"] = geminiRealtimeInputConfig(options.TurnDetection)
-	if options.InputTranscription != nil {
+	if config := geminiRealtimeInputConfig(options.Input.TurnDetection); config != nil {
+		setup["realtimeInputConfig"] = config
+	}
+	if options.Input.Transcription != nil {
 		transcription := map[string]any{}
-		languages := options.InputTranscription.Languages
-		if language := strings.TrimSpace(options.InputTranscription.Language); language != "" {
+		languages := options.Input.Transcription.Languages
+		if language := strings.TrimSpace(options.Input.Transcription.Language); language != "" {
 			languages = []string{language}
 		}
 		if len(languages) > 0 {
@@ -356,7 +364,7 @@ func geminiSetup(model string, options provider.RealtimeOptions) map[string]any 
 		}
 		setup["inputAudioTranscription"] = transcription
 	}
-	if options.OutputTranscription || slices.Contains(options.OutputModalities, provider.RealtimeModalityAudio) {
+	if options.Output.Transcription || slices.Contains(options.Output.Modalities, provider.RealtimeModalityAudio) {
 		setup["outputAudioTranscription"] = map[string]any{}
 	}
 	if len(options.History) > 0 {
@@ -367,6 +375,9 @@ func geminiSetup(model string, options provider.RealtimeOptions) map[string]any 
 
 func geminiRealtimeInputConfig(turn *provider.RealtimeTurnDetection) map[string]any {
 	if turn == nil {
+		return nil // Gemini's defaults
+	}
+	if turn.Disabled() {
 		return map[string]any{"automaticActivityDetection": map[string]any{"disabled": true}}
 	}
 
@@ -449,19 +460,19 @@ func (s *geminiRealtimeSession) SendAudio(ctx context.Context, audio []byte) err
 	if len(audio) == 0 {
 		return nil
 	}
-	if s.options.TurnDetection == nil {
+	if s.options.Input.TurnDetection.Disabled() {
 		if err := s.beginManualActivity(ctx); err != nil {
 			return err
 		}
 	}
 	return s.send(ctx, map[string]any{"realtimeInput": map[string]any{"audio": map[string]any{
 		"data":     base64.StdEncoding.EncodeToString(audio),
-		"mimeType": fmt.Sprintf("audio/pcm;rate=%d", s.options.InputAudio.SampleRate),
+		"mimeType": fmt.Sprintf("audio/pcm;rate=%d", s.options.Input.Audio.SampleRate),
 	}}})
 }
 
 func (s *geminiRealtimeSession) CommitAudio(ctx context.Context) error {
-	if s.options.TurnDetection == nil {
+	if s.options.Input.TurnDetection.Disabled() {
 		return s.endManualActivity(ctx)
 	}
 	return s.send(ctx, map[string]any{"realtimeInput": map[string]any{"audioStreamEnd": true}})

@@ -136,16 +136,18 @@ type sessionConfig struct {
 	ToolChoice provider.ToolChoice
 
 	OutputModalities []string
-	TurnDetection    *provider.RealtimeTurnDetection
 	Transcription    *provider.RealtimeTranscription
 	NoiseReduction   provider.RealtimeNoiseReduction
 	Truncation       *provider.RealtimeTruncation
 
+	// TurnDetection is nil when detection is off. Until the client sets it,
+	// it only reports the provider's default, which the provider applies.
+	TurnDetection    *provider.RealtimeTurnDetection
 	turnDetectionSet bool
 }
 
 func newSessionConfig(defaults provider.RealtimeOptions) sessionConfig {
-	modalities := modalityStrings(defaults.OutputModalities)
+	modalities := modalityStrings(defaults.Output.Modalities)
 	if len(modalities) == 0 {
 		modalities = []string{"audio"}
 	}
@@ -154,10 +156,10 @@ func newSessionConfig(defaults provider.RealtimeOptions) sessionConfig {
 		Type: sessionTypeRealtime,
 
 		Instructions: defaults.Instructions,
-		Voice:        defaults.Voice,
+		Voice:        defaults.Output.Voice,
 
-		InputAudio:  defaults.InputAudio,
-		OutputAudio: defaults.OutputAudio,
+		InputAudio:  defaults.Input.Audio,
+		OutputAudio: defaults.Output.Audio,
 
 		MaxTokens: defaults.MaxTokens,
 
@@ -165,9 +167,9 @@ func newSessionConfig(defaults provider.RealtimeOptions) sessionConfig {
 		ToolChoice: defaults.ToolChoice,
 
 		OutputModalities: modalities,
-		TurnDetection:    cloneTurnDetection(defaults.TurnDetection),
-		Transcription:    cloneTranscription(defaults.InputTranscription),
-		NoiseReduction:   defaults.InputNoiseReduction,
+		TurnDetection:    declaredTurnDetection(defaults.Input.TurnDetection),
+		Transcription:    cloneTranscription(defaults.Input.Transcription),
+		NoiseReduction:   defaults.Input.NoiseReduction,
 		Truncation:       cloneTruncation(defaults.Truncation),
 	}
 }
@@ -178,7 +180,7 @@ func newTranscriptionConfig() sessionConfig {
 
 		InputAudio: openAIAudioFormat(provider.RealtimeAudioPCM),
 
-		TurnDetection: &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionServer},
+		TurnDetection: declaredTurnDetection(nil),
 	}
 }
 
@@ -186,7 +188,7 @@ func newTranslationConfig(defaults provider.RealtimeOptions) sessionConfig {
 	return sessionConfig{
 		Type: sessionTypeTranslation,
 
-		Language:   defaults.OutputLanguage,
+		Language:   defaults.Output.Language,
 		InputAudio: openAIAudioFormat(provider.RealtimeAudioPCM),
 	}
 }
@@ -242,46 +244,50 @@ func (c *sessionConfig) applyTranslation(data jsontext.Value) error {
 }
 
 func (c sessionConfig) options(history []provider.Message) provider.RealtimeOptions {
-	if c.Type == sessionTypeTranslation {
-		return provider.RealtimeOptions{
-			OutputLanguage: c.Language,
+	// Every session type streams the same kind of input.
+	input := provider.RealtimeInputOptions{
+		Audio: c.InputAudio,
 
-			InputAudio: c.InputAudio,
-
-			InputTranscription:  cloneTranscription(c.Transcription),
-			InputNoiseReduction: c.NoiseReduction,
-		}
+		TurnDetection:  c.providerTurnDetection(),
+		Transcription:  cloneTranscription(c.Transcription),
+		NoiseReduction: c.NoiseReduction,
 	}
 
-	if c.Type == sessionTypeTranscription {
+	switch c.Type {
+	case sessionTypeTranslation:
 		return provider.RealtimeOptions{
-			InputAudio: c.InputAudio,
+			Input:  input,
+			Output: provider.RealtimeOutputOptions{Language: c.Language},
+		}
 
-			OutputModalities:    []provider.RealtimeModality{provider.RealtimeModalityText},
-			TurnDetection:       cloneTurnDetection(c.TurnDetection),
-			InputTranscription:  cloneTranscription(c.Transcription),
-			InputNoiseReduction: c.NoiseReduction,
+	case sessionTypeTranscription:
+		return provider.RealtimeOptions{
+			Input: input,
+			Output: provider.RealtimeOutputOptions{
+				Modalities: []provider.RealtimeModality{provider.RealtimeModalityText},
+			},
 		}
 	}
 
 	return provider.RealtimeOptions{
 		Instructions: c.Instructions,
-		Voice:        c.Voice,
-
-		InputAudio:  c.InputAudio,
-		OutputAudio: c.OutputAudio,
 
 		MaxTokens: c.MaxTokens,
 
 		Tools:      slices.Clone(c.Tools),
 		ToolChoice: c.ToolChoice,
 
-		OutputModalities:    providerModalities(c.OutputModalities),
-		TurnDetection:       cloneTurnDetection(c.TurnDetection),
-		InputTranscription:  cloneTranscription(c.Transcription),
-		InputNoiseReduction: c.NoiseReduction,
-		OutputTranscription: containsModality(c.OutputModalities, "audio"),
-		Truncation:          cloneTruncation(c.Truncation),
+		Truncation: cloneTruncation(c.Truncation),
+
+		Input: input,
+		Output: provider.RealtimeOutputOptions{
+			Modalities: providerModalities(c.OutputModalities),
+
+			Audio: c.OutputAudio,
+			Voice: c.Voice,
+
+			Transcription: containsModality(c.OutputModalities, "audio"),
+		},
 
 		History: slices.Clone(history),
 	}
@@ -376,6 +382,7 @@ func (c *sessionConfig) apply(data jsontext.Value) error {
 			return fmt.Errorf("session.turn_detection: %w", err)
 		}
 		updated.TurnDetection = turnDetection
+		updated.turnDetectionSet = true
 	}
 
 	if raw, ok := fields["audio"]; ok {
@@ -421,11 +428,12 @@ func (c *sessionConfig) apply(data jsontext.Value) error {
 	}
 
 	if raw, ok := fields["tool_choice"]; ok {
-		toolChoice, err := parseToolChoice(raw)
+		toolOptions, err := parseToolChoice(raw)
 		if err != nil {
 			return err
 		}
-		updated.ToolChoice = toolChoice
+		// Session options cannot name a tool, so a named choice requires any call.
+		updated.ToolChoice = toolOptions.Choice
 	}
 
 	if raw, ok := fields["truncation"]; ok {
@@ -869,7 +877,7 @@ func parseMaxTokens(data jsontext.Value) (*int, error) {
 	var value int
 	if data.Kind() == '0' && json.Unmarshal(data, &value) == nil {
 		if value < 1 || value > 4096 {
-			return nil, errors.New("session max output tokens must be between 1 and 4096")
+			return nil, errors.New("max_output_tokens must be between 1 and 4096")
 		}
 		return &value, nil
 	}
@@ -879,16 +887,16 @@ func parseMaxTokens(data jsontext.Value) (*int, error) {
 		return nil, nil
 	}
 
-	return nil, errors.New("session max output tokens must be a positive integer or \"inf\"")
+	return nil, errors.New("max_output_tokens must be a positive integer or \"inf\"")
 }
 
 func parseTools(data jsontext.Value) ([]provider.Tool, error) {
 	var fields []map[string]jsontext.Value
 	if err := json.Unmarshal(data, &fields); err != nil {
-		return nil, errors.New("session.tools must be an array")
+		return nil, errors.New("tools must be an array")
 	}
 	if fields == nil {
-		return nil, errors.New("session.tools must be an array")
+		return nil, errors.New("tools must be an array")
 	}
 	for _, tool := range fields {
 		if err := validateObjectFields("realtime tool", tool, "type", "name", "description", "parameters"); err != nil {
@@ -902,7 +910,7 @@ func parseTools(data jsontext.Value) ([]provider.Tool, error) {
 		Parameters  map[string]any `json:"parameters"`
 	}
 	if err := jsonutil.Unmarshal(data, &values); err != nil {
-		return nil, errors.New("session.tools must be an array")
+		return nil, errors.New("tools must be an array")
 	}
 
 	tools := make([]provider.Tool, 0, len(values))
@@ -927,22 +935,75 @@ func parseTools(data jsontext.Value) ([]provider.Tool, error) {
 	return tools, nil
 }
 
-func parseToolChoice(data jsontext.Value) (provider.ToolChoice, error) {
+func parseToolChoice(data jsontext.Value) (*provider.ToolOptions, error) {
+	if data.Kind() == '{' {
+		var named struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(data, &named); err != nil || (named.Type != "function" && named.Type != "mcp") {
+			return nil, errors.New("tool_choice object must be a function or mcp choice")
+		}
+		options := &provider.ToolOptions{Choice: provider.ToolChoiceAny}
+		if named.Type == "function" && named.Name != "" {
+			options.Allowed = []string{named.Name}
+		}
+		return options, nil
+	}
+
 	var choice string
 	if json.Unmarshal(data, &choice) != nil {
-		return "", errors.New("session.tool_choice must be a string; named function choices are not supported")
+		return nil, errors.New("tool_choice must be a string or an object")
 	}
 
 	switch choice {
 	case "none":
-		return provider.ToolChoiceNone, nil
+		return &provider.ToolOptions{Choice: provider.ToolChoiceNone}, nil
 	case "required", "any":
-		return provider.ToolChoiceAny, nil
+		return &provider.ToolOptions{Choice: provider.ToolChoiceAny}, nil
 	case "auto":
-		return provider.ToolChoiceAuto, nil
+		return &provider.ToolOptions{Choice: provider.ToolChoiceAuto}, nil
 	}
 
-	return "", fmt.Errorf("session.tool_choice %q is unsupported", choice)
+	return nil, fmt.Errorf("tool_choice %q is unsupported", choice)
+}
+
+func parseResponseInput(data jsontext.Value) ([]provider.Message, error) {
+	var items []conversationItem
+	if err := json.Unmarshal(data, &items); err != nil || items == nil {
+		return nil, errors.New("response.input must be an array of items")
+	}
+
+	input := make([]provider.Message, 0, len(items))
+	for _, item := range items {
+		switch item.Type {
+		case "item_reference":
+			input = append(input, provider.Message{ID: item.ID})
+
+		case "function_call":
+			call := provider.ToolCall{ID: item.CallID, Name: item.Name, Arguments: item.Arguments}
+			input = append(input, provider.Message{ID: item.ID, Role: provider.MessageRoleAssistant, Content: []provider.Content{provider.ToolCallContent(call)}})
+
+		case "function_call_output":
+			result := provider.ToolResult{ID: item.CallID, Parts: []provider.Part{{Text: item.Output}}}
+			input = append(input, provider.Message{ID: item.ID, Role: provider.MessageRoleUser, Content: []provider.Content{provider.ToolResultContent(result)}})
+
+		case "message":
+			if item.audio() != "" {
+				return nil, errors.New("response.input messages cannot contain audio")
+			}
+			message, err := item.message()
+			if err != nil {
+				return nil, err
+			}
+			input = append(input, message)
+
+		default:
+			return nil, fmt.Errorf("response.input item type %q is unsupported", item.Type)
+		}
+	}
+
+	return input, nil
 }
 
 func modalityStrings(values []provider.RealtimeModality) []string {
@@ -959,6 +1020,33 @@ func providerModalities(values []string) []provider.RealtimeModality {
 		result[i] = provider.RealtimeModality(value)
 	}
 	return result
+}
+
+// providerTurnDetection passes the client's choice through. Before the client
+// chooses it is nil, so the provider keeps its own default.
+func (c sessionConfig) providerTurnDetection() *provider.RealtimeTurnDetection {
+	if !c.turnDetectionSet {
+		return nil
+	}
+	if c.TurnDetection == nil {
+		return &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionNone}
+	}
+	return cloneTurnDetection(c.TurnDetection)
+}
+
+// declaredTurnDetection reports a provider's default in session terms, where
+// nil means off. A provider that declares none leaves it to its service and is
+// reported with the protocol's default, server VAD.
+func declaredTurnDetection(defaults *provider.RealtimeTurnDetection) *provider.RealtimeTurnDetection {
+	switch {
+	case defaults == nil:
+		return &provider.RealtimeTurnDetection{
+			Type: provider.RealtimeTurnDetectionServer, CreateResponse: true, InterruptResponse: true,
+		}
+	case defaults.Disabled():
+		return nil
+	}
+	return cloneTurnDetection(defaults)
 }
 
 func cloneTurnDetection(value *provider.RealtimeTurnDetection) *provider.RealtimeTurnDetection {

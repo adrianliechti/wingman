@@ -151,7 +151,7 @@ func exerciseGeminiLiveTool(t *testing.T, model string, conn *websocket.Conn) {
 			"output": `{"city":"New York","temperature":22,"unit":"celsius","condition":"sunny"}`,
 		},
 	})
-	writeLive(t, model, conn, map[string]any{"type": "response.create"})
+	writeLive(t, model, conn, map[string]any{"type": "response.create", "response": map[string]any{"tool_choice": "none"}})
 	result := readGeminiLiveAudioTurn(t, model, conn, false)
 	transcript := strings.ToLower(outputTranscript(result))
 	if !strings.Contains(transcript, "22") && !strings.Contains(transcript, "twenty-two") && !strings.Contains(transcript, "twenty two") {
