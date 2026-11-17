@@ -207,6 +207,7 @@ type Content struct {
 
 	Instructions        *Instructions
 	ConfigurationUpdate *ConfigurationUpdate
+	AdditionalTools     *AdditionalTools
 
 	ToolCall   *ToolCall
 	ToolResult *ToolResult
@@ -289,7 +290,8 @@ const (
 )
 
 type CompleteOptions struct {
-	Tier Tier
+	Tier             Tier
+	SafetyIdentifier *string
 
 	MaxTokens *int
 	Stop      []string
@@ -340,6 +342,10 @@ type Completion struct {
 	// Reasoning is the effective context mode reported by the provider.
 	Reasoning ReasoningContext
 
+	// InputTransformations records reasoning items the provider withheld from the model.
+	// Nil means the provider did not report this metadata.
+	InputTransformations *[]InputTransformation
+
 	Status       CompletionStatus
 	StopReason   StopReason
 	StopDetails  *StopDetails
@@ -349,6 +355,13 @@ type Completion struct {
 	Message *Message
 
 	Usage *Usage
+}
+
+type InputTransformation struct {
+	ID     string `json:"id"`
+	Action string `json:"action"`
+	Reason string `json:"reason"`
+	Type   string `json:"type"`
 }
 
 type StopDetails struct {

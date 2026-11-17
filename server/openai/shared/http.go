@@ -12,6 +12,14 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
+func CompletionFailure(completion *provider.Completion) error {
+	if completion != nil && completion.StopDetails != nil && completion.StopDetails.Type != "" {
+		return errors.New("The model stopped generating: " + completion.StopDetails.Type)
+	}
+	//lint:ignore ST1005 Preserve the client-facing Responses error text.
+	return errors.New("The model stopped generating without a usable result.")
+}
+
 func WriteJson(w http.ResponseWriter, v any) {
 	data, err := json.Marshal(v)
 	if err != nil {

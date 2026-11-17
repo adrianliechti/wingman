@@ -68,6 +68,8 @@ func TestDetectModelTypes(t *testing.T) {
 		{"openai", "gpt-realtime-whisper", []ModelType{ModelTypeRealtime}},
 		{"openai", "MAI-Transcribe-2-Streaming", []ModelType{ModelTypeRealtime}},
 		{"openai", "gpt-6-luna", []ModelType{ModelTypeCompleter, ModelTypeDecider}},
+		{"openai", "gpt-6.2-astra", []ModelType{ModelTypeCompleter}},
+		{"openai", "gpt-6.2-sol", []ModelType{ModelTypeCompleter}},
 		{"openai", "gpt-6-sol", []ModelType{ModelTypeCompleter}},
 		{"openai-compatible", "gpt-6-luna", []ModelType{ModelTypeCompleter}},
 		{"openai-compatible", "whisper-large-v3", []ModelType{ModelTypeTranscriber}},

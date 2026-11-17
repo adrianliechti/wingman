@@ -30,7 +30,7 @@ func TestRequiredReasoningRequestCompatibility(t *testing.T) {
 		})
 	}
 
-	for _, model := range []string{"gpt-6-astra", "gpt-6.1-sol", "GPT-6.1-SOL"} {
+	for _, model := range []string{"gpt-6-astra", "gpt-6.1-sol", "GPT-6.1-SOL", "gpt-6.2-astra", "gpt-6.2-sol"} {
 		for _, tt := range tests {
 			t.Run(model+"/"+tt.name, func(t *testing.T) {
 				options := &provider.CompleteOptions{ReasoningOptions: tt.reasoning}
@@ -200,6 +200,48 @@ func TestGPT6AstraResponsesFeaturesRoundTrip(t *testing.T) {
 		if tool["async"] != true {
 			t.Fatalf("async tool lost at tools[%d]: %v", i, tool)
 		}
+	}
+}
+
+func TestGPT62ConfigurationUpdateReasoningEffort(t *testing.T) {
+	for _, model := range []string{"gpt-6.2-astra", "gpt-6.2-sol"} {
+		t.Run(model, func(t *testing.T) {
+			responder, err := NewResponder("", model)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			messages := []provider.Message{
+				provider.UserMessage("start"),
+				{Content: []provider.Content{provider.ConfigurationUpdateContent(provider.ConfigurationUpdate{ReasoningEffort: "none"})}},
+				provider.UserMessage("continue"),
+			}
+			req, err := responder.convertResponsesRequest(messages, &provider.CompleteOptions{
+				ReasoningOptions: &provider.ReasoningOptions{Effort: provider.EffortHigh},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if req.Reasoning.Effort != "high" || len(req.Input.OfInputItemList) != 3 {
+				t.Fatalf("initial effort or input sequence changed: %+v", req)
+			}
+			update, err := json.Marshal(req.Input.OfInputItemList[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var item struct {
+				Type      string `json:"type"`
+				Reasoning struct {
+					Effort string `json:"effort"`
+				} `json:"reasoning"`
+			}
+			if err := json.Unmarshal(update, &item); err != nil {
+				t.Fatal(err)
+			}
+			if item.Type != "configuration_update" || item.Reasoning.Effort != "low" {
+				t.Fatalf("unexpected configuration update: %s", update)
+			}
+		})
 	}
 }
 

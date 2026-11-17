@@ -99,23 +99,33 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		// ResponseFunctionCallArgumentsDeltaEvent uses item_id, but downstream
 		// consumers identify tool calls by call_id (used in function_call_output).
 		itemToCallID := make(map[string]string)
+		callIDForItem := func(itemID string) string {
+			if id := itemToCallID[itemID]; id != "" {
+				return id
+			}
+			return itemID
+		}
 		seenCompactions := make(map[string]struct{})
 
 		var responseID, responseModel string
 		var reasoningContext provider.ReasoningContext
+		var inputTransformations *[]provider.InputTransformation
 		var tier provider.Tier
 		var searchCallID string
+		seenSearchOutputs := make(map[int64]bool)
+		reasoningSignatures := make(map[string]string)
 		emittedToolCalls := make(map[string]provider.ToolCall)
-		type textKey struct {
+		type partKey struct {
+			kind  string
 			item  string
 			index int64
 		}
-		emittedText := make(map[textKey]string)
+		emittedParts := make(map[partKey]*strings.Builder)
 		messagePhases := make(map[string]provider.MessagePhase)
-		closedText := make(map[textKey]bool)
-		var activeText textKey
+		closedText := make(map[partKey]bool)
+		var activeText partKey
 		closeText := func() {
-			if _, ok := emittedText[activeText]; ok {
+			if _, ok := emittedParts[activeText]; ok {
 				closedText[activeText] = true
 			}
 		}
@@ -192,9 +202,22 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			return emit(provider.Content{MessageID: item.ID, Phase: phase}, "")
 		}
 
-		// Text streams are append-only. Recover omitted suffixes, but fail if a
-		// snapshot rewrites text or tries to grow a part already closed downstream.
-		emitText := func(key textKey, delta string) bool {
+		// The SDK exposes both incremental text and full snapshots of the same
+		// part. Keep the delivered prefix so each byte reaches the client once.
+		emitPart := func(key partKey, delta string) bool {
+			buf := emittedParts[key]
+			if buf == nil {
+				buf = new(strings.Builder)
+				emittedParts[key] = buf
+			}
+			buf.WriteString(delta)
+			part := provider.Part{Index: int(key.index), Text: delta}
+			switch key.kind {
+			case "reasoning_text":
+				return emit(provider.ReasoningContent(provider.Reasoning{ID: key.item, Content: []provider.Part{part}}), "")
+			case "summary_text":
+				return emit(provider.ReasoningContent(provider.Reasoning{ID: key.item, Summary: []provider.Part{part}}), "")
+			}
 			if activeText != key {
 				closeText()
 			}
@@ -202,46 +225,34 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			if _, seen := messagePhases[key.item]; !seen {
 				messagePhases[key.item] = ""
 			}
-			emittedText[key] += delta
+			if key.kind == "refusal" {
+				return emit(provider.Content{MessageID: key.item, Refusal: delta}, provider.CompletionStatusRefused)
+			}
 			return emit(provider.Content{MessageID: key.item, Text: delta, TextPresent: true}, "")
 		}
-		reconcileText := func(key textKey, final string) bool {
-			seen, exists := emittedText[key]
-			if !strings.HasPrefix(final, seen) {
-				yield(nil, fmt.Errorf("openai: final text for message %s does not match streamed deltas", key.item))
-				return false
-			}
-			if exists && final == seen {
-				return true
-			}
-			if closedText[key] {
-				yield(nil, fmt.Errorf("openai: final text for closed message %s is missing streamed deltas", key.item))
-				return false
-			}
-			return emitText(key, strings.TrimPrefix(final, seen))
-		}
-		reconcileMessage := func(item responses.ResponseOutputMessage) bool {
-			if !emitMessageStart(item) {
-				return false
-			}
-			for index, part := range item.Content {
-				if part.Type == "output_text" && !reconcileText(textKey{item.ID, int64(index)}, part.Text) {
-					return false
+		reconcilePart := func(key partKey, final string) bool {
+			var seen string
+			if buf := emittedParts[key]; buf != nil {
+				seen = buf.String()
+				if final == seen {
+					return true
 				}
 			}
-			return true
+			suffix, ok := strings.CutPrefix(final, seen)
+			if !ok || closedText[key] {
+				yield(nil, fmt.Errorf("openai: final %s for %s does not match the delivered stream", key.kind, key.item))
+				return false
+			}
+			return emitPart(key, suffix)
 		}
-
-		emitStatus := func(status provider.CompletionStatus, usage *provider.Usage, endTurn *bool) bool {
-			return yield(&provider.Completion{
-				ID:        responseID,
-				Model:     responseModel,
-				Status:    status,
-				EndTurn:   endTurn,
-				Usage:     usage,
-				Reasoning: reasoningContext,
-				Tier:      tier,
-			}, nil)
+		reconcileMessagePart := func(key partKey, text, refusal string) bool {
+			switch key.kind {
+			case "output_text":
+				return reconcilePart(key, text)
+			case "refusal":
+				return reconcilePart(key, refusal)
+			}
+			return true
 		}
 
 		yieldCompaction := func(item responses.ResponseCompactionItem) bool {
@@ -266,6 +277,128 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			}), "")
 		}
 
+		reconcileItem := func(output responses.ResponseOutputItemUnion, index int64) bool {
+			switch item := output.AsAny().(type) {
+			case responses.ResponseOutputMessage:
+				if !emitMessageStart(item) {
+					return false
+				}
+				for i, part := range item.Content {
+					if !reconcileMessagePart(partKey{part.Type, item.ID, int64(i)}, part.Text, part.Refusal) {
+						return false
+					}
+				}
+			case responses.ResponseFunctionToolCall:
+				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Arguments}, item.JSON.Arguments.Valid())
+			case responses.ResponseCustomToolCall:
+				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Input}, item.JSON.Input.Valid())
+			case responses.ResponseReasoningItem:
+				for i, part := range item.Content {
+					if !reconcilePart(partKey{"reasoning_text", item.ID, int64(i)}, part.Text) {
+						return false
+					}
+				}
+				for i, part := range item.Summary {
+					if !reconcilePart(partKey{"summary_text", item.ID, int64(i)}, part.Text) {
+						return false
+					}
+				}
+				sig, seen := reasoningSignatures[item.ID]
+				if (item.ID != "" || item.EncryptedContent != "") && (!seen || item.EncryptedContent != "" && sig != item.EncryptedContent) {
+					reasoningSignatures[item.ID] = item.EncryptedContent
+					return emit(provider.ReasoningContent(provider.Reasoning{ID: item.ID, Signature: item.EncryptedContent}), "")
+				}
+			case responses.ResponseCompactionItem:
+				return yieldCompaction(item)
+			case responses.ResponseApplyPatchToolCall:
+				args := (texteditor.Operation{Type: item.Operation.Type, Path: item.Operation.Path, Diff: item.Operation.Diff}).Args()
+				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: args}, true)
+
+			case responses.ResponseComputerToolCall:
+				args, _ := json.Marshal(computerCallToArgs(item), json.Deterministic(true))
+				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer", Arguments: string(args)}, true)
+
+			case responses.ResponseFunctionShellToolCall:
+				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameShell, Arguments: item.Action.RawJSON()}, true)
+
+			case responses.ResponseOutputItemLocalShellCall:
+				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameLocalShell, Arguments: item.Action.RawJSON()}, true)
+
+			case responses.ResponseToolSearchCall:
+				searchCallID = item.CallID
+				if searchCallID == "" {
+					searchCallID = item.ID
+					if searchCallID == "" {
+						searchCallID = fmt.Sprintf("search_%s_%d", responseID, index)
+					}
+				}
+				var raw struct {
+					Arguments jsontext.Value `json:"arguments"`
+				}
+				if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
+					yield(nil, err)
+					return false
+				}
+				args := raw.Arguments
+				if len(args) == 0 {
+					args = jsontext.Value("null")
+				}
+				return reconcileToolCall(provider.ToolCall{
+					ID:        searchCallID,
+					Kind:      provider.ToolKindToolSearch,
+					Name:      "tool_search",
+					Execution: string(item.Execution),
+					Arguments: string(args),
+				}, true)
+			case responses.ResponseToolSearchOutputItem:
+				id := item.CallID
+				if id == "" {
+					id = searchCallID
+				}
+				if seenSearchOutputs[index] {
+					return true
+				}
+				seenSearchOutputs[index] = true
+				var raw struct {
+					Tools jsontext.Value `json:"tools"`
+				}
+				if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
+					yield(nil, err)
+					return false
+				}
+				payload := raw.Tools
+				if len(payload) == 0 || string(payload) == "null" {
+					payload = jsontext.Value("[]")
+				}
+				return emit(provider.ToolResultContent(provider.ToolResult{ID: id, Kind: provider.ToolKindToolSearch, Execution: string(item.Execution), Payload: payload}), "")
+
+			}
+			return true
+		}
+
+		finish := func(response responses.Response, status provider.CompletionStatus) {
+			for i, item := range response.Output {
+				if !reconcileItem(item, int64(i)) {
+					return
+				}
+			}
+			var reason provider.StopReason
+			if status == provider.CompletionStatusIncomplete && response.IncompleteDetails.Reason == "content_filter" {
+				reason = provider.StopReasonRefusal
+			}
+			yield(&provider.Completion{
+				ID:                   responseID,
+				Model:                responseModel,
+				Status:               status,
+				StopReason:           reason,
+				EndTurn:              responseEndTurn(response),
+				Usage:                toResponseUsage(response.Usage),
+				Reasoning:            reasoningContext,
+				Tier:                 tier,
+				InputTransformations: inputTransformations,
+			}, nil)
+		}
+
 		for stream.Next() {
 			data := stream.Current()
 			// Item deltas omit the enclosing response metadata.
@@ -280,6 +413,12 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			}
 			if value := tierFromServiceTier(string(data.Response.ServiceTier)); value != "" {
 				tier = value
+			}
+			if raw := data.Response.JSON.ExtraFields["input_transformations"].Raw(); raw != "" {
+				var reported []provider.InputTransformation
+				if json.Unmarshal([]byte(raw), &reported) == nil && reported != nil {
+					inputTransformations = &reported
+				}
 			}
 
 			switch event := data.AsAny().(type) {
@@ -326,195 +465,88 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 			case responses.ResponseContentPartAddedEvent:
-				if event.Part.Type == "output_text" && !emitText(textKey{event.ItemID, event.ContentIndex}, event.Part.Text) {
+				if !reconcileMessagePart(partKey{event.Part.Type, event.ItemID, event.ContentIndex}, event.Part.Text, event.Part.Refusal) {
 					return
 				}
 			case responses.ResponseTextDeltaEvent:
-				if !emitText(textKey{event.ItemID, event.ContentIndex}, event.Delta) {
+				if !emitPart(partKey{"output_text", event.ItemID, event.ContentIndex}, event.Delta) {
 					return
 				}
 
 			case responses.ResponseRefusalDeltaEvent:
-				if !emit(provider.Content{MessageID: event.ItemID, Refusal: event.Delta}, provider.CompletionStatusRefused) {
+				if !emitPart(partKey{"refusal", event.ItemID, event.ContentIndex}, event.Delta) {
 					return
 				}
 
 			case responses.ResponseReasoningTextDeltaEvent:
-				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Content: []provider.Part{{Index: int(event.ContentIndex), Text: event.Delta}}}), "") {
+				if !emitPart(partKey{"reasoning_text", event.ItemID, event.ContentIndex}, event.Delta) {
 					return
 				}
 
 			case responses.ResponseReasoningSummaryTextDeltaEvent:
-				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Summary: []provider.Part{{Index: int(event.SummaryIndex), Text: event.Delta}}}), "") {
+				if !emitPart(partKey{"summary_text", event.ItemID, event.SummaryIndex}, event.Delta) {
 					return
 				}
 			case responses.ResponseReasoningSummaryPartAddedEvent:
-				if !emit(provider.ReasoningContent(provider.Reasoning{ID: event.ItemID, Summary: []provider.Part{{Index: int(event.SummaryIndex), Text: event.Part.Text}}}), "") {
+				if !reconcilePart(partKey{"summary_text", event.ItemID, event.SummaryIndex}, event.Part.Text) {
 					return
 				}
 
+			case responses.ResponseRefusalDoneEvent:
+				if !reconcilePart(partKey{"refusal", event.ItemID, event.ContentIndex}, event.Refusal) {
+					return
+				}
 			case responses.ResponseTextDoneEvent:
-				if !reconcileText(textKey{event.ItemID, event.ContentIndex}, event.Text) {
+				if !reconcilePart(partKey{"output_text", event.ItemID, event.ContentIndex}, event.Text) {
 					return
 				}
 			case responses.ResponseReasoningTextDoneEvent:
-			case responses.ResponseReasoningSummaryTextDoneEvent:
-			case responses.ResponseReasoningSummaryPartDoneEvent:
-			case responses.ResponseFunctionCallArgumentsDeltaEvent:
-				callID := itemToCallID[event.ItemID]
-				if callID == "" {
-					callID = event.ItemID
+				if !reconcilePart(partKey{"reasoning_text", event.ItemID, event.ContentIndex}, event.Text) {
+					return
 				}
+			case responses.ResponseReasoningSummaryTextDoneEvent:
+				if !reconcilePart(partKey{"summary_text", event.ItemID, event.SummaryIndex}, event.Text) {
+					return
+				}
+			case responses.ResponseReasoningSummaryPartDoneEvent:
+				if !reconcilePart(partKey{"summary_text", event.ItemID, event.SummaryIndex}, event.Part.Text) {
+					return
+				}
+			case responses.ResponseFunctionCallArgumentsDeltaEvent:
+				callID := callIDForItem(event.ItemID)
 				if !emit(provider.ToolCallContent(provider.ToolCall{ID: callID, Arguments: event.Delta}), "") {
 					return
 				}
 
 			case responses.ResponseCustomToolCallInputDeltaEvent:
-				callID := itemToCallID[event.ItemID]
-				if callID == "" {
-					callID = event.ItemID
-				}
+				callID := callIDForItem(event.ItemID)
 				if !emit(provider.ToolCallContent(provider.ToolCall{ID: callID, Arguments: event.Delta}), "") {
 					return
 				}
 
 			case responses.ResponseFunctionCallArgumentsDoneEvent:
+				if !reconcileToolCall(provider.ToolCall{ID: callIDForItem(event.ItemID), Arguments: event.Arguments}, event.JSON.Arguments.Valid()) {
+					return
+				}
 			case responses.ResponseCustomToolCallInputDoneEvent:
+				if !reconcileToolCall(provider.ToolCall{ID: callIDForItem(event.ItemID), Arguments: event.Input}, event.JSON.Input.Valid()) {
+					return
+				}
 			case responses.ResponseContentPartDoneEvent:
-				if event.Part.Type == "output_text" && !reconcileText(textKey{event.ItemID, event.ContentIndex}, event.Part.Text) {
+				if !reconcileMessagePart(partKey{event.Part.Type, event.ItemID, event.ContentIndex}, event.Part.Text, event.Part.Refusal) {
 					return
 				}
 			case responses.ResponseOutputItemDoneEvent:
-				switch item := event.Item.AsAny().(type) {
-				case responses.ResponseOutputMessage:
-					if !reconcileMessage(item) {
-						return
-					}
-
-				case responses.ResponseFunctionToolCall:
-					if !reconcileToolCall(provider.ToolCall{ID: item.CallID, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Arguments}, item.JSON.Arguments.Valid()) {
-						return
-					}
-
-				case responses.ResponseCustomToolCall:
-					if !reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Input}, item.JSON.Input.Valid()) {
-						return
-					}
-
-				case responses.ResponseApplyPatchToolCall:
-					args := (texteditor.Operation{Type: item.Operation.Type, Path: item.Operation.Path, Diff: item.Operation.Diff}).Args()
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: args}), "") {
-						return
-					}
-
-				case responses.ResponseComputerToolCall:
-					args, _ := json.Marshal(computerCallToArgs(item), json.Deterministic(true))
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer", Arguments: string(args)}), "") {
-						return
-					}
-
-				case responses.ResponseFunctionShellToolCall:
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameShell, Arguments: item.Action.RawJSON()}), "") {
-						return
-					}
-
-				case responses.ResponseOutputItemLocalShellCall:
-					if !emit(provider.ToolCallContent(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameLocalShell, Arguments: item.Action.RawJSON()}), "") {
-						return
-					}
-
-				case responses.ResponseToolSearchCall:
-					searchCallID = item.CallID
-					if searchCallID == "" {
-						searchCallID = item.ID
-						if searchCallID == "" {
-							searchCallID = fmt.Sprintf("search_%s_%d", responseID, event.OutputIndex)
-						}
-					}
-					var raw struct {
-						Arguments jsontext.Value `json:"arguments"`
-					}
-					if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
-						yield(nil, err)
-						return
-					}
-					args := raw.Arguments
-					if len(args) == 0 {
-						args = jsontext.Value("null")
-					}
-					if !emit(provider.ToolCallContent(provider.ToolCall{
-						ID:        searchCallID,
-						Kind:      provider.ToolKindToolSearch,
-						Name:      "tool_search",
-						Execution: string(item.Execution),
-						Arguments: string(args),
-					}), "") {
-						return
-					}
-				case responses.ResponseToolSearchOutputItem:
-					id := item.CallID
-					if id == "" {
-						id = searchCallID
-					}
-					var raw struct {
-						Tools jsontext.Value `json:"tools"`
-					}
-					if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
-						yield(nil, err)
-						return
-					}
-					payload := raw.Tools
-					if len(payload) == 0 || string(payload) == "null" {
-						payload = jsontext.Value("[]")
-					}
-					if !emit(provider.ToolResultContent(provider.ToolResult{ID: id, Kind: provider.ToolKindToolSearch, Execution: string(item.Execution), Payload: payload}), "") {
-						return
-					}
-
-				case responses.ResponseReasoningItem:
-					// Capture encrypted_content for conversation continuity
-					if item.ID != "" || item.EncryptedContent != "" {
-						if !emit(provider.ReasoningContent(provider.Reasoning{ID: item.ID, Signature: item.EncryptedContent}), "") {
-							return
-						}
-					}
-
-				case responses.ResponseCompactionItem:
-					if !yieldCompaction(item) {
-						return
-					}
+				if !reconcileItem(event.Item, event.OutputIndex) {
+					return
 				}
 
 			case responses.ResponseCompletedEvent:
-				for _, output := range event.Response.Output {
-					switch item := output.AsAny().(type) {
-					case responses.ResponseOutputMessage:
-						if !reconcileMessage(item) {
-							return
-						}
-
-					case responses.ResponseFunctionToolCall:
-						if !reconcileToolCall(provider.ToolCall{ID: item.CallID, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Arguments}, item.JSON.Arguments.Valid()) {
-							return
-						}
-					case responses.ResponseCustomToolCall:
-						if !reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Input}, item.JSON.Input.Valid()) {
-							return
-						}
-					case responses.ResponseCompactionItem:
-						if !yieldCompaction(item) {
-							return
-						}
-					}
-				}
-
 				status := provider.CompletionStatusCompleted
-
 				if event.Response.Status == responses.ResponseStatusIncomplete {
 					status = provider.CompletionStatusIncomplete
 				}
-
-				emitStatus(status, toResponseUsage(event.Response.Usage), responseEndTurn(event.Response))
+				finish(event.Response, status)
 				return
 
 			case responses.ResponseErrorEvent:
@@ -541,7 +573,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				return
 
 			case responses.ResponseIncompleteEvent:
-				emitStatus(provider.CompletionStatusIncomplete, toResponseUsage(event.Response.Usage), nil)
+				finish(event.Response, provider.CompletionStatusIncomplete)
 				return
 
 			default:
@@ -612,6 +644,10 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 
 		Input: input,
 		Tools: tools,
+	}
+
+	if options.SafetyIdentifier != nil && r.isOpenAI() {
+		req.SafetyIdentifier = openai.String(*options.SafetyIdentifier)
 	}
 
 	if truncation := options.TruncationOptions; truncation != nil {
@@ -794,6 +830,17 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 					}
 				}
 			}
+			if addition := content.AdditionalTools; addition != nil && r.isOpenAI() && isGPT62(r.model) {
+				tools, err := r.convertResponsesTools(addition.Tools)
+				if err != nil {
+					return responses.ResponseNewParamsInputUnion{}, err
+				}
+				item := &responses.ResponseInputItemAdditionalToolsParam{Tools: tools}
+				if addition.ID != "" {
+					item.ID = openai.String(addition.ID)
+				}
+				controlItems = append(controlItems, responses.ResponseInputItemUnionParam{OfAdditionalTools: item})
+			}
 			if content.CompactionTrigger {
 				trigger := responses.NewResponseInputItemCompactionTriggerParam()
 				controlItems = append(controlItems, responses.ResponseInputItemUnionParam{
@@ -804,10 +851,11 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 			if content.ConfigurationUpdate == nil {
 				continue
 			}
+			effort := compatibleReasoningEffort(r.model, content.ConfigurationUpdate.ReasoningEffort)
 			data, err := json.Marshal(map[string]any{
 				"type": "configuration_update",
 				"reasoning": map[string]any{
-					"effort": content.ConfigurationUpdate.ReasoningEffort,
+					"effort": effort,
 				},
 			})
 			if err != nil {
@@ -821,7 +869,7 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 			result = append(result, controlItems...)
 			var content []provider.Content
 			for _, part := range m.Content {
-				if part.ConfigurationUpdate == nil && !part.CompactionTrigger {
+				if part.ConfigurationUpdate == nil && !part.CompactionTrigger && part.AdditionalTools == nil {
 					content = append(content, part)
 				}
 			}
@@ -1417,6 +1465,10 @@ func (r *Responder) convertResponsesTools(tools []provider.Tool) ([]responses.To
 	var result []responses.ToolUnionParam
 
 	for _, t := range tools {
+		if t.InputScoped && r.isOpenAI() && isGPT62(r.model) {
+			continue
+		}
+
 		if t.Kind == provider.ToolKindTextEditor {
 			if t.Name != texteditor.NameTextEditor && r.isOpenAI() {
 				// freeform (Codex) declaration — pass the grammar tool through

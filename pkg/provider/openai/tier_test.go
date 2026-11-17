@@ -17,7 +17,7 @@ func TestTierRequestAndResponse(t *testing.T) {
 			wire string
 		}{
 			{"", ""}, {"auto", ""}, {provider.TierStandard, "default"}, {"default", ""},
-			{provider.TierFlex, "flex"}, {provider.TierPriority, "priority"}, {"ultrafast", ""}, {"unknown", ""},
+			{provider.TierFlex, "flex"}, {provider.TierPriority, "priority"}, {provider.TierUltra, "ultrafast"}, {"unknown", ""},
 		} {
 			tier := test.tier
 			t.Run(fmt.Sprintf("chat=%v/%s", chat, tier), func(t *testing.T) {
@@ -64,7 +64,7 @@ func TestTierRequestAndResponse(t *testing.T) {
 						t.Fatal(err)
 					}
 					switch delta.Tier {
-					case "", provider.TierStandard, provider.TierFlex, provider.TierPriority:
+					case "", provider.TierStandard, provider.TierFlex, provider.TierPriority, provider.TierUltra:
 					default:
 						t.Errorf("native tier leaked into completion: %q", delta.Tier)
 					}

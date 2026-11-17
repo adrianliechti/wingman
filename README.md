@@ -168,6 +168,8 @@ providers:
     models:
       - gpt-6-astra
       - gpt-6.1-sol
+      - gpt-6.2-astra
+      - gpt-6.2-sol
       - gpt-6.1-terra
       - gpt-6-sol
       - gpt-6-luna
@@ -345,6 +347,8 @@ providers:
     models:
       - gpt-6-astra
       - gpt-6.1-sol
+      - gpt-6.2-astra
+      - gpt-6.2-sol
       - gpt-6.1-terra
       - gpt-6-sol
       - gpt-6-luna
@@ -358,7 +362,13 @@ providers:
       - tts-1-hd
 ```
 
-GPT-6.1 Sol uses `gpt-6.1-sol`. The `openai` provider uses the Responses API upstream, including for tool calls received through Wingman's Chat Completions and Anthropic endpoints. Reasoning defaults to `medium`; `low`, `high`, `xhigh`, and `max` are also supported. Wingman maps `none` and `minimal` to `low`. OpenAI's Chat Completions endpoint supports this model only without tools. See the [official model documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+GPT-6.2 Astra and GPT-6.2 Sol use `gpt-6.2-astra` and `gpt-6.2-sol`. Both accept text and image input and produce text, with a 1,050,000-token context window and up to 128,000 output tokens. See the [Astra model documentation](https://developers.openai.com/api/docs/models/gpt-6.2-astra) and [Sol model documentation](https://developers.openai.com/api/docs/models/gpt-6.2-sol).
+
+The `openai` provider uses the Responses API upstream, including for tool calls received through Wingman's Chat Completions and Anthropic endpoints. For GPT-6.2 Astra, GPT-6.2 Sol, GPT-6 Astra, and GPT-6.1 Sol, Wingman maps `none` and `minimal` to `low`. Supported efforts are `low`, `medium`, `high`, `xhigh`, and `max`. Direct OpenAI tool calling requires the Responses API for these models. See the [GPT-6.2 migration guide](https://developers.openai.com/api/docs/guides/latest-model/gpt-6.2-astra#migration-quickstart).
+
+Set `service_tier` to `ultrafast` to request Ultrafast on GPT-6.2. Wingman reports the service tier returned by OpenAI. [OpenAI Ultrafast guide](https://developers.openai.com/api/docs/guides/ultrafast-mode)
+
+For multi-turn Responses requests, replay prior output items in order, including encrypted reasoning items, and append new input. GPT-6.2 can discard replayed reasoning when earlier messages or tools change. Wingman returns OpenAI's removal reasons in `input_transformations` when available. To adjust reasoning effort while keeping the original request settings, append a `configuration_update` input item. Wingman keeps supported `additional_tools` declarations at their original input position on native GPT-6.2 Responses requests. Other backends receive the supported tools in their request-wide list. See the [OpenAI guide to preserving the request prefix](https://developers.openai.com/api/docs/guides/keep-prefix-unchanged).
 
 GPT-6.1 Terra uses `gpt-6.1-terra` through the same Responses API integration. Reasoning supports `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`. Wingman preserves `none` and maps `minimal` to `low`. Tool calling requires the Responses API. See the [official model documentation](https://developers.openai.com/api/docs/models/gpt-6.1-terra).
 

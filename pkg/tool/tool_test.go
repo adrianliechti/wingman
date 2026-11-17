@@ -8,7 +8,7 @@ import (
 
 func TestParseNormalizedSchemaPreservesNumbers(t *testing.T) {
 	const schema = `{"properties":{"id":{"enum":[9007199254740993,1.234567890123456789,1e400]}},"type":"object"}`
-	data, err := json.Marshal(ParseNormalizedSchema([]byte(schema)))
+	data, err := json.Marshal(ParseNormalizedSchema([]byte(schema)), json.Deterministic(true))
 	if err != nil || string(data) != schema {
 		t.Fatalf("schema changed: %s (%v)", data, err)
 	}

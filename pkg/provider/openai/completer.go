@@ -255,6 +255,10 @@ func (c *Completer) convertCompletionRequest(input []provider.Message, options *
 		ServiceTier: openai.ChatCompletionNewParamsServiceTier(tier),
 	}
 
+	if options.SafetyIdentifier != nil && c.isOpenAI() {
+		req.SafetyIdentifier = openai.String(*options.SafetyIdentifier)
+	}
+
 	req.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
 	}

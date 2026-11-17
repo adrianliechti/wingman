@@ -133,7 +133,7 @@ func TestOpenAIImage(t *testing.T) {
 // GPT-6 Sol, Luna and GPT-6.1 Sol use the GPT-6 family patch-based estimate
 // until model-specific measurements are available.
 func TestGPT6ImageEstimate(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol"} {
 		if got := OpenAIImage(model, 1024, 1024, false); got != 1229 {
 			t.Errorf("%s high detail = %d, want 1229", model, got)
 		}

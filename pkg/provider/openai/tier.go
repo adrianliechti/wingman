@@ -17,6 +17,8 @@ func serviceTier(tier provider.Tier) string {
 		return "flex"
 	case provider.TierPriority:
 		return "priority"
+	case provider.TierUltra:
+		return "ultrafast"
 	default:
 		return ""
 	}
@@ -30,6 +32,8 @@ func tierFromServiceTier(tier string) provider.Tier {
 		return provider.TierFlex
 	case "priority", "fast":
 		return provider.TierPriority
+	case "ultrafast":
+		return provider.TierUltra
 	default:
 		return ""
 	}

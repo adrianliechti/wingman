@@ -66,6 +66,8 @@ func TestExplicitCacheBreakpointsForwardedToSupportingModels(t *testing.T) {
 		{"gpt-6-astra", true},
 		{"gpt-6.1-sol", true},
 		{"gpt-6.1-terra", true},
+		{"gpt-6.2-astra", true},
+		{"gpt-6.2-sol", true},
 		{"gpt-6-sol", true},
 		{"gpt-6-luna", true},
 		{"gpt-5.4", false},

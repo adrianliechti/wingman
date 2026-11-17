@@ -126,9 +126,9 @@ type liveBackend struct {
 }
 
 const (
-	liveOpenAIModel    = "gpt-6.1-sol"
+	liveOpenAIModel    = "gpt-6.2-sol"
 	liveAnthropicModel = "claude-sonnet-5-5"
-	liveGeminiModel    = "gemini-3.8-flash"
+	liveGeminiModel    = "gemini-4-argon"
 )
 
 func referenceBackends(t *testing.T) (*config.Config, []liveBackend) {
@@ -190,7 +190,7 @@ func TestLiveNativeResponseParity(t *testing.T) {
 						native := backend.capture.only(t)
 						saveReferenceFields(t, map[string]any{"request": p.body, "upstream_request": jsontext.Value(native.requestBody), "native": string(native.body), "wingman": string(raw)})
 						if backend.name == "openai-chat" && scenario == "tool" {
-							// GPT-6.1 Sol requires reasoning; native Chat Completions
+							// GPT-6.2 Sol requires reasoning; native Chat Completions
 							// rejects tools with reasoning. Test its error mapping,
 							// while Responses above exercises successful tool calls.
 							compareUnsupportedChatTool(t, p.name, native, status, headers, raw)

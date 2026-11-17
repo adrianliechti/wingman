@@ -3,7 +3,6 @@ package responses
 import (
 	"context"
 	"encoding/json/jsontext"
-	"errors"
 	"maps"
 	"net/http"
 	"slices"
@@ -55,18 +54,30 @@ func (h *Handler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Tools = requestTools(req.Tools, req.Input.Items)
-
 	tools, err := toTools(req.Tools)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
+	// Backends with request-wide tools need the full set. Native Responses
+	// sends the marked declarations in their original input items instead.
+	for _, message := range messages {
+		for _, part := range message.Content {
+			if part.AdditionalTools != nil {
+				for _, t := range part.AdditionalTools.Tools {
+					t.InputScoped = true
+					tools = append(tools, t)
+				}
+			}
+		}
+	}
+
 	options := &provider.CompleteOptions{
-		Tier:        shared.ParseTier(req.Tier),
-		Tools:       tools,
-		ToolOptions: toToolOptions(req.ToolChoice),
+		SafetyIdentifier: req.SafetyIdentifier,
+		Tier:             shared.ParseTier(req.Tier),
+		Tools:            tools,
+		ToolOptions:      toToolOptions(req.ToolChoice),
 
 		MaxTokens: req.MaxOutputTokens,
 
@@ -344,6 +355,9 @@ func responseDefaults(resp *Response, req ResponsesRequest, completion *provider
 	resp.Store = false
 	resp.Tier = nil
 	if completion != nil {
+		if completion.InputTransformations != nil {
+			resp.InputTransformations = *completion.InputTransformations
+		}
 		if tier := shared.ServiceTier(completion.Tier); tier != "" {
 			resp.Tier = new(tier)
 		}
@@ -360,6 +374,7 @@ func responseDefaults(resp *Response, req ResponsesRequest, completion *provider
 	} else {
 		resp.Truncation = "disabled"
 	}
+	resp.SafetyIdentifier = req.SafetyIdentifier
 	resp.PromptCacheKey = req.PromptCacheKey
 	resp.PromptCacheRetention = req.PromptCacheRetention
 	resp.PromptCacheOptions = req.PromptCacheOptions
@@ -577,14 +592,6 @@ func streamResponseOutputs(event StreamEvent, ids *messageIDs, status string, op
 	return output
 }
 
-func completionFailure(completion *provider.Completion) error {
-	if completion != nil && completion.StopDetails != nil && completion.StopDetails.Type != "" {
-		return errors.New("The model stopped generating: " + completion.StopDetails.Type)
-	}
-	//lint:ignore ST1005 Preserve the client-facing Responses error text.
-	return errors.New("The model stopped generating without a usable result.")
-}
-
 func messageOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
 	output := []ResponseOutput{}
 	phase := string(message.Phase)
@@ -770,7 +777,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	outputOpts := responseOutputOptions{
 		IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 		IncludeReasoning: reasoningRequested(req),
-		Tools:            req.Tools,
+		Tools:            requestTools(req.Tools, req.Input.Items),
 	}
 
 	// Create initial response template
@@ -1534,7 +1541,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		Output: responseOutputs(completion.Message, new(messageIDs), status, responseOutputOptions{
 			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
 			IncludeReasoning: reasoningRequested(req),
-			Tools:            req.Tools,
+			Tools:            requestTools(req.Tools, req.Input.Items),
 		}),
 		Usage: responseUsage(completion.Usage),
 	}
@@ -1558,7 +1565,7 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 	}
 
 	if result.Status == "failed" {
-		result.Error = &ResponseError{Code: "server_error", Message: completionFailure(completion).Error()}
+		result.Error = &ResponseError{Code: "server_error", Message: shared.CompletionFailure(completion).Error()}
 	}
 
 	responseDefaults(&result, req, completion)
