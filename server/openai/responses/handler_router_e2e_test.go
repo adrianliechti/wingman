@@ -899,3 +899,48 @@ routers:
 		t.Fatalf("%s answered %q after %d decisions", response.Model, outputText(response), calls.count("decider"))
 	}
 }
+
+// An agent in front of a router reports the model that served the request,
+// not the router. An agent in front of a model keeps reporting its alias.
+func TestAgentReportsModelBehindRouter(t *testing.T) {
+	agents := e2eAutoRouter + `
+agents:
+  poet:
+    type: assistant
+    model: auto
+    messages:
+      - role: system
+        content: You are a poet.
+  worker:
+    type: react
+    model: auto
+  plain:
+    type: assistant
+    model: gpt-6.2-sol
+`
+	eachStreamMode(t, func(t *testing.T, stream bool) {
+		_, url := routerE2E(t, "", agents, func(w http.ResponseWriter, r *http.Request, call upstreamCall) {
+			switch call.Path {
+			case "/v1/decisions":
+				poemsToClaude(t, w, call)
+			case "/v1/responses":
+				// OpenAI reports the dated snapshot behind an alias.
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: "+`{"type":"response.completed","response":{"model":"gpt-6.2-sol-2026-11-01","status":"completed","output":[{"type":"message","id":"msg_gpt","role":"assistant","content":[{"type":"output_text","text":"The number is 17."}]}]}}`+"\n\n")
+			case "/v1/messages":
+				writeAnthropicText(w, "A short verse")
+			}
+		})
+		for _, tc := range []struct{ agent, prompt, model string }{
+			{"poet", "Write a poem.", e2eClaude},
+			{"poet", "Give me a number.", "gpt-6.2-sol-2026-11-01"},
+			{"worker", "Write a poem.", e2eClaude},
+			{"worker", "Give me a number.", "gpt-6.2-sol-2026-11-01"},
+			{"plain", "Give me a number.", e2eGPT},
+		} {
+			if response := postReplayResponse(t, url, tc.agent, userInput(tc.prompt), nil, stream); response.Model != tc.model {
+				t.Errorf("%s answering %q reports %s, want %s", tc.agent, tc.prompt, response.Model, tc.model)
+			}
+		}
+	})
+}

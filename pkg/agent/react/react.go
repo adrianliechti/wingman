@@ -1,6 +1,7 @@
 package react
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"iter"
@@ -202,7 +203,7 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 
 				delta := &provider.Completion{
 					ID:        accID,
-					Model:     c.model,
+					Model:     cmp.Or(c.model, completion.Model),
 					Reasoning: completion.Reasoning,
 					Tier:      completion.Tier,
 
@@ -279,7 +280,7 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 				if completion.Status != "" || completion.StopReason != "" || completion.StopDetails != nil || completion.StopSequence != "" {
 					yield(&provider.Completion{
 						ID:    accID,
-						Model: c.model,
+						Model: cmp.Or(c.model, completion.Model),
 
 						Status:       completion.Status,
 						StopReason:   completion.StopReason,
