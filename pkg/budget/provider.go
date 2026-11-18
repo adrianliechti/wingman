@@ -19,8 +19,7 @@ var ErrMissingUser = errors.New("budget requires an authenticated user ID")
 
 type systemUsageKey struct{}
 
-// SystemContext excludes shared infrastructure work, such as classifier
-// centroid embeddings, from per-user admission and accounting.
+// SystemContext excludes shared infrastructure work from per-user admission and accounting.
 func SystemContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, systemUsageKey{}, true)
 }

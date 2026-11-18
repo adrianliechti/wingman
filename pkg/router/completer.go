@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -15,6 +16,10 @@ import (
 // candidates is never empty; stats is indexed by provider, not by candidate.
 type Strategy func(candidates []int, stats []*ProviderStats) int
 
+// FirstPick selects a healthy candidate for the first attempt of a request.
+// Retries use the router's ordinary strategy.
+type FirstPick func(context.Context, []provider.Message, *provider.CompleteOptions, []int) (int, error)
+
 // Completer routes requests across multiple providers with circuit breaker
 // protection, a first-token deadline and transparent failover: if a provider
 // fails before producing any output, the request is retried on the next
@@ -23,6 +28,7 @@ type Completer struct {
 	completers []provider.Completer
 	stats      []*ProviderStats
 	strategy   Strategy
+	firstPick  FirstPick
 
 	fallback provider.Completer
 
@@ -32,6 +38,10 @@ type Completer struct {
 }
 
 type Option func(*Completer)
+
+func WithFirstPick(pick FirstPick) Option {
+	return func(c *Completer) { c.firstPick = pick }
+}
 
 // WithFallback sets a fallback completer used when all primary providers are unavailable
 func WithFallback(fallback provider.Completer) Option {
@@ -68,9 +78,15 @@ func NewCompleter(completers []provider.Completer, strategy Strategy, options ..
 	if len(completers) == 0 {
 		return nil, errors.New("at least one completer is required")
 	}
+	if strategy == nil {
+		return nil, errors.New("a router strategy is required")
+	}
 
 	stats := make([]*ProviderStats, len(completers))
-	for i := range stats {
+	for i, member := range completers {
+		if member == nil {
+			return nil, fmt.Errorf("router member %d is nil", i+1)
+		}
 		stats[i] = NewProviderStats()
 	}
 
@@ -103,42 +119,78 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 	options = ScrubOptions(options)
 
 	return func(yield func(*provider.Completion, error) bool) {
-		tried := make(map[int]bool, len(c.completers))
+		candidates := make([]int, 0, len(c.completers))
+		for i, stat := range c.stats {
+			if stat.IsCandidate(c.recoveryTimeout) {
+				candidates = append(candidates, i)
+			}
+		}
 
+		firstPick := c.firstPick
 		var lastErr error
-
-		for len(tried) < len(c.completers) {
-			if ctx.Err() != nil {
-				yield(nil, ctx.Err())
+		for len(candidates) > 0 {
+			if err := ctx.Err(); err != nil {
+				yield(nil, err)
 				return
 			}
 
-			index, probe := c.acquire(tried)
-
-			if index < 0 {
+			var index int
+			if firstPick != nil && len(candidates) > 1 {
+				pick, err := firstPick(ctx, messages, options, candidates)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				index = pick
+				firstPick = nil
+			} else {
+				index = c.strategy(candidates, c.stats)
+			}
+			pos := slices.Index(candidates, index)
+			if pos < 0 {
 				break
 			}
+			candidates = slices.Delete(candidates, pos, pos+1)
 
-			tried[index] = true
-
-			done, err := c.attempt(ctx, index, probe, messages, options, yield)
-
-			if done {
-				return
+			stat := c.stats[index]
+			acquired, probe := stat.Acquire(c.recoveryTimeout)
+			if !acquired {
+				continue
 			}
-
-			if err != nil {
+			committed, ttft, err := c.stream(ctx, c.completers[index], messages, options, yield)
+			switch {
+			case ctx.Err() != nil:
+				stat.Release(probe)
+				if err != nil {
+					yield(nil, ctx.Err())
+				}
+				return
+			case err == nil:
+				stat.RecordSuccess(ttft, probe)
+				return
+			case isRequestError(err):
+				stat.Release(probe)
+				yield(nil, err)
+				return
+			default:
+				stat.RecordFailure(c.failureThreshold, probe, err)
+				if committed {
+					yield(nil, err)
+					return
+				}
 				lastErr = err
 			}
 		}
 
+		if err := ctx.Err(); err != nil {
+			yield(nil, err)
+			return
+		}
 		if c.fallback != nil {
-			for completion, err := range c.fallback.Complete(ctx, messages, options) {
-				if !yield(completion, err) {
-					return
-				}
+			_, _, err := c.stream(ctx, c.fallback, messages, options, yield)
+			if err != nil {
+				yield(nil, err)
 			}
-
 			return
 		}
 
@@ -154,145 +206,102 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 	}
 }
 
-// acquire selects and claims the next provider to try. Providers in `tried`
-// are excluded; losing an acquire race marks the provider as tried so the
-// request moves on instead of spinning on it.
-func (c *Completer) acquire(tried map[int]bool) (index int, probe bool) {
-	for {
-		candidates := make([]int, 0, len(c.completers))
-
-		for i, stat := range c.stats {
-			if tried[i] || !stat.IsCandidate(c.recoveryTimeout) {
-				continue
-			}
-
-			candidates = append(candidates, i)
-		}
-
-		if len(candidates) == 0 {
-			return -1, false
-		}
-
-		index := c.strategy(candidates, c.stats)
-
-		if index < 0 {
-			return -1, false
-		}
-
-		if acquired, probe := c.stats[index].Acquire(c.recoveryTimeout); acquired {
-			return index, probe
-		}
-
-		tried[index] = true
+// stream withholds protocol preludes until the provider produces output. Once
+// committed, every following chunk and any terminal error belong to that model.
+func (c *Completer) stream(ctx context.Context, member provider.Completer, messages []provider.Message, options *provider.CompleteOptions, yield func(*provider.Completion, error) bool) (committed bool, ttft time.Duration, err error) {
+	if err := ctx.Err(); err != nil {
+		return false, 0, err
 	}
-}
-
-// attempt runs the request against a single provider. It returns done=true
-// when the request finished from the caller's perspective (output delivered,
-// caller gone, non-retryable error) and the router must not fail over.
-// Otherwise the returned error describes why the attempt failed before
-// producing output.
-func (c *Completer) attempt(ctx context.Context, index int, probe bool, messages []provider.Message, options *provider.CompleteOptions, yield func(*provider.Completion, error) bool) (bool, error) {
-	stat := c.stats[index]
 
 	attemptCtx := ctx
-
 	var timer *time.Timer
-
+	timeoutError := func() error {
+		return &provider.ProviderError{Code: http.StatusGatewayTimeout, Message: fmt.Sprintf("no response within %s", c.firstTokenTimeout)}
+	}
 	if c.firstTokenTimeout > 0 {
 		var cancel context.CancelFunc
 		attemptCtx, cancel = context.WithCancel(ctx)
 		defer cancel()
-
 		timer = time.AfterFunc(c.firstTokenTimeout, cancel)
 		defer timer.Stop()
 	}
 
 	start := time.Now()
-
-	var ttft time.Duration
-	var delivered bool
-	var attemptErr, streamErr error
-
-	for completion, err := range c.completers[index].Complete(attemptCtx, messages, options) {
-		if err != nil {
-			// Before any output the error stays internal so the request can
-			// fail over; afterwards it must be passed through to the caller
-			if !delivered {
-				attemptErr = err
-				break
-			}
-
-			streamErr = err
-
-			if !yield(completion, err) {
-				break
-			}
-
-			continue
-		}
-
-		if delivered {
-			streamErr = nil
-		} else {
-			delivered = true
-			ttft = time.Since(start)
-
-			if timer != nil {
-				timer.Stop()
-			}
-		}
-
-		if !yield(completion, nil) {
+	var pending []*provider.Completion
+	for chunk, streamErr := range member.Complete(attemptCtx, messages, options) {
+		if attemptCtx.Err() != nil {
 			break
 		}
-	}
-
-	switch {
-	case delivered:
-		// A stream that terminated with a provider error counts against
-		// health even though the partial output went to the caller
-		if streamErr != nil && ctx.Err() == nil && attemptCtx.Err() == nil {
-			stat.RecordFailure(c.failureThreshold, probe, streamErr)
-		} else {
-			stat.RecordSuccess(ttft, probe)
+		if streamErr != nil {
+			err = streamErr
+			break
 		}
-
-		return true, nil
-
-	case ctx.Err() != nil:
-		// The caller went away - this says nothing about provider health
-		stat.Release(probe)
-		yield(nil, ctx.Err())
-		return true, nil
-
-	case attemptErr != nil:
-		// The first-token timer is the only other cancellation source
-		if attemptCtx.Err() != nil {
-			stat.RecordFailure(c.failureThreshold, probe, nil)
-			return false, &provider.ProviderError{
-				Code:    http.StatusGatewayTimeout,
-				Message: fmt.Sprintf("no response within %s", c.firstTokenTimeout),
-				Err:     attemptErr,
+		if !committed {
+			if !hasOutput(chunk) {
+				if chunk != nil {
+					pending = append(pending, chunk)
+				}
+				continue
 			}
+			if ctx.Err() != nil {
+				return false, 0, ctx.Err()
+			}
+			if timer != nil && !timer.Stop() {
+				return false, 0, timeoutError()
+			}
+			committed, ttft = true, time.Since(start)
+			for _, prelude := range pending {
+				if !yield(prelude, nil) {
+					return true, ttft, nil
+				}
+			}
+			pending = nil
 		}
-
-		// Errors caused by the request itself (invalid request, context too
-		// long) would fail on every provider: surface them directly and
-		// leave the health alone
-		if isRequestError(attemptErr) {
-			stat.Release(probe)
-			yield(nil, attemptErr)
-			return true, nil
+		if !yield(chunk, nil) {
+			return true, ttft, nil
 		}
-
-		stat.RecordFailure(c.failureThreshold, probe, attemptErr)
-		return false, attemptErr
-
-	default:
-		stat.RecordFailure(c.failureThreshold, probe, nil)
-		return false, errors.New("provider returned no response")
 	}
+	switch {
+	case ctx.Err() != nil:
+		return committed, ttft, ctx.Err()
+	case !committed && timer != nil && !timer.Stop():
+		return false, 0, timeoutError()
+	case !committed && err == nil:
+		return false, 0, errors.New("provider returned no response")
+	default:
+		return committed, ttft, err
+	}
+}
+
+func hasOutput(completion *provider.Completion) bool {
+	if completion == nil {
+		return false
+	}
+	// A refusal or token limit can legitimately stop a turn before any text.
+	if completion.Status == provider.CompletionStatusRefused || completion.Status == provider.CompletionStatusIncomplete ||
+		(completion.StopReason != "" && completion.StopReason != provider.StopReasonEndTurn) {
+		return true
+	}
+	if completion.Message == nil {
+		return false
+	}
+
+	for _, part := range completion.Message.Content {
+		if part.Text != "" || part.Refusal != "" || part.File != nil || part.ToolCall != nil || part.ToolResult != nil {
+			return true
+		}
+		if r := part.Reasoning; r != nil && (r.Text() != "" || r.SummaryText() != "" || r.Signature != "") {
+			return true
+		}
+		if c := part.Compaction; c != nil && (c.Content != "" || c.Signature != "") {
+			return true
+		}
+		if part.CompactionTrigger || part.ConfigurationUpdate != nil || part.Instructions != nil || part.AdditionalTools != nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // isRequestError reports whether the error reflects the request itself rather

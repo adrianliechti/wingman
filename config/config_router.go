@@ -11,7 +11,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/provider/adapter/signatures"
 	"github.com/adrianliechti/wingman/pkg/router"
 	"github.com/adrianliechti/wingman/pkg/router/adaptive"
-	"github.com/adrianliechti/wingman/pkg/router/classifier"
+	"github.com/adrianliechti/wingman/pkg/router/auto"
 	"github.com/adrianliechti/wingman/pkg/router/roundrobin"
 )
 
@@ -39,231 +39,101 @@ type routerConfig struct {
 	// probe request (e.g. "1m"). Defaults to 30s
 	RecoveryTimeout string `yaml:"recovery_timeout"`
 
-	// Candidates lists the per-task routing options for type "classifier".
-	Candidates []routerCandidateConfig `yaml:"candidates"`
-
-	// Default is the classifier's universal fail-safe candidate (a candidate
-	// model id). It must match one of the candidates.
-	Default string `yaml:"default"`
-
-	// Embedder is the model id of an embedder (resolved via cfg.Embedder)
-	// enabling the classifier's embedding-similarity tier. Omit to keep routing
-	// purely local.
-	Embedder string `yaml:"embedder"`
-
-	// Margin is the minimum cosine-similarity advantage the best candidate
-	// must hold over the runner-up for the embedding tier to resolve a pick
-	// (default 0.05). Only used when Embedder is set.
-	Margin float64 `yaml:"margin"`
-
-	// Completer is the model id of a completer (resolved via cfg.Completer, like
-	// "model" elsewhere). The classifier uses it as the optional LLM-as-judge
-	// tier; omit to keep it off (the default).
-	Completer string `yaml:"completer"`
-}
-
-// routerCandidateConfig describes one classifier candidate. Model is a completer
-// model id (resolved via cfg.Completer, like "model" elsewhere). Cost is only a
-// tie-breaker among candidates that already clear the difficulty bar.
-type routerCandidateConfig struct {
-	Model string `yaml:"model"`
-	Card  string `yaml:"card"`
-
-	Cost          float64 `yaml:"cost"`
-	MaxDifficulty int     `yaml:"max_difficulty"`
-	Vision        bool    `yaml:"vision"`
-	MaxContext    int     `yaml:"max_context"`
-
-	Examples []string `yaml:"examples"`
-}
-
-type routerContext struct {
-	Completers []provider.Completer
-	Fallback   provider.Completer
+	// Auto routers ask a decision model to choose among the described routes.
+	Decider string `yaml:"decider"`
+	Routes  []struct {
+		Model string `yaml:"model"`
+		When  string `yaml:"when"`
+	} `yaml:"routes"`
 }
 
 func (cfg *Config) registerRouters(f *configFile) error {
 	var configs map[string]routerConfig
-
 	if err := decodeStrict(&f.Routers, &configs); err != nil {
 		return err
 	}
 
-	for _, id := range configIDs(&f.Routers) {
-
-		config, ok := configs[id]
-
-		if !ok {
-			continue
-		}
-
-		if strings.ToLower(config.Type) == "classifier" {
-			continue
-		}
-
-		context := routerContext{}
-
-		for _, m := range config.Models {
-			completer, err := cfg.Completer(m)
-
-			if err != nil {
-				return err
+	// Register load balancers first so request-based routers can target them
+	// regardless of their order in the configuration file.
+	ids := configIDs(&f.Routers)
+	for _, perRequest := range []bool{false, true} {
+		for _, id := range ids {
+			config, ok := configs[id]
+			if !ok || strings.EqualFold(config.Type, "auto") != perRequest {
+				continue
 			}
-
-			context.Completers = append(context.Completers, completer)
-		}
-
-		if config.Fallback != "" {
-			fallback, err := cfg.Completer(config.Fallback)
-
+			completer, err := cfg.createRouter(config)
 			if err != nil {
-				return err
+				return fmt.Errorf("router %q: %w", id, err)
 			}
-
-			context.Fallback = fallback
+			if config.ReasoningSignatures != nil && !*config.ReasoningSignatures {
+				completer = signatures.FromCompleter(completer)
+			}
+			cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))
 		}
-
-		completer, err := createRouter(config, context)
-
-		if err != nil {
-			return err
-		}
-
-		if config.ReasoningSignatures != nil && !*config.ReasoningSignatures {
-			completer = signatures.FromCompleter(completer)
-		}
-
-		cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))
 	}
-
-	// Classifiers register last, so their candidates can reference sibling
-	// routers (e.g. an adaptive load-balancer as a candidate) regardless of
-	// document order.
-	for _, id := range configIDs(&f.Routers) {
-
-		config, ok := configs[id]
-
-		if !ok || strings.ToLower(config.Type) != "classifier" {
-			continue
-		}
-
-		completer, err := cfg.createClassifier(config)
-
-		if err != nil {
-			return err
-		}
-
-		if config.ReasoningSignatures != nil && !*config.ReasoningSignatures {
-			completer = signatures.FromCompleter(completer)
-		}
-
-		cfg.RegisterCompleter(id, otel.NewCompleterSpan("router "+id, completer))
-	}
-
 	return nil
 }
 
-func (cfg *Config) createClassifier(config routerConfig) (provider.Completer, error) {
-	if len(config.Candidates) == 0 {
-		return nil, errors.New("classifier router requires candidates")
-	}
-
-	candidates := make([]classifier.Candidate, 0, len(config.Candidates))
-
-	defaultIndex := 0
-	defaultFound := config.Default == ""
-
-	for i, cc := range config.Candidates {
-		if cc.Model == "" {
-			return nil, errors.New("classifier candidate requires a model")
-		}
-
-		completer, err := cfg.Completer(cc.Model)
-
-		if err != nil {
-			return nil, err
-		}
-
-		candidates = append(candidates, classifier.Candidate{
-			Completer: completer,
-
-			Model: cc.Model,
-			Card:  cc.Card,
-
-			Cost:          cc.Cost,
-			MaxDifficulty: cc.MaxDifficulty,
-			Vision:        cc.Vision,
-			MaxContext:    cc.MaxContext,
-
-			Examples: cc.Examples,
-		})
-
-		if cc.Model == config.Default {
-			defaultIndex = i
-			defaultFound = true
-		}
-	}
-
-	if !defaultFound {
-		return nil, errors.New("classifier default not found among candidates: " + config.Default)
-	}
-
-	options := classifier.Options{
-		Margin:       config.Margin,
-		DefaultIndex: defaultIndex,
-	}
-
-	if config.Embedder != "" {
-		embedder, err := cfg.Embedder(config.Embedder)
-
-		if err != nil {
-			return nil, err
-		}
-
-		options.Embedder = embedder
-	}
-
-	if config.Completer != "" {
-		judge, err := cfg.Completer(config.Completer)
-
-		if err != nil {
-			return nil, err
-		}
-
-		options.Judge = judge
-	}
-
-	return classifier.NewCompleter(candidates, options)
-}
-
-func createRouter(cfg routerConfig, context routerContext) (provider.Completer, error) {
-	options, err := routerOptions(cfg, context)
-
+func (cfg *Config) createRouter(config routerConfig) (provider.Completer, error) {
+	options, err := cfg.routerOptions(config)
 	if err != nil {
 		return nil, err
 	}
 
-	switch strings.ToLower(cfg.Type) {
+	if strings.EqualFold(config.Type, "auto") {
+		if len(config.Models) > 0 {
+			return nil, errors.New("auto router uses routes to specify its models")
+		}
+		_, decider, err := cfg.Decider(config.Decider)
+		if err != nil {
+			return nil, err
+		}
+		var routes []auto.Route
+		for _, r := range config.Routes {
+			completer, err := cfg.Completer(r.Model)
+			if err != nil {
+				return nil, err
+			}
+			routes = append(routes, auto.Route{Model: r.Model, When: r.When, Completer: completer})
+		}
+		return auto.NewCompleter(routes, decider, options...)
+	}
+
+	if len(config.Routes) > 0 || config.Decider != "" {
+		return nil, errors.New("routes and decider require router type auto")
+	}
+	var members []provider.Completer
+	for _, model := range config.Models {
+		completer, err := cfg.Completer(model)
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, completer)
+	}
+	switch strings.ToLower(config.Type) {
 	case "roundrobin":
-		return roundrobin.NewCompleter(context.Completers, options...)
-
+		return roundrobin.NewCompleter(members, options...)
 	case "adaptive":
-		return adaptive.NewCompleter(context.Completers, options...)
-
+		return adaptive.NewCompleter(members, options...)
 	default:
-		return nil, errors.New("invalid router type: " + cfg.Type)
+		return nil, errors.New("invalid router type: " + config.Type)
 	}
 }
 
-func routerOptions(cfg routerConfig, context routerContext) ([]router.Option, error) {
+func (cfg *Config) routerOptions(config routerConfig) ([]router.Option, error) {
 	var options []router.Option
 
-	if context.Fallback != nil {
-		options = append(options, router.WithFallback(context.Fallback))
+	if config.Fallback != "" {
+		fallback, err := cfg.Completer(config.Fallback)
+		if err != nil {
+			return nil, err
+		}
+		options = append(options, router.WithFallback(fallback))
 	}
 
-	if cfg.FirstTokenTimeout != "" {
-		timeout, err := parseTimeout("first_token_timeout", cfg.FirstTokenTimeout)
+	if config.FirstTokenTimeout != "" {
+		timeout, err := parseTimeout("first_token_timeout", config.FirstTokenTimeout)
 
 		if err != nil {
 			return nil, err
@@ -272,16 +142,16 @@ func routerOptions(cfg routerConfig, context routerContext) ([]router.Option, er
 		options = append(options, router.WithFirstTokenTimeout(timeout))
 	}
 
-	if cfg.FailureThreshold < 0 {
+	if config.FailureThreshold < 0 {
 		return nil, errors.New("invalid failure_threshold: must not be negative")
 	}
 
-	if cfg.FailureThreshold > 0 {
-		options = append(options, router.WithFailureThreshold(cfg.FailureThreshold))
+	if config.FailureThreshold > 0 {
+		options = append(options, router.WithFailureThreshold(config.FailureThreshold))
 	}
 
-	if cfg.RecoveryTimeout != "" {
-		timeout, err := parseTimeout("recovery_timeout", cfg.RecoveryTimeout)
+	if config.RecoveryTimeout != "" {
+		timeout, err := parseTimeout("recovery_timeout", config.RecoveryTimeout)
 
 		if err != nil {
 			return nil, err

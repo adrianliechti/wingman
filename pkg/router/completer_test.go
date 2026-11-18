@@ -510,3 +510,74 @@ func TestMidStreamFailure(t *testing.T) {
 		}
 	})
 }
+
+func TestStreamCommitBoundary(t *testing.T) {
+	broken := errors.New("upstream stream ended")
+	for _, tc := range []struct {
+		name      string
+		stop      provider.Completion
+		committed bool
+	}{
+		{"empty text item", provider.Completion{Message: &provider.Message{Content: []provider.Content{{TextPresent: true}}}}, false},
+		{"empty reasoning item", provider.Completion{Message: &provider.Message{Content: []provider.Content{{Reasoning: &provider.Reasoning{ID: "item"}}}}}, false},
+		{"signed reasoning", provider.Completion{Message: &provider.Message{Content: []provider.Content{{Reasoning: &provider.Reasoning{Signature: "sig"}}}}}, true},
+		{"tool call", provider.Completion{Message: &provider.Message{Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "call"})}}}, true},
+		{"refusal", provider.Completion{StopReason: provider.StopReasonRefusal}, true},
+		{"incomplete", provider.Completion{Status: provider.CompletionStatusIncomplete}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := completerFunc(func(context.Context, []provider.Message, *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+				return func(yield func(*provider.Completion, error) bool) {
+					if yield(&provider.Completion{ID: "prelude"}, nil) && yield(&tc.stop, nil) {
+						yield(nil, broken)
+					}
+				}
+			})
+			next := &mockCompleter{response: "backup"}
+			c, err := NewCompleter([]provider.Completer{first, next}, firstCandidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var chunks int
+			var streamErr error
+			for chunk, err := range c.Complete(t.Context(), nil, nil) {
+				if err != nil {
+					streamErr = err
+					continue
+				}
+				chunks++
+				if !tc.committed && chunk.Message.Text() != "backup" {
+					t.Fatal("leaked a failed stream prelude")
+				}
+			}
+			if tc.committed {
+				if !errors.Is(streamErr, broken) || chunks != 2 || next.calls.Load() != 0 {
+					t.Fatalf("committed stream: %d chunks, %v", chunks, streamErr)
+				}
+			} else if streamErr != nil || chunks != 1 || next.calls.Load() != 1 {
+				t.Fatalf("failed over stream: %d chunks, %v", chunks, streamErr)
+			}
+		})
+	}
+}
+
+func TestPreludeDoesNotStopDeadline(t *testing.T) {
+	stalled := completerFunc(func(ctx context.Context, _ []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+		return func(yield func(*provider.Completion, error) bool) {
+			if yield(&provider.Completion{ID: "metadata"}, nil) {
+				<-ctx.Done()
+			}
+		}
+	})
+	next := &mockCompleter{response: "backup"}
+	c, err := NewCompleter([]provider.Completer{stalled, next}, firstCandidate, WithFirstTokenTimeout(20*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	result, err := collect(t, c, ctx)
+	if err != nil || result.Message.Text() != "backup" || next.calls.Load() != 1 {
+		t.Fatalf("prelude stalled failover: %v %v", result, err)
+	}
+}

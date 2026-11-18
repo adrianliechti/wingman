@@ -80,6 +80,7 @@ The platform integrates with a wide range of LLM providers:
 ### Infrastructure & Operations
 
 **Routing & Load Balancing:**
+- Automatic model selection using a typed decision over configurable route descriptions
 - Round-robin load balancer for distributing requests
 - Model fallback strategies
 - Request routing across multiple providers
@@ -713,9 +714,27 @@ Decision models are listed in `/v1/models` and used through `/v1/systemone` or
 
 ### Routers
 
-A router exposes several models under one id and distributes requests across them — useful for load balancing and failover across providers. Types: `roundrobin` (even rotation) and `adaptive` (prefers healthy/faster backends).
+A router exposes several models under one model ID. With `type: auto`, Wingman asks a configured decision model which healthy route best matches the request. Clients select the router by its ID, for example `"model": "auto"`.
 
-Routers protect backends with a circuit breaker and fail over transparently: if a provider errors or produces no output within `first_token_timeout` (default `2m`), the request is retried on the next healthy provider before any error reaches the client.
+```yaml
+routers:
+  auto:
+    type: auto
+    decider: gpt-6-luna
+    routes:
+      - model: gpt-6.2-sol
+        when: Everyday questions, explanations, and well-specified coding tasks.
+      - model: claude-sonnet-5-5
+        when: Difficult debugging, architectural design, or work that needs sustained reasoning.
+```
+
+Each `model` names a configured completer or load balancer. Omitting `decider` uses the first configured decision model. The picker sees an excerpt of the latest user request, up to four preceding user or assistant messages, attachment markers, tool availability, counts of intervening tool results and failures, and any requested reasoning effort. The selected model receives the conversation through Wingman's usual completion path.
+
+Wingman asks at most once per completion request. It uses the first healthy route in configuration order if there is no user input to evaluate, the decision takes over five seconds, or the decider returns an error, refusal, tie, or confidence below 0.4. A single healthy route skips the decision call. Caller cancellation and local budget rejections propagate to the client.
+
+For load balancing, `roundrobin` rotates across healthy backends. On most requests `adaptive` samples two available backends and chooses using latency, error rate, and in-flight requests.
+
+All three routers share circuit breakers and streaming failover. Wingman buffers stream metadata until the first content arrives. A retryable provider error, an empty stream, or a first-token timeout (default `2m`) can then switch to another healthy model. Once content reaches the client, a stream error ends that response.
 
 ```yaml
 routers:
@@ -733,6 +752,12 @@ routers:
 
 > [!TIP]
 > Keep the default `max_retries: 0` for router members so the router can fail over immediately. Enabling upstream retries can delay failover while the same backend is retried.
+
+The opt-in live replay test uses the OpenAI and Anthropic keys from the environment or the project's `.env`. It makes paid calls and checks the serving model and answer on each turn.
+
+```sh
+WINGMAN_ROUTER_LIVE=1 go test -v -count=1 -run '^TestAutoRouterLiveCrossProviderReplay$' ./server/openai/responses
+```
 
 
 ### Web Access (Search · Scrape · Research)
