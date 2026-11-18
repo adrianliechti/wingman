@@ -759,6 +759,14 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
+	// A router withholds a model's first chunks for as long as it may fail
+	// over. Open the stream once the model is working, so keepalives cover a
+	// long silent reasoning phase.
+	ctx = provider.OnPending(ctx, func() {
+		sendHeaders()
+		http.NewResponseController(w).Flush()
+	})
+
 	createdAt := time.Now().Unix()
 
 	var responseID string

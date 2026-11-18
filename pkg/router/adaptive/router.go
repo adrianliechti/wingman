@@ -20,60 +20,31 @@ func NewCompleter(completers []provider.Completer, options ...router.Option) (*r
 // TTFT and error metrics.
 const explorationRate = 0.1
 
-// selectProvider performs weighted random selection: prefer lower TTFT, lower
-// error rate and fewer inflight requests
+// Compare two random healthy members. Sampling keeps the number of metrics
+// snapshots constant even for large pools. Exploration gives recovering and
+// idle backends a chance to refresh their observed latency.
 func selectProvider(candidates []int, stats []*router.ProviderStats) int {
 	if len(candidates) == 1 {
 		return candidates[0]
 	}
 
+	a := rand.Intn(len(candidates))
 	if rand.Float64() < explorationRate {
-		return candidates[rand.Intn(len(candidates))]
+		return candidates[a]
 	}
-
-	scores := make([]float64, len(candidates))
-
-	var totalScore float64
-
-	for n, i := range candidates {
-		metrics := stats[i].Metrics()
-
-		ttftMs := float64(metrics.TTFT.Milliseconds())
-
-		if ttftMs < 1 {
-			ttftMs = 1
-		}
-
-		// Inflight penalty: reduces score as concurrent requests increase.
-		// This helps distribute load evenly and respect per-provider quotas
-		inflightFactor := 1.0 / (1.0 + float64(metrics.Inflight))
-
-		score := inflightFactor / (ttftMs * (1 + metrics.ErrorRate*10))
-
-		// Penalize recovering circuits to limit probe traffic
-		if metrics.State != router.CircuitClosed {
-			score *= 0.1
-		}
-
-		scores[n] = score
-		totalScore += score
+	b := (a + 1 + rand.Intn(len(candidates)-1)) % len(candidates)
+	first, second := candidates[a], candidates[b]
+	if cost(stats[second].Metrics()) < cost(stats[first].Metrics()) {
+		return second
 	}
+	return first
+}
 
-	if totalScore <= 0 {
-		return candidates[rand.Intn(len(candidates))]
+func cost(m router.Metrics) float64 {
+	ttft := max(m.TTFT.Milliseconds(), 1)
+	cost := float64(ttft) * float64(1+m.Inflight) * (1 + 10*m.ErrorRate)
+	if m.State != router.CircuitClosed {
+		cost *= 10
 	}
-
-	r := rand.Float64() * totalScore
-
-	var cumulative float64
-
-	for n, score := range scores {
-		cumulative += score
-
-		if r <= cumulative {
-			return candidates[n]
-		}
-	}
-
-	return candidates[len(candidates)-1]
+	return cost
 }

@@ -185,6 +185,17 @@ func geminiResponsesServer(t *testing.T, key string, client *http.Client, model 
 
 func postGeminiResponses(t *testing.T, url, model string, input, tools []map[string]any, stream bool) []map[string]any {
 	t.Helper()
+	return postReplayResponse(t, url, model, input, tools, stream).Output
+}
+
+type replayResponse struct {
+	Status string           `json:"status"`
+	Model  string           `json:"model"`
+	Output []map[string]any `json:"output"`
+}
+
+func postReplayResponse(t *testing.T, url, model string, input, tools []map[string]any, stream bool) replayResponse {
+	t.Helper()
 	body, err := json.Marshal(map[string]any{
 		"model": model, "input": input, "tools": tools, "stream": stream, "store": false,
 		"include": []string{"reasoning.encrypted_content"}, "reasoning": map[string]any{"effort": "low", "summary": "auto"}, "max_output_tokens": 2048,
@@ -250,14 +261,11 @@ func postGeminiResponses(t *testing.T, url, model string, input, tools []map[str
 		}
 		data = completed
 	}
-	var result struct {
-		Status string           `json:"status"`
-		Output []map[string]any `json:"output"`
-	}
+	var result replayResponse
 	if err := json.Unmarshal(data, &result); err != nil || result.Status != "completed" {
 		t.Fatalf("Responses did not complete: %s (%v)", data, err)
 	}
-	return result.Output
+	return result
 }
 
 // Opt in to paid real-Argon tests through /v1/responses with client-side

@@ -17,14 +17,6 @@ import (
 
 var ErrMissingUser = errors.New("budget requires an authenticated user ID")
 
-type systemUsageKey struct{}
-
-// SystemContext excludes shared infrastructure work, such as classifier
-// centroid embeddings, from per-user admission and accounting.
-func SystemContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, systemUsageKey{}, true)
-}
-
 type admissionKey struct{}
 
 type admission struct {
@@ -91,9 +83,6 @@ func (p reporter) admit(ctx context.Context, user string) error {
 }
 
 func (p reporter) start(ctx context.Context) (*Report, error) {
-	if system, _ := ctx.Value(systemUsageKey{}).(bool); system {
-		return nil, nil
-	}
 	user, _ := ctx.Value(auth.UserContextKey).(string)
 	if user == "" {
 		return nil, rejected(http.StatusUnauthorized, "authentication_error", ErrMissingUser.Error(), ErrMissingUser)
