@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -22,6 +23,10 @@ func TestComplete_HydrogenThinking(t *testing.T) {
 		{"high", "gemini-4-hydrogen", provider.EffortHigh, "high"},
 		{"xhigh", "gemini-4-hydrogen", provider.EffortXHigh, "xhigh"},
 		{"max alias", "models/gemini-4-hydrogen", provider.EffortMax, "xhigh"},
+		{"neon default", "gemini-4-neon", "", ""},
+		{"neon minimal", "gemini-4-neon", provider.EffortMinimal, "low"},
+		{"neon xhigh", "gemini-4-neon", provider.EffortXHigh, "xhigh"},
+		{"neon max alias", "models/gemini-4-neon", provider.EffortMax, "xhigh"},
 		{"carbon", "gemini-4-carbon", provider.EffortXHigh, "high"},
 		{"argon", "gemini-4-argon", provider.EffortXHigh, "high"},
 	} {
@@ -48,7 +53,7 @@ func TestComplete_HydrogenThinking(t *testing.T) {
 				} else if level != tc.want {
 					t.Errorf("thinking level = %v, want %s", level, tc.want)
 				}
-				if wire.Model == "models/gemini-4-hydrogen" {
+				if strings.HasPrefix(wire.Model, "models/") {
 					t.Error("model prefix retained")
 				}
 				interactionEvents(createdEvent, completedEvent)(w, r)

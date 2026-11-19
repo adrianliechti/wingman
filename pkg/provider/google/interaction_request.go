@@ -113,8 +113,9 @@ func thinkingLevel(model string, reasoning *provider.ReasoningOptions) (*interac
 	case provider.EffortMedium:
 		return new(interactions.ThinkingLevelMedium), nil
 	case provider.EffortXHigh, provider.EffortMax:
-		if strings.TrimPrefix(model, "models/") == "gemini-4-hydrogen" {
-			// The SDK does not yet name Hydrogen's fourth thinking level.
+		switch strings.TrimPrefix(model, "models/") {
+		case "gemini-4-neon", "gemini-4-hydrogen":
+			// The SDK does not yet name the fourth thinking level.
 			return new(interactions.ThinkingLevel("xhigh")), nil
 		}
 		return new(interactions.ThinkingLevelHigh), nil

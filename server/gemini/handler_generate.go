@@ -271,6 +271,8 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 				options.ReasoningOptions.Effort = provider.EffortMedium
 			case "high":
 				options.ReasoningOptions.Effort = provider.EffortHigh
+			case "xhigh":
+				options.ReasoningOptions.Effort = provider.EffortXHigh
 			default:
 				if tc.ThinkingBudget != nil && *tc.ThinkingBudget == 0 {
 					options.ReasoningOptions.Type = provider.ReasoningTypeDisabled

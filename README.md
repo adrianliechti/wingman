@@ -484,7 +484,7 @@ signatures are replayed as execution steps. Tool results can carry images,
 documents, audio, and video; PDF, CSV, Office, and OpenDocument files are sent
 as documents. Reasoning effort maps to thinking
 levels: `minimal`, `low`, and disabled thinking use `low`, `medium` stays `medium`, and
-`high` stays `high`. Gemini 4 Hydrogen preserves `xhigh` and maps `max` to
+`high` stays `high`. Gemini 4 Neon and Hydrogen preserve `xhigh` and map `max` to
 `xhigh`; other models map both to `high`. Omitted effort keeps the model default.
 Sampling parameters are omitted, following the current
 [Gemini migration guidance](https://ai.google.dev/gemini-api/docs/latest-model#migration-checklist).
@@ -492,9 +492,11 @@ Embeddings, image rendering, transcription, speech synthesis, and Live
 realtime retain their dedicated integrations. Image rendering, transcription,
 and speech synthesis use `generateContent` and also send `store=false`.
 
-[Gemini 4 Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen)
-uses `gemini-4-hydrogen`, defaults to `high` thinking, and supports `low`, `medium`,
-`high`, and `xhigh`. Input, thinking, and output share a 1,048,576-token window;
+[Gemini 4 Neon](https://aistudio.google.com/docs/models/gemini-4-neon) and
+[Hydrogen](https://aistudio.google.com/docs/models/gemini-4-hydrogen)
+use `gemini-4-neon` and `gemini-4-hydrogen`, default to `high` thinking, and support
+`low`, `medium`, `high`, and `xhigh`. Neon is paid-tier only.
+Input, thinking, and output share a 1,048,576-token window;
 synchronous output supports up to 65,536 tokens. Longer output requires long
 decode, which this integration does not enable.
 
@@ -516,6 +518,7 @@ providers:
     #   - id: {gemini api model name}
     models:
       - gemini-4-carbon
+      - gemini-4-neon
       - gemini-4-hydrogen
       - gemini-3.8-flash
       - gemini-3.8-flash-tts
