@@ -457,33 +457,42 @@ func isLegacyModel(model string) bool {
 	return false
 }
 
-func requiresReasoning(model string) bool {
+func isGPT62(model string) bool {
 	m := strings.ToLower(model)
-	return strings.HasPrefix(m, "gpt-6-astra") || strings.HasPrefix(m, "gpt-6.1-sol")
+	return strings.HasPrefix(m, "gpt-6.2-astra") || strings.HasPrefix(m, "gpt-6.2-sol")
+}
+
+func compatibleReasoningEffort(model string, effort provider.Effort) provider.Effort {
+	m := strings.ToLower(model)
+
+	switch effort {
+	case "none":
+		if strings.HasPrefix(m, "gpt-6-astra") || strings.HasPrefix(m, "gpt-6.1-sol") ||
+			isGPT62(m) {
+			return provider.EffortLow
+		}
+	case provider.EffortMinimal:
+		if strings.HasPrefix(m, "gpt-6") {
+			return provider.EffortLow
+		}
+	}
+
+	return effort
 }
 
 // normalizedReasoningEffort applies model-specific compatibility rules before
-// a request reaches the SDK. GPT-6 Astra and GPT-6.1 Sol reject `none`, and
-// the GPT-6 family does not support `minimal`; use `low` instead.
+// a request reaches the SDK.
 func normalizedReasoningEffort(model string, reasoning *provider.ReasoningOptions) string {
 	if reasoning == nil {
 		return ""
 	}
 
 	if reasoning.Type == provider.ReasoningTypeDisabled {
-		if requiresReasoning(model) {
-			return string(provider.EffortLow)
-		}
-		return "none"
+		return string(compatibleReasoningEffort(model, "none"))
 	}
 
-	effort := reasoning.Effort
-	if strings.HasPrefix(strings.ToLower(model), "gpt-6") && effort == provider.EffortMinimal {
-		effort = provider.EffortLow
-	}
-
-	if effort != "" {
-		return string(effort)
+	if reasoning.Effort != "" {
+		return string(compatibleReasoningEffort(model, reasoning.Effort))
 	}
 
 	if reasoning.Type == provider.ReasoningTypeAdaptive {

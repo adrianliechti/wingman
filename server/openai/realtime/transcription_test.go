@@ -16,11 +16,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// newFakeTranscriber has no turn detection by default, like a live transcriber.
+// newFakeTranscriber declares no turn detection, like a live transcriber.
 func newFakeTranscriber() *fakeRealtime {
 	transcriber := newFakeRealtime()
 	transcriber.capabilities.TranscriptionOnly = true
-	transcriber.defaults = &provider.RealtimeOptions{}
+	transcriber.defaults = &provider.RealtimeOptions{
+		Input: provider.RealtimeInputOptions{
+			TurnDetection: &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionNone},
+		},
+	}
 	return transcriber
 }
 
@@ -112,11 +116,12 @@ func TestTranscriptionSessionStreamsPartialTranscripts(t *testing.T) {
 	transcriber.mu.Lock()
 	options := transcriber.options[0]
 	transcriber.mu.Unlock()
-	if got := options.InputTranscription; got == nil || got.Model != "test-transcribe" || got.Delay != "low" || strings.Join(got.Languages, ",") != "de,en" {
+	if got := options.Input.Transcription; got == nil || got.Model != "test-transcribe" || got.Delay != "low" || strings.Join(got.Languages, ",") != "de,en" {
 		t.Fatalf("provider transcription options = %#v", got)
 	}
-	if options.TurnDetection != nil || len(options.OutputModalities) != 1 || options.OutputModalities[0] != provider.RealtimeModalityText {
-		t.Fatalf("provider options = %#v, want manual text-only transcription", options)
+	// The client left turn detection to the transcriber.
+	if options.Input.TurnDetection != nil || len(options.Output.Modalities) != 1 || options.Output.Modalities[0] != provider.RealtimeModalityText {
+		t.Fatalf("provider options = %#v, want text-only transcription with the transcriber's turn detection", options)
 	}
 
 	// A delta before the commit announces no item yet.
@@ -239,7 +244,7 @@ func TestTranscriptionSessionModelSwitch(t *testing.T) {
 	second.mu.Lock()
 	options := second.options[0]
 	second.mu.Unlock()
-	if got := options.InputTranscription; got == nil || got.Model != "test-segmented" || strings.Join(got.Languages, ",") != "en" {
+	if got := options.Input.Transcription; got == nil || got.Model != "test-segmented" || strings.Join(got.Languages, ",") != "en" {
 		t.Fatalf("second provider transcription options = %#v", got)
 	}
 
@@ -420,7 +425,7 @@ func TestRealtimeTranscriptionFieldParsing(t *testing.T) {
 	if err := config.apply(jsontext.Value(`{"type":"realtime","audio":{"input":{"transcription":{"languages":["de","en"],"delay":"low"}}}}`)); err != nil {
 		t.Fatal(err)
 	}
-	transcription := config.options(nil).InputTranscription
+	transcription := config.options(nil).Input.Transcription
 	if transcription == nil || transcription.Model != "gpt-live-transcribe" || transcription.Delay != "low" || strings.Join(transcription.Languages, ",") != "de,en" {
 		t.Fatalf("conversation transcription = %#v", transcription)
 	}
@@ -433,5 +438,61 @@ func TestRealtimeTranscriptionFieldParsing(t *testing.T) {
 		if err := config.apply(jsontext.Value(raw)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("session %s error = %v, want %q", raw, err, want)
 		}
+	}
+}
+
+// Like MAI-Transcribe behind the OpenAI provider: the service decides.
+func TestTranscriptionSessionLeavesTurnDetectionToTheService(t *testing.T) {
+	transcriber := newFakeTranscriber()
+	transcriber.defaults = &provider.RealtimeOptions{}
+	conn := openTestTranscription(t, transcriber, newFakeRealtime())
+	assertEventType(t, readWireEvent(t, conn), "session.created")
+
+	writeWireEvent(t, conn, transcriptionUpdate(map[string]any{"transcription": map[string]any{"model": "test-transcribe"}}))
+	if detection, _ := sessionInput(t, readWireEvent(t, conn))["turn_detection"].(map[string]any); detection["type"] != "server_vad" {
+		t.Fatalf("turn_detection = %#v, want the protocol default", detection)
+	}
+
+	appendTestAudio(t, conn)
+	waitSignal(t, transcriber.session.audioSent, "transcription audio")
+	transcriber.mu.Lock()
+	options := transcriber.options[0]
+	transcriber.mu.Unlock()
+	if options.Input.TurnDetection != nil {
+		t.Fatalf("provider turn detection = %#v, want unset", options.Input.TurnDetection)
+	}
+}
+
+func TestSessionTurnDetectionPassesThrough(t *testing.T) {
+	// A provider that declares no default leaves turns to its service, which
+	// must not read as manual turns.
+	if detection := newSessionConfig(provider.RealtimeOptions{}).TurnDetection; detection == nil || detection.Type != provider.RealtimeTurnDetectionServer || !detection.CreateResponse {
+		t.Fatalf("undeclared turn detection = %#v, want the protocol's server VAD", detection)
+	}
+
+	disabled := &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionNone}
+	for _, tc := range []struct {
+		name   string
+		config sessionConfig
+		update string
+		want   *provider.RealtimeTurnDetection
+	}{
+		{"conversation unset", newSessionConfig(newFakeRealtime().Defaults()), `{"type":"realtime","instructions":"Hi"}`, nil},
+		{"conversation disabled", newSessionConfig(newFakeRealtime().Defaults()), `{"type":"realtime","audio":{"input":{"turn_detection":null}}}`, disabled},
+		{"legacy disabled", newSessionConfig(newFakeRealtime().Defaults()), `{"turn_detection":null}`, disabled},
+		{"semantic", newSessionConfig(newFakeRealtime().Defaults()), `{"type":"realtime","audio":{"input":{"turn_detection":{"type":"semantic_vad","eagerness":"low"}}}}`,
+			&provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionSemantic, Eagerness: "low", CreateResponse: true, InterruptResponse: true}},
+		{"transcription unset", newTranscriptionConfig(), `{"type":"transcription","audio":{"input":{"transcription":{"model":"m"}}}}`, nil},
+		{"transcription disabled", newTranscriptionConfig(), `{"type":"transcription","audio":{"input":{"turn_detection":null}}}`, disabled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := tc.config
+			if err := config.apply(jsontext.Value(tc.update)); err != nil {
+				t.Fatal(err)
+			}
+			if got := config.options(nil).Input.TurnDetection; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("provider turn detection = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }

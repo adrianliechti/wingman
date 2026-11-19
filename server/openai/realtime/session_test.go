@@ -928,13 +928,18 @@ func (f *fakeRealtime) Defaults() provider.RealtimeOptions {
 	if f.defaults != nil {
 		return *f.defaults
 	}
+	audio := provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1}
 	return provider.RealtimeOptions{
-		Voice:            "alloy",
-		InputAudio:       provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1},
-		OutputAudio:      provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 24000, SampleSize: 16, Channels: 1},
-		OutputModalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
-		ToolChoice:       provider.ToolChoiceAuto,
-		TurnDetection:    &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionServer, CreateResponse: true, InterruptResponse: true},
+		ToolChoice: provider.ToolChoiceAuto,
+		Input: provider.RealtimeInputOptions{
+			Audio:         audio,
+			TurnDetection: &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionServer, CreateResponse: true, InterruptResponse: true},
+		},
+		Output: provider.RealtimeOutputOptions{
+			Modalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
+			Audio:      audio,
+			Voice:      "alloy",
+		},
 	}
 }
 

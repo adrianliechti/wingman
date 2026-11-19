@@ -183,8 +183,8 @@ func TestGeminiSetupMapsTranscriptionAndVAD(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := realtime.Defaults()
-	options.InputTranscription = &provider.RealtimeTranscription{Language: "de-CH"}
-	options.TurnDetection = &provider.RealtimeTurnDetection{
+	options.Input.Transcription = &provider.RealtimeTranscription{Language: "de-CH"}
+	options.Input.TurnDetection = &provider.RealtimeTurnDetection{
 		Type: provider.RealtimeTurnDetectionSemantic, Eagerness: "high",
 		PrefixPadding: 120 * time.Millisecond, SilenceDuration: 800 * time.Millisecond,
 		CreateResponse: true, InterruptResponse: false,
@@ -208,13 +208,26 @@ func TestGeminiSetupMapsTranscriptionAndVAD(t *testing.T) {
 		t.Errorf("endOfSpeechSensitivity = %v", got)
 	}
 
-	options.InputTranscription = &provider.RealtimeTranscription{Languages: []string{"de-CH", "en-US"}}
+	options.Input.Transcription = &provider.RealtimeTranscription{Languages: []string{"de-CH", "en-US"}}
 	several := geminiSetup("gemini-3.1-flash-live-preview", options)["setup"].(map[string]any)
 	if languages := several["inputAudioTranscription"].(map[string]any)["languageCodes"].([]string); len(languages) != 2 || languages[1] != "en-US" {
 		t.Fatalf("input transcription languages = %#v, want de-CH and en-US", languages)
 	}
 
-	options.TurnDetection = nil
+	// Unset keeps Gemini's automatic activity detection.
+	unset := options
+	unset.Input.TurnDetection = nil
+	if config, ok := geminiSetup("gemini-3.1-flash-live-preview", unset)["setup"].(map[string]any)["realtimeInputConfig"]; ok {
+		t.Errorf("unset realtimeInputConfig = %#v, want Gemini's defaults", config)
+	}
+	if merged := mergeGeminiRealtimeOptions(realtime.Defaults(), &unset); merged.Input.TurnDetection == nil || merged.Input.TurnDetection.Disabled() || !merged.Input.TurnDetection.CreateResponse {
+		t.Errorf("merged turn detection = %#v, want automatic", merged.Input.TurnDetection)
+	}
+
+	options.Input.TurnDetection = &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionNone}
+	if err := validateGeminiRealtimeOptions(options); err != nil {
+		t.Errorf("disabled turn detection: %v", err)
+	}
 	manual := geminiSetup("gemini-3.1-flash-live-preview", options)["setup"].(map[string]any)
 	manualDetection := manual["realtimeInputConfig"].(map[string]any)["automaticActivityDetection"].(map[string]any)
 	if manualDetection["disabled"] != true {
@@ -228,7 +241,7 @@ func TestGeminiRejectsTurnDetectionWithoutAutomaticResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := realtime.Defaults()
-	options.TurnDetection.CreateResponse = false
+	options.Input.TurnDetection.CreateResponse = false
 	if err := validateGeminiRealtimeOptions(options); err == nil || !strings.Contains(err.Error(), "response creation") {
 		t.Fatalf("validate error = %v, want unsupported automatic response error", err)
 	}
@@ -252,10 +265,10 @@ func TestGeminiLiveTranscriptionDefaultsAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defaults := realtime.Defaults()
-	if len(defaults.OutputModalities) != 1 || defaults.OutputModalities[0] != provider.RealtimeModalityText {
-		t.Fatalf("transcription output modalities = %#v", defaults.OutputModalities)
+	if len(defaults.Output.Modalities) != 1 || defaults.Output.Modalities[0] != provider.RealtimeModalityText {
+		t.Fatalf("transcription output modalities = %#v", defaults.Output.Modalities)
 	}
-	if defaults.InputTranscription == nil || defaults.OutputTranscription {
+	if defaults.Input.Transcription == nil || defaults.Output.Transcription {
 		t.Fatalf("transcription defaults = %#v", defaults)
 	}
 	setup := geminiSetup("gemini-3.5-transcribe-live", defaults)["setup"].(map[string]any)
@@ -269,7 +282,7 @@ func TestGeminiLiveTranscriptionDefaultsAndValidation(t *testing.T) {
 	}
 
 	invalid := defaults
-	invalid.OutputModalities = []provider.RealtimeModality{provider.RealtimeModalityAudio}
+	invalid.Output.Modalities = []provider.RealtimeModality{provider.RealtimeModalityAudio}
 	if err := validateGeminiRealtimeModelOptions("gemini-3.5-transcribe-live", invalid); err == nil {
 		t.Fatal("dedicated transcription model accepted audio response modality")
 	}
@@ -399,6 +412,7 @@ func TestGeminiToolCancellationRejectsLateResults(t *testing.T) {
 func TestGeminiManualActivityFramesOnlyAudio(t *testing.T) {
 	session, messages, closeCapture := newGeminiWireCapture(t)
 	defer closeCapture()
+	session.options.Input.TurnDetection = &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionNone}
 
 	if err := session.SendAudio(context.Background(), []byte{1, 2, 3, 4}); err != nil {
 		t.Fatal(err)
@@ -487,7 +501,9 @@ func newGeminiWireCapture(t *testing.T) (*geminiRealtimeSession, <-chan map[stri
 	session := &geminiRealtimeSession{
 		ctx: ctx, cancel: cancel, conn: conn, events: make(chan provider.RealtimeEvent, 16),
 		options: provider.RealtimeOptions{
-			InputAudio: provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 16000, SampleSize: 16, Channels: 1},
+			Input: provider.RealtimeInputOptions{
+				Audio: provider.RealtimeAudioFormat{Encoding: provider.RealtimeAudioPCM, SampleRate: 16000, SampleSize: 16, Channels: 1},
+			},
 		},
 		toolNames: make(map[string]string),
 	}

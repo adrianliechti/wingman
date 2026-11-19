@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/server/openai/shared"
 
 	"github.com/google/uuid"
 )
@@ -154,8 +155,9 @@ type StreamingAccumulator struct {
 	id    string
 	model string
 
-	tier             provider.Tier
-	reasoningContext provider.ReasoningContext
+	tier                 provider.Tier
+	reasoningContext     provider.ReasoningContext
+	inputTransformations *[]provider.InputTransformation
 
 	started      bool
 	status       provider.CompletionStatus
@@ -738,6 +740,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if c.Reasoning != "" {
 		s.reasoningContext = c.Reasoning
 	}
+	if c.InputTransformations != nil {
+		s.inputTransformations = c.InputTransformations
+	}
 	if c.Tier != "" {
 		s.tier = c.Tier
 	}
@@ -960,7 +965,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 // Complete signals that streaming is done and emits final events.
 func (s *StreamingAccumulator) Complete() error {
 	if s.status == provider.CompletionStatusFailed {
-		return s.Error(completionFailure(s.Result()))
+		return s.Error(shared.CompletionFailure(s.Result()))
 	}
 
 	if err := s.start(); err != nil {
@@ -1005,6 +1010,9 @@ func (s *StreamingAccumulator) Complete() error {
 // an incomplete response with the content_filter reason, which clients
 // already treat as a turn that must not continue.
 func contentFiltered(c *provider.Completion) bool {
+	if c != nil && c.Status == provider.CompletionStatusIncomplete && c.StopReason == provider.StopReasonRefusal {
+		return true
+	}
 	if c == nil || c.Status != provider.CompletionStatusRefused {
 		return false
 	}
@@ -1020,6 +1028,9 @@ func contentFiltered(c *provider.Completion) bool {
 }
 
 func (s *StreamingAccumulator) contentFiltered() bool {
+	if s.status == provider.CompletionStatusIncomplete && s.stopReason == provider.StopReasonRefusal {
+		return true
+	}
 	if s.status != provider.CompletionStatusRefused {
 		return false
 	}
@@ -1305,6 +1316,8 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 		Usage:        s.usage,
 		Reasoning:    s.reasoningContext,
 		Tier:         s.tier,
+
+		InputTransformations: s.inputTransformations,
 
 		Message: &provider.Message{
 			Role:    provider.MessageRoleAssistant,

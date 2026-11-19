@@ -37,6 +37,8 @@ type agentConfig struct {
 }
 
 type agentContext struct {
+	Model string
+
 	Completer provider.Completer
 
 	Messages []provider.Message
@@ -53,6 +55,8 @@ func (cfg *Config) registerAgents(f *configFile) error {
 	if err := decodeStrict(&f.Agents, &configs); err != nil {
 		return err
 	}
+
+	routers := configIDs(&f.Routers)
 
 	for _, id := range configIDs(&f.Agents) {
 
@@ -76,6 +80,10 @@ func (cfg *Config) registerAgents(f *configFile) error {
 			return err
 		}
 		context.Completer = completer
+
+		if !slices.Contains(routers, config.Model) {
+			context.Model = config.Model
+		}
 
 		for _, t := range config.Tools {
 			tool, err := cfg.Tool(t)
@@ -145,7 +153,7 @@ func reactAgent(cfg agentConfig, context agentContext) (provider.Completer, erro
 		options = append(options, react.WithVerbosity(context.Verbosity))
 	}
 
-	return react.New(cfg.Model, options...)
+	return react.New(context.Model, options...)
 }
 
 func assistantAgent(cfg agentConfig, context agentContext) (provider.Completer, error) {
@@ -167,5 +175,5 @@ func assistantAgent(cfg agentConfig, context agentContext) (provider.Completer, 
 		options = append(options, assistant.WithVerbosity(context.Verbosity))
 	}
 
-	return assistant.New(cfg.Model, options...)
+	return assistant.New(context.Model, options...)
 }

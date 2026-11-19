@@ -8,4 +8,5 @@ const (
 	TierStandard Tier = "standard"
 	TierFlex     Tier = "flex"
 	TierPriority Tier = "priority"
+	TierUltra    Tier = "ultra"
 )

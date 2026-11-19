@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -209,13 +210,13 @@ func TestValidateOpenAIRealtimeAudioFormats(t *testing.T) {
 			format := provider.RealtimeAudioFormat{
 				Encoding: encoding, SampleRate: 8000, SampleSize: 8, Channels: 1,
 			}
-			options.InputAudio = format
-			options.OutputAudio = format
+			options.Input.Audio = format
+			options.Output.Audio = format
 			if err := validateOpenAIRealtimeOptions(options, false); err != nil {
 				t.Fatalf("valid G.711 format rejected: %v", err)
 			}
 
-			options.InputAudio.SampleSize = 16
+			options.Input.Audio.SampleSize = 16
 			if err := validateOpenAIRealtimeOptions(options, false); err == nil {
 				t.Fatal("16-bit G.711 format was accepted")
 			}
@@ -263,22 +264,23 @@ func TestOpenAIRealtimeTranscriptionSession(t *testing.T) {
 	}
 
 	defaults := live.Defaults()
-	if len(defaults.OutputModalities) != 1 || defaults.OutputModalities[0] != provider.RealtimeModalityText {
-		t.Fatalf("output modalities = %#v", defaults.OutputModalities)
+	if len(defaults.Output.Modalities) != 1 || defaults.Output.Modalities[0] != provider.RealtimeModalityText {
+		t.Fatalf("output modalities = %#v", defaults.Output.Modalities)
 	}
-	if defaults.InputTranscription == nil || defaults.InputTranscription.Model != "gpt-live-transcribe" {
-		t.Fatalf("input transcription = %#v", defaults.InputTranscription)
+	if defaults.Input.Transcription == nil || defaults.Input.Transcription.Model != "gpt-live-transcribe" {
+		t.Fatalf("input transcription = %#v", defaults.Input.Transcription)
 	}
-	if defaults.TurnDetection != nil {
-		t.Fatalf("live turn detection = %#v, want none", defaults.TurnDetection)
+	// Transcription services own their turn detection until the client chooses.
+	if defaults.Input.TurnDetection != nil {
+		t.Fatalf("live turn detection = %#v, want the service default", defaults.Input.TurnDetection)
 	}
 
 	segmented, err := NewRealtime("https://api.openai.com/v1", "gpt-transcribe", WithToken("test"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if segmented.Defaults().TurnDetection == nil {
-		t.Fatal("gpt-transcribe lost its server VAD default")
+	if detection := segmented.Defaults().Input.TurnDetection; detection != nil {
+		t.Fatalf("gpt-transcribe turn detection = %#v, want the service default", detection)
 	}
 
 	conversation, err := NewRealtime("https://api.openai.com/v1", "gpt-realtime-2.1", WithToken("test"))
@@ -291,11 +293,13 @@ func TestOpenAIRealtimeTranscriptionSession(t *testing.T) {
 
 	// What the gateway sends for a transcription session: input settings only.
 	options := provider.RealtimeOptions{
-		InputAudio:          defaults.InputAudio,
-		OutputModalities:    defaults.OutputModalities,
-		InputTranscription:  &provider.RealtimeTranscription{Model: "alias", Languages: []string{"de", "en"}, Delay: "low"},
-		InputNoiseReduction: provider.RealtimeNoiseReductionNear,
-		TurnDetection:       &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionServer, CreateResponse: true},
+		Input: provider.RealtimeInputOptions{
+			Audio:          defaults.Input.Audio,
+			TurnDetection:  &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionServer, CreateResponse: true},
+			Transcription:  &provider.RealtimeTranscription{Model: "alias", Languages: []string{"de", "en"}, Delay: "low"},
+			NoiseReduction: provider.RealtimeNoiseReductionNear,
+		},
+		Output: provider.RealtimeOutputOptions{Modalities: defaults.Output.Modalities},
 	}
 
 	session, captured := newOpenAIWireCapture(t)
@@ -323,6 +327,33 @@ func TestOpenAIRealtimeTranscriptionSession(t *testing.T) {
 	if noise := input["noise_reduction"].(map[string]any); noise["type"] != "near_field" {
 		t.Fatalf("noise reduction = %#v", noise)
 	}
+
+	// Unset keeps the service's setting; none turns detection off.
+	options.Input.TurnDetection = nil
+	if err := session.Update(t.Context(), &options); err != nil {
+		t.Fatal(err)
+	}
+	if detection, ok := sessionAudioInput(t, readCaptured(t, captured))["turn_detection"]; ok {
+		t.Fatalf("unset turn detection = %#v, want the field omitted", detection)
+	}
+	options.Input.TurnDetection = &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionNone}
+	if err := session.Update(t.Context(), &options); err != nil {
+		t.Fatal(err)
+	}
+	if detection, ok := sessionAudioInput(t, readCaptured(t, captured))["turn_detection"]; !ok || detection != nil {
+		t.Fatalf("disabled turn detection = %#v (present %v), want null", detection, ok)
+	}
+}
+
+func sessionAudioInput(t *testing.T, event map[string]any) map[string]any {
+	t.Helper()
+	session, _ := event["session"].(map[string]any)
+	audio, _ := session["audio"].(map[string]any)
+	input, ok := audio["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("event = %#v, want session.audio.input", event)
+	}
+	return input
 }
 
 func TestOpenAIRealtimeTranslationSession(t *testing.T) {
@@ -334,16 +365,18 @@ func TestOpenAIRealtimeTranslationSession(t *testing.T) {
 		t.Fatalf("translation URL = %q", target)
 	}
 	defaults := translator.Defaults()
-	if defaults.OutputLanguage != "es" || defaults.TurnDetection != nil {
+	if defaults.Output.Language != "es" || defaults.Input.TurnDetection != nil {
 		t.Fatalf("translation defaults = %#v", defaults)
 	}
 
 	// What the gateway sends for a translation session.
 	options := provider.RealtimeOptions{
-		InputAudio:          defaults.InputAudio,
-		OutputLanguage:      "en",
-		InputTranscription:  &provider.RealtimeTranscription{Model: "gpt-realtime-whisper"},
-		InputNoiseReduction: provider.RealtimeNoiseReductionNear,
+		Input: provider.RealtimeInputOptions{
+			Audio:          defaults.Input.Audio,
+			Transcription:  &provider.RealtimeTranscription{Model: "gpt-realtime-whisper"},
+			NoiseReduction: provider.RealtimeNoiseReductionNear,
+		},
+		Output: provider.RealtimeOutputOptions{Language: "en"},
 	}
 
 	session, captured := newOpenAIWireCapture(t)
@@ -401,7 +434,7 @@ func TestOpenAIRealtimeTranslationSession(t *testing.T) {
 func TestTranslateInputTranscriptCarriesFinalText(t *testing.T) {
 	session := &openAIRealtimeSession{
 		contents:    make(map[string]provider.RealtimeContentType),
-		transcripts: make(map[string]bool),
+		transcripts: make(map[string]*strings.Builder),
 	}
 
 	session.translate([]byte(`{"type":"conversation.item.input_audio_transcription.delta","item_id":"item_1","content_index":0,"delta":" Hello"}`))
@@ -414,7 +447,7 @@ func TestTranslateInputTranscriptCarriesFinalText(t *testing.T) {
 func TestTranslateCurrentInputEvents(t *testing.T) {
 	session := &openAIRealtimeSession{
 		contents:    make(map[string]provider.RealtimeContentType),
-		transcripts: make(map[string]bool),
+		transcripts: make(map[string]*strings.Builder),
 	}
 
 	timeout := session.translate([]byte(`{
@@ -454,7 +487,7 @@ func TestTranslateTranscriptionUsage(t *testing.T) {
 		{"missing", "", provider.RealtimeTranscriptionUsage{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := &openAIRealtimeSession{transcripts: make(map[string]bool)}
+			session := &openAIRealtimeSession{transcripts: make(map[string]*strings.Builder)}
 			events := session.translate([]byte(`{"type":"conversation.item.input_audio_transcription.completed","item_id":"item_1","content_index":0,"transcript":"Hello"` + tc.usage + `}`))
 			if len(events) != 3 {
 				t.Fatalf("events = %+v", events)
@@ -467,5 +500,142 @@ func TestTranslateTranscriptionUsage(t *testing.T) {
 				t.Fatal("ASR usage must remain separate from generation usage")
 			}
 		})
+	}
+}
+
+func TestOpenAIRealtimeFoundryTranscription(t *testing.T) {
+	type handshake struct {
+		path, query, apiKey, authorization string
+	}
+	handshakes := make(chan handshake, 1)
+	updates := make(chan map[string]any, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handshakes <- handshake{r.URL.Path, r.URL.RawQuery, r.Header.Get("api-key"), r.Header.Get("Authorization")}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if err := conn.WriteJSON(map[string]any{"type": "session.created", "session": map[string]any{"id": "sess_1"}}); err != nil {
+			return
+		}
+		var update map[string]any
+		if err := conn.ReadJSON(&update); err != nil {
+			return
+		}
+		updates <- update
+		_, _, _ = conn.ReadMessage()
+	}))
+	t.Cleanup(server.Close)
+
+	realtime, err := NewRealtime("https://example.services.ai.azure.com/mai/v1", "MAI-Transcribe-2-Streaming", WithToken("foundry-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !realtime.RealtimeCapabilities().TranscriptionOnly {
+		t.Fatal("MAI-Transcribe-2-Streaming is not a transcription model")
+	}
+	var target string
+	realtime.dial = func(ctx context.Context, url string, headers http.Header) (*websocket.Conn, *http.Response, error) {
+		target = url
+		local := "ws" + strings.TrimPrefix(server.URL, "http") + strings.TrimPrefix(url, "wss://example.services.ai.azure.com")
+		return websocket.DefaultDialer.DialContext(ctx, local, headers)
+	}
+
+	// The gateway's options when the client leaves turn detection unset.
+	session, err := realtime.Connect(t.Context(), &provider.RealtimeOptions{
+		Input:  provider.RealtimeInputOptions{Transcription: &provider.RealtimeTranscription{Model: "mai", Language: "de"}},
+		Output: provider.RealtimeOutputOptions{Modalities: []provider.RealtimeModality{provider.RealtimeModalityText}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	if target != "wss://example.services.ai.azure.com/mai/v1/realtime?intent=transcription" {
+		t.Fatalf("URL = %q", target)
+	}
+	got := <-handshakes
+	if got.path != "/mai/v1/realtime" || got.query != "intent=transcription" {
+		t.Fatalf("handshake = %+v", got)
+	}
+	if got.apiKey != "foundry-key" || got.authorization != "" {
+		t.Fatalf("handshake auth = %+v, want the key in api-key", got)
+	}
+
+	var update map[string]any
+	select {
+	case update = <-updates:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for session.update")
+	}
+	if update["type"] != "session.update" || update["session"].(map[string]any)["type"] != "transcription" {
+		t.Fatalf("update = %#v, want a transcription session update", update)
+	}
+	input := sessionAudioInput(t, update)
+	if transcription := input["transcription"].(map[string]any); transcription["model"] != "MAI-Transcribe-2-Streaming" || transcription["language"] != "de" {
+		t.Fatalf("transcription = %#v, want the deployment with the language", transcription)
+	}
+	if format := input["format"].(map[string]any); format["type"] != "audio/pcm" || format["rate"] != float64(24000) {
+		t.Fatalf("format = %#v", format)
+	}
+	if detection, ok := input["turn_detection"]; ok {
+		t.Fatalf("turn_detection = %#v, want it left to the service", detection)
+	}
+}
+
+// The MAI-Transcribe-2-Streaming event sequence from Microsoft's documentation:
+// intermediate suffixes, and commit and completion events without item ids.
+func TestTranslateMAITranscript(t *testing.T) {
+	session := &openAIRealtimeSession{transcripts: make(map[string]*strings.Builder)}
+	translate := func(event string) []provider.RealtimeEvent {
+		t.Helper()
+		return session.translate([]byte(event))
+	}
+
+	events := translate(`{"type":"conversation.item.input_audio_transcription.delta","item_id":"item_1","content_index":0,"delta":"Hello"}`)
+	if len(events) != 2 || events[0].Type != provider.RealtimeEventContentStarted || events[1].Text != "Hello" {
+		t.Fatalf("first delta = %#v", events)
+	}
+	for _, tc := range []struct{ event, want string }{
+		{`{"type":"conversation.item.input_audio_transcription.intermediate","item_id":"item_1","content_index":0,"intermediate":" world"}`, "Hello world"},
+		{`{"type":"conversation.item.input_audio_transcription.intermediate","item_id":"item_1","content_index":0,"intermediate":" there"}`, "Hello there"},
+	} {
+		preview := translate(tc.event)
+		if len(preview) != 1 || preview[0].Type != provider.RealtimeEventInputTranscriptionPreview || preview[0].Stage != provider.RealtimeGenerationSpeculative {
+			t.Fatalf("intermediate = %#v, want a speculative preview", preview)
+		}
+		if preview[0].Text != tc.want || preview[0].ItemID != "item_1" || preview[0].ContentID != "item_1:0" {
+			t.Fatalf("preview = %+v, want %q for item_1", preview[0], tc.want)
+		}
+	}
+	if events := translate(`{"type":"conversation.item.input_audio_transcription.delta","item_id":"item_1","content_index":0,"delta":" there!"}`); len(events) != 1 || events[0].Text != " there!" {
+		t.Fatalf("second delta = %#v", events)
+	}
+
+	committed := translate(`{"type":"input_audio_buffer.committed"}`)
+	if len(committed) != 1 || committed[0].Type != provider.RealtimeEventInputCommitted || committed[0].ItemID != "item_1" {
+		t.Fatalf("committed = %#v, want item_1", committed)
+	}
+
+	// The next item starts before the first one completes.
+	translate(`{"type":"conversation.item.input_audio_transcription.delta","item_id":"item_2","content_index":0,"delta":"Bye"}`)
+	if committed := translate(`{"type":"input_audio_buffer.committed"}`); len(committed) != 1 || committed[0].ItemID != "item_2" {
+		t.Fatalf("second commit = %#v, want item_2", committed)
+	}
+
+	completed := translate(`{"type":"conversation.item.input_audio_transcription.completed", "transcript":"Hello there!"}`)
+	if len(completed) != 1 || completed[0].Type != provider.RealtimeEventContentDone {
+		t.Fatalf("completed = %#v, want only content done: the deltas already carried the text", completed)
+	}
+	if completed[0].ContentID != "item_1:0" || completed[0].ItemID != "item_1" || completed[0].Text != "Hello there!" {
+		t.Fatalf("completed = %+v, want item_1", completed[0])
+	}
+	if completed := translate(`{"type":"conversation.item.input_audio_transcription.completed","transcript":"Bye"}`); len(completed) != 1 || completed[0].ItemID != "item_2" {
+		t.Fatalf("second completion = %#v, want item_2", completed)
+	}
+	if len(session.uncommitted) != 0 || len(session.incomplete) != 0 || len(session.transcripts) != 0 {
+		t.Fatalf("leftover state: uncommitted %v, incomplete %v, transcripts %v", session.uncommitted, session.incomplete, session.transcripts)
 	}
 }

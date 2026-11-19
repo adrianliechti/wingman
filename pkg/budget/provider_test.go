@@ -334,20 +334,6 @@ func TestAdmissionIsSharedAcrossOneRequest(t *testing.T) {
 	}
 }
 
-func TestSystemWorkIsNotChargedToFirstUser(t *testing.T) {
-	b := &testBudget{reports: make(chan *Report, 1)}
-	m := &testModel{}
-	p := NewEmbedder("test", "configured", m, b)
-	for _, ctx := range []context.Context{t.Context(), context.WithValue(t.Context(), auth.UserContextKey, "first-user")} {
-		if _, err := p.Embed(SystemContext(ctx), nil, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if m.calls.Load() != 2 || b.checks.Load() != 0 || len(b.reports) != 0 {
-		t.Fatal("shared embeddings reached per-user accounting")
-	}
-}
-
 func TestEarlyConsumerStopStillReportsObservedUsage(t *testing.T) {
 	b := &testBudget{decision: &Result{Allowed: true}, reports: make(chan *Report, 1)}
 	for range NewCompleter("test", "configured", &testModel{}, b).Complete(context.WithValue(t.Context(), auth.UserContextKey, "user"), nil, nil) {

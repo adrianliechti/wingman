@@ -50,7 +50,7 @@ func TestResponsesLiveCrossProviderReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gpt, err := openai.NewResponder("https://api.openai.com/v1", "gpt-6-luna", openai.WithToken(key("OPENAI_API_KEY")), openai.WithClient(client))
+	gpt, err := openai.NewResponder("https://api.openai.com/v1", "gpt-6.2-astra", openai.WithToken(key("OPENAI_API_KEY")), openai.WithClient(client))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +73,8 @@ func TestResponsesLiveCrossProviderReplay(t *testing.T) {
 
 	for _, stream := range []bool{false, true} {
 		for _, cycle := range [][]string{
+			{"gpt", "claude", "gemini", "gpt"},
+			{"gpt", "gemini", "claude", "gpt"},
 			{"gemini", "gpt", "claude", "bedrock"},
 			{"bedrock", "gemini", "claude", "gpt"},
 			{"gpt", "bedrock", "claude", "gemini"},

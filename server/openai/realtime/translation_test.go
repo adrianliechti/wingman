@@ -18,7 +18,7 @@ import (
 func newFakeTranslator() *fakeRealtime {
 	translator := newFakeRealtime()
 	translator.capabilities.TranslationOnly = true
-	translator.defaults = &provider.RealtimeOptions{OutputLanguage: "es"}
+	translator.defaults = &provider.RealtimeOptions{Output: provider.RealtimeOutputOptions{Language: "es"}}
 	return translator
 }
 
@@ -80,7 +80,7 @@ func TestTranslationSession(t *testing.T) {
 	translator.mu.Lock()
 	options := translator.options[0]
 	translator.mu.Unlock()
-	if options.OutputLanguage != "en" || options.InputTranscription == nil || options.InputTranscription.Model != "gpt-realtime-whisper" {
+	if options.Output.Language != "en" || options.Input.Transcription == nil || options.Input.Transcription.Model != "gpt-realtime-whisper" {
 		t.Fatalf("provider options = %#v", options)
 	}
 

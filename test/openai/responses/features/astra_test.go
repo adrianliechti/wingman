@@ -17,15 +17,16 @@ import (
 // It makes one request to OpenAI and one through Wingman with the same model
 // and payload, then compares the complete Responses API shape.
 //
-//	TEST_OPENAI_ASTRA_MODEL=gpt-6-astra \
+//	TEST_OPENAI_ASTRA_MODEL=gpt-6.2-astra \
 //	  go test ./test/openai/responses/features -run '^TestGPT6AstraE2E$' -count=1 -v
 func TestGPT6AstraE2E(t *testing.T) {
 	model := strings.TrimSpace(os.Getenv("TEST_OPENAI_ASTRA_MODEL"))
 	if model == "" {
 		t.Skip("TEST_OPENAI_ASTRA_MODEL not set — skipping paid Astra probe")
 	}
-	if !strings.HasPrefix(strings.ToLower(model), "gpt-6-astra") {
-		t.Fatalf("TEST_OPENAI_ASTRA_MODEL must name a gpt-6-astra model, got %q", model)
+	id := strings.ToLower(model)
+	if !strings.HasPrefix(id, "gpt-6-astra") && !strings.HasPrefix(id, "gpt-6.2-astra") {
+		t.Fatalf("TEST_OPENAI_ASTRA_MODEL must name a GPT-6 Astra or GPT-6.2 Astra model, got %q", model)
 	}
 	h := openai.New(t)
 	h.SkipUnlessConfigured(t, model)

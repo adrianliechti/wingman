@@ -2,9 +2,17 @@ package responses
 
 import (
 	"encoding/json/v2"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/policy/noop"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/pkg/provider/openai"
+	"github.com/adrianliechti/wingman/test/harness"
 )
 
 // These tests pin Responses API properties observed in Codex TUI HAR captures
@@ -79,6 +87,59 @@ func TestResponseDefaultsOnlyReportsProviderReasoningContext(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestResponsesForwardsReasoningInputTransformations(t *testing.T) {
+	const model = "gpt-6.2-sol"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: response.completed\ndata: "+
+			`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-6.2-sol","status":"completed","output":[],"input_transformations":[{"id":"rs_1","action":"removed","reason":"prefix_mismatch","type":"reasoning"}]}}`+"\n\n")
+	}))
+	t.Cleanup(upstream.Close)
+	responder, err := openai.NewResponder(upstream.URL, model, openai.WithToken("test-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Policy: noop.New()}
+	cfg.RegisterCompleter(model, responder)
+	handler := New(cfg)
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			body := fmt.Sprintf(`{"model":%q,"input":"continue","stream":%t}`, model, stream)
+			rec := httptest.NewRecorder()
+			handler.handleResponses(rec, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(body)))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
+			}
+			data := rec.Body.Bytes()
+			if stream {
+				events, err := harness.ParseSSE(rec.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, event := range events {
+					if event.Event == "response.completed" {
+						data, err = json.Marshal(event.Data["response"])
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+			}
+			var result struct {
+				InputTransformations []InputTransformation `json:"input_transformations"`
+			}
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatal(err)
+			}
+			want := InputTransformation{ID: "rs_1", Action: "removed", Reason: "prefix_mismatch", Type: "reasoning"}
+			if len(result.InputTransformations) != 1 || result.InputTransformations[0] != want {
+				t.Fatalf("input transformations = %+v, want %+v", result.InputTransformations, want)
+			}
+		})
 	}
 }
 

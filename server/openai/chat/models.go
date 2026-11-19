@@ -41,6 +41,7 @@ var (
 
 // https://platform.openai.com/docs/api-reference/chat/create
 type ChatCompletionRequest struct {
+	Tier  string `json:"service_tier,omitzero"`
 	Model string `json:"model"`
 
 	Messages []ChatCompletionMessage `json:"messages"`
@@ -60,6 +61,7 @@ type ChatCompletionRequest struct {
 	ToolChoice        *ToolChoice `json:"tool_choice,omitzero"`
 	ParallelToolCalls *bool       `json:"parallel_tool_calls,omitzero"`
 
+	SafetyIdentifier     *string             `json:"safety_identifier,omitzero"`
 	PromptCacheKey       *string             `json:"prompt_cache_key,omitzero"`
 	PromptCacheRetention *string             `json:"prompt_cache_retention,omitzero"`
 	PromptCacheOptions   *PromptCacheOptions `json:"prompt_cache_options,omitzero"`

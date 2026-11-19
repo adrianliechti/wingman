@@ -2,6 +2,7 @@ package openai
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -40,15 +41,37 @@ func WithMaxRetries(retries int) Option {
 	}
 }
 
+// Match the destination hostname when choosing provider-specific request fields.
+func (c *Config) endpointMatches(domains ...string) bool {
+	endpoint, err := url.Parse(c.url)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(endpoint.Hostname(), "."))
+	for _, domain := range domains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Config) isAzure() bool {
-	return strings.Contains(c.url, "openai.azure.com") || strings.Contains(c.url, "cognitiveservices.azure.com")
+	return c.endpointMatches("openai.azure.com", "cognitiveservices.azure.com")
+}
+
+// isAzureResource reports whether the endpoint expects keys in an api-key
+// header. Unlike isAzure it covers Foundry resources (services.ai.azure.com),
+// which also host non-OpenAI models such as MAI-Transcribe.
+func (c *Config) isAzureResource() bool {
+	return c.endpointMatches("openai.azure.com", "cognitiveservices.azure.com", "services.ai.azure.com")
 }
 
 // isOpenAI reports whether the endpoint hosts OpenAI models and thus supports
 // built-in tools like apply_patch. OpenAI-compatible third-party endpoints
 // (xAI, proxies, …) get function-tool emulation instead.
 func (c *Config) isOpenAI() bool {
-	return c.url == "" || strings.Contains(c.url, "api.openai.com") || c.isAzure()
+	return c.url == "" || c.endpointMatches("api.openai.com", "openai.azure.com", "cognitiveservices.azure.com")
 }
 
 func (c *Config) init() {

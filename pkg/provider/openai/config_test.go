@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
+
 	sdk "github.com/openai/openai-go/v3"
 )
 
@@ -43,5 +45,43 @@ func TestSDKRetries(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestSafetyIdentifierOnNativeEndpoints(t *testing.T) {
+	for _, tc := range []struct {
+		endpoint string
+		native   bool
+	}{
+		{"https://api.openai.com/v1", true},
+		{"https://deployment.openai.azure.com/openai/v1", true},
+		{"https://proxy.invalid/providers/api.openai.com", false},
+	} {
+		t.Run(tc.endpoint, func(t *testing.T) {
+			opts := &provider.CompleteOptions{SafetyIdentifier: new("stable-user")}
+			chat, err := NewCompleter(tc.endpoint, "gpt-6.2-sol", WithToken("fixture"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := chat.convertCompletionRequest(nil, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			responder, err := NewResponder(tc.endpoint, "gpt-6.2-sol", WithToken("fixture"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := responder.convertResponsesRequest(nil, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if tc.native {
+				want = *opts.SafetyIdentifier
+			}
+			if req.SafetyIdentifier.Value != want || resp.SafetyIdentifier.Value != want {
+				t.Fatalf("safety identifier on Chat/Responses = %q/%q, want %q", req.SafetyIdentifier.Value, resp.SafetyIdentifier.Value, want)
+			}
+		})
 	}
 }

@@ -510,3 +510,236 @@ func TestMidStreamFailure(t *testing.T) {
 		}
 	})
 }
+
+func TestStreamCommitBoundary(t *testing.T) {
+	broken := errors.New("upstream stream ended")
+	for _, tc := range []struct {
+		name      string
+		stop      provider.Completion
+		committed bool
+	}{
+		{"empty text item", provider.Completion{Message: &provider.Message{Content: []provider.Content{{TextPresent: true}}}}, false},
+		{"empty reasoning item", provider.Completion{Message: &provider.Message{Content: []provider.Content{{Reasoning: &provider.Reasoning{ID: "item"}}}}}, false},
+		{"signed reasoning", provider.Completion{Message: &provider.Message{Content: []provider.Content{{Reasoning: &provider.Reasoning{Signature: "sig"}}}}}, true},
+		{"tool call", provider.Completion{Message: &provider.Message{Content: []provider.Content{provider.ToolCallContent(provider.ToolCall{ID: "call"})}}}, true},
+		{"refusal", provider.Completion{StopReason: provider.StopReasonRefusal}, true},
+		{"incomplete", provider.Completion{Status: provider.CompletionStatusIncomplete}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := completerFunc(func(context.Context, []provider.Message, *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+				return func(yield func(*provider.Completion, error) bool) {
+					if yield(&provider.Completion{ID: "prelude"}, nil) && yield(&tc.stop, nil) {
+						yield(nil, broken)
+					}
+				}
+			})
+			next := &mockCompleter{response: "backup"}
+			c, err := NewCompleter([]provider.Completer{first, next}, firstCandidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var chunks int
+			var streamErr error
+			for chunk, err := range c.Complete(t.Context(), nil, nil) {
+				if err != nil {
+					streamErr = err
+					continue
+				}
+				chunks++
+				if !tc.committed && chunk.Message.Text() != "backup" {
+					t.Fatal("leaked a failed stream prelude")
+				}
+			}
+			if tc.committed {
+				if !errors.Is(streamErr, broken) || chunks != 2 || next.calls.Load() != 0 {
+					t.Fatalf("committed stream: %d chunks, %v", chunks, streamErr)
+				}
+			} else if streamErr != nil || chunks != 1 || next.calls.Load() != 1 {
+				t.Fatalf("failed over stream: %d chunks, %v", chunks, streamErr)
+			}
+		})
+	}
+}
+
+func TestPreludeDoesNotStopDeadline(t *testing.T) {
+	stalled := completerFunc(func(ctx context.Context, _ []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+		return func(yield func(*provider.Completion, error) bool) {
+			if yield(&provider.Completion{ID: "metadata"}, nil) {
+				<-ctx.Done()
+			}
+		}
+	})
+	next := &mockCompleter{response: "backup"}
+	c, err := NewCompleter([]provider.Completer{stalled, next}, firstCandidate, WithFirstTokenTimeout(20*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	result, err := collect(t, c, ctx)
+	if err != nil || result.Message.Text() != "backup" || next.calls.Load() != 1 {
+		t.Fatalf("prelude stalled failover: %v %v", result, err)
+	}
+}
+
+func assistantChunk(content provider.Content) *provider.Completion {
+	return &provider.Completion{ID: "test", Message: &provider.Message{Role: provider.MessageRoleAssistant, Content: []provider.Content{content}}}
+}
+
+func TestSilentReasoningMeetsDeadline(t *testing.T) {
+	thinker := completerFunc(func(ctx context.Context, _ []provider.Message, _ *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+		return func(yield func(*provider.Completion, error) bool) {
+			if !yield(&provider.Completion{ID: "test"}, nil) || !yield(assistantChunk(provider.ReasoningContent(provider.Reasoning{ID: "item"})), nil) {
+				return
+			}
+			select {
+			case <-time.After(100 * time.Millisecond):
+				yield(assistantChunk(provider.Content{Text: "thought through"}), nil)
+			case <-ctx.Done():
+				yield(nil, ctx.Err())
+			}
+		}
+	})
+	next := &mockCompleter{response: "backup"}
+	c, _ := NewCompleter([]provider.Completer{thinker, next}, firstCandidate, WithFirstTokenTimeout(20*time.Millisecond))
+
+	result, err := collect(t, c, t.Context())
+	if err != nil || result.Message.Text() != "thought through" || next.calls.Load() != 0 {
+		t.Fatalf("reasoning member lost the request: %v %v", result, err)
+	}
+	if ttft := c.stats[0].Metrics().TTFT; ttft >= 100*time.Millisecond {
+		t.Errorf("time to first token includes the reasoning: %v", ttft)
+	}
+}
+
+func TestEmptyAnswerIsDelivered(t *testing.T) {
+	empty := completerFunc(func(context.Context, []provider.Message, *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+		return func(yield func(*provider.Completion, error) bool) {
+			if yield(&provider.Completion{ID: "test"}, nil) {
+				yield(&provider.Completion{ID: "test", StopReason: provider.StopReasonEndTurn, Message: &provider.Message{Role: provider.MessageRoleAssistant}}, nil)
+			}
+		}
+	})
+	next := &mockCompleter{response: "backup"}
+	fallback := &mockCompleter{response: "fallback"}
+	c, _ := NewCompleter([]provider.Completer{empty, next}, firstCandidate, WithFallback(fallback))
+
+	var chunks []*provider.Completion
+	for chunk, err := range c.Complete(t.Context(), nil, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		chunks = append(chunks, chunk)
+	}
+	if len(chunks) != 2 || chunks[1].StopReason != provider.StopReasonEndTurn || next.calls.Load()+fallback.calls.Load() != 0 {
+		t.Fatalf("empty answer was replaced: %d chunks, %d other calls", len(chunks), next.calls.Load()+fallback.calls.Load())
+	}
+	if rate := c.stats[0].Metrics().ErrorRate; rate != 0 {
+		t.Errorf("empty answer counted as a failure: %v", rate)
+	}
+
+	silent := completerFunc(func(context.Context, []provider.Message, *provider.CompleteOptions) iter.Seq2[*provider.Completion, error] {
+		return func(func(*provider.Completion, error) bool) {}
+	})
+	c, _ = NewCompleter([]provider.Completer{silent, next}, firstCandidate)
+	if result, err := collect(t, c, t.Context()); err != nil || result.Message.Text() != "backup" {
+		t.Fatalf("a member without any response kept the request: %v %v", result, err)
+	}
+}
+
+func TestDistinctMembersTryNextAfterRejection(t *testing.T) {
+	tooLong := &provider.ProviderError{Code: 400, Message: "prompt is too long"}
+	unsupported := &provider.ProviderError{Code: 422, Message: "images are not supported"}
+
+	small := &mockCompleter{err: tooLong}
+	large := &mockCompleter{response: "ok"}
+	c, _ := NewCompleter([]provider.Completer{small, large}, firstCandidate, WithDistinctMembers())
+	result, err := collect(t, c, t.Context())
+	if err != nil || result.Message.Text() != "ok" {
+		t.Fatalf("rejected request was not tried on the other member: %v %v", result, err)
+	}
+	if metrics := c.stats[0].Metrics(); metrics.ErrorRate != 0 || metrics.Inflight != 0 {
+		t.Errorf("rejection counted against the member: %+v", metrics)
+	}
+
+	c, _ = NewCompleter([]provider.Completer{small, &mockCompleter{err: unsupported}}, firstCandidate, WithDistinctMembers())
+	if _, err := collect(t, c, t.Context()); !errors.Is(err, tooLong) {
+		t.Errorf("want the first rejection, got %v", err)
+	}
+
+	down := &mockCompleter{err: &provider.ProviderError{Code: 503, Message: "overloaded"}}
+	c, _ = NewCompleter([]provider.Completer{small, down}, firstCandidate, WithDistinctMembers())
+	if _, err := collect(t, c, t.Context()); provider.CodeFromError(err, 0) != 503 {
+		t.Errorf("want the failure that may pass, got %v", err)
+	}
+
+	denied := &mockCompleter{err: &provider.ProviderError{Code: 429, Message: "budget exhausted", Err: provider.ErrRejected}}
+	other := &mockCompleter{response: "ok"}
+	c, _ = NewCompleter([]provider.Completer{denied, other}, firstCandidate, WithDistinctMembers())
+	if _, err := collect(t, c, t.Context()); !errors.Is(err, provider.ErrRejected) || other.calls.Load() != 0 {
+		t.Errorf("a rejection that holds for every member moved on: %v", err)
+	}
+}
+
+func TestFallbackHasNoFirstTokenDeadline(t *testing.T) {
+	failing := &mockCompleter{err: errors.New("provider error")}
+	fallback := &mockCompleter{response: "fallback", delay: 100 * time.Millisecond}
+	c, _ := NewCompleter([]provider.Completer{failing}, firstCandidate, WithFallback(fallback), WithFirstTokenTimeout(20*time.Millisecond))
+
+	result, err := collect(t, c, t.Context())
+	if err != nil || result.Message.Text() != "fallback" {
+		t.Fatalf("slow fallback was cut off: %v %v", result, err)
+	}
+}
+
+func TestNestedRouterOwnsFirstTokenDeadline(t *testing.T) {
+	stalled := &mockCompleter{response: "stalled", delay: time.Minute}
+	healthy := &mockCompleter{response: "healthy"}
+	pool, _ := NewCompleter([]provider.Completer{stalled, healthy}, firstCandidate, WithFirstTokenTimeout(30*time.Millisecond))
+	other := &mockCompleter{response: "other"}
+	c, _ := NewCompleter([]provider.Completer{pool, other}, firstCandidate, WithFirstTokenTimeout(30*time.Millisecond))
+
+	result, err := collect(t, c, t.Context())
+	if err != nil || result.Message.Text() != "healthy" || other.calls.Load() != 0 {
+		t.Fatalf("pool did not fail over on its own: %v %v", result, err)
+	}
+	if rate := pool.stats[0].Metrics().ErrorRate; rate <= 0 {
+		t.Error("stalled member was not recorded as failed")
+	}
+	if rate := c.stats[0].Metrics().ErrorRate; rate != 0 {
+		t.Errorf("pool was recorded as failed: %v", rate)
+	}
+
+	// With nothing left in the pool, the outer deadline applies again.
+	hung := &mockCompleter{response: "hung", delay: time.Minute}
+	pool, _ = NewCompleter([]provider.Completer{&mockCompleter{err: errors.New("provider error")}}, firstCandidate, WithFallback(hung), WithFirstTokenTimeout(30*time.Millisecond))
+	c, _ = NewCompleter([]provider.Completer{pool, other}, firstCandidate, WithFirstTokenTimeout(30*time.Millisecond))
+	if result, err := collect(t, c, t.Context()); err != nil || result.Message.Text() != "other" {
+		t.Fatalf("hung fallback of a nested pool kept the request: %v %v", result, err)
+	}
+}
+
+func TestDeliveredStreamIgnoresLateCancellation(t *testing.T) {
+	mock := &mockCompleter{response: "complete"}
+	c, _ := NewCompleter([]provider.Completer{mock}, firstCandidate, WithFailureThreshold(1), WithRecoveryTimeout(time.Millisecond))
+
+	// Open the circuit, so the next request is the probe that must close it.
+	mock.err = errors.New("provider error")
+	collect(t, c, t.Context())
+	mock.err = nil
+	time.Sleep(5 * time.Millisecond)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	for chunk, err := range c.Complete(ctx, nil, nil) {
+		if err != nil {
+			t.Fatalf("complete stream reported %v", err)
+		}
+		if chunk.Message.Text() == "complete" {
+			cancel()
+		}
+	}
+	if state := c.stats[0].Metrics().State; state != CircuitClosed {
+		t.Errorf("delivered probe left the circuit in state %v", state)
+	}
+}

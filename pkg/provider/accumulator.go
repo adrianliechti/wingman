@@ -6,8 +6,9 @@ type CompletionAccumulator struct {
 	id    string
 	model string
 
-	tier             Tier
-	reasoningContext ReasoningContext
+	tier                 Tier
+	reasoningContext     ReasoningContext
+	inputTransformations *[]InputTransformation
 
 	status       CompletionStatus
 	stopReason   StopReason
@@ -83,6 +84,10 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Reasoning != "" {
 		a.reasoningContext = c.Reasoning
+	}
+
+	if c.InputTransformations != nil {
+		a.inputTransformations = c.InputTransformations
 	}
 
 	if c.Status != "" {
@@ -366,6 +371,8 @@ func (a *CompletionAccumulator) Result() *Completion {
 		Model:     a.model,
 		Reasoning: a.reasoningContext,
 		Tier:      a.tier,
+
+		InputTransformations: a.inputTransformations,
 
 		Status:       a.status,
 		StopReason:   a.stopReason,

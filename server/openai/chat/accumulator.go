@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/server/openai/shared"
 
 	"github.com/google/uuid"
 )
@@ -47,7 +48,7 @@ type StreamingAccumulator struct {
 
 	// State tracking
 	streamedRole bool
-	finishReason FinishReason
+	tier         provider.Tier
 
 	// Tool call tracking
 	currentToolCallID string
@@ -61,7 +62,6 @@ func NewStreamingAccumulator(model string, handler StreamEventHandler) *Streamin
 		handler:          handler,
 		id:               "chatcmpl-" + uuid.NewString(),
 		model:            model,
-		finishReason:     FinishReasonStop,
 		toolCallIndices:  make(map[string]int),
 		toolCallArgsSeen: make(map[string]bool),
 	}
@@ -70,6 +70,9 @@ func NewStreamingAccumulator(model string, handler StreamEventHandler) *Streamin
 // Add processes a completion chunk and emits appropriate events
 func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	s.accumulator.Add(c)
+	if c.Tier != "" {
+		s.tier = c.Tier
+	}
 	// Metadata can be absent from later deltas, or arrive after output starts.
 	// Once a chunk is visible, its identity must remain stable through usage.
 	if !s.streamedRole {
@@ -87,7 +90,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	}
 
 	chunk := s.newChunk(ChatCompletionChoice{Delta: &ChatCompletionMessage{}})
-	chunk.ServiceTier = "default"
 
 	if c.Message != nil {
 		message := &ChatCompletionMessage{}
@@ -150,7 +152,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 
 			if len(chunks) > 0 {
-				s.finishReason = FinishReasonToolCalls
 				message.ToolCalls = chunks
 			}
 		}
@@ -177,21 +178,15 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 // Complete signals that streaming is done and emits final events
 func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 	result := s.accumulator.Result()
-
-	// Truncation and content-filter override any earlier tool_calls reason —
-	// the upstream finish_reason flows through Completion.Status.
-	switch result.Status {
-	case provider.CompletionStatusIncomplete:
-		s.finishReason = FinishReasonLength
-	case provider.CompletionStatusRefused:
-		if result.Message == nil || result.Message.Refusal() == "" {
-			s.finishReason = FinishReasonContentFilter
-		}
+	if result.Status == provider.CompletionStatusFailed {
+		return s.Error(shared.CompletionFailure(result))
 	}
+
+	finishReason := chatFinishReason(result, len(s.toolCallIndices) > 0)
 
 	// Calls that streamed no argument bytes must still deliver parseable
 	// arguments — clients rebuild them purely from deltas.
-	if s.finishReason == FinishReasonToolCalls {
+	if finishReason == FinishReasonToolCalls {
 		for _, id := range s.pendingArgumentIDs() {
 			idx := s.toolCallIndices[id]
 
@@ -200,7 +195,6 @@ func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 					ToolCalls: []ToolCall{{Index: &idx, Function: &FunctionCall{Arguments: "{}"}}},
 				},
 			})
-			chunk.ServiceTier = "default"
 
 			if err := s.emitEvent(StreamEvent{
 				Type:  StreamEventChunk,
@@ -211,20 +205,12 @@ func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 		}
 	}
 
-	// Emit finish chunk with reason
-	if s.finishReason != "" {
-		finishChunk := s.newChunk(ChatCompletionChoice{
-			Delta:        &ChatCompletionMessage{},
-			FinishReason: &s.finishReason,
-		})
-
-		if err := s.emitEvent(StreamEvent{
-			Type:       StreamEventFinish,
-			Chunk:      finishChunk,
-			Completion: result,
-		}); err != nil {
-			return err
-		}
+	finishChunk := s.newChunk(ChatCompletionChoice{
+		Delta:        &ChatCompletionMessage{},
+		FinishReason: &finishReason,
+	})
+	if err := s.emitEvent(StreamEvent{Type: StreamEventFinish, Chunk: finishChunk, Completion: result}); err != nil {
+		return err
 	}
 
 	// Emit usage chunk if requested and available
@@ -250,10 +236,11 @@ func (s *StreamingAccumulator) Complete(includeUsage bool) error {
 
 func (s *StreamingAccumulator) newChunk(choices ...ChatCompletionChoice) *ChatCompletion {
 	chunk := &ChatCompletion{
-		Object:  "chat.completion.chunk",
-		ID:      s.id,
-		Model:   s.model,
-		Choices: choices,
+		Object:      "chat.completion.chunk",
+		ID:          s.id,
+		Model:       s.model,
+		ServiceTier: shared.ServiceTier(s.tier),
+		Choices:     choices,
 	}
 	if chunk.Choices == nil {
 		chunk.Choices = []ChatCompletionChoice{}

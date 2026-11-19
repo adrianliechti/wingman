@@ -261,10 +261,10 @@ func TestAdditionalToolsInputReachesProvider(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(completer.gotTools) != 1 || completer.gotTools[0].Name != "get_customer" {
+	if len(completer.gotTools) != 1 || completer.gotTools[0].Name != "get_customer" || !completer.gotTools[0].InputScoped {
 		t.Fatalf("additional_tools did not reach provider: %+v", completer.gotTools)
 	}
-	if len(completer.gotMessages) != 1 || completer.gotMessages[0].Role != provider.MessageRoleUser {
+	if len(completer.gotMessages) != 2 || completer.gotMessages[0].Content[0].AdditionalTools == nil || completer.gotMessages[1].Role != provider.MessageRoleUser {
 		t.Fatalf("conversation input changed unexpectedly: %+v", completer.gotMessages)
 	}
 	if completer.gotReasoning == nil || completer.gotReasoning.Context != provider.ReasoningContextAllTurns {

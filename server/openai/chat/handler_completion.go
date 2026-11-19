@@ -85,8 +85,10 @@ func toCompleteOptions(req ChatCompletionRequest, tools []provider.Tool) *provid
 	}
 
 	options := &provider.CompleteOptions{
-		Stop:  stops,
-		Tools: tools,
+		SafetyIdentifier: req.SafetyIdentifier,
+		Tier:             shared.ParseTier(req.Tier),
+		Stop:             stops,
+		Tools:            tools,
 
 		ToolOptions: toToolOptions(req.ToolChoice),
 
@@ -187,6 +189,10 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 	}
 
 	completion := acc.Result()
+	if completion.Status == provider.CompletionStatusFailed {
+		writeError(w, http.StatusBadGateway, shared.CompletionFailure(completion))
+		return
+	}
 
 	role := MessageRoleAssistant
 
@@ -200,7 +206,7 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 
 		Choices: []ChatCompletionChoice{},
 
-		ServiceTier: "default",
+		ServiceTier: shared.ServiceTier(completion.Tier),
 	}
 
 	if result.Model == "" {
@@ -230,19 +236,7 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 			message.ToolCalls = calls
 		}
 
-		reason := FinishReasonStop
-		switch completion.Status {
-		case provider.CompletionStatusIncomplete:
-			reason = FinishReasonLength
-		case provider.CompletionStatusRefused:
-			if message.Refusal == nil {
-				reason = FinishReasonContentFilter
-			}
-		default:
-			if len(calls) > 0 {
-				reason = FinishReasonToolCalls
-			}
-		}
+		reason := chatFinishReason(completion, len(calls) > 0)
 
 		result.Choices = []ChatCompletionChoice{
 			{
@@ -255,6 +249,25 @@ func (h *Handler) handleChatCompletionComplete(w http.ResponseWriter, r *http.Re
 	result.Usage = toUsage(completion.Usage)
 
 	writeJson(w, result)
+}
+
+func chatFinishReason(completion *provider.Completion, hasCalls bool) FinishReason {
+	switch completion.Status {
+	case provider.CompletionStatusIncomplete:
+		if completion.StopReason == provider.StopReasonRefusal {
+			return FinishReasonContentFilter
+		}
+		return FinishReasonLength
+	case provider.CompletionStatusRefused:
+		if hasCalls || completion.Message == nil || completion.Message.Refusal() == "" {
+			return FinishReasonContentFilter
+		}
+		return FinishReasonStop
+	}
+	if hasCalls {
+		return FinishReasonToolCalls
+	}
+	return FinishReasonStop
 }
 
 func (h *Handler) handleChatCompletionStream(w http.ResponseWriter, r *http.Request, req ChatCompletionRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
@@ -292,6 +305,9 @@ func (h *Handler) handleChatCompletionStream(w http.ResponseWriter, r *http.Requ
 	})
 
 	for c, err := range completer.Complete(r.Context(), messages, options) {
+		if err == nil && c.Status == provider.CompletionStatusFailed {
+			err = shared.CompletionFailure(c)
+		}
 		if err != nil {
 			if !headersSent {
 				writeError(w, http.StatusBadGateway, err)

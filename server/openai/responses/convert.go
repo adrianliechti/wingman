@@ -203,6 +203,32 @@ func toMessages(items []InputItem, instructions string) ([]provider.Message, err
 				})
 			}
 
+		case InputItemTypeAdditionalTools:
+			addition := item.InputAdditionalTools
+			if addition == nil {
+				continue
+			}
+			if addition.Role != "" && addition.Role != MessageRoleDeveloper {
+				return nil, &shared.Error{Param: fmt.Sprintf("input[%d].role", i), Message: "additional_tools requires the developer role"}
+			}
+			var portable []Tool
+			for _, t := range addition.Tools {
+				if supportedToolType(t.Type) {
+					portable = append(portable, t)
+				}
+			}
+			tools, err := toTools(portable)
+			if err != nil {
+				return nil, err
+			}
+			if len(tools) > 0 {
+				flushCalls()
+				flushResults()
+				result = append(result, provider.Message{Content: []provider.Content{
+					{AdditionalTools: &provider.AdditionalTools{ID: addition.ID, Tools: tools}},
+				}})
+			}
+
 		case InputItemTypeConfigurationUpdate:
 			if item.InputConfigurationUpdate == nil {
 				continue
@@ -518,12 +544,6 @@ func requestTools(tools []Tool, items []InputItem) []Tool {
 			continue
 		}
 
-		// The provider abstraction has a request-wide tool list. Promoting an
-		// additional_tools input item's tools preserves their effective
-		// availability for the request.
-		// Hosted tools such as web_search cannot run on BYOK providers like
-		// Azure, so omit those while retaining every portable tool Wingman can
-		// forward.
 		for _, additionalTool := range item.InputAdditionalTools.Tools {
 			if supportedToolType(additionalTool.Type) {
 				result = append(result, additionalTool)

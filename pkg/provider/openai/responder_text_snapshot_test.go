@@ -107,3 +107,68 @@ func TestResponderRepeatedFinalSnapshotsDoNotReopenMessages(t *testing.T) {
 		t.Fatalf("reopened finalized message: %+v", result.Message)
 	}
 }
+
+func TestResponderIncompleteOutput(t *testing.T) {
+	for _, reason := range []string{"content_filter", "max_output_tokens"} {
+		t.Run(reason, func(t *testing.T) {
+			stream := strings.Join([]string{
+				`data: {"type":"response.reasoning_summary_text.delta","item_id":"rs","summary_index":0,"delta":"Part"}`,
+				`data: {"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"` + reason + `"},"output":[{"type":"reasoning","id":"rs","summary":[{"type":"summary_text","text":"Partial summary"}],"encrypted_content":"opaque"},{"type":"message","id":"msg","role":"assistant","content":[{"type":"output_text","text":"partial answer"},{"type":"refusal","refusal":"declined"}]},{"type":"function_call","id":"fc","call_id":"call","name":"lookup","arguments":"{"}]}}`,
+			}, "\n\n") + "\n\n"
+			c, err := textSnapshotResult(t, stream)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Status != provider.CompletionStatusIncomplete || (c.StopReason == provider.StopReasonRefusal) != (reason == "content_filter") {
+				t.Fatalf("wrong completion boundary: %s/%s", c.Status, c.StopReason)
+			}
+			if c.Message.Text() != "partial answer" || c.Message.Refusal() != "declined" || len(c.Message.Content) != 4 {
+				t.Fatalf("partial output changed: %+v", c.Message)
+			}
+			r := c.Message.Content[0].Reasoning
+			if r == nil || r.Signature != "opaque" || r.SummaryText() != "Partial summary" {
+				t.Fatalf("reasoning snapshot changed: %+v", r)
+			}
+			if calls := c.Message.ToolCalls(); len(calls) != 1 || calls[0].Arguments != "{" {
+				t.Fatalf("truncated arguments changed: %+v", calls)
+			}
+		})
+	}
+}
+
+func TestResponderRefusalSnapshots(t *testing.T) {
+	const item = `{"type":"message","id":"msg","role":"assistant","content":[{"type":"refusal","refusal":"declined"}]}`
+	for _, done := range []string{
+		`{"type":"response.refusal.done","item_id":"msg","refusal":"declined"}`,
+		`{"type":"response.content_part.done","item_id":"msg","part":{"type":"refusal","refusal":"declined"}}`,
+		`{"type":"response.output_item.done","item":` + item + `}`,
+	} {
+		stream := "data: " + `{"type":"response.refusal.delta","item_id":"msg","delta":"dec"}` + "\n\ndata: " + done +
+			"\n\ndata: " + `{"type":"response.completed","response":{"status":"completed","output":[` + item + `]}}` + "\n\n"
+		c, err := textSnapshotResult(t, stream)
+		if err != nil || c.Message.Refusal() != "declined" || len(c.Message.Content) != 1 || c.Status != provider.CompletionStatusCompleted {
+			t.Fatalf("refusal snapshot: %+v, %v", c, err)
+		}
+	}
+}
+
+func TestResponderArgumentsDoneWithoutItemDone(t *testing.T) {
+	for _, tc := range []struct{ item, event, field string }{
+		{"function_call", "function_call_arguments", "arguments"},
+		{"custom_tool_call", "custom_tool_call_input", "input"},
+	} {
+		t.Run(tc.item, func(t *testing.T) {
+			stream := fmt.Sprintf("data: "+`{"type":"response.output_item.added","item":{"type":"%s","id":"item","call_id":"call","name":"inspect"}}`+
+				"\n\ndata: "+`{"type":"response.%s.delta","item_id":"item","delta":"a"}`+
+				"\n\ndata: "+`{"type":"response.%s.done","item_id":"item","%s":"abc"}`+
+				"\n\ndata: "+`{"type":"response.completed","response":{"status":"completed"}}`+"\n\n", tc.item, tc.event, tc.event, tc.field)
+			c, err := textSnapshotResult(t, stream)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls := c.Message.ToolCalls(); len(calls) != 1 || calls[0].ID != "call" || calls[0].Arguments != "abc" {
+				t.Fatalf("arguments.done changed: %+v", calls)
+			}
+		})
+	}
+}

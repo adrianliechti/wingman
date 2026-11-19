@@ -136,16 +136,18 @@ type sessionConfig struct {
 	ToolChoice provider.ToolChoice
 
 	OutputModalities []string
-	TurnDetection    *provider.RealtimeTurnDetection
 	Transcription    *provider.RealtimeTranscription
 	NoiseReduction   provider.RealtimeNoiseReduction
 	Truncation       *provider.RealtimeTruncation
 
+	// TurnDetection is nil when detection is off. Until the client sets it,
+	// it only reports the provider's default, which the provider applies.
+	TurnDetection    *provider.RealtimeTurnDetection
 	turnDetectionSet bool
 }
 
 func newSessionConfig(defaults provider.RealtimeOptions) sessionConfig {
-	modalities := modalityStrings(defaults.OutputModalities)
+	modalities := modalityStrings(defaults.Output.Modalities)
 	if len(modalities) == 0 {
 		modalities = []string{"audio"}
 	}
@@ -154,10 +156,10 @@ func newSessionConfig(defaults provider.RealtimeOptions) sessionConfig {
 		Type: sessionTypeRealtime,
 
 		Instructions: defaults.Instructions,
-		Voice:        defaults.Voice,
+		Voice:        defaults.Output.Voice,
 
-		InputAudio:  defaults.InputAudio,
-		OutputAudio: defaults.OutputAudio,
+		InputAudio:  defaults.Input.Audio,
+		OutputAudio: defaults.Output.Audio,
 
 		MaxTokens: defaults.MaxTokens,
 
@@ -165,9 +167,9 @@ func newSessionConfig(defaults provider.RealtimeOptions) sessionConfig {
 		ToolChoice: defaults.ToolChoice,
 
 		OutputModalities: modalities,
-		TurnDetection:    cloneTurnDetection(defaults.TurnDetection),
-		Transcription:    cloneTranscription(defaults.InputTranscription),
-		NoiseReduction:   defaults.InputNoiseReduction,
+		TurnDetection:    declaredTurnDetection(defaults.Input.TurnDetection),
+		Transcription:    cloneTranscription(defaults.Input.Transcription),
+		NoiseReduction:   defaults.Input.NoiseReduction,
 		Truncation:       cloneTruncation(defaults.Truncation),
 	}
 }
@@ -178,7 +180,7 @@ func newTranscriptionConfig() sessionConfig {
 
 		InputAudio: openAIAudioFormat(provider.RealtimeAudioPCM),
 
-		TurnDetection: &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionServer},
+		TurnDetection: declaredTurnDetection(nil),
 	}
 }
 
@@ -186,7 +188,7 @@ func newTranslationConfig(defaults provider.RealtimeOptions) sessionConfig {
 	return sessionConfig{
 		Type: sessionTypeTranslation,
 
-		Language:   defaults.OutputLanguage,
+		Language:   defaults.Output.Language,
 		InputAudio: openAIAudioFormat(provider.RealtimeAudioPCM),
 	}
 }
@@ -242,46 +244,50 @@ func (c *sessionConfig) applyTranslation(data jsontext.Value) error {
 }
 
 func (c sessionConfig) options(history []provider.Message) provider.RealtimeOptions {
-	if c.Type == sessionTypeTranslation {
-		return provider.RealtimeOptions{
-			OutputLanguage: c.Language,
+	// Every session type streams the same kind of input.
+	input := provider.RealtimeInputOptions{
+		Audio: c.InputAudio,
 
-			InputAudio: c.InputAudio,
-
-			InputTranscription:  cloneTranscription(c.Transcription),
-			InputNoiseReduction: c.NoiseReduction,
-		}
+		TurnDetection:  c.providerTurnDetection(),
+		Transcription:  cloneTranscription(c.Transcription),
+		NoiseReduction: c.NoiseReduction,
 	}
 
-	if c.Type == sessionTypeTranscription {
+	switch c.Type {
+	case sessionTypeTranslation:
 		return provider.RealtimeOptions{
-			InputAudio: c.InputAudio,
+			Input:  input,
+			Output: provider.RealtimeOutputOptions{Language: c.Language},
+		}
 
-			OutputModalities:    []provider.RealtimeModality{provider.RealtimeModalityText},
-			TurnDetection:       cloneTurnDetection(c.TurnDetection),
-			InputTranscription:  cloneTranscription(c.Transcription),
-			InputNoiseReduction: c.NoiseReduction,
+	case sessionTypeTranscription:
+		return provider.RealtimeOptions{
+			Input: input,
+			Output: provider.RealtimeOutputOptions{
+				Modalities: []provider.RealtimeModality{provider.RealtimeModalityText},
+			},
 		}
 	}
 
 	return provider.RealtimeOptions{
 		Instructions: c.Instructions,
-		Voice:        c.Voice,
-
-		InputAudio:  c.InputAudio,
-		OutputAudio: c.OutputAudio,
 
 		MaxTokens: c.MaxTokens,
 
 		Tools:      slices.Clone(c.Tools),
 		ToolChoice: c.ToolChoice,
 
-		OutputModalities:    providerModalities(c.OutputModalities),
-		TurnDetection:       cloneTurnDetection(c.TurnDetection),
-		InputTranscription:  cloneTranscription(c.Transcription),
-		InputNoiseReduction: c.NoiseReduction,
-		OutputTranscription: containsModality(c.OutputModalities, "audio"),
-		Truncation:          cloneTruncation(c.Truncation),
+		Truncation: cloneTruncation(c.Truncation),
+
+		Input: input,
+		Output: provider.RealtimeOutputOptions{
+			Modalities: providerModalities(c.OutputModalities),
+
+			Audio: c.OutputAudio,
+			Voice: c.Voice,
+
+			Transcription: containsModality(c.OutputModalities, "audio"),
+		},
 
 		History: slices.Clone(history),
 	}
@@ -376,6 +382,7 @@ func (c *sessionConfig) apply(data jsontext.Value) error {
 			return fmt.Errorf("session.turn_detection: %w", err)
 		}
 		updated.TurnDetection = turnDetection
+		updated.turnDetectionSet = true
 	}
 
 	if raw, ok := fields["audio"]; ok {
@@ -1013,6 +1020,33 @@ func providerModalities(values []string) []provider.RealtimeModality {
 		result[i] = provider.RealtimeModality(value)
 	}
 	return result
+}
+
+// providerTurnDetection passes the client's choice through. Before the client
+// chooses it is nil, so the provider keeps its own default.
+func (c sessionConfig) providerTurnDetection() *provider.RealtimeTurnDetection {
+	if !c.turnDetectionSet {
+		return nil
+	}
+	if c.TurnDetection == nil {
+		return &provider.RealtimeTurnDetection{Type: provider.RealtimeTurnDetectionNone}
+	}
+	return cloneTurnDetection(c.TurnDetection)
+}
+
+// declaredTurnDetection reports a provider's default in session terms, where
+// nil means off. A provider that declares none leaves it to its service and is
+// reported with the protocol's default, server VAD.
+func declaredTurnDetection(defaults *provider.RealtimeTurnDetection) *provider.RealtimeTurnDetection {
+	switch {
+	case defaults == nil:
+		return &provider.RealtimeTurnDetection{
+			Type: provider.RealtimeTurnDetectionServer, CreateResponse: true, InterruptResponse: true,
+		}
+	case defaults.Disabled():
+		return nil
+	}
+	return cloneTurnDetection(defaults)
 }
 
 func cloneTurnDetection(value *provider.RealtimeTurnDetection) *provider.RealtimeTurnDetection {

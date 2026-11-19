@@ -33,8 +33,16 @@ func (d ImageDetail) Valid() bool {
 	}
 }
 
+// AdditionalTools declares tools at a particular point in a Responses history.
+type AdditionalTools struct {
+	ID    string
+	Tools []Tool
+}
+
 type Tool struct {
-	Kind ToolKind
+	// InputScoped marks a request-wide fallback for a positional declaration.
+	InputScoped bool
+	Kind        ToolKind
 
 	// Dialect disambiguates built-in tools sharing a name across protocols
 	// ("computer"). Empty means the backend's own dialect.

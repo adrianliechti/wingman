@@ -59,28 +59,50 @@ func UnsupportedRealtimeOperation(operation string) error {
 
 type RealtimeOptions struct {
 	Instructions string
-	Voice        string
-
-	OutputLanguage string
-
-	InputAudio  RealtimeAudioFormat
-	OutputAudio RealtimeAudioFormat
 
 	MaxTokens *int
 
 	Tools      []Tool
 	ToolChoice ToolChoice
 
-	OutputModalities    []RealtimeModality
-	TurnDetection       *RealtimeTurnDetection
-	InputTranscription  *RealtimeTranscription
-	InputNoiseReduction RealtimeNoiseReduction
-	OutputTranscription bool
-	Truncation          *RealtimeTruncation
+	Truncation *RealtimeTruncation
+
+	// Transcription and translation sessions set Input and only the output
+	// modality or language; conversations configure both sides.
+	Input  RealtimeInputOptions
+	Output RealtimeOutputOptions
 
 	// History is sent before interactive input starts. Providers whose native
 	// protocol has a dedicated history phase can therefore preserve ordering.
 	History []Message
+}
+
+// RealtimeInputOptions configures the audio the client streams in.
+type RealtimeInputOptions struct {
+	Audio RealtimeAudioFormat
+
+	// TurnDetection is nil to keep the provider's native default, which
+	// Defaults declares when the provider knows it. RealtimeTurnDetectionNone
+	// turns detection off so the client commits each turn.
+	TurnDetection *RealtimeTurnDetection
+
+	// Transcription is nil when the input is not transcribed.
+	Transcription  *RealtimeTranscription
+	NoiseReduction RealtimeNoiseReduction
+}
+
+// RealtimeOutputOptions configures what the provider produces.
+type RealtimeOutputOptions struct {
+	Modalities []RealtimeModality
+
+	Audio RealtimeAudioFormat
+	Voice string
+
+	// Transcription requests a transcript of the output audio.
+	Transcription bool
+
+	// Language is the target language of a translation.
+	Language string
 }
 
 type RealtimeResponseOptions struct {
@@ -124,9 +146,16 @@ type RealtimeTurnDetection struct {
 type RealtimeTurnDetectionType string
 
 const (
+	RealtimeTurnDetectionNone     RealtimeTurnDetectionType = "none"
 	RealtimeTurnDetectionServer   RealtimeTurnDetectionType = "server_vad"
 	RealtimeTurnDetectionSemantic RealtimeTurnDetectionType = "semantic_vad"
 )
+
+// Disabled reports whether turn detection is explicitly off. Nil is not
+// disabled: it defers to the provider's default.
+func (t *RealtimeTurnDetection) Disabled() bool {
+	return t != nil && t.Type == RealtimeTurnDetectionNone
+}
 
 type RealtimeTranscription struct {
 	Model     string

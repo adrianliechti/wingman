@@ -52,7 +52,7 @@ func TestResponsesTier(t *testing.T) {
 			{`,"service_tier":"priority"`, provider.TierPriority},
 			{`,"service_tier":"unknown"`, ""},
 			{`,"service_tier":"fast"`, provider.TierPriority},
-			{`,"service_tier":"ultrafast"`, ""},
+			{`,"service_tier":"ultrafast"`, provider.TierUltra},
 		} {
 			t.Run(fmt.Sprintf("stream=%v/%s", stream, test.input), func(t *testing.T) {
 				c := &tierCompleter{reported: provider.TierPriority}
@@ -93,7 +93,7 @@ func TestResponsesTier(t *testing.T) {
 }
 
 func TestResponseTierUnavailable(t *testing.T) {
-	for _, completion := range []*provider.Completion{nil, {}, {Tier: "unknown"}, {Tier: "ultrafast"}} {
+	for _, completion := range []*provider.Completion{nil, {}, {Tier: "unknown"}} {
 		resp := &Response{}
 		responseDefaults(resp, ResponsesRequest{Tier: "flex"}, completion)
 		if resp.Tier != nil {

@@ -107,3 +107,46 @@ func TestResponderInput_CustomToolCallKeepsNamespace(t *testing.T) {
 		t.Fatalf("custom_tool_call item: %+v", item)
 	}
 }
+
+func TestResponderAdditionalToolsPosition(t *testing.T) {
+	initial := provider.Tool{Name: "before"}
+	added := provider.Tool{Name: "later"}
+	addition := &provider.AdditionalTools{ID: "at_1", Tools: []provider.Tool{added}}
+	added.InputScoped = true
+	options := &provider.CompleteOptions{Tools: []provider.Tool{initial, added}}
+	messages := []provider.Message{provider.UserMessage("before"), {Content: []provider.Content{{AdditionalTools: addition}}}, provider.UserMessage("after")}
+
+	for _, tc := range []struct {
+		endpoint, model string
+		positional      bool
+	}{
+		{"https://api.openai.com/v1", "gpt-6.2-astra", true},
+		{"https://api.openai.com/v1", "gpt-6.2-sol", true},
+		{"https://api.openai.com/v1", "gpt-4o", false},
+		{"https://example.test/v1", "gpt-6.2-sol", false},
+	} {
+		t.Run(tc.endpoint+"/"+tc.model, func(t *testing.T) {
+			responder, err := NewResponder(tc.endpoint, tc.model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := responsesRequestBody(t, responder, messages, options)
+			tools := requestTools(t, body)
+			input := body["input"].([]any)
+			if !tc.positional {
+				if len(input) != 2 || len(tools) != 2 || tools[1]["name"] != "later" {
+					t.Fatalf("request-wide tool availability changed: %+v", body)
+				}
+				return
+			}
+			if len(input) != 3 || len(tools) != 1 || tools[0]["name"] != "before" {
+				t.Fatalf("initial tool list or input order changed: %+v", body)
+			}
+			item := input[1].(map[string]any)
+			more := requestTools(t, item)
+			if item["type"] != "additional_tools" || item["role"] != "developer" || item["id"] != "at_1" || len(more) != 1 || more[0]["name"] != "later" {
+				t.Fatalf("tool declaration changed: %+v", item)
+			}
+		})
+	}
+}

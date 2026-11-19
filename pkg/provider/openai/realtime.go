@@ -63,45 +63,53 @@ func NewRealtime(rawURL, model string, options ...Option) (*Realtime, error) {
 }
 
 func (r *Realtime) Defaults() provider.RealtimeOptions {
+	audio := provider.RealtimeAudioFormat{
+		Encoding:   provider.RealtimeAudioPCM,
+		SampleRate: 24000,
+		SampleSize: 16,
+		Channels:   1,
+	}
+
 	defaults := provider.RealtimeOptions{
-		Voice: "marin",
-		InputAudio: provider.RealtimeAudioFormat{
-			Encoding:   provider.RealtimeAudioPCM,
-			SampleRate: 24000,
-			SampleSize: 16,
-			Channels:   1,
+		ToolChoice: provider.ToolChoiceAuto,
+
+		Input: provider.RealtimeInputOptions{
+			Audio: audio,
+
+			TurnDetection: &provider.RealtimeTurnDetection{
+				Type:              provider.RealtimeTurnDetectionServer,
+				CreateResponse:    true,
+				InterruptResponse: true,
+			},
 		},
-		OutputAudio: provider.RealtimeAudioFormat{
-			Encoding:   provider.RealtimeAudioPCM,
-			SampleRate: 24000,
-			SampleSize: 16,
-			Channels:   1,
+
+		Output: provider.RealtimeOutputOptions{
+			Modalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
+
+			Audio: audio,
+			Voice: "marin",
+
+			Transcription: true,
 		},
-		ToolChoice:       provider.ToolChoiceAuto,
-		OutputModalities: []provider.RealtimeModality{provider.RealtimeModalityAudio},
-		TurnDetection: &provider.RealtimeTurnDetection{
-			Type:              provider.RealtimeTurnDetectionServer,
-			CreateResponse:    true,
-			InterruptResponse: true,
-		},
-		OutputTranscription: true,
 	}
 
 	if isTranscriptionModel(r.model) {
-		defaults.OutputModalities = []provider.RealtimeModality{provider.RealtimeModalityText}
-		defaults.InputTranscription = &provider.RealtimeTranscription{Model: r.model}
-		defaults.OutputTranscription = false
+		defaults.Input.Transcription = &provider.RealtimeTranscription{Model: r.model}
 
-		// The live models reject turn detection; the client commits.
-		if model := strings.ToLower(r.model); strings.Contains(model, "live-transcribe") || strings.Contains(model, "realtime-whisper") {
-			defaults.TurnDetection = nil
-		}
+		// Transcription services disagree: some segment with server VAD, others
+		// (gpt-live-transcribe, MAI-Transcribe) only finalize on commit. The
+		// service's own default applies until the client chooses.
+		defaults.Input.TurnDetection = nil
+
+		defaults.Output.Modalities = []provider.RealtimeModality{provider.RealtimeModalityText}
+		defaults.Output.Transcription = false
 	}
 
 	if isTranslationModel(r.model) {
-		defaults.TurnDetection = nil
+		defaults.Input.TurnDetection = nil
+
 		// OpenAI translates to Spanish until the session names a language.
-		defaults.OutputLanguage = "es"
+		defaults.Output.Language = "es"
 	}
 
 	return defaults
@@ -144,7 +152,7 @@ func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 
 	headers := make(http.Header)
 	if r.token != "" {
-		if r.isAzure() {
+		if r.isAzureResource() {
 			headers.Set("api-key", r.token)
 		} else {
 			headers.Set("Authorization", "Bearer "+r.token)
@@ -171,7 +179,7 @@ func (r *Realtime) Connect(ctx context.Context, options *provider.RealtimeOption
 		events:      make(chan provider.RealtimeEvent, 128),
 		ready:       make(chan error, 1),
 		contents:    make(map[string]provider.RealtimeContentType),
-		transcripts: make(map[string]bool),
+		transcripts: make(map[string]*strings.Builder),
 		translation: translation,
 	}
 	if transcription {
@@ -276,42 +284,42 @@ func mergeOpenAIRealtimeOptions(defaults provider.RealtimeOptions, options *prov
 	result := *options
 	result.Tools = slices.Clone(options.Tools)
 	result.History = slices.Clone(options.History)
-	result.OutputModalities = slices.Clone(options.OutputModalities)
-	if options.TurnDetection != nil {
-		turnDetection := *options.TurnDetection
-		result.TurnDetection = &turnDetection
+	result.Output.Modalities = slices.Clone(options.Output.Modalities)
+	if options.Input.TurnDetection != nil {
+		turnDetection := *options.Input.TurnDetection
+		result.Input.TurnDetection = &turnDetection
 	}
-	if options.InputTranscription != nil {
-		transcription := *options.InputTranscription
-		result.InputTranscription = &transcription
+	if options.Input.Transcription != nil {
+		transcription := *options.Input.Transcription
+		result.Input.Transcription = &transcription
 	}
 	if options.Truncation != nil {
 		truncation := *options.Truncation
 		result.Truncation = &truncation
 	}
 
-	if result.Voice == "" {
-		result.Voice = defaults.Voice
+	if result.Output.Voice == "" {
+		result.Output.Voice = defaults.Output.Voice
 	}
-	if result.InputAudio.Encoding == "" {
-		result.InputAudio = defaults.InputAudio
+	if result.Input.Audio.Encoding == "" {
+		result.Input.Audio = defaults.Input.Audio
 	}
-	if result.OutputAudio.Encoding == "" {
-		result.OutputAudio = defaults.OutputAudio
+	if result.Output.Audio.Encoding == "" {
+		result.Output.Audio = defaults.Output.Audio
 	}
 	if result.ToolChoice == "" {
 		result.ToolChoice = defaults.ToolChoice
 	}
-	if len(result.OutputModalities) == 0 {
-		result.OutputModalities = slices.Clone(defaults.OutputModalities)
+	if len(result.Output.Modalities) == 0 {
+		result.Output.Modalities = slices.Clone(defaults.Output.Modalities)
 	}
 	return result
 }
 
 func validateOpenAIRealtimeOptions(options provider.RealtimeOptions, inputOnly bool) error {
-	formats := map[string]provider.RealtimeAudioFormat{"input": options.InputAudio}
+	formats := map[string]provider.RealtimeAudioFormat{"input": options.Input.Audio}
 	if !inputOnly {
-		formats["output"] = options.OutputAudio
+		formats["output"] = options.Output.Audio
 	}
 	for name, format := range formats {
 		if format.Channels != 1 {
@@ -331,7 +339,7 @@ func validateOpenAIRealtimeOptions(options provider.RealtimeOptions, inputOnly b
 		}
 	}
 
-	if !inputOnly && len(options.OutputModalities) != 1 {
+	if !inputOnly && len(options.Output.Modalities) != 1 {
 		return errors.New("openai realtime: exactly one output modality is required")
 	}
 	return nil
@@ -349,8 +357,15 @@ type openAIRealtimeSession struct {
 	closeOnce sync.Once
 	closed    atomic.Bool
 
-	contents    map[string]provider.RealtimeContentType
-	transcripts map[string]bool
+	contents map[string]provider.RealtimeContentType
+
+	// transcripts holds the finalized text of each input transcript in progress.
+	transcripts map[string]*strings.Builder
+
+	// MAI omits item ids on commit and completion events; they refer to the
+	// oldest transcript item still awaiting one, in order of first output.
+	uncommitted []string
+	incomplete  []string
 
 	transcriptionModel string
 	translation        bool
@@ -383,27 +398,27 @@ func (s *openAIRealtimeSession) Update(ctx context.Context, options *provider.Re
 
 func openAITranslationSessionObject(options provider.RealtimeOptions) map[string]any {
 	var transcription any
-	if options.InputTranscription != nil {
-		transcription = map[string]any{"model": options.InputTranscription.Model}
+	if options.Input.Transcription != nil {
+		transcription = map[string]any{"model": options.Input.Transcription.Model}
 	}
 	var noiseReduction any
-	if options.InputNoiseReduction != "" {
-		noiseReduction = map[string]any{"type": string(options.InputNoiseReduction)}
+	if options.Input.NoiseReduction != "" {
+		noiseReduction = map[string]any{"type": string(options.Input.NoiseReduction)}
 	}
 
 	return map[string]any{
 		"audio": map[string]any{
 			"input":  map[string]any{"transcription": transcription, "noise_reduction": noiseReduction},
-			"output": map[string]any{"language": options.OutputLanguage},
+			"output": map[string]any{"language": options.Output.Language},
 		},
 	}
 }
 
 func openAITranscriptionSessionObject(model string, options provider.RealtimeOptions) map[string]any {
-	if options.InputTranscription != nil {
-		transcription := *options.InputTranscription
+	if options.Input.Transcription != nil {
+		transcription := *options.Input.Transcription
 		transcription.Model = model
-		options.InputTranscription = &transcription
+		options.Input.Transcription = &transcription
 	}
 
 	input := openAISessionObject(options)["audio"].(map[string]any)["input"].(map[string]any)
@@ -439,63 +454,45 @@ func openAISessionObject(options provider.RealtimeOptions) map[string]any {
 	if options.MaxTokens != nil {
 		maxTokens = *options.MaxTokens
 	}
-	var turnDetection any
-	if options.TurnDetection != nil {
-		detectionType := options.TurnDetection.Type
-		if detectionType == "" {
-			detectionType = provider.RealtimeTurnDetectionServer
-		}
-		config := map[string]any{
-			"type":               string(detectionType),
-			"create_response":    options.TurnDetection.CreateResponse,
-			"interrupt_response": options.TurnDetection.InterruptResponse,
-		}
-		if options.TurnDetection.Eagerness != "" {
-			config["eagerness"] = options.TurnDetection.Eagerness
-		}
-		if options.TurnDetection.Threshold != nil {
-			config["threshold"] = *options.TurnDetection.Threshold
-		}
-		if options.TurnDetection.PrefixPadding > 0 {
-			config["prefix_padding_ms"] = options.TurnDetection.PrefixPadding.Milliseconds()
-		}
-		if options.TurnDetection.SilenceDuration > 0 {
-			config["silence_duration_ms"] = options.TurnDetection.SilenceDuration.Milliseconds()
-		}
-		if options.TurnDetection.IdleTimeout > 0 {
-			config["idle_timeout_ms"] = options.TurnDetection.IdleTimeout.Milliseconds()
-		}
-		turnDetection = config
-	}
 	var transcription any
-	if options.InputTranscription != nil {
-		model := options.InputTranscription.Model
+	if options.Input.Transcription != nil {
+		model := options.Input.Transcription.Model
 		if model == "" {
 			model = "gpt-live-transcribe"
 		}
 		config := map[string]any{"model": model}
-		if options.InputTranscription.Language != "" {
-			config["language"] = options.InputTranscription.Language
+		if options.Input.Transcription.Language != "" {
+			config["language"] = options.Input.Transcription.Language
 		}
-		if len(options.InputTranscription.Languages) > 0 {
-			config["languages"] = options.InputTranscription.Languages
+		if len(options.Input.Transcription.Languages) > 0 {
+			config["languages"] = options.Input.Transcription.Languages
 		}
-		if options.InputTranscription.Prompt != "" {
-			config["prompt"] = options.InputTranscription.Prompt
+		if options.Input.Transcription.Prompt != "" {
+			config["prompt"] = options.Input.Transcription.Prompt
 		}
-		if options.InputTranscription.Delay != "" {
-			config["delay"] = options.InputTranscription.Delay
+		if options.Input.Transcription.Delay != "" {
+			config["delay"] = options.Input.Transcription.Delay
 		}
 		transcription = config
 	}
 	var noiseReduction any
-	if options.InputNoiseReduction != "" {
-		noiseReduction = map[string]any{"type": string(options.InputNoiseReduction)}
+	if options.Input.NoiseReduction != "" {
+		noiseReduction = map[string]any{"type": string(options.Input.NoiseReduction)}
 	}
 
-	modalities := make([]string, len(options.OutputModalities))
-	for i, modality := range options.OutputModalities {
+	modalities := make([]string, len(options.Output.Modalities))
+	for i, modality := range options.Output.Modalities {
 		modalities[i] = string(modality)
+	}
+
+	input := map[string]any{
+		"format":          openAIAudioFormat(options.Input.Audio),
+		"transcription":   transcription,
+		"noise_reduction": noiseReduction,
+	}
+	// Leaving turn_detection out keeps the service's current setting.
+	if options.Input.TurnDetection != nil {
+		input["turn_detection"] = openAITurnDetection(options.Input.TurnDetection)
 	}
 
 	result := map[string]any{
@@ -507,15 +504,10 @@ func openAISessionObject(options provider.RealtimeOptions) map[string]any {
 		"tools":             tools,
 		"tool_choice":       openAIToolChoice(options.ToolChoice),
 		"audio": map[string]any{
-			"input": map[string]any{
-				"format":          openAIAudioFormat(options.InputAudio),
-				"transcription":   transcription,
-				"noise_reduction": noiseReduction,
-				"turn_detection":  turnDetection,
-			},
+			"input": input,
 			"output": map[string]any{
-				"format": openAIAudioFormat(options.OutputAudio),
-				"voice":  openAIVoice(options.Voice),
+				"format": openAIAudioFormat(options.Output.Audio),
+				"voice":  openAIVoice(options.Output.Voice),
 			},
 		},
 	}
@@ -534,6 +526,38 @@ func openAISessionObject(options provider.RealtimeOptions) map[string]any {
 		}
 	}
 	return result
+}
+
+func openAITurnDetection(detection *provider.RealtimeTurnDetection) any {
+	if detection.Disabled() {
+		return nil
+	}
+
+	detectionType := detection.Type
+	if detectionType == "" {
+		detectionType = provider.RealtimeTurnDetectionServer
+	}
+	config := map[string]any{
+		"type":               string(detectionType),
+		"create_response":    detection.CreateResponse,
+		"interrupt_response": detection.InterruptResponse,
+	}
+	if detection.Eagerness != "" {
+		config["eagerness"] = detection.Eagerness
+	}
+	if detection.Threshold != nil {
+		config["threshold"] = *detection.Threshold
+	}
+	if detection.PrefixPadding > 0 {
+		config["prefix_padding_ms"] = detection.PrefixPadding.Milliseconds()
+	}
+	if detection.SilenceDuration > 0 {
+		config["silence_duration_ms"] = detection.SilenceDuration.Milliseconds()
+	}
+	if detection.IdleTimeout > 0 {
+		config["idle_timeout_ms"] = detection.IdleTimeout.Milliseconds()
+	}
+	return config
 }
 
 func openAIVoice(voice string) any {
@@ -832,6 +856,7 @@ type openAIRealtimeEvent struct {
 	AudioEndMS     int64                     `json:"audio_end_ms"`
 	ElapsedMS      int64                     `json:"elapsed_ms"`
 	Delta          string                    `json:"delta"`
+	Intermediate   string                    `json:"intermediate"`
 	Text           string                    `json:"text"`
 	Transcript     string                    `json:"transcript"`
 	Speaker        string                    `json:"speaker"`
@@ -902,6 +927,15 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventError, Err: fmt.Errorf("openai realtime: decode event: %w", err)}}
 	}
 
+	if value.ItemID == "" {
+		switch value.Type {
+		case "input_audio_buffer.committed":
+			value.ItemID = oldest(s.uncommitted)
+		case "conversation.item.input_audio_transcription.completed", "conversation.item.input_audio_transcription.failed":
+			value.ItemID = oldest(s.incomplete)
+		}
+	}
+
 	contentID := fmt.Sprintf("%s:%d", value.ItemID, value.ContentIndex)
 	switch value.Type {
 	case "response.created":
@@ -943,17 +977,35 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 		}
 
 	case "conversation.item.input_audio_transcription.delta":
+		s.trackTranscript(value.ItemID)
 		var events []provider.RealtimeEvent
-		if !s.transcripts[contentID] {
-			s.transcripts[contentID] = true
+		text, ok := s.transcripts[contentID]
+		if !ok {
+			text = new(strings.Builder)
+			s.transcripts[contentID] = text
 			events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ContentID: contentID, ItemID: value.ItemID, ContentType: provider.RealtimeContentText, Role: provider.MessageRoleUser, Stage: provider.RealtimeGenerationFinal})
 		}
+		text.WriteString(value.Delta)
 		events = append(events, provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ContentID: contentID, ItemID: value.ItemID, Text: value.Delta})
 		return events
 
+	case "conversation.item.input_audio_transcription.intermediate":
+		// MAI's provisional suffix replaces the previous one and follows the
+		// finalized deltas; together they form the current hypothesis.
+		s.trackTranscript(value.ItemID)
+		var final string
+		if text := s.transcripts[contentID]; text != nil {
+			final = text.String()
+		}
+		return []provider.RealtimeEvent{{
+			Type: provider.RealtimeEventInputTranscriptionPreview, ContentID: contentID, ItemID: value.ItemID,
+			Text: final + value.Intermediate, Stage: provider.RealtimeGenerationSpeculative,
+		}}
+
 	case "conversation.item.input_audio_transcription.completed":
+		s.finishTranscript(value.ItemID)
 		var events []provider.RealtimeEvent
-		if !s.transcripts[contentID] {
+		if _, ok := s.transcripts[contentID]; !ok {
 			events = append(events,
 				provider.RealtimeEvent{Type: provider.RealtimeEventContentStarted, ContentID: contentID, ItemID: value.ItemID, ContentType: provider.RealtimeContentText, Role: provider.MessageRoleUser, Stage: provider.RealtimeGenerationFinal},
 				provider.RealtimeEvent{Type: provider.RealtimeEventTextDelta, ContentID: contentID, ItemID: value.ItemID, Text: value.Transcript},
@@ -989,6 +1041,7 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 	case "input_audio_buffer.speech_stopped":
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventInputSpeechStopped, ItemID: value.ItemID, AudioEnd: time.Duration(value.AudioEndMS) * time.Millisecond}}
 	case "input_audio_buffer.committed":
+		s.uncommitted = slices.DeleteFunc(s.uncommitted, func(id string) bool { return id == value.ItemID })
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventInputCommitted, ItemID: value.ItemID, PreviousItemID: value.PreviousItemID}}
 	case "input_audio_buffer.cleared":
 		return []provider.RealtimeEvent{{Type: provider.RealtimeEventInputCleared}}
@@ -1029,6 +1082,7 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 		return events
 
 	case "conversation.item.input_audio_transcription.failed":
+		s.finishTranscript(value.ItemID)
 		delete(s.transcripts, contentID)
 		message := value.Error.Message
 		if message == "" {
@@ -1055,6 +1109,29 @@ func (s *openAIRealtimeSession) translate(data []byte) []provider.RealtimeEvent 
 	}
 
 	return nil
+}
+
+// trackTranscript records the first output of an input transcript item so
+// that events without an item id can be attributed to it.
+func (s *openAIRealtimeSession) trackTranscript(itemID string) {
+	if itemID == "" || slices.Contains(s.incomplete, itemID) {
+		return
+	}
+	s.uncommitted = append(s.uncommitted, itemID)
+	s.incomplete = append(s.incomplete, itemID)
+}
+
+func (s *openAIRealtimeSession) finishTranscript(itemID string) {
+	matches := func(id string) bool { return id == itemID }
+	s.uncommitted = slices.DeleteFunc(s.uncommitted, matches)
+	s.incomplete = slices.DeleteFunc(s.incomplete, matches)
+}
+
+func oldest(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0]
 }
 
 func openAIContentType(value string) provider.RealtimeContentType {

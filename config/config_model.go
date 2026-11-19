@@ -131,7 +131,8 @@ func DetectModelType(id string) ModelType {
 	realtime := []string{
 		"realtime",
 		"sonic",
-		"-live", // gemini-3.8-live, gemini-live-2.5-flash, gpt-live-transcribe, …
+		"-live",      // gemini-3.8-live, gemini-live-2.5-flash, gpt-live-transcribe, …
+		"-streaming", // MAI-Transcribe-2-Streaming
 		"native-audio",
 	}
 

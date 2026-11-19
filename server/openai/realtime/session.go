@@ -327,7 +327,7 @@ func (s *openAISession) updateSession(ctx context.Context, event clientEvent) er
 			return err
 		}
 		if !updated.turnDetectionSet {
-			updated.TurnDetection = cloneTurnDetection(realtime.Defaults().TurnDetection)
+			updated.TurnDetection = declaredTurnDetection(realtime.Defaults().Input.TurnDetection)
 		}
 
 		s.provider = realtime

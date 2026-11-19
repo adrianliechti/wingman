@@ -45,7 +45,7 @@ func (h *Handler) handleRealtime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if translation && realtime.Defaults().OutputLanguage == "" {
+	if translation && realtime.Defaults().Output.Language == "" {
 		http.Error(w, "realtime model does not translate: "+model, http.StatusBadRequest)
 		return
 	}

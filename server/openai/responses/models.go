@@ -34,6 +34,7 @@ type ResponsesRequest struct {
 
 	Include []string `json:"include,omitempty"`
 
+	SafetyIdentifier     *string             `json:"safety_identifier,omitzero"`
 	PromptCacheKey       *string             `json:"prompt_cache_key,omitzero"`
 	PromptCacheRetention *string             `json:"prompt_cache_retention,omitzero"`
 	PromptCacheOptions   *PromptCacheOptions `json:"prompt_cache_options,omitzero"`
@@ -793,7 +794,7 @@ type Response struct {
 
 	Output []ResponseOutput `json:"output"`
 
-	// Omitted until the adapters report the reasoning they drop; an empty list would claim none was.
+	// Omitted when the provider does not report reasoning removals.
 	InputTransformations []InputTransformation `json:"input_transformations,omitzero"`
 
 	FrequencyPenalty float32 `json:"frequency_penalty"`
@@ -815,13 +816,7 @@ type Response struct {
 	Billing   *ResponseBilling `json:"billing,omitzero"`
 }
 
-// InputTransformation is a reasoning input withheld from the model.
-type InputTransformation struct {
-	ID     string `json:"id"`
-	Action string `json:"action"`
-	Reason string `json:"reason"`
-	Type   string `json:"type"`
-}
+type InputTransformation = provider.InputTransformation
 
 // These hosted tools are not executed by the Responses gateway, so their
 // usage remains zero. Ordinary function calls are counted in Usage instead.
