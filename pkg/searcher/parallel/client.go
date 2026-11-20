@@ -35,7 +35,9 @@ func New(client *http.Client) (*Client, error) {
 	return &Client{mcp: upstream}, nil
 }
 
-func (c *Client) SearchCapabilities() searcher.Capabilities { return searcher.Capabilities{} }
+func (c *Client) SearchCapabilities() searcher.Capabilities {
+	return searcher.Capabilities{LocationUnsupported: true}
+}
 
 func (c *Client) Search(ctx context.Context, query string, options *searcher.SearchOptions) ([]searcher.Result, error) {
 	query = strings.TrimSpace(query)

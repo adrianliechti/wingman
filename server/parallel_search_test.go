@@ -152,6 +152,19 @@ mcps:
 		t.Fatal(err)
 	}
 	defer session.Close()
+	listed, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Tools) != 1 || listed.Tools[0].Name != "web_search" {
+		t.Fatalf("unexpected tools: %+v", listed.Tools)
+	}
+	schema := listed.Tools[0].InputSchema.(map[string]any)
+	properties := schema["properties"].(map[string]any)
+	if _, ok := properties["location"]; ok {
+		t.Error("Parallel web_search advertised an unsupported location filter")
+	}
+
 	call := func(args map[string]any) (*mcp.CallToolResult, string) {
 		t.Helper()
 		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "web_search", Arguments: args})

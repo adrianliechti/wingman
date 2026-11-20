@@ -14,6 +14,8 @@ type Provider interface {
 // still validate request-specific combinations such as category restrictions.
 type Capabilities struct {
 	DateFilters bool
+	// LocationUnsupported omits the location filter from the search tool.
+	LocationUnsupported bool
 	// Content reports integrated page retrieval through TextOptions.
 	Content bool
 	// Categories lists the canonical values exposed to tools. An empty list
