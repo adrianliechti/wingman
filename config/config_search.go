@@ -10,6 +10,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/searcher/custom"
 	"github.com/adrianliechti/wingman/pkg/searcher/duckduckgo"
 	"github.com/adrianliechti/wingman/pkg/searcher/exa"
+	"github.com/adrianliechti/wingman/pkg/searcher/parallel"
 	"github.com/adrianliechti/wingman/pkg/searcher/tavily"
 )
 
@@ -112,6 +113,12 @@ func createSearcher(cfg searcherConfig, context searcherContext) (searcher.Provi
 
 	case "exa":
 		return exaSearch(cfg, context)
+
+	case "parallel":
+		if cfg.Token != "" {
+			return nil, errors.New("parallel search: omit token for anonymous MCP access")
+		}
+		return parallel.New(context.Client)
 
 	case "tavily":
 		return tavilySearch(cfg, context)
