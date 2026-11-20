@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/adrianliechti/wingman/pkg/otel"
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type proxyConfig struct {
@@ -34,7 +34,7 @@ func (cfg *proxyConfig) proxyTransport() (*http.Transport, error) {
 	return tr, nil
 }
 
-func (cfg *proxyConfig) proxyClient() (*http.Client, error) {
+func (cfg *proxyConfig) proxyClient(options ...otelhttp.Option) (*http.Client, error) {
 	transport, err := cfg.proxyTransport()
 
 	if err != nil {
@@ -48,6 +48,6 @@ func (cfg *proxyConfig) proxyClient() (*http.Client, error) {
 	}
 
 	return &http.Client{
-		Transport: otel.Transport(transport),
+		Transport: otelhttp.NewTransport(transport, options...),
 	}, nil
 }

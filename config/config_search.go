@@ -12,6 +12,8 @@ import (
 	"github.com/adrianliechti/wingman/pkg/searcher/exa"
 	"github.com/adrianliechti/wingman/pkg/searcher/parallel"
 	"github.com/adrianliechti/wingman/pkg/searcher/tavily"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 func (cfg *Config) RegisterSearcher(id string, p searcher.Provider) {
@@ -70,7 +72,7 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 		context := searcherContext{}
 
 		if config.Proxy != nil {
-			client, err := config.Proxy.proxyClient()
+			client, err := config.proxyClient()
 
 			if err != nil {
 				return err
@@ -103,6 +105,14 @@ func (cfg *Config) registerSearchers(f *configFile) error {
 	}
 
 	return nil
+}
+
+func (cfg searcherConfig) proxyClient() (*http.Client, error) {
+	if strings.EqualFold(cfg.Type, "parallel") {
+		// Keep local spans without sending trace IDs or baggage to the anonymous endpoint.
+		return cfg.Proxy.proxyClient(otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator()))
+	}
+	return cfg.Proxy.proxyClient()
 }
 
 func createSearcher(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {
