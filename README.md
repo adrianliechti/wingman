@@ -33,6 +33,7 @@ The platform integrates with a wide range of LLM providers:
 - Image generation: OpenAI DALL-E, Google Gemini, xAI
 - Speech-to-text: OpenAI Whisper, Mistral, Azure Speech, Microsoft MAI-Transcribe (realtime)
 - Text-to-speech: OpenAI TTS, Azure Speech, xAI
+- Music generation: Google Lyria 3.5
 
 ### Document Processing & RAG
 
@@ -522,6 +523,7 @@ providers:
       - gemini-4-hydrogen
       - gemini-3.8-flash
       - gemini-3.8-flash-tts
+      - lyria-3.5 # music generation via /v1/audio/speech
       - gemini-3.5-transcribe
       - gemini-nano-banana-2.1
       - gemini-3.1-flash-lite-image
@@ -529,6 +531,10 @@ providers:
       - gemini-embedding-2
       - gemini-decision-1 # native decisions, detected automatically
 ```
+
+[Lyria 3.5](https://aistudio.google.com/docs/music-generation) uses the Gemini
+Interactions API with `store=false`. It needs a paid-tier Gemini API key and
+accepts music prompts through [`POST /v1/audio/speech`](./API.md#audio-speech-tts).
 
 Gemini decisions use the [Decisions API](https://aistudio.google.com/docs/decisions-api)
 over REST with API-key authentication. They support shared text, images, audio,

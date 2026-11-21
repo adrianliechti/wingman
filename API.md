@@ -182,6 +182,18 @@ To start an isolated server instead, append
 | `response_format`  | String | Audio format         |
 | `instructions`     | String | Voice instructions   |
 
+Select `lyria-3.5` to generate music from a text prompt. Describe the genre,
+instrumentation, tempo, and any vocals in `input`. Lyria ignores `voice`,
+`speed`, and `instructions`. The endpoint returns the complete track after
+generation. Set `response_format` to `wav` for WAV output or omit it for MP3.
+
+```bash
+curl --fail-with-body http://localhost:8080/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{"model":"lyria-3.5","input":"A 45-second instrumental jazz trio with brushed drums and a walking bass"}' \
+  -o song.mp3
+```
+
 ## Audio Transcriptions
 
 **Endpoint:** `POST /v1/audio/transcriptions`

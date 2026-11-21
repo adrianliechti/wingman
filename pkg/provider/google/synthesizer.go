@@ -36,8 +36,9 @@ func NewSynthesizer(model string, options ...Option) (*Synthesizer, error) {
 	}, nil
 }
 
-// Synthesize runs a Gemini TTS model through streamGenerateContent with an
-// AUDIO response modality. That path only produces uncompressed audio:
+// Synthesize runs Lyria through Interactions or Gemini TTS through
+// streamGenerateContent with an AUDIO response modality. Gemini TTS produces
+// uncompressed audio:
 // headerless 16-bit PCM chunks, on newer models led by a chunk carrying a WAV
 // header. A pcm request forwards the samples as they arrive; every other
 // format is collected into a single WAV result, since mp3, opus, aac and flac
@@ -47,6 +48,12 @@ func (s *Synthesizer) Synthesize(ctx context.Context, content string, options *p
 	return func(yield func(*provider.Synthesis, error) bool) {
 		if options == nil {
 			options = new(provider.SynthesizeOptions)
+		}
+
+		if strings.EqualFold(strings.TrimPrefix(s.model, "models/"), "lyria-3.5") {
+			result, err := s.synthesizeMusic(ctx, content, options.Format)
+			yield(result, err)
+			return
 		}
 
 		client, err := s.newClient(ctx)

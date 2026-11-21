@@ -106,6 +106,7 @@ func TestDetectModelTypes(t *testing.T) {
 		{"openrouter", "thinkingmachines/inkling-2-small", []ModelType{ModelTypeCompleter}},
 		{"mistral", "voxtral-mini-transcribe", []ModelType{ModelTypeTranscriber}},
 		{"gemini", "gemini-3.5-transcribe", []ModelType{ModelTypeTranscriber}},
+		{"gemini", "lyria-3-clip-preview", []ModelType{ModelTypeSynthesizer}},
 		{"openai", "unknown-model", nil},
 	} {
 		t.Run(tt.provider+"/"+tt.id, func(t *testing.T) {

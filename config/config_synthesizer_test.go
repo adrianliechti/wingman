@@ -15,6 +15,7 @@ providers:
     models:
       - gemini-3.8-flash-tts
       - gemini-3.8-flash-lite-tts
+      - lyria-3.5
 
   - type: google
     token: test-gemini-token
@@ -22,6 +23,8 @@ providers:
       gemini-tts:
         id: gemini-2.5-flash-preview-tts
         type: synthesizer
+      music:
+        id: models/lyria-3.5
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -36,6 +39,8 @@ providers:
 		"gemini-3.8-flash-tts",
 		"gemini-3.8-flash-lite-tts",
 		"gemini-tts",
+		"lyria-3.5",
+		"music",
 	} {
 		synthesizer, err := cfg.Synthesizer(model)
 		if err != nil {
