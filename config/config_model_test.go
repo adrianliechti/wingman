@@ -6,6 +6,35 @@ import (
 	"testing"
 )
 
+func TestProviderModelForms(t *testing.T) {
+	for _, tc := range []struct{ models, want string }{
+		{"{chat: {misspelled: value}}", "misspelled"},
+		{"[{id: gpt-6-sol}]", "into string"},
+	} {
+		_, err := parseTestConfig(t, "providers:\n  - type: openai-compatible\n    models: "+tc.models)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("models %s: got %v, want error containing %q", tc.models, err, tc.want)
+		}
+	}
+	cfg, err := parseTestConfig(t, `
+providers:
+  - type: openai-compatible
+    models:
+      alias:
+        id: &model gpt-6-sol
+  - type: openai-compatible
+    models: &ids [*model]
+  - type: openai-compatible
+    models: *ids
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Completer("gpt-6-sol"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDetectDecisionModels(t *testing.T) {
 	for _, tt := range []struct {
 		id   string

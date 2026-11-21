@@ -18,7 +18,7 @@ import (
 type Strategy func(candidates []int, stats []*ProviderStats) int
 
 // FirstPick selects a healthy candidate for the first attempt of a request.
-// Retries use the router's ordinary strategy.
+// It may reorder the candidates to guide the router's strategy on retries.
 type FirstPick func(context.Context, []provider.Message, *provider.CompleteOptions, []int) (int, error)
 
 // Completer routes requests across multiple providers with circuit breaker

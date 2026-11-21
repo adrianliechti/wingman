@@ -19,10 +19,13 @@ func (cfg *Config) registerProviders(f *configFile) error {
 	for _, p := range f.Providers {
 		models := map[string]modelConfig{}
 
-		if err := decodeStrict(&p.Models, &models); err != nil {
-			var ids []string
-
-			if err := p.Models.Decode(&ids); err != nil {
+		node := &p.Models
+		for node.Kind == yaml.AliasNode {
+			node = node.Alias
+		}
+		var ids []string
+		if node.Kind == yaml.SequenceNode {
+			if err := node.Decode(&ids); err != nil {
 				return err
 			}
 
@@ -31,9 +34,14 @@ func (cfg *Config) registerProviders(f *configFile) error {
 					ID: id,
 				}
 			}
+		} else {
+			if err := decodeStrict(node, &models); err != nil {
+				return err
+			}
+			ids = configIDs(node)
 		}
 
-		for _, id := range configIDs(&p.Models) {
+		for _, id := range ids {
 
 			if id == "" {
 				continue

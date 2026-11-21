@@ -3,6 +3,7 @@
 package auto
 
 import (
+	"cmp"
 	"container/list"
 	"context"
 	"errors"
@@ -71,11 +72,10 @@ func NewCompleter(routes []Route, decider provider.Decider, options ...router.Op
 			return candidates[0], nil
 		}
 
-		// One user turn spans many requests when the model calls tools. They
-		// share a decision, so the turn stays on one model and is decided once.
+		// Tool continuations reuse the turn's ranking among healthy routes.
 		key := decisions.key(state)
-		if index, ok := decisions.get(key); ok && slices.Contains(candidates, index) {
-			return index, nil
+		if ranks, ok := decisions.get(key); ok && ranks.apply(candidates) {
+			return candidates[0], nil
 		}
 
 		acquired, probe := health.Acquire(recoveryTimeout)
@@ -117,16 +117,9 @@ func NewCompleter(routes []Route, decider provider.Decider, options ...router.Op
 		}
 		health.RecordSuccess(0, probe)
 
-		index := candidates[0]
-		if label := selectedModel(result); label != "" {
-			for _, candidate := range candidates {
-				if choices[candidate].Label == label {
-					index = candidate
-				}
-			}
-		}
-		decisions.put(key, index)
-		return index, nil
+		rankCandidates(result, candidates, choices)
+		decisions.put(key, candidates)
+		return candidates[0], nil
 	}
 
 	first := func(candidates []int, _ []*router.ProviderStats) int { return candidates[0] }
@@ -139,7 +132,7 @@ func NewCompleter(routes []Route, decider provider.Decider, options ...router.Op
 	return c, nil
 }
 
-// decisionCache remembers the route of recent turns, least recently used first out.
+// decisionCache remembers the route order of recent turns, least recently used first out.
 type decisionCache struct {
 	mu    sync.Mutex
 	seed  maphash.Seed
@@ -150,7 +143,22 @@ type decisionCache struct {
 
 type decisionEntry struct {
 	key   uint64
-	route int
+	ranks routeRanks
+}
+
+// Ranks are indexed by route. Zero means the decider never saw that route.
+// A turn can reuse its ranking when a circuit opens. A newly healthy route
+// that was absent from the decision needs a fresh comparison.
+type routeRanks []uint8
+
+func (r routeRanks) apply(candidates []int) bool {
+	for _, index := range candidates {
+		if index >= len(r) || r[index] == 0 {
+			return false
+		}
+	}
+	slices.SortFunc(candidates, func(a, b int) int { return cmp.Compare(r[a], r[b]) })
+	return true
 }
 
 func newDecisionCache(size int) *decisionCache {
@@ -162,42 +170,40 @@ func newDecisionCache(size int) *decisionCache {
 func (c *decisionCache) key(state evidence) uint64 {
 	var h maphash.Hash
 	h.SetSeed(c.seed)
-	field := func(value string) {
-		h.WriteString(value)
-		h.WriteByte(0)
-	}
-	field(state.Request)
+	maphash.WriteComparable(&h, state.Request)
 	for _, message := range state.Recent {
-		field(string(message.Role))
-		field(message.Text)
+		maphash.WriteComparable(&h, message)
 	}
-	field(string(state.Effort))
-	if state.ToolsAvailable {
-		h.WriteByte(1)
-	}
+	maphash.WriteComparable(&h, state.Effort)
+	maphash.WriteComparable(&h, [...]bool{state.ToolsAvailable, state.ToolsRequired, state.StructuredOutput})
 	return h.Sum64()
 }
 
-func (c *decisionCache) get(key uint64) (int, bool) {
+func (c *decisionCache) get(key uint64) (routeRanks, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	element, ok := c.items[key]
 	if !ok {
-		return 0, false
+		return nil, false
 	}
 	c.order.MoveToFront(element)
-	return element.Value.(*decisionEntry).route, true
+	return element.Value.(*decisionEntry).ranks, true
 }
 
-func (c *decisionCache) put(key uint64, route int) {
+func (c *decisionCache) put(key uint64, candidates []int) {
+	// Each of the (at most 255) routes gets its own immutable rank.
+	ranks := make(routeRanks, slices.Max(candidates)+1)
+	for position, index := range candidates {
+		ranks[index] = uint8(position + 1)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if element, ok := c.items[key]; ok {
-		element.Value.(*decisionEntry).route = route
+		element.Value.(*decisionEntry).ranks = ranks
 		c.order.MoveToFront(element)
 		return
 	}
-	c.items[key] = c.order.PushFront(&decisionEntry{key: key, route: route})
+	c.items[key] = c.order.PushFront(&decisionEntry{key: key, ranks: ranks})
 	if c.order.Len() > c.size {
 		oldest := c.order.Back()
 		c.order.Remove(oldest)
@@ -205,24 +211,35 @@ func (c *decisionCache) put(key uint64, route int) {
 	}
 }
 
-func selectedModel(result *provider.Decision) string {
+// A confident, unique winner makes the distribution usable for failover.
+// Equal backup scores keep their configuration order.
+func rankCandidates(result *provider.Decision, candidates []int, choices []provider.DecisionOption) {
 	if result == nil || len(result.Answers) != 1 || result.Answers[0].ID != questionID {
-		return ""
+		return
 	}
 	answer := result.Answers[0].Choice
-	if answer == nil || answer.Confidence < minConfidence {
-		return ""
+	if answer == nil || !validProbability(answer.Confidence) || answer.Confidence < minConfidence {
+		return
 	}
-	best, ok := answer.Probabilities[answer.Choice]
-	if !ok {
-		return ""
+	scores := answer.Probabilities
+	best, ok := scores[answer.Choice]
+	if !ok || len(scores) != len(candidates) {
+		return
 	}
-	for label, p := range answer.Probabilities {
-		if label != answer.Choice && p >= best {
-			return ""
+	for _, index := range candidates {
+		label := choices[index].Label
+		p, ok := scores[label]
+		if !ok || !validProbability(p) || (label != answer.Choice && p >= best) {
+			return
 		}
 	}
-	return answer.Choice
+	slices.SortStableFunc(candidates, func(a, b int) int {
+		return cmp.Compare(scores[choices[b].Label], scores[choices[a].Label])
+	})
+}
+
+func validProbability(p float64) bool {
+	return p >= 0 && p <= 1
 }
 
 type excerpt struct {
@@ -236,6 +253,8 @@ type evidence struct {
 	ToolResults       int             `json:"tool_results_since_request,omitzero"`
 	FailedToolResults int             `json:"failed_tool_results_since_request,omitzero"`
 	ToolsAvailable    bool            `json:"tools_available,omitzero"`
+	ToolsRequired     bool            `json:"tools_required,omitzero"`
+	StructuredOutput  bool            `json:"structured_output,omitzero"`
 	Effort            provider.Effort `json:"requested_effort,omitempty"`
 }
 
@@ -243,6 +262,11 @@ func requestEvidence(messages []provider.Message, options *provider.CompleteOpti
 	var state evidence
 	if options != nil {
 		state.ToolsAvailable = len(options.Tools) > 0
+		if tool := options.ToolOptions; tool != nil {
+			state.ToolsRequired = tool.Choice == provider.ToolChoiceAny
+			state.ToolsAvailable = state.ToolsAvailable && tool.Choice != provider.ToolChoiceNone
+		}
+		state.StructuredOutput = options.Schema != nil
 		if options.ReasoningOptions != nil {
 			state.Effort = options.ReasoningOptions.Effort
 		}
@@ -288,9 +312,19 @@ func messageExcerpt(m provider.Message, limit int) string {
 	for _, part := range m.Content {
 		text := part.Text
 		if part.File != nil {
-			text = "[file attached]"
-			if strings.HasPrefix(part.File.ContentType, "image/") {
+			media, _, _ := strings.Cut(part.File.ContentType, ";")
+			media = strings.ToLower(strings.TrimSpace(media))
+			switch {
+			case strings.HasPrefix(media, "image/"):
 				text = "[image attached]"
+			case strings.HasPrefix(media, "audio/"):
+				text = "[audio attached]"
+			case strings.HasPrefix(media, "video/"):
+				text = "[video attached]"
+			case media == "application/pdf":
+				text = "[PDF attached]"
+			default:
+				text = "[file attached]"
 			}
 		}
 		if text != "" {

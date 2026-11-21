@@ -443,6 +443,43 @@ func TestAutoRouterTriesOtherRoutesAfterRejection(t *testing.T) {
 	})
 }
 
+func TestAutoRouterRetriesSecondRankedModel(t *testing.T) {
+	const routers = `
+routers:
+  auto:
+    type: auto
+    decider: gpt-6-luna
+    routes:
+      - {model: gpt-6.2-astra, when: general}
+      - {model: gpt-6.2-sol, when: writing}
+      - {model: claude-sonnet-5-5, when: poetry}
+`
+	eachStreamMode(t, func(t *testing.T, stream bool) {
+		var calls upstreamLog
+		_, url := routerE2E(t, "", routers, func(w http.ResponseWriter, _ *http.Request, call upstreamCall) {
+			calls.add(call.Model)
+			switch call.Path {
+			case "/v1/decisions":
+				w.Header().Set("Content-Type", "application/json")
+				io.WriteString(w, `{"model":"gpt-6-luna","answers":[{"name":"model","type":"choice","choice":"claude-sonnet-5-5","confidence":0.7,"probabilities":[{"value":"gpt-6.2-astra","probability":0.05},{"value":"gpt-6.2-sol","probability":0.25},{"value":"claude-sonnet-5-5","probability":0.7}]}]}`)
+			case "/v1/messages":
+				writeAnthropicError(w, 503, "overloaded_error", "busy")
+			case "/v1/responses":
+				writeOpenAIText(w, call.Model)
+			}
+		})
+		response := postReplayResponse(t, url, "auto", userInput("Write a poem."), nil, stream)
+		if got := outputText(response); got != e2eGPT {
+			t.Fatalf("served by %q, want %q", got, e2eGPT)
+		}
+		for model, want := range map[string]int{"gpt-6-luna": 1, e2eClaude: 1, e2eGPT: 1, "gpt-6.2-astra": 0} {
+			if got := calls.count(model); got != want {
+				t.Errorf("%s called %d times, want %d", model, got, want)
+			}
+		}
+	})
+}
+
 // The stream opens as soon as the routed model is working, although the
 // router still withholds its chunks.
 func TestRouterOpensStreamWhileModelThinks(t *testing.T) {
@@ -826,9 +863,44 @@ func TestAutoRouterDecisionEvidence(t *testing.T) {
 	t.Run("nothing to report", func(t *testing.T) {
 		_, url := routerE2E(t, "", e2eAutoRouter, script)
 		postReplayResponse(t, url, "auto", userInput("Write a poem."), nil, false)
-		for _, absent := range []string{"tool_results_since_request", "failed_tool_results_since_request", "tools_available"} {
+		for _, absent := range []string{"tool_results_since_request", "failed_tool_results_since_request", "tools_available", "tools_required", "structured_output"} {
 			if strings.Contains(last().Input, absent) {
 				t.Errorf("evidence carries an empty %s: %s", absent, last().Input)
+			}
+		}
+	})
+
+	t.Run("changed request options", func(t *testing.T) {
+		_, url := routerE2E(t, "", e2eAutoRouter, script)
+		for _, tc := range []struct {
+			choice    string
+			available bool
+			required  bool
+			json      bool
+		}{
+			{"none", false, false, false},
+			{"auto", true, false, false},
+			{"required", true, true, false},
+			{"auto", true, false, true},
+		} {
+			body := map[string]any{"model": "auto", "input": userInput("Report the total."), "tools": geminiReplayTools(), "tool_choice": tc.choice}
+			if tc.json {
+				body["text"] = map[string]any{"format": map[string]any{"type": "json_object"}}
+			}
+			if status, response := postRouter(t, url, body); status != 200 {
+				t.Fatalf("HTTP %d: %s", status, response)
+			}
+			var state struct {
+				Available bool `json:"tools_available"`
+				Required  bool `json:"tools_required"`
+				JSON      bool `json:"structured_output"`
+			}
+			evidence := last().Input
+			if err := json.Unmarshal([]byte(evidence), &state); err != nil {
+				t.Fatal(err)
+			}
+			if state.Available != tc.available || state.Required != tc.required || state.JSON != tc.json {
+				t.Errorf("tool choice %s, structured %t: got %s", tc.choice, tc.json, evidence)
 			}
 		}
 	})
