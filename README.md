@@ -52,7 +52,7 @@ The platform integrates with a wide range of LLM providers:
 - Custom segmenters via gRPC
 
 **Information Retrieval:**
-- Web search: DuckDuckGo, Exa, Tavily
+- Web search: DuckDuckGo, Exa, Parallel, Tavily
 - Custom retrievers via gRPC plugins
 
 ### Advanced AI Workflows
@@ -775,7 +775,7 @@ Web access comes in three flavours. A **searcher** returns result lists, a **scr
 
 #### Searchers
 
-Return ranked search results. Types: `duckduckgo`, `exa`, `tavily`, `custom`.
+Return ranked search results. Types: `duckduckgo`, `exa`, `parallel`, `tavily`, `custom`.
 
 ```yaml
 searchers:
@@ -788,6 +788,28 @@ Exa search uses `auto` mode with Dynamic Highlights, which select evidence
 across the result set. Set `vars: { mode: lite }` for lower cost and latency;
 `lite` retrieves cached content only. Existing `fast` and `instant`
 configurations remain accepted as legacy modes.
+
+To use Parallel with the built-in `web_search` tool, add a searcher and select
+it in the tool configuration:
+
+```yaml
+searchers:
+  parallel:
+    type: parallel
+
+tools:
+  web_search:
+    type: search
+    searcher: parallel
+```
+
+Keep your existing first entry under `searchers` to retain the default.
+
+Wingman sends search queries and any domain filters to the public Parallel MCP
+endpoint (`https://mcp.parallel.ai/mcp`) without an API key. Results include
+original source URLs and excerpts. Parallel search supports domain filters and
+result limits. Omit location, category and publication date filters when using
+this searcher. Use a configured scraper for full page text.
 
 #### Scrapers
 

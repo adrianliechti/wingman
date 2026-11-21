@@ -105,6 +105,9 @@ func (c *Client) Tools(ctx context.Context) ([]tool.Tool, error) {
 		delete(props, "since")
 		delete(props, "until")
 	}
+	if capabilities.LocationUnsupported {
+		delete(props, "location")
+	}
 
 	if cats := capabilities.Categories; len(cats) > 0 {
 		var b strings.Builder

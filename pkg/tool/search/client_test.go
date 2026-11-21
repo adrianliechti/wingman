@@ -352,6 +352,9 @@ func TestTools_ReflectProviderCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			props := tools[0].Parameters["properties"].(map[string]any)
+			if _, present := props["location"]; !present {
+				t.Fatal("missing location filter")
+			}
 			for _, field := range []string{"recency", "since", "until"} {
 				if _, present := props[field]; present != test.dates {
 					t.Fatalf("%s present = %v", field, present)
