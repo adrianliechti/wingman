@@ -301,10 +301,10 @@ func responseEndTurn(completion *provider.Completion) *bool {
 	switch completion.StopReason {
 	case provider.StopReasonEndTurn, provider.StopReasonStopSequence, provider.StopReasonRefusal:
 		return new(true)
-	case provider.StopReasonPauseTurn, provider.StopReasonCompaction:
+	case provider.StopReasonToolUse, provider.StopReasonPauseTurn, provider.StopReasonCompaction:
 		return new(false)
 	}
-	// Pending tool calls and providers without a native boundary make no claim.
+	// Providers without a native boundary make no claim.
 	return nil
 }
 

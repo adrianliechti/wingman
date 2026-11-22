@@ -44,6 +44,8 @@ Prompt caching is on by default on every backend that supports it: the stable pr
 
 **Endpoint:** `POST /v1/responses`
 
+The router preserves upstream assistant message phases. Claude and Gemini Responses can contain unphased text. A native tool-use stop sets `end_turn: false`. Return the pending tool results to continue. A native end-of-turn stop sets `end_turn: true`.
+
 | Parameter              | Type         | Description                                         |
 |------------------------|--------------|-----------------------------------------------------|
 | `model`                | String       | Model ID                                            |

@@ -94,15 +94,22 @@ func TestResponsesAnthropicContinuationAndSignedReplay(t *testing.T) {
 					{"role": "assistant", "content": "Now I will update the docs."},
 				}
 				original, _ := json.Marshal(input, json.Deterministic(true))
-				output := postGeminiResponses(t, server.URL, model, input, geminiReplayTools(), stream)
+				work := postReplayResponse(t, server.URL, model, input, geminiReplayTools(), stream)
+				if work.EndTurn == nil || *work.EndTurn {
+					t.Fatalf("missing tool continuation: %+v", work)
+				}
+				output := work.Output
 				unchanged, _ := json.Marshal(input, json.Deterministic(true))
 				if string(original) != string(unchanged) || len(output) != 2 || output[0]["type"] != "reasoning" || output[1]["type"] != "function_call" {
 					t.Fatalf("client history/output changed: %v", output)
 				}
 				input = append(input, output...)
 				input = append(input, map[string]any{"type": "function_call_output", "call_id": "call_2", "output": "verified"})
-				output = postGeminiResponses(t, server.URL, model, input, geminiReplayTools(), stream)
-				input = append(input, output...)
+				answer := postReplayResponse(t, server.URL, model, input, geminiReplayTools(), stream)
+				if answer.EndTurn == nil || !*answer.EndTurn || len(answer.Output) != 1 || answer.Output[0]["phase"] != nil {
+					t.Fatalf("missing final answer boundary: %+v", answer)
+				}
+				input = append(input, answer.Output...)
 				input = append(input, map[string]any{"role": "user", "content": "Confirm once more."})
 				postGeminiResponses(t, server.URL, model, input, geminiReplayTools(), stream)
 				if calls != 4 {

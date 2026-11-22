@@ -108,7 +108,7 @@ func TestResponsesEndTurn(t *testing.T) {
 		{"unphased answer without boundary", endTurnCompleter{{Message: &unphased}}, nil},
 		{"tool call without boundary", endTurnCompleter{{Message: &call}}, nil},
 		// The caller's tool results continue a tool-use turn, as they do upstream.
-		{"tool-use boundary", endTurnCompleter{{Message: &call}, {StopReason: provider.StopReasonToolUse}}, nil},
+		{"tool-use boundary", endTurnCompleter{{Message: &call}, {StopReason: provider.StopReasonToolUse}}, new(false)},
 		{"native end of turn", endTurnCompleter{{Message: &unphased}, {StopReason: provider.StopReasonEndTurn}}, new(true)},
 		{"native end after commentary", endTurnCompleter{{Message: &commentary}, {StopReason: provider.StopReasonEndTurn}}, new(true)},
 		{"stop sequence", endTurnCompleter{{Message: &unphased}, {StopReason: provider.StopReasonStopSequence}}, new(true)},
@@ -120,7 +120,7 @@ func TestResponsesEndTurn(t *testing.T) {
 		// A backend that reports the boundary itself is passed through, including a request to continue.
 		{"upstream continues after final answer", endTurnCompleter{{Message: &final}, {EndTurn: new(false)}}, new(false)},
 		{"upstream ends after commentary", endTurnCompleter{{Message: &commentary}, {EndTurn: new(true)}}, new(true)},
-		{"upstream claim over tool-use boundary", endTurnCompleter{{Message: &call}, {StopReason: provider.StopReasonToolUse, EndTurn: new(false)}}, new(false)},
+		{"upstream claim over tool-use boundary", endTurnCompleter{{Message: &call}, {StopReason: provider.StopReasonToolUse, EndTurn: new(true)}}, new(true)},
 		{"upstream claim on a truncated response", endTurnCompleter{{Message: &unphased}, {Status: provider.CompletionStatusIncomplete, EndTurn: new(true)}}, nil},
 	} {
 		for _, stream := range []bool{false, true} {

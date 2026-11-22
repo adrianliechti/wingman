@@ -80,14 +80,22 @@ func TestResponsesGeminiSignedReplay(t *testing.T) {
 			server := geminiResponsesServer(t, "test-token", client, "gemini-4-argon")
 			input := []map[string]any{{"role": "user", "content": "Inspect the repository."}}
 			tools := geminiReplayTools()
-			output := postGeminiResponses(t, server.URL, "gemini-4-argon", input, tools, stream)
-			input = append(input, output...)
+			work := postReplayResponse(t, server.URL, "gemini-4-argon", input, tools, stream)
+			if work.EndTurn == nil || *work.EndTurn {
+				t.Fatalf("pending calls should continue: %+v", work)
+			}
+			for _, item := range work.Output {
+				if item["type"] == "message" && item["phase"] != nil {
+					t.Fatalf("invented message phase: %+v", item)
+				}
+			}
+			input = append(input, work.Output...)
 			for _, id := range []string{"c1", "c2"} {
 				input = append(input, map[string]any{"type": "function_call_output", "call_id": id, "output": "ok"})
 			}
-			output = postGeminiResponses(t, server.URL, "gemini-4-argon", input, tools, stream)
-			if requests.Load() != 2 || len(output) != 1 {
-				t.Fatalf("requests=%d, output=%v", requests.Load(), output)
+			answer := postReplayResponse(t, server.URL, "gemini-4-argon", input, tools, stream)
+			if requests.Load() != 2 || answer.EndTurn == nil || !*answer.EndTurn || len(answer.Output) != 1 || answer.Output[0]["phase"] != nil {
+				t.Fatalf("requests=%d, answer=%+v", requests.Load(), answer)
 			}
 		})
 	}
@@ -189,9 +197,10 @@ func postGeminiResponses(t *testing.T, url, model string, input, tools []map[str
 }
 
 type replayResponse struct {
-	Status string           `json:"status"`
-	Model  string           `json:"model"`
-	Output []map[string]any `json:"output"`
+	EndTurn *bool            `json:"end_turn"`
+	Status  string           `json:"status"`
+	Model   string           `json:"model"`
+	Output  []map[string]any `json:"output"`
 }
 
 func postReplayResponse(t *testing.T, url, model string, input, tools []map[string]any, stream bool) replayResponse {
