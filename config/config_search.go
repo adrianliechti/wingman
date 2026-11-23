@@ -10,6 +10,7 @@ import (
 	"github.com/adrianliechti/wingman/pkg/searcher/custom"
 	"github.com/adrianliechti/wingman/pkg/searcher/duckduckgo"
 	"github.com/adrianliechti/wingman/pkg/searcher/exa"
+	"github.com/adrianliechti/wingman/pkg/searcher/keenable"
 	"github.com/adrianliechti/wingman/pkg/searcher/tavily"
 )
 
@@ -116,6 +117,9 @@ func createSearcher(cfg searcherConfig, context searcherContext) (searcher.Provi
 	case "tavily":
 		return tavilySearch(cfg, context)
 
+	case "keenable":
+		return keenableSearch(cfg, context)
+
 	case "custom", "wingman-searcher":
 		return customSearcher(cfg, context)
 
@@ -167,6 +171,21 @@ func tavilySearch(cfg searcherConfig, context searcherContext) (searcher.Provide
 	}
 
 	return tavily.New(cfg.Token, options...)
+}
+
+func keenableSearch(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {
+	var options []keenable.Option
+
+	if context.Client != nil {
+		options = append(options, keenable.WithClient(context.Client))
+	}
+
+	if val := cfg.Vars["title"]; val != "" {
+		options = append(options, keenable.WithTitle(val))
+	}
+
+	// The token is optional: without one Wingman uses Keenable's keyless endpoint.
+	return keenable.New(cfg.Token, options...)
 }
 
 func customSearcher(cfg searcherConfig, context searcherContext) (searcher.Provider, error) {
