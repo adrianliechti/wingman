@@ -4,20 +4,28 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-	"github.com/adrianliechti/wingman/pkg/provider/google"
+	"github.com/adrianliechti/wingman/server/internal/stream"
 )
 
 // StreamingAccumulator manages streaming state and emits Gemini-format responses
 type StreamingAccumulator struct {
 	handler     StreamEventHandler
 	accumulator provider.CompletionAccumulator
+	replay      stream.ReasoningBuffer
 
 	responseID string
 	model      string
 
-	// Hold signatures until the next text or buffered function call establishes
-	// which part carries them. Upstream often sends them in a separate chunk.
-	pendingSignature string
+	// python-genai records a chat turn only if every chunk has content. Keep
+	// the most recent content chunk so it can also carry the finish reason.
+	pending *GenerateContentResponse
+
+	// A signature may arrive separately from the text or call it belongs to.
+	reasoning provider.Reasoning
+
+	// Once a function starts, its arguments and all following parts must be
+	// emitted together in order. Earlier text has already streamed.
+	afterCall *provider.CompletionAccumulator
 }
 
 // StreamEventHandler is called for each streaming chunk
@@ -38,126 +46,132 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		s.model = c.Model
 	}
 
-	// Build response for this chunk
-	response := GenerateContentResponse{
-		ResponseId:   s.responseID,
-		ModelVersion: s.model,
+	s.accumulator.Add(c)
+	return s.addContent(c, s.replay.Add(c))
+}
+
+func (s *StreamingAccumulator) addContent(c provider.Completion, ordered []provider.Content) error {
+	// The replay buffer already applied the snapshots of unsigned items;
+	// streamed thoughts and signatures stand, as on the Messages stream.
+	c.ReasoningSnapshots = nil
+	if s.afterCall != nil {
+		c.Message = &provider.Message{Content: ordered}
+		s.afterCall.Add(c)
+		return nil
 	}
 
-	// Gemini emits usageMetadata on every chunk; default to an empty struct so
-	// the field is always present even before usage data is available.
-	if u := toUsageMetadata(c.Usage); u != nil {
-		response.UsageMetadata = u
-	} else {
-		response.UsageMetadata = &UsageMetadata{}
-	}
-	response.UsageMetadata = withTier(response.UsageMetadata, c.Tier)
-
-	// Text and thought summaries stream as they arrive. Function calls are
-	// delivered with their signatures in Complete(), once arguments are complete.
-	if c.Message != nil && len(c.Message.Content) > 0 {
-		var textContent []provider.Content
-		for _, content := range c.Message.Content {
-			if content.Reasoning != nil {
-				reasoning := *content.Reasoning
-				if reasoning.Signature != "" {
-					s.pendingSignature = reasoning.Signature
-				}
-				reasoning.Signature = ""
-				if reasoning.Text() != "" || reasoning.SummaryText() != "" {
-					textContent = append(textContent, provider.ReasoningContent(reasoning))
-				}
+	var parts []*Part
+	for i, content := range ordered {
+		if r := content.Reasoning; r != nil {
+			if s.reasoning.Signature != "" && (r.ID == "" || r.ID != s.reasoning.ID) {
+				parts = append(parts, &Part{ThoughtSignature: thoughtSignature(s.reasoning)})
+				s.reasoning = provider.Reasoning{}
 			}
-			if content.Text != "" || content.Refusal != "" {
-				if s.pendingSignature != "" {
-					textContent = append(textContent, provider.ReasoningContent(provider.Reasoning{Signature: s.pendingSignature}))
-					s.pendingSignature = ""
-				}
-				textContent = append(textContent, content)
+			s.reasoning.ID = r.ID
+			if r.Signature != "" {
+				s.reasoning.Signature = r.Signature
 			}
-			if content.ToolCall != nil {
-				// Complete reconstructs the signed call from accumulated content.
-				s.pendingSignature = ""
+			thought := r.Text()
+			if thought == "" {
+				thought = r.SummaryText()
+			}
+			if thought != "" {
+				parts = append(parts, &Part{Text: thought, Thought: true})
 			}
 		}
-		if len(textContent) > 0 {
-			content := toContent(textContent)
-			if content != nil {
-				response.Candidates = []*Candidate{
-					{
-						Content: content,
-						Index:   0,
-					},
-				}
+		if text := content.Text + content.Refusal; text != "" {
+			parts = append(parts, &Part{Text: text, ThoughtSignature: thoughtSignature(s.reasoning)})
+			s.reasoning = provider.Reasoning{}
+		}
+		if content.ToolCall != nil {
+			s.afterCall = &provider.CompletionAccumulator{}
+			remaining := ordered[i:]
+			if s.reasoning.ID != "" || s.reasoning.Signature != "" {
+				remaining = append([]provider.Content{provider.ReasoningContent(s.reasoning)}, remaining...)
 			}
+			c.Message = &provider.Message{Content: remaining}
+			s.afterCall.Add(c)
+			break
 		}
 	}
-
-	// Gemini always includes candidates; skip chunks without content
-	if len(response.Candidates) > 0 {
-		if err := s.handler(response); err != nil {
+	if len(parts) > 0 {
+		if err := s.flush(); err != nil {
 			return err
 		}
+		usage := toUsageMetadata(c.Usage)
+		if usage == nil {
+			usage = &UsageMetadata{}
+		}
+		s.pending = &GenerateContentResponse{
+			ResponseId: s.responseID, ModelVersion: s.model, UsageMetadata: withTier(usage, c.Tier),
+			Candidates: []*Candidate{{Content: &Content{Role: "model", Parts: parts}}},
+		}
 	}
-
-	// Add to underlying accumulator
-	s.accumulator.Add(c)
-
 	return nil
 }
 
-// Complete signals that streaming is done and emits final response
+func (s *StreamingAccumulator) flush() error {
+	if s.pending == nil {
+		return nil
+	}
+	pending := s.pending
+	s.pending = nil
+	return s.handler(*pending)
+}
+
+// Complete signals that streaming is done and emits final response.
 func (s *StreamingAccumulator) Complete() error {
 	result := s.accumulator.Result()
-
-	// Build final response with finish reason
-	response := GenerateContentResponse{
-		ResponseId:   s.responseID,
-		ModelVersion: s.model,
+	if parts := s.replay.Finish(); len(parts) > 0 {
+		if err := s.addContent(provider.Completion{}, parts); err != nil {
+			return err
+		}
 	}
-
-	response.UsageMetadata = withTier(toUsageMetadata(result.Usage), result.Tier)
-
-	// Determine finish reason
-	finishReason := toFinishReason(result)
-
-	// Build final candidate
-	candidate := &Candidate{
-		FinishReason: finishReason,
-		Index:        0,
-	}
-
-	// Convert the full content before selecting calls, so each call retains
-	// the signature from its preceding thought. Text and summaries were streamed.
-	var parts []*Part
-	if result.Message != nil {
-		if content := toContent(result.Message.Content); content != nil {
-			for _, part := range content.Parts {
-				if part.FunctionCall != nil {
-					parts = append(parts, part)
-				}
+	candidate := &Candidate{FinishReason: toFinishReason(result)}
+	if s.afterCall != nil {
+		candidate = toCandidate(s.afterCall.Result().Message.Content, candidate.FinishReason)
+		if candidate.Content != nil {
+			if err := s.flush(); err != nil {
+				return err
 			}
 		}
 	}
-	if s.pendingSignature != "" {
-		parts = append(parts, &Part{ThoughtSignature: google.DecodeThoughtSignature(s.pendingSignature)})
+	// If every call was suppressed, the preceding content carries the finish
+	// reason. An empty terminal chunk would invalidate the whole python-genai chat turn.
+	if s.pending != nil {
+		candidate.Content = s.pending.Candidates[0].Content
+		s.pending = nil
 	}
-	if len(parts) > 0 {
-		candidate.Content = &Content{Role: "model", Parts: parts}
+	if s.afterCall == nil && s.reasoning.Signature != "" {
+		if candidate.Content == nil {
+			candidate.Content = &Content{Role: "model"}
+		}
+		parts := candidate.Content.Parts
+		signature := thoughtSignature(s.reasoning)
+		if n := len(parts); s.reasoning.ID == "" && n > 0 && !parts[n-1].Thought && len(parts[n-1].ThoughtSignature) == 0 {
+			parts[n-1].ThoughtSignature = signature
+		} else {
+			candidate.Content.Parts = append(parts, &Part{ThoughtSignature: signature})
+		}
 	}
-
-	response.Candidates = []*Candidate{candidate}
-
-	return s.handler(response)
+	return s.handler(GenerateContentResponse{
+		ResponseId: s.responseID, ModelVersion: s.model,
+		Candidates: []*Candidate{candidate}, UsageMetadata: withTier(toUsageMetadata(result.Usage), result.Tier),
+	})
 }
 
-// Error emits an error response in the stream
+// Error emits any outstanding content before the upstream error.
 func (s *StreamingAccumulator) Error(err error) error {
-	return s.handler(GenerateContentResponse{
-		ResponseId:   s.responseID,
-		ModelVersion: s.model,
-		Error:        toAPIError(err, http.StatusInternalServerError),
-	})
+	if parts := s.replay.Finish(); len(parts) > 0 {
+		if writeErr := s.addContent(provider.Completion{}, parts); writeErr != nil {
+			return writeErr
+		}
+	}
+	if writeErr := s.flush(); writeErr != nil {
+		return writeErr
+	}
+	// python-genai recognizes a streamed failure by its top-level error envelope.
+	return s.handler(GenerateContentResponse{Error: toAPIError(err, http.StatusInternalServerError)})
 }
 
 // Result returns the accumulated completion

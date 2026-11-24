@@ -44,7 +44,7 @@ func TestStreamingAccumulatorTrailingSignaturePreservesFinalText(t *testing.T) {
 			}
 			text += event.Delta.Text
 			if event.Delta.Type == "signature_delta" {
-				_, signature = decodeSignature(event.Delta.Signature)
+				_, signature = provider.UnwrapReasoningID(event.Delta.Signature)
 			}
 		case StreamEventContentBlockStop:
 			delete(open, event.Index)

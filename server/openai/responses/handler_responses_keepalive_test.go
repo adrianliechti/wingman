@@ -79,7 +79,7 @@ func TestResponsesPreservesErrorsBeforeStreaming(t *testing.T) {
 		w := httptest.NewRecorder()
 		serveKeepaliveTest(w, keepaliveCompleter(func(_ context.Context, yield func(*provider.Completion, error) bool) {
 			time.Sleep(time.Minute)
-			yield(nil, &provider.ProviderError{Code: http.StatusTooManyRequests, Message: "rate limited"})
+			yield(nil, &provider.ProviderError{Kind: provider.ErrorKindRateLimited, Message: "rate limited"})
 		}))
 		if w.Code != http.StatusTooManyRequests || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
 			t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())

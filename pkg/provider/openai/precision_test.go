@@ -59,7 +59,7 @@ func TestIncomingToolSearchNumbers(t *testing.T) {
 	for _, event := range []string{
 		`{"type":"response.output_item.done","output_index":0,"item":{"type":"tool_search_call","id":"search_1","execution":"server","arguments":` + args + `}}`,
 		`{"type":"response.output_item.done","output_index":1,"item":{"type":"tool_search_output","execution":"server","tools":` + tools + `}}`,
-		`{"type":"response.completed","response":{"status":"completed","output":[]}}`,
+		`{"type":"response.completed","response":{"status":"completed"}}`,
 	} {
 		wire.WriteString("data: " + event + "\n\n")
 	}

@@ -38,21 +38,11 @@ func New(t *testing.T) *Harness {
 	}
 
 	return &Harness{
-		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: wingmanURL(), APIKey: env("WINGMAN_API_KEY", "test-key")},
+		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: strings.TrimRight(env("WINGMAN_BASE_URL", DefaultWingmanURL), "/"), APIKey: env("WINGMAN_API_KEY", "test-key")},
 		Gemini:         harness.Endpoint{Name: "gemini", BaseURL: env("GEMINI_BASE_URL", DefaultGeminiURL), APIKey: key},
 		Client:         harness.NewClient(),
-		ReferenceModel: env("TEST_GEMINI_REFERENCE_MODEL", "gemini-3.8-flash"),
+		ReferenceModel: env("TEST_GEMINI_REFERENCE_MODEL", "gemini-4-hydrogen"),
 	}
-}
-
-func wingmanURL() string {
-	base := strings.TrimRight(env("WINGMAN_BASE_URL", DefaultWingmanURL), "/")
-	// A shared E2E invocation uses /v1 for OpenAI and Anthropic. Gemini's
-	// native routes use /v1beta on the same server.
-	if before, ok := strings.CutSuffix(base, "/v1"); ok {
-		return before + "/v1beta"
-	}
-	return base
 }
 
 func ModelCapabilities(name string) harness.Capabilities {
@@ -83,7 +73,7 @@ func modelCapabilities(name string) harness.Capabilities {
 	case strings.Contains(n, "gemini"):
 		return harness.Capabilities{Thinking: true, StructuredOutput: true, Audio: true}
 
-	case strings.HasPrefix(n, "gpt-5"):
+	case strings.HasPrefix(n, "gpt-5"), strings.HasPrefix(n, "gpt-6"):
 		// thoughts surface as reasoning summaries
 		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true}
 
@@ -95,7 +85,7 @@ func modelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"gemini-3.8-flash", "claude-sonnet-5-5", "gpt-6.1-sol"}
+	names := []string{"gemini-4-hydrogen", "claude-sonnet-5-5", "bedrock-sonnet-5-5", "gpt-6.2-sol"}
 	if v := os.Getenv("TEST_GEMINI_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {

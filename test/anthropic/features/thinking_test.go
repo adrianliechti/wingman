@@ -138,7 +138,7 @@ func TestStopReasonMaxTokensHTTP(t *testing.T) {
 	}
 
 	// Use haiku to avoid adaptive thinking budget interference
-	anthropicResp, wingmanResp := anthropic.CompareHTTP(t, h, "claude-haiku-4-5", body)
+	anthropicResp, wingmanResp := anthropic.CompareHTTP(t, h, "claude-haiku-5-5", body)
 
 	requireStopReason(t, "anthropic", anthropicResp.Body, "max_tokens")
 	requireStopReason(t, "wingman", wingmanResp.Body, "max_tokens")

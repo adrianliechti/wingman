@@ -6,7 +6,6 @@ import (
 	"encoding/json/v2"
 	"iter"
 	"maps"
-	"net/http"
 	"slices"
 	"strings"
 
@@ -225,7 +224,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 
 		if !finished && (stops == nil || !stops.done) {
 			yield(nil, &provider.ProviderError{
-				Code:    http.StatusBadGateway,
+				Kind:    provider.ErrorKindInternal,
 				Type:    "server_error",
 				Message: "upstream stream ended before a finish reason was received",
 			})

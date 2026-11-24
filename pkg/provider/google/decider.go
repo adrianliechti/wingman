@@ -74,7 +74,7 @@ func (d *Decider) Decide(ctx context.Context, input *provider.DecisionInput) (*p
 			return response.decision(d.model, input)
 		}
 		upstream, ok := errors.AsType[*provider.ProviderError](err)
-		if !ok || attempt >= d.maxRetries || upstream.Code != 408 && upstream.Code != 429 && upstream.Code < 500 {
+		if !ok || attempt >= d.maxRetries || !upstream.Kind.Retryable() {
 			return nil, err
 		}
 		delay := upstream.RetryAfter

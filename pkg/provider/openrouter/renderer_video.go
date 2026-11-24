@@ -127,7 +127,7 @@ func (r *Renderer) videoGet(ctx context.Context, target string) (*http.Response,
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		return nil, &provider.ProviderError{Code: response.StatusCode, Message: string(message)}
+		return nil, &provider.ProviderError{Kind: provider.ErrorKindForStatus(response.StatusCode), Message: string(message)}
 	}
 	return response, nil
 }

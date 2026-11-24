@@ -58,7 +58,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 	// honored or emulated; a markup is composited onto that image.
 	if options.Mask != nil {
 		return nil, &provider.ProviderError{
-			Code:    http.StatusBadRequest,
+			Kind:    provider.ErrorKindInvalidArgument,
 			Type:    "invalid_request_error",
 			Message: "mask is not supported by xAI image models",
 		}
@@ -207,7 +207,7 @@ func (r *Renderer) do(ctx context.Context, url string, body any, result any) err
 		body, _ := io.ReadAll(resp.Body)
 
 		return &provider.ProviderError{
-			Code:    resp.StatusCode,
+			Kind:    provider.ErrorKindForStatus(resp.StatusCode),
 			Message: string(body),
 		}
 	}

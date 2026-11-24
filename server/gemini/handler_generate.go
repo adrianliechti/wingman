@@ -46,18 +46,7 @@ func (h *Handler) handleGenerateContent(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("X-Gemini-Service-Tier", result.UsageMetadata.Tier)
 	}
 
-	var content *Content
-	if completion.Message != nil {
-		content = toContent(completion.Message.Content)
-	}
-
-	result.Candidates = []*Candidate{
-		{
-			Content:      content,
-			FinishReason: toFinishReason(completion),
-			Index:        0,
-		},
-	}
+	result.Candidates = []*Candidate{toCandidate(completion.Message.Content, toFinishReason(completion))}
 
 	writeJson(w, result)
 }
@@ -122,10 +111,6 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 				writeError(w, http.StatusInternalServerError, err)
 				return
 			}
-
-			if useSSE {
-				writeSSERetry(w, err)
-			}
 			accumulator.Error(err)
 			return
 		}
@@ -147,9 +132,6 @@ func (h *Handler) handleStreamGenerateContent(w http.ResponseWriter, r *http.Req
 
 	// Emit final chunk with finish reason
 	if err := accumulator.Complete(); err != nil {
-		if useSSE {
-			writeSSERetry(w, err)
-		}
 		accumulator.Error(err)
 		return
 	}
@@ -165,11 +147,11 @@ func (h *Handler) parseGenerateRequest(r *http.Request) (provider.Completer, []p
 
 	completer, err := h.Completer(model)
 	if err != nil {
-		return nil, nil, nil, modelNotFound(model)
+		return nil, nil, nil, modelNotFound(r, model)
 	}
 
 	if err := h.Policy.Verify(r.Context(), policy.ResourceModel, model, policy.ActionAccess); err != nil {
-		return nil, nil, nil, modelNotFound(model)
+		return nil, nil, nil, modelNotFound(r, model)
 	}
 
 	messages, err := toMessages(req.SystemInstruction, req.Contents)
@@ -319,9 +301,10 @@ func writeStreamChunk(w http.ResponseWriter, response GenerateContentResponse, u
 }
 
 // modelNotFound is Gemini's 404 for an unknown or inaccessible model.
-func modelNotFound(model string) error {
+func modelNotFound(r *http.Request, model string) error {
+	version, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	return &provider.ProviderError{
-		Code:    http.StatusNotFound,
-		Message: "models/" + model + " is not found for API version v1beta, or is not supported for generateContent.",
+		Kind:    provider.ErrorKindNotFound,
+		Message: "models/" + model + " is not found for API version " + version + ", or is not supported for generateContent.",
 	}
 }

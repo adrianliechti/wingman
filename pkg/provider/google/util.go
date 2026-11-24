@@ -4,7 +4,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,17 +39,6 @@ func convertError(err error) error {
 	}
 
 	if apierrPtr != nil || errors.As(err, &apierr) {
-		statusCode := apierr.Code
-		if statusCode < 400 {
-			statusCode = statusCodeFromErrorType(apierr.Status)
-		}
-
-		// Google's API gateway returns 400/INVALID_ARGUMENT for auth errors
-		// like invalid or expired API keys. Remap these to 401.
-		if isAuthError(apierr) {
-			statusCode = http.StatusUnauthorized
-		}
-
 		// Prefer the clean, human-readable Message field over Error(),
 		// which includes the status code, details, and raw maps.
 		message := apierr.Message
@@ -58,13 +46,7 @@ func convertError(err error) error {
 			message = apierr.Error()
 		}
 
-		return &provider.ProviderError{
-			Code:       statusCode,
-			Type:       apierr.Status,
-			Message:    message,
-			RetryAfter: retryFromDetails(apierr.Details),
-			Err:        err,
-		}
+		return newProviderError(apierr.Code, apierr.Status, message, apierr.Details, 0, err)
 	}
 
 	return err
@@ -77,7 +59,7 @@ func interactionProviderError(err error, status int, code, message, body string,
 	var retryAfter time.Duration
 	if httpResponse != nil {
 		status = httpResponse.StatusCode
-		retryAfter = parseRetryAfter(httpResponse.Header)
+		retryAfter = provider.RetryAfterFromHeaders(httpResponse.Header)
 	}
 	var response struct {
 		Error struct {
@@ -121,47 +103,79 @@ func interactionProviderError(err error, status int, code, message, body string,
 		}
 		details = response.Error.Details
 	}
-	if status < 400 {
-		status = statusCodeFromErrorType(code)
-	}
-	if code == "API_KEY_INVALID" || strings.Contains(message, "API key not valid") || isAuthError(genai.APIError{Details: details}) {
-		status = http.StatusUnauthorized
-	}
 	if message == "" {
 		message = err.Error()
 	}
-	return &provider.ProviderError{Code: status, Type: code, Message: message, RetryAfter: max(retryAfter, retryFromDetails(details)), Err: err}
+	return newProviderError(status, code, message, details, retryAfter, err)
+}
+
+func newProviderError(status int, code, message string, details []map[string]any, retryAfter time.Duration, cause error) *provider.ProviderError {
+	kind := provider.ErrorKindForStatus(status)
+	if kind == "" {
+		kind = errorKindForCode(code)
+	}
+	// Google sometimes reports an invalid API key as INVALID_ARGUMENT.
+	if code == "API_KEY_INVALID" || strings.Contains(message, "API key not valid") || isAuthError(details) {
+		kind = provider.ErrorKindUnauthenticated
+	}
+	if kind == provider.ErrorKindRateLimited && dailyQuota(details) {
+		kind = provider.ErrorKindQuotaExceeded
+	}
+	return &provider.ProviderError{
+		Kind:       kind,
+		Type:       code,
+		Vendor:     provider.VendorGoogle,
+		Message:    message,
+		RetryAfter: max(retryAfter, retryFromDetails(details)),
+		Err:        cause,
+	}
+}
+
+func dailyQuota(details []map[string]any) bool {
+	for _, detail := range details {
+		if detail["@type"] != "type.googleapis.com/google.rpc.QuotaFailure" {
+			continue
+		}
+		violations, _ := detail["violations"].([]any)
+		for _, raw := range violations {
+			violation, _ := raw.(map[string]any)
+			if id, _ := violation["quotaId"].(string); strings.Contains(id, "PerDay") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Interactions stream errors have no HTTP error status. Recognize canonical
 // Google codes or explicit HTTP codes; unknown URI codes stay gateway errors.
-func statusCodeFromErrorType(code string) int {
+func errorKindForCode(code string) provider.ErrorKind {
 	if numeric, err := strconv.Atoi(code); err == nil && numeric >= 400 && numeric < 600 {
-		return numeric
+		return provider.ErrorKindForStatus(numeric)
 	}
 	switch strings.ToUpper(code) {
 	case "INVALID_ARGUMENT", "FAILED_PRECONDITION", "OUT_OF_RANGE":
-		return http.StatusBadRequest
+		return provider.ErrorKindInvalidArgument
 	case "UNAUTHENTICATED":
-		return http.StatusUnauthorized
+		return provider.ErrorKindUnauthenticated
 	case "PERMISSION_DENIED":
-		return http.StatusForbidden
+		return provider.ErrorKindPermissionDenied
 	case "NOT_FOUND":
-		return http.StatusNotFound
+		return provider.ErrorKindNotFound
 	case "ALREADY_EXISTS", "ABORTED":
-		return http.StatusConflict
+		return provider.ErrorKindConflict
 	case "RESOURCE_EXHAUSTED":
-		return http.StatusTooManyRequests
+		return provider.ErrorKindRateLimited
 	case "CANCELLED":
-		return 499
+		return provider.ErrorKindCancelled
 	case "UNIMPLEMENTED":
-		return http.StatusNotImplemented
+		return provider.ErrorKindUnimplemented
 	case "UNAVAILABLE":
-		return http.StatusServiceUnavailable
+		return provider.ErrorKindUnavailable
 	case "DEADLINE_EXCEEDED":
-		return http.StatusGatewayTimeout
+		return provider.ErrorKindDeadlineExceeded
 	default:
-		return http.StatusBadGateway
+		return provider.ErrorKindInternal
 	}
 }
 
@@ -179,24 +193,10 @@ func retryFromDetails(details []map[string]any) time.Duration {
 	return 0
 }
 
-func parseRetryAfter(h http.Header) time.Duration {
-	value := strings.TrimSpace(h.Get("Retry-After"))
-	if seconds, err := strconv.ParseFloat(value, 64); err == nil {
-		nanos := seconds * float64(time.Second)
-		if !math.IsNaN(nanos) && nanos > 0 && nanos < float64(math.MaxInt64) {
-			return time.Duration(nanos)
-		}
-	}
-	if deadline, err := http.ParseTime(value); err == nil {
-		return max(time.Until(deadline), 0)
-	}
-	return 0
-}
-
 // isAuthError detects authentication-related errors from Google's API gateway.
 // These arrive as HTTP 400 but are semantically 401 (invalid credentials).
-func isAuthError(apierr genai.APIError) bool {
-	for _, detail := range apierr.Details {
+func isAuthError(details []map[string]any) bool {
+	for _, detail := range details {
 		if reason, _ := detail["reason"].(string); reason == "API_KEY_INVALID" {
 			return true
 		}

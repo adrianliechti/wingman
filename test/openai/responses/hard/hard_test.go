@@ -163,7 +163,7 @@ func TestParallelToolCalls(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -189,7 +189,7 @@ func TestToolLoopWithReasoning(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store":     false,
@@ -218,7 +218,7 @@ func TestToolChoice(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			for _, tg := range targets(h, model) {
 				if !model.Capabilities.NoForcedToolChoice {
@@ -255,7 +255,7 @@ func TestArgumentlessTool(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -288,7 +288,7 @@ func TestStreamingReassembly(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -328,7 +328,7 @@ func TestUnicodeStreaming(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -352,7 +352,7 @@ func TestTruncation(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store":             false,
@@ -385,7 +385,7 @@ func TestImageInput(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -415,7 +415,7 @@ func TestStructuredOutputStreaming(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -441,7 +441,7 @@ func TestLongContextNeedle(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -460,7 +460,7 @@ func TestErrorToolResult(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -485,7 +485,7 @@ func TestConcurrentStreams(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"store": false,
@@ -539,8 +539,8 @@ func TestModelSwitch(t *testing.T) {
 			}
 
 			t.Run(from.Name+"→"+to.Name, func(t *testing.T) {
-				h.SkipUnlessConfigured(t, from.Name)
-				h.SkipUnlessConfigured(t, to.Name)
+				h.RequireConfigured(t, from.Name)
+				h.RequireConfigured(t, to.Name)
 
 				body := map[string]any{
 					"store":     false,

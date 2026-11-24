@@ -39,6 +39,7 @@ const (
 	StreamEventFunctionCallArgumentsDelta StreamEventType = "function_call_arguments.delta"
 	StreamEventFunctionCallArgumentsDone  StreamEventType = "function_call_arguments.done"
 	StreamEventFunctionCallDone           StreamEventType = "function_call.done"
+	StreamEventToolSearchResultAdded      StreamEventType = "tool_search.result.added"
 	StreamEventToolSearchResult           StreamEventType = "tool_search.result"
 
 	StreamEventCustomToolCallInputDelta StreamEventType = "custom_tool_call_input.delta"
@@ -91,6 +92,7 @@ type StreamEvent struct {
 	TextPresent       bool
 	// Terminal snapshots preserve the status already emitted for each item.
 	OutputStatuses []string
+	statusMessage  *provider.Message
 
 	// Incomplete marks an item or summary part finalized before generation
 	// finished (e.g. truncated by max_tokens or a cancelled stream).
@@ -101,6 +103,7 @@ type StreamEvent struct {
 	ReasoningText         string
 	ReasoningSummary      string
 	ReasoningSignature    string
+	awaitingCiphertext    bool
 	ReasoningRedacted     bool
 	ReasoningSummaryParts []provider.Part
 	ReasoningContentParts []provider.Part
@@ -141,23 +144,14 @@ type accumulatedToolCall struct {
 // Responses API SSE events. It is self-contained — there is no separate
 // inner accumulator that could get out of sync.
 type StreamingAccumulator struct {
-	// Items are emitted in output order. Later items wait behind an unfinished
-	// tool call, while that call's argument fragments continue streaming.
-	nextEventIndex int
-	pendingEvents  map[int][]StreamEvent
-	handler        StreamEventHandler
-	// When true, incoming Reasoning.Text is emitted as summary events instead of text events.
-	ReasoningAsSummary bool
-	// When true, reasoning output is silently dropped (client didn't request reasoning).
-	SuppressReasoning bool
+	// When true, incoming reasoning text is emitted as summary events.
+	ReasoningAsSummary     bool
+	encryptedReasoningOnly bool
 
-	// Completion metadata (captured from chunks)
 	id    string
 	model string
-
-	tier                 provider.Tier
-	reasoningContext     provider.ReasoningContext
-	inputTransformations *[]provider.InputTransformation
+	tier  provider.Tier
+	usage *provider.Usage
 
 	started      bool
 	status       provider.CompletionStatus
@@ -166,29 +160,36 @@ type StreamingAccumulator struct {
 	stopSequence string
 	endTurn      *bool
 
+	reasoningContext     provider.ReasoningContext
+	inputTransformations *[]provider.InputTransformation
+
+	// Later items wait behind an unfinished tool call while its arguments stream.
+	handler        StreamEventHandler
+	nextEventIndex int
+	pendingEvents  map[int][]StreamEvent
+	pendingDone    []StreamEvent
+
 	message  *streamMessage
 	messages []*streamMessage
 
-	// Tool call state — single source of truth
 	toolCalls      []accumulatedToolCall
 	toolResults    []provider.ToolResult
-	toolCallByID   map[string]int // effective call ID → index in toolCalls
+	toolCallByID   map[string]int
 	lastToolCallID string
 
-	// In-flight reasoning state. Closed items archive into completedReasonings
-	// before a new ID starts so each item's ID stays paired with its own
-	// encrypted_content (otherwise OpenAI rejects the next turn).
 	reasoningID          string
+	reasoningHasNativeID bool
 	reasoningSignature   string
 	reasoningRedacted    bool
 	reasoningOutputIndex int
 	reasoningClosed      bool
 	hasReasoningItem     bool
+	reasoningContent     reasoningParts
+	reasoningSummary     reasoningParts
 
-	reasoningContent    reasoningParts
-	reasoningSummary    reasoningParts
 	completedReasonings []provider.Reasoning
 	reasoningByID       map[string]int // completed reasoning ID → index in completedReasonings
+	reasoningSnapshots  provider.ReasoningSnapshots
 
 	compactionID        string
 	compactionIndex     int
@@ -197,12 +198,10 @@ type StreamingAccumulator struct {
 	hasCompactionItem   bool
 	compactions         []provider.Compaction
 
-	// Register every item when its output index is assigned so snapshots
-	// retain the stream's order, including reasoning after a message.
+	// Reserve item positions as they stream. A provider can supply a final output list.
 	outputOrder    []streamItemRef
 	outputStatuses []string
-
-	usage *provider.Usage
+	output         []provider.Content
 }
 
 type streamMessage struct {
@@ -239,16 +238,6 @@ type streamItemRef struct {
 func NewStreamingAccumulator(handler StreamEventHandler) *StreamingAccumulator {
 	message := &streamMessage{}
 	return &StreamingAccumulator{handler: handler, toolCallByID: make(map[string]int), message: message, messages: []*streamMessage{message}}
-}
-
-func mergeUsage(dst **provider.Usage, src *provider.Usage) {
-	if src == nil {
-		return
-	}
-	if *dst == nil {
-		*dst = &provider.Usage{}
-	}
-	(*dst).Merge(src)
 }
 
 func (s *StreamingAccumulator) reserveOutputIndex(kind streamItemKind, index int) int {
@@ -517,7 +506,8 @@ func (s *StreamingAccumulator) ensureReasoningItem() error {
 	s.hasReasoningItem = true
 	s.reasoningOutputIndex = s.reserveOutputIndex(streamItemReasoning, len(s.completedReasonings))
 
-	if s.reasoningID == "" {
+	s.reasoningHasNativeID = s.reasoningID != ""
+	if !s.reasoningHasNativeID {
 		s.reasoningID = "rs_" + uuid.NewString()
 	}
 
@@ -615,7 +605,8 @@ func (s *StreamingAccumulator) closeReasoning() error {
 		ReasoningID: output.ID, ReasoningText: output.Text(), ReasoningSummary: output.SummaryText(),
 		ReasoningContentParts: output.Content, ReasoningSummaryParts: output.Summary,
 		ReasoningSignature: output.Signature, ReasoningRedacted: output.Redacted,
-		OutputIndex: s.reasoningOutputIndex, Incomplete: s.itemIncomplete()}); err != nil {
+		awaitingCiphertext: s.reasoningHasNativeID && output.Signature == "",
+		OutputIndex:        s.reasoningOutputIndex, Incomplete: s.itemIncomplete()}); err != nil {
 		return err
 	}
 	if s.reasoningByID == nil {
@@ -629,17 +620,55 @@ func (s *StreamingAccumulator) closeReasoning() error {
 	return nil
 }
 
-// A terminal provider snapshot can supply or refresh the signature of an
-// item whose done event was already emitted. Keep the original output index.
-func (s *StreamingAccumulator) updateClosedReasoningSignature(r *provider.Reasoning) bool {
-	index, closed := s.reasoningByID[r.ID]
-	if !closed || len(r.Content) != 0 || len(r.Summary) != 0 {
-		return false
+func (s *StreamingAccumulator) addReasoning(r provider.Reasoning) error {
+	if s.encryptedReasoningOnly {
+		r = opaqueReasoning(r)
+		if r.ID == "" && r.Signature == "" {
+			return nil
+		}
 	}
+	if index, closed := s.reasoningByID[r.ID]; closed {
+		if len(r.Content) != 0 || len(r.Summary) != 0 {
+			return fmt.Errorf("reasoning item %s received a delta after completion", r.ID)
+		}
+		if r.Signature != "" {
+			s.completedReasonings[index].Signature = r.Signature
+			return s.flushDone(false)
+		}
+		return nil
+	}
+
+	// Native IDs identify reasoning items. Anthropic and Bedrock omit
+	// IDs, but a signature ends the previous block; the next delta must
+	// start a new item so each block retains its own signed state.
+	newID := r.ID != "" && s.reasoningID != "" && r.ID != s.reasoningID
+	if s.hasReasoningItem && (newID || (r.ID == "" && (r.Redacted || s.reasoningRedacted || s.reasoningSignature != ""))) {
+		if err := s.closeReasoning(); err != nil {
+			return err
+		}
+	}
+
+	if r.ID != "" && s.reasoningID == "" {
+		s.reasoningID = r.ID
+	}
+
+	if r.ID != "" || r.Signature != "" || len(r.Content) > 0 || len(r.Summary) > 0 {
+		if err := s.ensureReasoningItem(); err != nil {
+			return err
+		}
+	}
+
+	s.reasoningRedacted = s.reasoningRedacted || r.Redacted
 	if r.Signature != "" {
-		s.completedReasonings[index].Signature = r.Signature
+		s.reasoningSignature = r.Signature
 	}
-	return true
+	for _, part := range r.Content {
+		s.reasoningContent.Add(part)
+	}
+	for _, part := range r.Summary {
+		s.reasoningSummary.Add(part)
+	}
+	return s.emitReasoningParts(false)
 }
 
 // closeMessage emits done events for the message item if it was in progress.
@@ -758,6 +787,16 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if c.Reasoning != "" {
 		s.reasoningContext = c.Reasoning
 	}
+	if c.Output != nil {
+		s.output = c.Output
+	}
+	if len(c.ReasoningSnapshots) > 0 {
+		s.reasoningSnapshots = s.reasoningSnapshots.Merge(c.ReasoningSnapshots)
+		if err := s.flushDone(false); err != nil {
+			return err
+		}
+	}
+
 	if c.InputTransformations != nil {
 		s.inputTransformations = c.InputTransformations
 	}
@@ -779,9 +818,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	if c.StopSequence != "" {
 		s.stopSequence = c.StopSequence
 	}
-	if c.Usage != nil {
-		mergeUsage(&s.usage, c.Usage)
-	}
+	s.usage = c.AccumulateUsage(s.usage)
 
 	if err := s.start(); err != nil {
 		return err
@@ -837,50 +874,8 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 		}
 
-		// Reasoning can follow a message item, as between a commentary
-		// message and the final answer.
-		if r := content.Reasoning; r != nil && !s.SuppressReasoning && !s.updateClosedReasoningSignature(r) {
-			// Native IDs identify reasoning items. Anthropic and Bedrock omit
-			// IDs, but a signature ends the previous block; the next delta must
-			// start a new item so each block retains its own signed state.
-			newID := r.ID != "" && s.reasoningID != "" && r.ID != s.reasoningID
-			if s.hasReasoningItem && (newID || r.Redacted || s.reasoningRedacted || (r.ID == "" && s.reasoningSignature != "")) {
-				if err := s.closeReasoning(); err != nil {
-					return err
-				}
-			}
-
-			if r.ID != "" && s.reasoningID == "" {
-				s.reasoningID = r.ID
-			}
-
-			if r.ID != "" {
-				if err := s.ensureReasoningItem(); err != nil {
-					return err
-				}
-			}
-
-			s.reasoningRedacted = r.Redacted
-			if r.Signature != "" {
-				s.reasoningSignature = r.Signature
-
-				if err := s.ensureReasoningItem(); err != nil {
-					return err
-				}
-			}
-
-			for _, part := range r.Content {
-				s.reasoningContent.Add(part)
-			}
-			for _, part := range r.Summary {
-				s.reasoningSummary.Add(part)
-			}
-			if len(r.Content) > 0 || len(r.Summary) > 0 {
-				if err := s.ensureReasoningItem(); err != nil {
-					return err
-				}
-			}
-			if err := s.emitReasoningParts(false); err != nil {
+		if content.Reasoning != nil {
+			if err := s.addReasoning(*content.Reasoning); err != nil {
 				return err
 			}
 		}
@@ -906,8 +901,10 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			}
 			index := s.reserveOutputIndex(streamItemToolResult, len(s.toolResults))
 			s.toolResults = append(s.toolResults, *content.ToolResult)
-			if err := s.emitEvent(StreamEvent{Type: StreamEventToolSearchResult, OutputIndex: index, ToolResult: content.ToolResult}); err != nil {
-				return err
+			for _, kind := range []StreamEventType{StreamEventToolSearchResultAdded, StreamEventToolSearchResult} {
+				if err := s.emitEvent(StreamEvent{Type: kind, OutputIndex: index, ToolResult: content.ToolResult}); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -1007,6 +1004,9 @@ func (s *StreamingAccumulator) Complete() error {
 		return err
 	}
 
+	if err := s.flushDone(true); err != nil {
+		return err
+	}
 	result := s.Result()
 	terminalType := StreamEventResponseCompleted
 	if s.itemIncomplete() {
@@ -1233,6 +1233,9 @@ func (s *StreamingAccumulator) Error(err error) error {
 	// Never finalize open calls after a failed turn. Callers may execute them
 	// immediately on output_item.done, before seeing response.failed.
 	s.pendingEvents = nil
+	if e := s.flushDone(true); e != nil {
+		return e
+	}
 
 	if e := s.emitEvent(StreamEvent{
 		Type:  StreamEventResponseError,
@@ -1248,8 +1251,7 @@ func (s *StreamingAccumulator) Error(err error) error {
 	})
 }
 
-// Result builds the accumulated completion from the accumulator's own state.
-func (s *StreamingAccumulator) Result() *provider.Completion {
+func (s *StreamingAccumulator) streamedContent() []provider.Content {
 	var content []provider.Content
 
 	appendMessage := func(m *streamMessage) {
@@ -1274,11 +1276,14 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 			appendMessage(s.messages[ref.index])
 
 		case streamItemReasoning:
+			var reasoning provider.Reasoning
 			if ref.index < len(s.completedReasonings) {
-				content = append(content, provider.ReasoningContent(s.completedReasonings[ref.index]))
+				reasoning = s.completedReasonings[ref.index]
 			} else {
-				content = append(content, provider.ReasoningContent(s.currentReasoning()))
+				reasoning = s.currentReasoning()
 			}
+			reasoning = s.reasoningSnapshots.Apply(reasoning)
+			content = append(content, provider.ReasoningContent(reasoning))
 
 		case streamItemCompaction:
 			if ref.index < len(s.compactions) {
@@ -1321,6 +1326,15 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 		appendMessage(s.message)
 	}
 
+	return content
+}
+
+// Result builds the accumulated completion from the accumulator's own state.
+func (s *StreamingAccumulator) Result() *provider.Completion {
+	content := s.output
+	if content == nil {
+		content = s.streamedContent()
+	}
 	return &provider.Completion{
 		ID:           s.id,
 		Model:        s.model,
@@ -1346,6 +1360,10 @@ func (s *StreamingAccumulator) Result() *provider.Completion {
 func (s *StreamingAccumulator) emitEvent(event StreamEvent) error {
 	switch event.Type {
 	case StreamEventResponseCompleted, StreamEventResponseIncomplete, StreamEventResponseFailed:
+		if s.output != nil && event.Type == StreamEventResponseIncomplete {
+			// A terminal replacement can reorder items with different completion statuses.
+			event.statusMessage = &provider.Message{Role: provider.MessageRoleAssistant, Phase: s.message.phase, Content: s.streamedContent()}
+		}
 		event.OutputStatuses = append([]string(nil), s.outputStatuses...)
 		for i, status := range event.OutputStatuses {
 			if status == "" || status == "in_progress" {
@@ -1389,17 +1407,46 @@ func (s *StreamingAccumulator) emitEvent(event StreamEvent) error {
 }
 
 func (s *StreamingAccumulator) deliverEvent(event StreamEvent) error {
-	if s.handler != nil {
-		if err := s.handler(event); err != nil {
-			return err
-		}
-	}
 	switch event.Type {
-	case StreamEventOutputItemAdded, StreamEventReasoningItemAdded, StreamEventCompactionItemAdded, StreamEventFunctionCallAdded:
-		s.outputStatuses[event.OutputIndex] = "in_progress"
 	case StreamEventOutputItemDone, StreamEventReasoningItemDone, StreamEventCompactionItemDone, StreamEventFunctionCallDone, StreamEventToolSearchResult:
-		s.outputStatuses[event.OutputIndex] = itemStatus(event.Incomplete)
 		s.nextEventIndex++
+		if event.awaitingCiphertext || len(s.pendingDone) != 0 {
+			s.pendingDone = append(s.pendingDone, event)
+			return s.flushDone(false)
+		}
+		s.outputStatuses[event.OutputIndex] = itemStatus(event.Incomplete)
+	case StreamEventOutputItemAdded, StreamEventReasoningItemAdded, StreamEventCompactionItemAdded, StreamEventFunctionCallAdded, StreamEventToolSearchResultAdded:
+		s.outputStatuses[event.OutputIndex] = "in_progress"
+	}
+	if s.handler != nil {
+		return s.handler(event)
+	}
+	return nil
+}
+
+// A stateless client can replay item.done events in order. Hold those events
+// behind missing ciphertext while later text and argument deltas keep streaming.
+func (s *StreamingAccumulator) flushDone(terminal bool) error {
+	for len(s.pendingDone) > 0 {
+		event := s.pendingDone[0]
+		if event.awaitingCiphertext {
+			snapshot, final := s.reasoningSnapshots[event.ReasoningID]
+			event.ReasoningSignature = snapshot.Signature
+			if index, ok := s.reasoningByID[event.ReasoningID]; ok && event.ReasoningSignature == "" {
+				event.ReasoningSignature = s.completedReasonings[index].Signature
+			}
+			if event.ReasoningSignature == "" && !final && !terminal {
+				return nil
+			}
+		}
+		s.pendingDone[0] = StreamEvent{}
+		s.pendingDone = s.pendingDone[1:]
+		if s.handler != nil {
+			if err := s.handler(event); err != nil {
+				return err
+			}
+		}
+		s.outputStatuses[event.OutputIndex] = itemStatus(event.Incomplete)
 	}
 	return nil
 }

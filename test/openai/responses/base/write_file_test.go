@@ -180,7 +180,7 @@ func TestWriteFileComplexPythonHTTP(t *testing.T) {
 
 	for _, model := range writeFileModels() {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 
 			for i := 1; i <= writeFileIterations(); i++ {
 				t.Run(fmt.Sprintf("run-%02d", i), func(t *testing.T) {
@@ -209,7 +209,7 @@ func TestWriteFileComplexPythonSSE(t *testing.T) {
 
 	for _, model := range writeFileModels() {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 
 			for i := 1; i <= writeFileIterations(); i++ {
 				t.Run(fmt.Sprintf("run-%02d", i), func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestWriteFileTruncationSSE(t *testing.T) {
 
 	for _, model := range writeFileModels() {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 
 			events, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", responses.WithModel(map[string]any{
 				"stream":            true,
@@ -351,7 +351,7 @@ func TestParallelLargePayloadToolsSSE(t *testing.T) {
 
 	for _, model := range writeFileModels() {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 
 			events, err := h.Client.PostSSE(ctx, h.Wingman, "/responses", responses.WithModel(map[string]any{
 				"stream":              true,

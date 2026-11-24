@@ -128,7 +128,7 @@ func (s *Synthesizer) synthesize(ctx context.Context, content string, options *p
 		// Azure answers unknown voices, including HD voices that aren't offered
 		// in the resource's region, with an empty 400.
 		var perr *provider.ProviderError
-		if errors.As(err, &perr) && perr.Code == http.StatusBadRequest && perr.Message == http.StatusText(http.StatusBadRequest) {
+		if errors.As(err, &perr) && perr.Kind == provider.ErrorKindInvalidArgument && perr.Message == http.StatusText(http.StatusBadRequest) {
 			perr.Message = fmt.Sprintf("azure speech rejected the request; check that voice %q is available in the resource's region", voice)
 		}
 

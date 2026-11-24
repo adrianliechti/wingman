@@ -41,18 +41,19 @@ func searchStream(backend string) string {
 		emit("message_stop", `{"type":"message_stop"}`)
 	} else {
 		emit("response.created", `{"type":"response.created","response":{"id":"resp_search","model":"gpt-6-astra","status":"in_progress","output":[]}}`)
-		for i, item := range []string{
+		items := []string{
 			`{"type":"tool_search_call","id":"tsc_1","call_id":null,"execution":"server","status":"completed","arguments":{"paths":["lookup"]}}`,
 			`{"type":"tool_search_output","id":"tso_1","call_id":null,"execution":"server","status":"completed","tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{}},"defer_loading":true}]}`,
 			`{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}","status":"completed"}`,
-		} {
+		}
+		for i, item := range items {
 			if i == 2 {
 				emit("response.output_item.added", fmt.Sprintf(`{"type":"response.output_item.added","output_index":%d,"item":%s}`, i, item))
 				emit("response.function_call_arguments.delta", `{"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":2,"delta":"{}"}`)
 			}
 			emit("response.output_item.done", fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, i, item))
 		}
-		emit("response.completed", `{"type":"response.completed","response":{"id":"resp_search","model":"gpt-6-astra","status":"completed","output":[],"usage":{"input_tokens":20,"output_tokens":30}}}`)
+		emit("response.completed", fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_search","model":"gpt-6-astra","status":"completed","output":[%s],"usage":{"input_tokens":20,"output_tokens":30}}}`, strings.Join(items, ",")))
 	}
 	return wire.String()
 }

@@ -136,7 +136,7 @@ func WithModel(fields []harness.MultipartField, name string) []harness.Multipart
 // both responses.
 func CompareHTTP(t *testing.T, h *openai.Harness, m Model, fields []harness.MultipartField) (*harness.RawResponse, *harness.RawResponse) {
 	t.Helper()
-	h.SkipUnlessConfigured(t, m.Wingman)
+	h.RequireConfigured(t, m.Wingman)
 
 	ctx := context.Background()
 	parts := files(t)
@@ -181,7 +181,7 @@ func Post(t *testing.T, h *openai.Harness, ep harness.Endpoint, name string, fie
 // CompareSSE transcribes the fixture with stream=true through both endpoints.
 func CompareSSE(t *testing.T, h *openai.Harness, m Model, fields []harness.MultipartField) ([]*harness.SSEEvent, []*harness.SSEEvent) {
 	t.Helper()
-	h.SkipUnlessConfigured(t, m.Wingman)
+	h.RequireConfigured(t, m.Wingman)
 
 	ctx := context.Background()
 	parts := files(t)

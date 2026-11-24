@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"encoding/base64"
+	"encoding/json/v2"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -71,4 +73,56 @@ func validSignaturePayload(signature string) bool {
 	}
 
 	return true
+}
+
+// Anthropic thinking blocks and Gemini thought signatures have no item ID
+// field. Those surfaces carry the original item ID inside the signature
+// so that Responses clients can replay the full item. Values without the prefix are
+// signatures as the backend produced them.
+const reasoningIDPrefix = "wm:"
+
+type reasoningIDSignature struct {
+	ID        string `json:"id"`
+	Signature string `json:"s"`
+}
+
+// WrapReasoningID stores the reasoning item ID inside its signature and keeps
+// the outer realm tag.
+func WrapReasoningID(id, signature string) string {
+	if id == "" || signature == "" {
+		return signature
+	}
+
+	realm, raw := ParseSignature(signature)
+	data, err := json.Marshal(reasoningIDSignature{ID: id, Signature: raw})
+	if err != nil {
+		return signature
+	}
+
+	return TagSignature(realm, reasoningIDPrefix+base64.RawURLEncoding.EncodeToString(data))
+}
+
+// UnwrapReasoningID reverses WrapReasoningID. Other values come back unchanged
+// with an empty ID.
+func UnwrapReasoningID(value string) (id, signature string) {
+	realm, raw := ParseSignature(value)
+	encoded, ok := strings.CutPrefix(raw, reasoningIDPrefix)
+
+	if !ok {
+		return "", value
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(encoded)
+
+	if err != nil {
+		return "", value
+	}
+
+	var w reasoningIDSignature
+
+	if err := json.Unmarshal(data, &w); err != nil || w.ID == "" || w.Signature == "" {
+		return "", value
+	}
+
+	return w.ID, TagSignature(realm, w.Signature)
 }

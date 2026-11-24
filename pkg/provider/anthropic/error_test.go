@@ -26,6 +26,7 @@ func TestConvertError(t *testing.T) {
 		{name: "Anthropic envelope", status: 429, body: `{"type":"error","error":{"type":"rate_limit_error","message":"Slow down"}}`, wantMessage: "Slow down", wantType: "rate_limit_error"},
 		{name: "nested precedence", status: 503, body: `{"message":"outer","__type":"OuterError","error":{"type":"api_error","message":"inner"}}`, headerType: "HeaderError", wantMessage: "inner", wantType: "api_error"},
 		{name: "HTTP status authoritative", status: 503, body: `{"error":{"type":"rate_limit_error","message":"Unavailable"}}`, wantMessage: "Unavailable", wantType: "rate_limit_error"},
+		{name: "generic authentication rejection", status: 401, body: `{"error":{"type":"invalid_request_error","message":"Invalid key"}}`, wantMessage: "Invalid key", wantType: "invalid_request_error"},
 		{name: "non JSON fallback", status: 502, body: "Bad gateway"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -33,7 +34,7 @@ func TestConvertError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			apierr := &anthropic.Error{StatusCode: tc.status, Request: request, Response: &http.Response{
+			apierr := &anthropic.Error{RequestID: "req_test", StatusCode: tc.status, Request: request, Response: &http.Response{
 				StatusCode: tc.status, Header: http.Header{"Retry-After": {"2.25"}},
 			}}
 			apierr.Response.Header.Set("X-Amzn-Errortype", tc.headerType)
@@ -49,17 +50,54 @@ func TestConvertError(t *testing.T) {
 			if wantMessage == "" {
 				wantMessage = apierr.Error()
 			}
-			if converted.Code != tc.status || converted.Message != wantMessage || converted.Type != tc.wantType {
+			if converted.Kind != provider.ErrorKindForStatus(tc.status) || converted.Message != wantMessage || converted.Type != tc.wantType {
 				t.Fatalf("got %+v", *converted)
+			}
+			if converted.RequestID != apierr.RequestID || converted.RawJSON != apierr.RawJSON() {
+				t.Fatal("lost native error diagnostics")
 			}
 			if converted.RetryAfter != 2250*time.Millisecond || !errors.Is(converted, original) {
 				t.Fatal("lost retry advice or original error")
+			}
+			if tc.status == 401 && provider.KindFromError(converted) != provider.ErrorKindUnauthenticated {
+				t.Fatalf("authentication rejection classified as %q", converted.Kind)
 			}
 		})
 	}
 	plain := errors.New("transport failed")
 	if convertError(nil) != nil || convertError(plain) != plain {
 		t.Fatal("non-API errors must be unchanged")
+	}
+}
+
+// Bedrock reports AWS exception names. A service quota does not clear by
+// retrying, unlike throttling, and its type is not an Anthropic error type.
+func TestStreamingErrorKind(t *testing.T) {
+	for _, tc := range []struct {
+		typ    string
+		kind   provider.ErrorKind
+		vendor provider.Vendor
+	}{
+		{"invalid_request_error", provider.ErrorKindInvalidArgument, provider.VendorAnthropic},
+		{"billing_error", provider.ErrorKindBilling, provider.VendorAnthropic},
+		{"overloaded_error", provider.ErrorKindUnavailable, provider.VendorAnthropic},
+		{"rate_limit_error", provider.ErrorKindRateLimited, provider.VendorAnthropic},
+		{"serviceQuotaExceededException", provider.ErrorKindQuotaExceeded, provider.VendorBedrock},
+		{"throttlingException", provider.ErrorKindRateLimited, provider.VendorBedrock},
+		{"modelNotReadyException", provider.ErrorKindUnavailable, provider.VendorBedrock},
+		{"future_error", provider.ErrorKindInternal, provider.VendorAnthropic},
+	} {
+		t.Run(tc.typ, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": tc.typ, "message": "Request failed"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = accumulateStream(t, []string{string(payload)}, nil)
+			upstream, ok := errors.AsType[*provider.ProviderError](err)
+			if !ok || provider.KindFromError(err) != tc.kind || upstream.Vendor != tc.vendor {
+				t.Fatalf("kind=%q status=%d error=%#v", provider.KindFromError(err), provider.CodeFromError(err, 0), err)
+			}
+		})
 	}
 }
 
@@ -73,7 +111,7 @@ func TestStreamingErrorStatus(t *testing.T) {
 		{"invalid_request_error", 400}, {"authentication_error", 401},
 		{"billing_error", 402}, {"permission_error", 403}, {"not_found_error", 404},
 		{"conflict_error", 409}, {"request_too_large", 413},
-		{"rate_limit_error", 429}, {"overloaded_error", 529},
+		{"rate_limit_error", 429}, {"overloaded_error", 503}, {"serviceQuotaExceededException", 429},
 		{"timeout_error", 504}, {"api_error", 502},
 		{"throttlingException", 429}, {"serviceUnavailableException", 503},
 		{"validationException", 400}, {"internalServerException", 502},

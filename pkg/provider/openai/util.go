@@ -5,11 +5,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"maps"
-	"math"
 	"net/http"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -39,8 +37,8 @@ func schemaFields(schema map[string]any) (map[string]any, error) {
 }
 
 // convertError maps upstream OpenAI / Azure OpenAI errors into a
-// *provider.ProviderError, normalising rate-limit responses to HTTP 429 and
-// extracting a Retry-After hint from headers or message text.
+// *provider.ProviderError, classifying rate limits and extracting a
+// Retry-After hint from headers or message text.
 //
 // Azure rate-limit errors surface their code at `error.code` (e.g.
 // "RateLimitReached"); content-filter errors use `innererror.code` but are
@@ -69,7 +67,8 @@ func convertError(err error) error {
 			body.Message = streamErr.Message
 		}
 
-		return newProviderError(body.Type, body.Code, body.Message, http.StatusBadGateway, parseRetryHeaders(body.Headers), err)
+		// The stream already returned 200; the error's type and code classify it.
+		return newProviderError(body.Type, body.Code, body.Message, 0, parseRetryHeaders(body.Headers), err)
 	}
 
 	if apierr, ok := errors.AsType[*openai.Error](err); ok {
@@ -82,10 +81,12 @@ func convertError(err error) error {
 
 		var retryAfter time.Duration
 		if apierr.Response != nil {
-			retryAfter = parseRetryAfter(apierr.Response.Header)
+			retryAfter = provider.RetryAfterFromHeaders(apierr.Response.Header)
 		}
 
-		return newProviderError(apierr.Type, apierr.Code, message, apierr.StatusCode, retryAfter, err)
+		upstream := newProviderError(apierr.Type, apierr.Code, message, apierr.StatusCode, retryAfter, err)
+		upstream.RawJSON = apierr.RawJSON()
+		return upstream
 	}
 
 	return err
@@ -101,15 +102,11 @@ func convertError(err error) error {
 const defaultRateLimitRetry = 5 * time.Second
 
 // newProviderError builds a ProviderError from the upstream error fields,
-// remapping rate-limit errors to 429 and falling back to a retry hint parsed
-// from the message when no header was provided.
+// classifying rate limits and falling back to a retry hint parsed
+// from the message when no header was provided. statusCode is 0 for an error
+// that arrived inside a stream.
 func newProviderError(errType, errCode, message string, statusCode int, retryAfter time.Duration, cause error) *provider.ProviderError {
-	rateLimited := isRateLimitError(errType, errCode)
-	if rateLimited {
-		statusCode = http.StatusTooManyRequests
-	} else if errType == "service_unavailable_error" || errCode == "server_is_overloaded" {
-		statusCode = http.StatusServiceUnavailable
-	}
+	kind := errorKind(errType, errCode, statusCode)
 
 	// Prefer the upstream `code` (e.g. "insufficient_quota",
 	// "context_length_exceeded"); fall back to `type`.
@@ -118,18 +115,18 @@ func newProviderError(errType, errCode, message string, statusCode int, retryAft
 		t = errType
 	}
 
-	quotaLimited := isQuotaError(errType) || isQuotaError(errCode)
-	if retryAfter <= 0 && !quotaLimited {
+	if retryAfter <= 0 && kind != provider.ErrorKindQuotaExceeded && kind != provider.ErrorKindBilling {
 		retryAfter = parseRetryFromMessage(message)
 	}
 
-	if retryAfter <= 0 && rateLimited && !quotaLimited {
+	if retryAfter <= 0 && kind == provider.ErrorKindRateLimited {
 		retryAfter = defaultRateLimitRetry
 	}
 
 	return &provider.ProviderError{
-		Code:       statusCode,
+		Kind:       kind,
 		Type:       t,
+		Vendor:     provider.VendorOpenAI,
 		Message:    message,
 		RetryAfter: retryAfter,
 		Err:        cause,
@@ -137,16 +134,13 @@ func newProviderError(errType, errCode, message string, statusCode int, retryAft
 }
 
 // isRateLimitError reports whether the given API error type/code indicates a
-// rate-limit condition that should be mapped to HTTP 429.
+// rate-limit condition.
 //
-// Covers OpenAI platform errors ("rate_limit_exceeded", "insufficient_quota")
+// Covers OpenAI platform errors ("rate_limit_exceeded")
 // as well as Azure OpenAI variants: PTU sometimes returns numeric codes like
 // "429" or Azure-specific innererror codes like "RateLimitReached" /
 // "TokensRateLimit" / "RequestRateLimit".
 func isRateLimitError(errType, errCode string) bool {
-	if isQuotaError(errType) || isQuotaError(errCode) {
-		return true
-	}
 	switch strings.ToLower(errType) {
 	case "too_many_requests",
 		"rate_limit_error",
@@ -160,7 +154,6 @@ func isRateLimitError(errType, errCode string) bool {
 	case "rate_limit_exceeded",
 		"slow_down",
 		"rate_limit_reached",
-		"insufficient_quota",
 		"too_many_requests",
 		"toomanyrequests",
 		"ratelimitreached",
@@ -202,9 +195,11 @@ func parseRetryFromMessage(msg string) time.Duration {
 
 	switch strings.ToLower(m[2]) {
 	case "ms", "millisecond", "milliseconds":
-		return parseRetryDuration(m[1], time.Millisecond)
+		delay, _ := time.ParseDuration(m[1] + "ms")
+		return delay
 	default:
-		return parseRetryDuration(m[1], time.Second)
+		delay, _ := time.ParseDuration(m[1] + "s")
+		return delay
 	}
 }
 
@@ -234,60 +229,59 @@ func parseRetryHeaders(raw jsontext.Value) time.Duration {
 			headers.Set(name, value)
 		}
 	}
-	return parseRetryAfter(headers)
+	return provider.RetryAfterFromHeaders(headers)
 }
 
-// parseRetryDuration rejects non-finite and unrepresentable upstream delays.
-func parseRetryDuration(value string, unit time.Duration) time.Duration {
-	val, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	nanos := val * float64(unit)
-	if err != nil || math.IsNaN(nanos) || nanos <= 0 || nanos >= float64(math.MaxInt64) {
-		return 0
-	}
-	return time.Duration(nanos)
-}
-
-// parseRetryAfter parses Retry-After (seconds, float, HTTP-date) with retry-after-ms as fallback (Azure OpenAI).
-func parseRetryAfter(h http.Header) time.Duration {
-	if v := h.Get("Retry-After"); v != "" {
-		if d := parseRetryDuration(v, time.Second); d > 0 {
-			return d
-		}
-
-		if t, err := http.ParseTime(v); err == nil {
-			if d := time.Until(t); d > 0 {
-				return d
-			}
-		}
+// errorKind classifies an OpenAI error. A quota and a rate limit share 429,
+// so their codes refine any status. Otherwise a response status decides; a
+// streamed error has none, so its code and type classify it.
+// https://developers.openai.com/api/reference/resources/responses/streaming-events
+func errorKind(errType, errCode string, statusCode int) provider.ErrorKind {
+	switch {
+	case isQuotaError(errType) || isQuotaError(errCode):
+		return provider.ErrorKindQuotaExceeded
+	case isRateLimitError(errType, errCode):
+		return provider.ErrorKindRateLimited
+	case errType == "service_unavailable_error" || errCode == "server_is_overloaded" || errCode == "service_unavailable_error":
+		return provider.ErrorKindUnavailable
 	}
 
-	if v := h.Get("retry-after-ms"); v != "" {
-		return parseRetryDuration(v, time.Millisecond)
+	if kind := provider.ErrorKindForStatus(statusCode); kind != "" {
+		return kind
 	}
 
-	return 0
-}
-
-// statusCodeFromResponseErrorCode maps a Responses API ResponseErrorCode
-// (emitted via response.failed streaming events) to an HTTP status code.
-// See: https://platform.openai.com/docs/api-reference/responses-streaming/response/failed
-func statusCodeFromResponseErrorCode(code string) int {
-	if isRateLimitError("", code) {
-		return http.StatusTooManyRequests
-	}
-	switch code {
-	case "server_is_overloaded", "service_unavailable_error":
-		return http.StatusServiceUnavailable
-	// context_length_exceeded is undocumented here but sent in practice.
+	switch errCode {
+	case "invalid_api_key":
+		return provider.ErrorKindUnauthenticated
+	case "unsupported_country_region_territory":
+		return provider.ErrorKindPermissionDenied
+	case "model_not_found":
+		return provider.ErrorKindNotFound
+	case "vector_store_timeout":
+		return provider.ErrorKindDeadlineExceeded
+	case "server_error":
+		return provider.ErrorKindInternal
+	// context_length_exceeded is undocumented for response.failed but sent in practice.
 	case "invalid_prompt", "context_length_exceeded", "data_residency_mismatch", "bio_policy", "misalignment_policy_violation",
 		"invalid_image", "invalid_image_format", "invalid_base64_image", "invalid_image_url",
 		"image_too_large", "image_too_small", "image_parse_error", "image_content_policy_violation",
 		"invalid_image_mode", "image_file_too_large", "unsupported_image_media_type",
 		"empty_image_file", "failed_to_download_image", "image_file_not_found":
-		return http.StatusBadRequest
-	default:
-		return http.StatusBadGateway
+		return provider.ErrorKindInvalidArgument
 	}
+
+	switch errType {
+	case "invalid_request_error":
+		return provider.ErrorKindInvalidArgument
+	case "authentication_error":
+		return provider.ErrorKindUnauthenticated
+	case "permission_error":
+		return provider.ErrorKindPermissionDenied
+	case "not_found_error":
+		return provider.ErrorKindNotFound
+	}
+
+	return provider.ErrorKindInternal
 }
 
 // ensureStrictSchema rewrites a JSON schema into the subset OpenAI's strict

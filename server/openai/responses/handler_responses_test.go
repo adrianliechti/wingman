@@ -111,7 +111,7 @@ func TestReasoningRequestedByEncryptedContentInclude(t *testing.T) {
 		Include: []string{"reasoning.encrypted_content"},
 	}
 
-	if !reasoningRequested(req) {
+	if !reasoningPartsRequested(req) {
 		t.Fatal("expected encrypted_content include to request reasoning output")
 	}
 }
@@ -216,7 +216,7 @@ func TestResponseOutputsReasoningKeepsEmptySummaryArray(t *testing.T) {
 				Signature: "ENC_1",
 			}),
 		},
-	}, new(messageIDs), "completed", responseOutputOptions{IncludeReasoning: true})
+	}, new(messageIDs), "completed", responseOutputOptions{IncludeReasoningParts: true})
 
 	if len(outputs) != 1 {
 		t.Fatalf("expected 1 output, got %d", len(outputs))

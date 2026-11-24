@@ -56,7 +56,7 @@ func TestToolCallingSSE(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			openaiBody := responses.WithModel(map[string]any{
 				"input":  "What's the weather in London?",
 				"tools":  []any{weatherTool},
@@ -187,7 +187,7 @@ func TestToolCallingLongArgumentsSSE(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			req := map[string]any{
 				"stream": true,

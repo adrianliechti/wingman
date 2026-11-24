@@ -45,7 +45,7 @@ func TestMessagesPreserveErrorDetails(t *testing.T) {
 	if err := apierr.UnmarshalJSON([]byte(`{"type":"error","error":{"type":"conflict_error","message":"Request conflicts","details":{"error_code":"future_conflict","resource_ids":["one","two"]}}}`)); err != nil {
 		t.Fatal(err)
 	}
-	upstream := &provider.ProviderError{Code: http.StatusConflict, Message: apierr.Message, Err: fmt.Errorf("wrapped: %w", apierr)}
+	upstream := &provider.ProviderError{Kind: provider.ErrorKindConflict, Message: apierr.Message, Vendor: provider.VendorAnthropic, RawJSON: apierr.RawJSON(), RequestID: apierr.RequestID, Err: fmt.Errorf("wrapped: %w", apierr)}
 	for _, stream := range []bool{false, true} {
 		for _, started := range []bool{false, true} {
 			t.Run(fmt.Sprintf("stream=%t/started=%t", stream, started), func(t *testing.T) {

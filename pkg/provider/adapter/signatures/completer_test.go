@@ -54,6 +54,26 @@ func (c *captureCompleter) Complete(_ context.Context, messages []provider.Messa
 	}
 }
 
+func TestTerminalReasoningSignatureUsesResponseRealm(t *testing.T) {
+	snapshots := provider.ReasoningSnapshots{"rs": {ID: "rs", Signature: "final", Summary: provider.TextParts("summary")}}
+	message := &provider.Message{Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{ID: "rs", Signature: "original", Summary: provider.TextParts("summary")})}}
+	inner := &captureCompleter{reply: &provider.Completion{Message: message, ReasoningSnapshots: snapshots}}
+	for _, tc := range []struct{ realm, want string }{{"alias", "@alias:final"}, {"", ""}} {
+		for chunk, err := range ScopedTo(tc.realm, inner).Complete(t.Context(), nil, nil) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := chunk.ReasoningSnapshots["rs"]
+			if got.Signature != tc.want || got.SummaryText() != "summary" {
+				t.Errorf("realm %q returned %+v", tc.realm, got)
+			}
+		}
+		if snapshots["rs"].Signature != "final" || message.Content[0].Reasoning.Signature != "original" {
+			t.Fatal("modified provider-owned output")
+		}
+	}
+}
+
 func TestCompleterStripsSignatures(t *testing.T) {
 	inner := &captureCompleter{
 		reply: &provider.Completion{

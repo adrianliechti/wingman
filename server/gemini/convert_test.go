@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"encoding/json/v2"
+	"slices"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -77,13 +78,23 @@ func TestNormalizeResponseSchema(t *testing.T) {
 		"properties": map[string]any{
 			"title":  map[string]any{"type": "STRING"},
 			"series": map[string]any{"type": "STRING", "nullable": true},
-			"tags":   map[string]any{"type": "ARRAY", "items": map[string]any{"type": "STRING"}},
+			"tags": map[string]any{"type": "ARRAY", "minItems": "1", "maxItems": "2",
+				"items": map[string]any{"type": "STRING", "minLength": "0", "maxLength": "9007199254740993"}},
 		},
-		"required":         []string{"title"},
-		"propertyOrdering": []string{"title", "series", "tags"},
+		"minProperties":        "1",
+		"defs":                 map[string]any{"Label": map[string]any{"type": "STRING"}},
+		"additionalProperties": map[string]any{"ref": "#/defs/Label"},
+		"maxProperties":        "3",
+		"required":             []string{"title"},
+		"propertyOrdering":     []string{"title", "series", "tags"},
 	}
 
 	got := normalizeResponseSchema(schema)
+
+	defs, ok := got["$defs"].(map[string]any)
+	if !ok || defs["Label"].(map[string]any)["type"] != "string" || got["additionalProperties"].(map[string]any)["$ref"] != "#/$defs/Label" {
+		t.Fatalf("invalid JSON Schema definition or reference: %v", got)
+	}
 
 	if got["type"] != "object" {
 		t.Errorf("type: %v", got["type"])
@@ -107,9 +118,15 @@ func TestNormalizeResponseSchema(t *testing.T) {
 		t.Errorf("series type: %v", series["type"])
 	}
 
-	items := props["tags"].(map[string]any)["items"].(map[string]any)
+	tags := props["tags"].(map[string]any)
+	items := tags["items"].(map[string]any)
 	if items["type"] != "string" {
 		t.Errorf("items type: %v", items["type"])
+	}
+	if tags["minItems"] != int64(1) || tags["maxItems"] != int64(2) ||
+		items["minLength"] != int64(0) || items["maxLength"] != int64(9007199254740993) ||
+		got["minProperties"] != int64(1) || got["maxProperties"] != int64(3) {
+		t.Fatalf("string-encoded size limits lost their integer values: %v", got)
 	}
 
 	// input untouched
@@ -123,11 +140,11 @@ func TestNormalizeResponseSchema(t *testing.T) {
 // thought step before the call as the backend produced it.
 func TestFunctionCallThoughtSignatureSurvivesReplay(t *testing.T) {
 	signature := google.EncodeThoughtSignature([]byte{0xff, 0x00, 0x80})
-	content := toContent([]provider.Content{
+	content := toCandidate([]provider.Content{
 		provider.TextContent("Checking"),
 		provider.ReasoningContent(provider.Reasoning{Signature: signature}),
 		provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "lookup", Arguments: `{"q":"x"}`}),
-	})
+	}, FinishReasonStop).Content
 	if content == nil || len(content.Parts) != 2 {
 		t.Fatalf("parts = %+v", content)
 	}
@@ -150,6 +167,60 @@ func TestFunctionCallThoughtSignatureSurvivesReplay(t *testing.T) {
 	got := messages[len(messages)-1].Content
 	if len(got) != 3 || got[0].Text != "Checking" || got[1].Reasoning == nil || got[1].Reasoning.Signature != signature || got[2].ToolCall == nil || got[2].ToolCall.ID != "call_1" {
 		t.Fatalf("replayed content = %+v", got)
+	}
+}
+
+// Gemini parts have no reasoning item field. Preserve the original item ID
+// inside the thought signature for replay.
+func TestReasoningIDSurvivesReplay(t *testing.T) {
+	for _, signature := range []string{"@gpt:encrypted", google.EncodeThoughtSignature([]byte{0x40, 0x01, 0x3a, 0xff})} {
+		content := toCandidate([]provider.Content{
+			provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("Checking"), Signature: signature}),
+			provider.TextContent("Done"),
+			provider.ReasoningContent(provider.Reasoning{ID: "rs_2", Signature: signature}),
+			provider.ToolCallContent(provider.ToolCall{ID: "call_1", Name: "lookup", Arguments: `{}`}),
+			provider.ReasoningContent(provider.Reasoning{Signature: signature}),
+			provider.TextContent("Unidentified"),
+		}, FinishReasonStop).Content
+		wire, err := json.Marshal(content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var replayed Content
+		if err := json.Unmarshal(wire, &replayed); err != nil {
+			t.Fatal(err)
+		}
+		messages, err := toMessages(nil, []*Content{&replayed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, c := range messages[0].Content {
+			if r := c.Reasoning; r != nil {
+				got = append(got, r.ID+"="+r.Signature)
+			}
+		}
+		if want := []string{"rs_1=" + signature, "rs_2=" + signature, "=" + signature}; !slices.Equal(got, want) {
+			t.Fatalf("replayed reasoning %v, want %v", got, want)
+		}
+	}
+}
+
+// python-genai's types.Schema serializes OpenAPI types in upper case. Other
+// backends require JSON Schema; parametersJsonSchema is passed through.
+func TestFunctionParametersBecomeJSONSchema(t *testing.T) {
+	tools := toTools([]*Tool{{FunctionDeclarations: []*FunctionDeclaration{
+		{Name: "openapi", Parameters: map[string]any{"type": "OBJECT", "properties": map[string]any{
+			"city": map[string]any{"type": "STRING", "nullable": true},
+		}, "required": []any{"city"}, "propertyOrdering": []any{"city"}}},
+		{Name: "json", ParametersJsonSchema: map[string]any{"type": "object", "properties": map[string]any{"STRING": map[string]any{"const": "OBJECT"}}}},
+	}}}, false)
+	city := tools[0].Parameters["properties"].(map[string]any)["city"].(map[string]any)
+	if tools[0].Parameters["type"] != "object" || !slices.Equal(city["type"].([]any), []any{"string", "null"}) || tools[0].Parameters["propertyOrdering"] != nil {
+		t.Fatalf("OpenAPI parameters were not converted: %v", tools[0].Parameters)
+	}
+	if property := tools[1].Parameters["properties"].(map[string]any)["STRING"].(map[string]any); property["const"] != "OBJECT" {
+		t.Fatalf("parametersJsonSchema changed: %v", tools[1].Parameters)
 	}
 }
 
@@ -179,7 +250,7 @@ func TestNativeTextSignatureStaysOnItsPart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reply := toContent(message.Content)
+	reply := toCandidate(message.Content, FinishReasonStop).Content
 	if len(reply.Parts) != 2 || len(reply.Parts[0].ThoughtSignature) != 0 || google.EncodeThoughtSignature(reply.Parts[1].ThoughtSignature) != want {
 		t.Fatalf("signature moved to another text part: %+v", reply)
 	}
@@ -212,7 +283,7 @@ func TestFinishReasonAndRefusalFromCompletion(t *testing.T) {
 		t.Fatalf("StopReasonRefusal -> %q, want %q", got, FinishReasonSafety)
 	}
 
-	content := toContent([]provider.Content{provider.RefusalContent("cannot comply")})
+	content := toCandidate([]provider.Content{provider.RefusalContent("cannot comply")}, FinishReasonSafety).Content
 	if content == nil || len(content.Parts) != 1 || content.Parts[0].Text != "cannot comply" {
 		t.Fatalf("refusal content = %+v", content)
 	}
@@ -251,5 +322,29 @@ func TestToMessagesFunctionResponseForcesUserRole(t *testing.T) {
 	}
 	if result, ok := messages[2].ToolResult(); !ok || result.ID != "toolu_1" {
 		t.Fatalf("messages[2] tool result = %+v, %v", result, ok)
+	}
+}
+
+func TestMixedFunctionResponseIDs(t *testing.T) {
+	history := []*Content{
+		{Role: "model", Parts: []*Part{
+			{FunctionCall: &FunctionCall{Name: "lookup", ID: "call1"}},
+			{FunctionCall: &FunctionCall{Name: "lookup", ID: "call2"}},
+			{FunctionCall: &FunctionCall{Name: "lookup", ID: "call3"}},
+		}},
+		{Role: "user", Parts: []*Part{
+			{FunctionResponse: &FunctionResponse{Name: "lookup", ID: "call2"}},
+			{FunctionResponse: &FunctionResponse{Name: "lookup"}},
+			{FunctionResponse: &FunctionResponse{Name: "lookup"}},
+		}},
+	}
+	messages, err := toMessages(nil, history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"call2", "call1", "call3"} {
+		if got := messages[1].Content[i].ToolResult.ID; got != want {
+			t.Fatalf("result %d paired with %q, want %q", i, got, want)
+		}
 	}
 }

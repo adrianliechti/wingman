@@ -42,7 +42,7 @@ func doRequest(ctx context.Context, client *http.Client, url, token string, body
 		body, _ := io.ReadAll(resp.Body)
 
 		return &provider.ProviderError{
-			Code:    resp.StatusCode,
+			Kind:    provider.ErrorKindForStatus(resp.StatusCode),
 			Message: string(body),
 		}
 	}

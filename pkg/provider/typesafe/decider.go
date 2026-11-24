@@ -237,7 +237,7 @@ func (d *Decider) Decide(ctx context.Context, input *provider.DecisionInput) (*p
 			break
 		}
 		var upstream *provider.ProviderError
-		if !errors.As(err, &upstream) || !(upstream.Code == 408 || upstream.Code == 429 || upstream.Code >= 500) {
+		if !errors.As(err, &upstream) || !upstream.Kind.Retryable() {
 			break
 		}
 		delay := upstream.RetryAfter
@@ -278,7 +278,7 @@ func (d *Decider) evaluate(ctx context.Context, data []byte, images bool) (*deci
 
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		upstream := &provider.ProviderError{Code: resp.StatusCode, Message: string(data)}
+		upstream := &provider.ProviderError{Kind: provider.ErrorKindForStatus(resp.StatusCode), Vendor: provider.VendorTypeSafe, Message: string(data)}
 		var envelope struct {
 			Detail jsontext.Value `json:"detail"`
 			Error  struct {
@@ -297,11 +297,7 @@ func (d *Decider) evaluate(ctx context.Context, data []byte, images bool) (*deci
 		if upstream.Message == "" {
 			upstream.Message = fmt.Sprintf("decision API returned HTTP %d", resp.StatusCode)
 		}
-		if seconds, err := strconv.ParseFloat(resp.Header.Get("Retry-After"), 64); err == nil && seconds > 0 && !math.IsInf(seconds, 0) {
-			upstream.RetryAfter = time.Duration(seconds * float64(time.Second))
-		} else if deadline, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
-			upstream.RetryAfter = max(0, time.Until(deadline))
-		}
+		upstream.RetryAfter = provider.RetryAfterFromHeaders(resp.Header)
 		return nil, upstream
 	}
 

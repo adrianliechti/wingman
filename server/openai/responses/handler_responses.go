@@ -476,12 +476,11 @@ func responseDefaults(resp *Response, req ResponsesRequest, completion *provider
 	}
 }
 
-// reasoningRequested returns true if the request explicitly asks for reasoning output.
-func reasoningRequested(req ResponsesRequest) bool {
+// An explicit reasoning request also forwards provider-supplied content and summaries.
+func reasoningPartsRequested(req ResponsesRequest) bool {
 	if slices.Contains(req.Include, "reasoning.encrypted_content") {
 		return true
 	}
-
 	if req.Reasoning == nil {
 		return false
 	}
@@ -492,8 +491,8 @@ func reasoningRequested(req ResponsesRequest) bool {
 }
 
 type responseOutputOptions struct {
-	IncludeSummary   bool
-	IncludeReasoning bool
+	IncludeSummary        bool
+	IncludeReasoningParts bool
 
 	Tools []Tool
 }
@@ -542,7 +541,7 @@ func (m *messageIDs) get(index int, nativeID string) string {
 	for len(*m) <= index {
 		*m = append(*m, "")
 	}
-	if (*m)[index] == "" {
+	if nativeID != "" {
 		(*m)[index] = nativeID
 	}
 	if (*m)[index] == "" {
@@ -558,6 +557,12 @@ func responseOutputs(message *provider.Message, ids *messageIDs, status string, 
 		return output
 	}
 
+	messageIndex := 0
+	nextID := func(native string) string {
+		id := ids.get(messageIndex, native)
+		messageIndex++
+		return id
+	}
 	parts := message.SplitMessages()
 
 	for i, part := range parts {
@@ -566,14 +571,7 @@ func responseOutputs(message *provider.Message, ids *messageIDs, status string, 
 			partStatus = status
 		}
 
-		var messageID string
-		for _, content := range part.Content {
-			if content.Text != "" || content.TextPresent || content.Refusal != "" {
-				messageID = ids.get(i, content.MessageID)
-				break
-			}
-		}
-		output = append(output, messageOutputs(&part, messageID, partStatus, opts)...)
+		output = append(output, messageOutputs(&part, nextID, partStatus, opts)...)
 	}
 
 	return output
@@ -582,6 +580,24 @@ func responseOutputs(message *provider.Message, ids *messageIDs, status string, 
 func streamResponseOutputs(event StreamEvent, ids *messageIDs, status string, opts responseOutputOptions) []ResponseOutput {
 	if event.Completion == nil {
 		return []ResponseOutput{}
+	}
+	if event.statusMessage != nil {
+		streamed := responseOutputs(event.statusMessage, ids, status, opts)
+		byID := make(map[string]string, len(streamed))
+		for i, item := range streamed {
+			if i < len(event.OutputStatuses) {
+				id, _ := outputStatusField(&item)
+				byID[id] = event.OutputStatuses[i]
+			}
+		}
+		output := responseOutputs(event.Completion.Message, ids, status, opts)
+		for i := range output {
+			id, field := outputStatusField(&output[i])
+			if s := byID[id]; field != nil && s != "" {
+				*field = s
+			}
+		}
+		return output
 	}
 	output := responseOutputs(event.Completion.Message, ids, status, opts)
 	for i, itemStatus := range event.OutputStatuses {
@@ -592,15 +608,8 @@ func streamResponseOutputs(event StreamEvent, ids *messageIDs, status string, op
 	return output
 }
 
-func messageOutputs(message *provider.Message, messageID, status string, opts responseOutputOptions) []ResponseOutput {
+func messageOutputs(message *provider.Message, nextID func(string) string, status string, opts responseOutputOptions) []ResponseOutput {
 	output := []ResponseOutput{}
-	phase := string(message.Phase)
-	text := message.Text()
-	refusal := message.Refusal()
-	textEmitted := false
-	refusalEmitted := false
-	var messageItem *OutputMessage
-
 	// Only the item cut short by truncation is incomplete; everything that
 	// finished before it stays completed. The truncated item is the last one.
 	incomplete := status == "incomplete" || status == "failed"
@@ -608,45 +617,63 @@ func messageOutputs(message *provider.Message, messageID, status string, opts re
 		status = "completed"
 	}
 
+	// An emitted reasoning item, call or compaction ends the current message,
+	// including when the provider omits native message IDs.
+	var run provider.Message
+	firstMessage := true
+	flushMessage := func() {
+		if len(run.Content) == 0 {
+			return
+		}
+		// SplitMessages starts a new part for each native ID. Only the first
+		// message in this part can reuse that ID and its phase.
+		var id, phase string
+		if firstMessage {
+			id, phase = run.Content[0].MessageID, string(message.Phase)
+			firstMessage = false
+		}
+		item := &OutputMessage{ID: nextID(id), Role: MessageRoleAssistant, Status: status, Phase: phase}
+		textEmitted := false
+		text := run.Text()
+		refusal := run.Refusal()
+		for _, part := range run.Content {
+			if part.Refusal != "" && refusal != "" {
+				item.Contents = append(item.Contents, OutputContent{Type: "refusal", Text: refusal})
+				refusal = ""
+			}
+			if !textEmitted && (part.Text != "" || part.TextPresent) {
+				item.Contents = append(item.Contents, OutputContent{Type: "output_text", Text: text, Annotations: []any{}, Logprobs: []any{}})
+				textEmitted = true
+			}
+		}
+		output = append(output, ResponseOutput{Type: ResponseOutputTypeMessage, OutputMessage: item})
+		run.Content = run.Content[:0]
+	}
+
 	for _, content := range message.Content {
-		if opts.IncludeReasoning {
-			r := content.Reasoning
-			if r != nil && (r.ID != "" || r.Text() != "" || r.SummaryText() != "" || r.Signature != "") {
-				id := r.ID
-				if id == "" {
-					id = "rs_" + uuid.NewString()
+		if r := content.Reasoning; r != nil {
+			projected := reasoningForOutput(*r, opts.IncludeSummary)
+			if !opts.IncludeReasoningParts {
+				projected = opaqueReasoning(projected)
+			}
+			if projected.ID != "" || projected.Text() != "" || projected.SummaryText() != "" || projected.Signature != "" {
+				flushMessage()
+				if projected.ID == "" {
+					projected.ID = "rs_" + uuid.NewString()
 				}
-
-				projected := reasoningForOutput(*r, opts.IncludeSummary)
-				projected.ID = id
-				item := reasoningOutputItem(projected, status)
-
 				output = append(output, ResponseOutput{
 					Type:                ResponseOutputTypeReasoning,
-					ReasoningOutputItem: item,
+					ReasoningOutputItem: reasoningOutputItem(projected, status),
 				})
 			}
 		}
 
-		if messageItem == nil && (content.Text != "" || content.TextPresent || content.Refusal != "") {
-			messageItem = &OutputMessage{ID: messageID, Role: MessageRoleAssistant, Status: status, Phase: phase, Contents: []OutputContent{}}
-			output = append(output, ResponseOutput{
-				Type:          ResponseOutputTypeMessage,
-				OutputMessage: messageItem,
-			})
-		}
-		if content.Refusal != "" && !refusalEmitted {
-			refusalEmitted = true
-			messageItem.Contents = append(messageItem.Contents, OutputContent{Type: "refusal", Text: refusal})
-		}
-		if (content.Text != "" || content.TextPresent) && !textEmitted {
-			textEmitted = true
-			messageItem.Contents = append(messageItem.Contents, OutputContent{
-				Type: "output_text", Text: text, Annotations: []any{}, Logprobs: []any{},
-			})
+		if content.Text != "" || content.TextPresent || content.Refusal != "" {
+			run.Content = append(run.Content, content)
 		}
 
 		if content.ToolCall != nil {
+			flushMessage()
 			call := *content.ToolCall
 
 			switch opts.kind(call.Kind, call.Name) {
@@ -689,10 +716,12 @@ func messageOutputs(message *provider.Message, messageID, status string, opts re
 			}
 		}
 		if content.ToolResult != nil && content.ToolResult.Kind == provider.ToolKindToolSearch {
+			flushMessage()
 			output = append(output, ResponseOutput{Type: ResponseOutputTypeToolSearchOutput, ToolSearchOutputItem: toolResultToToolSearchOutput(*content.ToolResult)})
 		}
 
 		if content.Compaction != nil && (content.Compaction.Content != "" || content.Compaction.Signature != "") {
+			flushMessage()
 			id := content.Compaction.ID
 			if id == "" {
 				id = "comp_" + uuid.NewString()
@@ -711,6 +740,8 @@ func messageOutputs(message *provider.Message, messageID, status string, opts re
 		}
 	}
 
+	flushMessage()
+
 	if incomplete && len(output) > 0 {
 		setOutputStatus(&output[len(output)-1], "incomplete")
 	}
@@ -720,24 +751,31 @@ func messageOutputs(message *provider.Message, messageID, status string, opts re
 
 // setOutputStatus overrides the status of whichever item variant is set.
 func setOutputStatus(o *ResponseOutput, status string) {
+	if _, field := outputStatusField(o); field != nil {
+		*field = status
+	}
+}
+
+func outputStatusField(o *ResponseOutput) (string, *string) {
 	switch {
 	case o.OutputMessage != nil:
-		o.OutputMessage.Status = status
+		return o.OutputMessage.ID, &o.OutputMessage.Status
 	case o.ReasoningOutputItem != nil:
-		o.ReasoningOutputItem.Status = status
+		return o.ReasoningOutputItem.ID, &o.ReasoningOutputItem.Status
 	case o.FunctionCallOutputItem != nil:
-		o.FunctionCallOutputItem.Status = status
+		return o.FunctionCallOutputItem.ID, &o.FunctionCallOutputItem.Status
 	case o.CustomToolCallItem != nil:
-		o.CustomToolCallItem.Status = status
+		return o.CustomToolCallItem.ID, &o.CustomToolCallItem.Status
 	case o.ApplyPatchCallItem != nil:
-		o.ApplyPatchCallItem.Status = status
+		return o.ApplyPatchCallItem.ID, &o.ApplyPatchCallItem.Status
 	case o.ComputerCallItem != nil:
-		o.ComputerCallItem.Status = status
+		return o.ComputerCallItem.ID, &o.ComputerCallItem.Status
 	case o.ShellCallItem != nil:
-		o.ShellCallItem.Status = status
+		return o.ShellCallItem.ID, &o.ShellCallItem.Status
 	case o.ToolSearchCallItem != nil:
-		o.ToolSearchCallItem.Status = status
+		return o.ToolSearchCallItem.ID, &o.ToolSearchCallItem.Status
 	}
+	return "", nil
 }
 
 func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
@@ -783,9 +821,9 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	}
 
 	outputOpts := responseOutputOptions{
-		IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
-		IncludeReasoning: reasoningRequested(req),
-		Tools:            requestTools(req.Tools, req.Input.Items),
+		IncludeSummary:        options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
+		IncludeReasoningParts: reasoningPartsRequested(req),
+		Tools:                 requestTools(req.Tools, req.Input.Items),
 	}
 
 	// Create initial response template
@@ -804,14 +842,13 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	// Create streaming accumulator with event handler
 	accumulator := NewStreamingAccumulator(func(event StreamEvent) error {
 		switch event.Type {
-		case StreamEventToolSearchResult:
+		case StreamEventToolSearchResultAdded, StreamEventToolSearchResult:
 			item := ResponseOutput{Type: ResponseOutputTypeToolSearchOutput, ToolSearchOutputItem: toolResultToToolSearchOutput(*event.ToolResult)}
-			for _, kind := range []string{"response.output_item.added", "response.output_item.done"} {
-				if err := writeEvent(w, kind, map[string]any{"type": kind, "sequence_number": nextSeq(), "output_index": event.OutputIndex, "item": item}); err != nil {
-					return err
-				}
+			kind := "response.output_item.done"
+			if event.Type == StreamEventToolSearchResultAdded {
+				kind = "response.output_item.added"
 			}
-			return nil
+			return writeEvent(w, kind, map[string]any{"type": kind, "sequence_number": nextSeq(), "output_index": event.OutputIndex, "item": item})
 		case StreamEventResponseCreated:
 			// The response is the gateway's own object. Upstream IDs identify
 			// output items and are preserved there, not reused for the response.
@@ -1434,7 +1471,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 		case StreamEventResponseError:
 			shared.WriteSSERetry(w, event.Error)
 
-			code := provider.TypeFromError(event.Error)
+			code := shared.ErrorCodeFromError(event.Error)
 			if code == "" {
 				code = shared.ErrorTypeFromError(event.Error)
 			}
@@ -1477,7 +1514,7 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 	})
 
 	accumulator.ReasoningAsSummary = outputOpts.IncludeSummary
-	accumulator.SuppressReasoning = !outputOpts.IncludeReasoning
+	accumulator.encryptedReasoningOnly = !outputOpts.IncludeReasoningParts
 
 	failed := false
 
@@ -1516,18 +1553,35 @@ func (h *Handler) handleResponsesStream(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request, req ResponsesRequest, completer provider.Completer, messages []provider.Message, options *provider.CompleteOptions) {
-	acc := provider.CompletionAccumulator{}
-
+	outputOpts := responseOutputOptions{
+		IncludeSummary:        options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
+		IncludeReasoningParts: reasoningPartsRequested(req),
+		Tools:                 requestTools(req.Tools, req.Input.Items),
+	}
+	var terminal StreamEvent
+	acc := NewStreamingAccumulator(func(event StreamEvent) error {
+		switch event.Type {
+		case StreamEventResponseCompleted, StreamEventResponseIncomplete, StreamEventResponseFailed:
+			terminal = event
+		}
+		return nil
+	})
+	acc.ReasoningAsSummary = outputOpts.IncludeSummary
+	acc.encryptedReasoningOnly = !outputOpts.IncludeReasoningParts
 	for c, err := range completer.Complete(r.Context(), messages, options) {
+		if err == nil {
+			err = acc.Add(*c)
+		}
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err)
 			return
 		}
-
-		acc.Add(*c)
 	}
-
-	completion := acc.Result()
+	if err := acc.Complete(); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	completion := terminal.Completion
 
 	responseID := "resp_" + uuid.NewString()
 
@@ -1546,26 +1600,8 @@ func (h *Handler) handleResponsesComplete(w http.ResponseWriter, r *http.Request
 		Status:            status,
 		IncompleteDetails: incompleteDetails,
 		Model:             responseModel(completion, req.Model),
-		Output: responseOutputs(completion.Message, new(messageIDs), status, responseOutputOptions{
-			IncludeSummary:   options.ReasoningOptions != nil && options.ReasoningOptions.IncludeSummary,
-			IncludeReasoning: reasoningRequested(req),
-			Tools:            requestTools(req.Tools, req.Input.Items),
-		}),
-		Usage: responseUsage(completion.Usage),
-	}
-
-	if completion.Status == provider.CompletionStatusRefused || completion.Status == provider.CompletionStatusFailed {
-		for i := range result.Output {
-			item := &result.Output[i]
-			switch item.Type {
-			case ResponseOutputTypeFunctionCall, ResponseOutputTypeCustomToolCall, ResponseOutputTypeApplyPatchCall, ResponseOutputTypeComputerCall, ResponseOutputTypeShellCall, ResponseOutputTypeLocalShellCall:
-				setOutputStatus(item, "incomplete")
-			case ResponseOutputTypeToolSearchCall:
-				if callerOwned(provider.ToolKindToolSearch, item.ToolSearchCallItem.Execution) {
-					setOutputStatus(item, "incomplete")
-				}
-			}
-		}
+		Output:            streamResponseOutputs(terminal, new(messageIDs), status, outputOpts),
+		Usage:             responseUsage(completion.Usage),
 	}
 
 	if result.Status == "completed" {

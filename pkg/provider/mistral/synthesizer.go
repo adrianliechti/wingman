@@ -116,7 +116,7 @@ func (s *Synthesizer) synthesize(ctx context.Context, content string, options *p
 		errBody, _ := io.ReadAll(resp.Body)
 
 		return nil, &provider.ProviderError{
-			Code:    resp.StatusCode,
+			Kind:    provider.ErrorKindForStatus(resp.StatusCode),
 			Message: string(errBody),
 		}
 	}

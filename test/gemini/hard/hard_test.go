@@ -159,7 +159,7 @@ func TestParallelToolCalls(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":    []any{gemini.WeatherTool},
@@ -187,7 +187,7 @@ func TestToolLoopWithThinking(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":            []any{gemini.WeatherTool, clockTool},
@@ -214,7 +214,7 @@ func TestToolChoice(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			for _, tg := range targets(h, model) {
 				forcedBody := map[string]any{
@@ -255,7 +255,7 @@ func TestArgumentlessToolStreaming(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":    []any{clockTool},
@@ -285,7 +285,7 @@ func TestStreamingReassembly(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":    []any{gemini.WeatherTool},
@@ -316,12 +316,86 @@ func TestStreamingReassembly(t *testing.T) {
 	}
 }
 
+// python-genai's chat sends each streamed candidate content as a separate
+// model message and discards the turn if any chunk has no valid parts.
+func TestStreamingChatToolReplay(t *testing.T) {
+	h := gemini.New(t)
+	for _, model := range gemini.DefaultModels() {
+		t.Run(model.Name, func(t *testing.T) {
+			h.RequireConfigured(t, model.Name)
+			for _, tg := range targets(h, model) {
+				t.Run(tg.label, func(t *testing.T) {
+					history := user("Call get_time exactly once. The tool returns a clock reading with a verification code. Tell me that code.")
+					streamTurn := func() []*harness.SSEEvent {
+						t.Helper()
+						events := postSSE(t, h, tg, map[string]any{"contents": history, "tools": []any{clockTool}})
+						for i, event := range events {
+							content, _ := candidate(event.Data)["content"].(map[string]any)
+							if content["role"] != "model" || len(parts(event.Data)) == 0 {
+								t.Fatalf("chunk %d would invalidate SDK chat history: %v", i, event.Data)
+							}
+							for _, p := range parts(event.Data) {
+								if len(p) == 0 {
+									t.Fatalf("chunk %d contains an empty part", i)
+								}
+							}
+							history = append(history, content)
+						}
+						if finishReason(events) != "STOP" {
+							t.Fatalf("unexpected finish reason %q", finishReason(events))
+						}
+						return events
+					}
+					first := streamTurn()
+					calls := streamedFunctionCalls(first)
+					if len(calls) != 1 || calls[0]["name"] != "get_time" {
+						t.Fatalf("expected one get_time call, got %v", calls)
+					}
+					if tg.label == "wingman" {
+						if args, ok := calls[0]["args"].(map[string]any); !ok || len(args) != 0 {
+							t.Fatalf("the Python SDK requires an empty args object to invoke get_time, got %v", calls[0])
+						}
+					}
+					// The Python SDK serializes opaque bytes with URL-safe base64.
+					signedCall := false
+					for _, event := range first {
+						for _, p := range parts(event.Data) {
+							if encoded, ok := p["thoughtSignature"].(string); ok {
+								raw, err := base64.StdEncoding.DecodeString(encoded)
+								if err != nil {
+									t.Fatal(err)
+								}
+								p["thoughtSignature"] = base64.URLEncoding.EncodeToString(raw)
+								if p["functionCall"] != nil && len(raw) != 0 {
+									signedCall = true
+								}
+							}
+						}
+					}
+					if (strings.HasPrefix(tg.model, "gemini-3") || strings.HasPrefix(tg.model, "gemini-4")) && !signedCall {
+						t.Fatal("missing thought signature on the Gemini function call")
+					}
+					const code = "MANGO-4871"
+					result := map[string]any{"name": "get_time", "response": map[string]any{"time": "08:15", "verification_code": code}}
+					if id := calls[0]["id"]; id != nil {
+						result["id"] = id
+					}
+					history = append(history, map[string]any{"role": "user", "parts": []any{map[string]any{"functionResponse": result}}})
+					if answer := streamedText(streamTurn()); !strings.Contains(answer, code) {
+						t.Fatalf("answer did not use the tool result: %q", answer)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestUnicodeStreaming(t *testing.T) {
 	h := gemini.New(t)
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{"contents": user(hardtest.UnicodePrompt)}
 
@@ -337,7 +411,7 @@ func TestTruncation(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"generationConfig": map[string]any{"maxOutputTokens": 32},
@@ -361,7 +435,7 @@ func TestStopSequence(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"generationConfig": map[string]any{"stopSequences": []string{"6"}},
@@ -380,7 +454,7 @@ func TestImageInput(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"contents": []any{map[string]any{
@@ -411,7 +485,7 @@ func TestStructuredOutputStreaming(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"contents": user(hardtest.BookPrompt),
@@ -433,7 +507,7 @@ func TestLongContextNeedle(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{"contents": user(hardtest.NeedlePrompt())}
 
@@ -449,7 +523,7 @@ func TestErrorToolResult(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			// Gemini 3 needs a signature on replayed calls; run the first turn
 			// live and answer it with an error payload.
@@ -495,7 +569,7 @@ func TestConcurrentStreams(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			var wg sync.WaitGroup
 			errs := make(chan error, hardtest.Concurrency)
@@ -533,8 +607,8 @@ func TestModelSwitch(t *testing.T) {
 			}
 
 			t.Run(from.Name+"→"+to.Name, func(t *testing.T) {
-				h.SkipUnlessConfigured(t, from.Name)
-				h.SkipUnlessConfigured(t, to.Name)
+				h.RequireConfigured(t, from.Name)
+				h.RequireConfigured(t, to.Name)
 
 				body := map[string]any{
 					"tools":            []any{gemini.WeatherTool},

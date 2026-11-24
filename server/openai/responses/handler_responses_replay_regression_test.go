@@ -64,6 +64,7 @@ func TestResponsesRedactedThinkingRoundTrip(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			c := reasoningStatusCompleter{status: provider.CompletionStatusCompleted, content: []provider.Content{
+				provider.ReasoningContent(provider.Reasoning{ID: "rs_redacted"}),
 				provider.ReasoningContent(provider.Reasoning{ID: "rs_redacted", Signature: "opaque_redacted_blob", Redacted: true}),
 				provider.ToolCallContent(provider.ToolCall{ID: "call_a", Name: "lookup", Arguments: `{}`}),
 			}}
@@ -73,6 +74,9 @@ func TestResponsesRedactedThinkingRoundTrip(t *testing.T) {
 			}
 			if err := json.Unmarshal(payload, &result); err != nil {
 				t.Fatal(err)
+			}
+			if len(result.Output.Items) != 2 {
+				t.Fatalf("expected one redacted reasoning item and one tool call: %s", payload)
 			}
 			messages, err := toMessages(result.Output.Items, "")
 			if err != nil {

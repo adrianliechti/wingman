@@ -128,7 +128,7 @@ func TestSchemaAndResultPreserveNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(tools[0].Parameters)
+	encoded, err := json.Marshal(tools[0].Parameters, json.Deterministic(true))
 	if err != nil || string(encoded) != schema {
 		t.Fatalf("schema changed: %s (%v)", encoded, err)
 	}

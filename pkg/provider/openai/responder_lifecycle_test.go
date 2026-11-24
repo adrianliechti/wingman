@@ -141,7 +141,7 @@ func TestResponderPreservesEmptyFinalText(t *testing.T) {
 	stream := strings.Join([]string{
 		`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_empty","type":"message","role":"assistant","phase":"final_answer","status":"in_progress","content":[]}}`,
 		`data: {"type":"response.content_part.added","output_index":0,"item_id":"msg_empty","content_index":0,"part":{"type":"output_text","text":"","annotations":[],"logprobs":[]}}`,
-		`data: {"type":"response.completed","response":{"status":"completed","output":[]}}`,
+		`data: {"type":"response.completed","response":{"status":"completed","output":[{"id":"msg_empty","type":"message","phase":"final_answer","role":"assistant","content":[{"type":"output_text","text":""}]}]}}`,
 	}, "\n\n") + "\n\n"
 	client := &http.Client{Transport: responderLifecycleTransport(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream)), Request: r}, nil

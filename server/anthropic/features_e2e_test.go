@@ -102,7 +102,7 @@ event: response.output_text.delta
 data: {"type":"response.output_text.delta","item_id":"msg_test","output_index":0,"content_index":0,"delta":"done"}
 
 event: response.completed
-data: {"type":"response.completed","response":{"id":"resp_test","model":"gpt-6-astra","status":"completed","output":[],"usage":{"input_tokens":20,"output_tokens":12,"output_tokens_details":{"reasoning_tokens":6}}}}
+data: {"type":"response.completed","response":{"id":"resp_test","model":"gpt-6-astra","status":"completed","output":[{"type":"message","id":"msg_test","role":"assistant","status":"completed","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":20,"output_tokens":12,"output_tokens_details":{"reasoning_tokens":6}}}}
 
 `
 

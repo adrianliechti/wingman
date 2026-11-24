@@ -29,7 +29,7 @@ func TestGPT6AstraE2E(t *testing.T) {
 		t.Fatalf("TEST_OPENAI_ASTRA_MODEL must name a GPT-6 Astra or GPT-6.2 Astra model, got %q", model)
 	}
 	h := openai.New(t)
-	h.SkipUnlessConfigured(t, model)
+	h.RequireConfigured(t, model)
 
 	request := responses.WithModel(map[string]any{
 		"input": []any{

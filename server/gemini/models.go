@@ -68,7 +68,7 @@ type FileData struct {
 type FunctionCall struct {
 	ID   string         `json:"id,omitzero"` // internal ID for tracking
 	Name string         `json:"name,omitzero"`
-	Args map[string]any `json:"args,omitempty"`
+	Args map[string]any `json:"args"` // python-genai invokes zero-argument functions only when args is present.
 }
 
 // FunctionResponse is the result of a function call
@@ -107,8 +107,8 @@ type Tool struct {
 type FunctionDeclaration struct {
 	Name                 string `json:"name,omitzero"`
 	Description          string `json:"description,omitzero"`
-	Parameters           any    `json:"parameters,omitzero"`           // JSON Schema (standard Gemini API)
-	ParametersJsonSchema any    `json:"parametersJsonSchema,omitzero"` // JSON Schema (Gemini CLI format)
+	Parameters           any    `json:"parameters,omitzero"`           // OpenAPI schema subset (standard Gemini API)
+	ParametersJsonSchema any    `json:"parametersJsonSchema,omitzero"` // JSON Schema
 }
 
 // ToolConfig configures tool behavior

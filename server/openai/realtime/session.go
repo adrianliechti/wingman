@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/server/openai/shared"
 
 	"github.com/gorilla/websocket"
 )
@@ -297,7 +298,7 @@ func (s *openAISession) handleClientEvent(ctx context.Context, data []byte) erro
 		// A refused provider connection, such as an exhausted budget, cannot
 		// succeed later in this session.
 		if errors.Is(err, provider.ErrRejected) {
-			code := provider.TypeFromError(err)
+			code := shared.ErrorCodeFromError(err)
 			if werr := s.writeTypedError(event.EventID, code, code, err.Error(), ""); werr != nil {
 				return werr
 			}

@@ -8,8 +8,6 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
-
-	"github.com/openai/openai-go/v3"
 )
 
 func CompletionFailure(completion *provider.Completion) error {
@@ -32,8 +30,30 @@ func WriteJson(w http.ResponseWriter, v any) {
 
 // ErrorTypeFromError maps a ProviderError to an OpenAI-compatible error type string.
 func ErrorTypeFromError(err error) string {
-	code := provider.CodeFromError(err, 0)
+	return errorType(err, provider.CodeFromError(err, 0))
+}
+
+// OpenAI reports an exhausted quota with its own error type.
+func errorType(err error, code int) string {
+	if kind := provider.KindFromError(err); kind == provider.ErrorKindQuotaExceeded || kind == provider.ErrorKindBilling {
+		return "insufficient_quota"
+	}
 	return errorTypeFromCode(code)
+}
+
+// ErrorCodeFromError returns the OpenAI error code. Codes from other vendors
+// would mislead OpenAI clients, so the error kind supplies their code.
+func ErrorCodeFromError(err error) string {
+	if code := provider.NativeType(err, provider.VendorOpenAI); code != "" {
+		return code
+	}
+	switch provider.KindFromError(err) {
+	case provider.ErrorKindQuotaExceeded, provider.ErrorKindBilling:
+		return "insufficient_quota"
+	case provider.ErrorKindRateLimited:
+		return "rate_limit_exceeded"
+	}
+	return ""
 }
 
 func errorTypeFromCode(code int) string {
@@ -44,13 +64,13 @@ func errorTypeFromCode(code int) string {
 		return "permission_error"
 	case code == http.StatusNotFound:
 		return "not_found_error"
-	case code == http.StatusRequestTimeout:
+	case code == http.StatusRequestTimeout || code == http.StatusGatewayTimeout:
 		return "timeout_error"
 	case code == http.StatusConflict:
 		return "conflict_error"
 	case code == http.StatusTooManyRequests:
 		return "rate_limit_exceeded"
-	case code == http.StatusServiceUnavailable || code == 529:
+	case code == http.StatusServiceUnavailable:
 		return "service_unavailable_error"
 	case code >= 500:
 		return "server_error"
@@ -62,10 +82,11 @@ func errorTypeFromCode(code int) string {
 }
 
 func WriteError(w http.ResponseWriter, code int, err error) {
-	// Use real status code from upstream provider if available
 	code = provider.CodeFromError(err, code)
-	if code == 529 {
-		code = http.StatusServiceUnavailable
+	if kind := provider.KindFromError(err); kind == provider.ErrorKindQuotaExceeded || kind == provider.ErrorKindBilling {
+		code = http.StatusTooManyRequests
+		// The OpenAI SDK decides whether to retry before it reads the body.
+		w.Header().Set("x-should-retry", "false")
 	}
 
 	// Propagate Retry-After from upstream
@@ -73,12 +94,12 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 		w.Header().Set("Retry-After", v)
 	}
 
-	errorType := errorTypeFromCode(code)
+	errorType := errorType(err, code)
 
 	resp := ErrorResponse{
 		Error: Error{
 			Type:    errorType,
-			Code:    provider.TypeFromError(err),
+			Code:    ErrorCodeFromError(err),
 			Message: err.Error(),
 		},
 	}
@@ -99,8 +120,8 @@ func WriteError(w http.ResponseWriter, code int, err error) {
 
 	// Native OpenAI error objects already use this wire format. Preserve all
 	// fields, including param, null codes and details unknown to the SDK.
-	if upstream, ok := errors.AsType[*openai.Error](err); ok {
-		raw := jsontext.Value(upstream.RawJSON())
+	if upstream := provider.NativeError(err, provider.VendorOpenAI); upstream != nil && upstream.RawJSON != "" {
+		raw := jsontext.Value(upstream.RawJSON)
 		var fields Error
 		// Other services using the SDK can return incompatible shapes (for
 		// example numeric Google error codes); retain normalization for those.

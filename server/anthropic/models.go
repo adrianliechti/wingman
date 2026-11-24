@@ -382,9 +382,8 @@ type DeltaUsage struct {
 
 	OutputTokensDetails *OutputTokensDetails `json:"output_tokens_details,omitzero"`
 
-	CacheReadInputTokens     int            `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens int            `json:"cache_creation_input_tokens"`
-	CacheCreation            *CacheCreation `json:"cache_creation,omitzero"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 }
 
 type MessageStopEvent struct {

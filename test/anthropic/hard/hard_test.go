@@ -142,7 +142,7 @@ func TestParallelToolCalls(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 2048,
@@ -171,7 +171,7 @@ func TestToolLoopWithThinking(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 4096,
@@ -199,7 +199,7 @@ func TestToolChoice(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			for _, tg := range targets(h, model) {
 				forcedRequest := map[string]any{
@@ -245,7 +245,7 @@ func TestArgumentlessToolStreaming(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 1024,
@@ -277,7 +277,7 @@ func TestStreamingReassembly(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 1024,
@@ -313,7 +313,7 @@ func TestUnicodeStreaming(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			// The shared limit includes hidden reasoning on some backends.
 			// Unicode preservation needs a complete answer, not a token-limit cut.
@@ -331,7 +331,7 @@ func TestTruncation(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{"max_tokens": 32, "messages": user(hardtest.EssayPrompt)}
 
@@ -352,7 +352,7 @@ func TestStopSequence(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens":     256,
@@ -380,7 +380,7 @@ func TestImageInput(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 64,
@@ -412,7 +412,7 @@ func TestStructuredOutputStreaming(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens":    1024,
@@ -432,7 +432,7 @@ func TestLongContextNeedle(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			// backends that think by default spend tokens before answering
 			body := map[string]any{"max_tokens": 1024, "messages": user(hardtest.NeedlePrompt())}
@@ -449,7 +449,7 @@ func TestErrorToolResult(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 512,
@@ -479,7 +479,7 @@ func TestConcurrentStreams(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			var wg sync.WaitGroup
 			errs := make(chan error, hardtest.Concurrency)

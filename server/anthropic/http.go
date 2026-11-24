@@ -1,39 +1,35 @@
 package anthropic
 
 import (
-	"encoding/json/jsontext"
-	"errors"
+	"encoding/json/v2"
 	"net/http"
 
-	claude "github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
-// Preserve structured Anthropic details through provider wrappers, including
-// fields introduced after the SDK version used by this gateway.
-func responseError(code int, err error) Error {
-	result := Error{
-		Type:    errorTypeForStatus(code),
-		Message: err.Error(),
+// errorResponse builds the same Messages error for an HTTP rejection or SSE event.
+func errorResponse(err error, fallback int) (int, ErrorResponse) {
+	kind := provider.KindFromError(err)
+	code := kind.Status()
+	switch {
+	case kind == provider.ErrorKindUnavailable:
+		code = 529
+	case code == 0:
+		code = fallback
 	}
-	if apierr, ok := errors.AsType[*claude.Error](err); ok {
-		if details := apierr.Details.RawJSON(); details != "" && details != "null" {
-			result.Details = jsontext.Value(details)
+	response := ErrorResponse{Type: "error", Error: Error{Type: errorTypeForStatus(code), Message: err.Error()}}
+	if upstream := provider.NativeError(err, provider.VendorAnthropic); upstream != nil {
+		response.RequestID = upstream.RequestID
+		var native ErrorResponse
+		if upstream.RawJSON != "" && json.Unmarshal([]byte(upstream.RawJSON), &native) == nil && native.Error.Details.Kind() != 'n' {
+			response.Error.Details = native.Error.Details
 		}
 	}
-	return result
-}
-
-func errorRequestID(err error) string {
-	if apierr, ok := errors.AsType[*claude.Error](err); ok {
-		return apierr.RequestID
-	}
-	return ""
+	return code, response
 }
 
 // errorTypeForStatus maps an HTTP status code to Anthropic's canonical
 // error.type string (see https://platform.claude.com/docs/en/api/errors).
-//
-// Code 0 (no upstream status) is treated as a client-side validation error.
 func errorTypeForStatus(code int) string {
 	switch code {
 	case http.StatusUnauthorized:

@@ -235,7 +235,7 @@ func (r *Renderer) Render(ctx context.Context, input string, options *provider.R
 		return nil, convertError(err)
 	}
 	if image == nil || len(image.Data) == 0 {
-		return nil, &provider.ProviderError{Code: http.StatusBadGateway, Type: "server_error", Message: "upstream returned no images"}
+		return nil, &provider.ProviderError{Kind: provider.ErrorKindInternal, Type: "server_error", Message: "upstream returned no images"}
 	}
 	data, err := r.getData(ctx, image.Data[0])
 	if err != nil {

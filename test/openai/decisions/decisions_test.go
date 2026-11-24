@@ -99,7 +99,7 @@ func TestCrossModelHTTP(t *testing.T) {
 	}
 	for _, model := range models {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 			response := postDecisions(t, h, h.Wingman, model)
 			requireDecision(t, response, !strings.Contains(strings.ToLower(model), "embedding"))
 			t.Logf("%s: %s", model, response.RawBody)

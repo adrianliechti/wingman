@@ -33,6 +33,47 @@ func TestToolCallingHTTP(t *testing.T) {
 	}
 }
 
+// python-genai's types.Schema serializes the OpenAPI subset of `parameters`
+// with upper-case types. Every backend must receive a usable JSON Schema.
+var openAPIWeatherTool = map[string]any{
+	"functionDeclarations": []map[string]any{{
+		"name":        "get_weather",
+		"description": "Get the current weather for a location",
+		"parameters": map[string]any{
+			"type": "OBJECT",
+			"properties": map[string]any{
+				"location": map[string]any{"type": "STRING", "description": "The city and country"},
+				"unit":     map[string]any{"type": "STRING", "enum": []string{"celsius", "fahrenheit"}, "nullable": true},
+			},
+			"required":         []string{"location"},
+			"propertyOrdering": []string{"location", "unit"},
+		},
+	}},
+}
+
+func TestToolCallingOpenAPISchema(t *testing.T) {
+	h := gemini.New(t)
+
+	for _, model := range gemini.DefaultModels() {
+		t.Run(model.Name, func(t *testing.T) {
+			body := map[string]any{
+				"contents": []map[string]any{
+					{"role": "user", "parts": []map[string]any{{"text": "What's the weather in London?"}}},
+				},
+				"tools": []any{openAPIWeatherTool},
+			}
+
+			geminiResp, wingmanResp := gemini.CompareHTTP(t, h, model.Name, body)
+			requireFunctionCallWithName(t, "gemini", geminiResp.Body, "get_weather")
+			requireFunctionCallWithName(t, "wingman", wingmanResp.Body, "get_weather")
+
+			geminiEvents, wingmanEvents := gemini.CompareSSE(t, h, model.Name, body)
+			requireFunctionCallSSE(t, "gemini", geminiEvents, "get_weather")
+			requireFunctionCallSSE(t, "wingman", wingmanEvents, "get_weather")
+		})
+	}
+}
+
 func TestToolCallingSSE(t *testing.T) {
 	h := gemini.New(t)
 
@@ -63,7 +104,7 @@ func TestToolCallingMultiTurnHTTP(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			turn1 := map[string]any{
 				"contents": []map[string]any{
 					{"role": "user", "parts": []map[string]any{{"text": "What's the weather in London?"}}},

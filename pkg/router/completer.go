@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -231,7 +230,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 		}
 
 		yield(nil, &provider.ProviderError{
-			Code:    http.StatusServiceUnavailable,
+			Kind:    provider.ErrorKindUnavailable,
 			Message: "all providers are unavailable",
 		})
 	}
@@ -312,7 +311,7 @@ func (c *Completer) stream(ctx context.Context, member provider.Completer, messa
 	case interrupted || !wait.meet():
 		// Besides the caller, only the deadline cancels an attempt. A member
 		// may also end its stream quietly once it is cancelled.
-		return false, 0, &provider.ProviderError{Code: http.StatusGatewayTimeout, Message: fmt.Sprintf("no response within %s", c.firstTokenTimeout)}
+		return false, 0, &provider.ProviderError{Kind: provider.ErrorKindDeadlineExceeded, Message: fmt.Sprintf("no response within %s", c.firstTokenTimeout)}
 	case err != nil:
 		return committed, ttft, err
 	case committed:
@@ -454,29 +453,21 @@ func hasOutput(completion *provider.Completion) bool {
 }
 
 // isRequestError reports whether the error reflects the request itself rather
-// than the provider, so failing over could not help. Auth (401/403), not
-// found (404), timeout (408) and rate limit (429) responses are excluded:
-// keys, deployments and quotas are per-provider configuration, so those must
-// fail over and count against the failing provider's health.
+// than the provider, so failing over could not help. Credentials, deployments,
+// rate limits, quotas and timeouts are per provider, so those errors fail over
+// and count against the failing provider's health.
 func isRequestError(err error) bool {
 	if errors.Is(err, provider.ErrRejected) {
 		return true
 	}
 
-	code := provider.CodeFromError(err, 0)
-
-	if code < 400 || code >= 500 {
-		return false
+	switch provider.KindFromError(err) {
+	case provider.ErrorKindInvalidArgument, provider.ErrorKindUnprocessable,
+		provider.ErrorKindPayloadTooLarge,
+		provider.ErrorKindConflict,
+		provider.ErrorKindCancelled:
+		return true
 	}
 
-	switch code {
-	case http.StatusUnauthorized,
-		http.StatusForbidden,
-		http.StatusNotFound,
-		http.StatusRequestTimeout,
-		http.StatusTooManyRequests:
-		return false
-	}
-
-	return true
+	return false
 }

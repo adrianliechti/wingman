@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"iter"
+	"maps"
 	"strings"
 )
 
@@ -77,27 +78,26 @@ func ToolMessage(id, content string) Message {
 // Text reads all text blocks of this message, including commentary.
 // Use Completion.Text to select the final answer from an accumulated response.
 func (m Message) Text() string {
-	var parts []string
-
-	for _, c := range m.Content {
-		if c.Text != "" {
-			parts = append(parts, c.Text)
-		}
-	}
-
-	return strings.Join(parts, "\n\n")
+	return m.joinText(func(c Content) string { return c.Text })
 }
 
 func (m Message) Refusal() string {
-	var parts []string
+	return m.joinText(func(c Content) string { return c.Refusal })
+}
 
+// Explicit text blocks are paragraphs. Runs of the same streamed message
+// can straddle a reasoning item or tool call without adding any text.
+func (m Message) joinText(value func(Content) string) string {
+	var result strings.Builder
 	for _, c := range m.Content {
-		if c.Refusal != "" {
-			parts = append(parts, c.Refusal)
+		if text := value(c); text != "" {
+			if result.Len() > 0 && !c.continuation {
+				result.WriteString("\n\n")
+			}
+			result.WriteString(text)
 		}
 	}
-
-	return strings.Join(parts, "\n\n")
+	return result.String()
 }
 
 func (m Message) ToolCalls() []ToolCall {
@@ -179,6 +179,9 @@ func InstructionsContent(val Instructions) Content {
 }
 
 type Content struct {
+	// continuation joins anonymous streamed text when reading the message as a string.
+	continuation bool
+
 	// MessageID identifies the assistant message item a text or refusal part
 	// belongs to, the way Reasoning.ID and ToolCall.ID identify theirs. In a
 	// stream, a part with a new ID starts a new item and ID-less parts join
@@ -342,6 +345,9 @@ type Completion struct {
 	// Reasoning is the effective context mode reported by the provider.
 	Reasoning ReasoningContext
 
+	// ReasoningSnapshots refreshes previously streamed items by provider ID.
+	ReasoningSnapshots ReasoningSnapshots
+
 	// InputTransformations records reasoning items the provider withheld from the model.
 	// Nil means the provider did not report this metadata.
 	InputTransformations *[]InputTransformation
@@ -353,6 +359,10 @@ type Completion struct {
 	EndTurn      *bool
 
 	Message *Message
+
+	// Output replaces the assembled assistant content at the response boundary.
+	// Nil retains streamed content. A supplied empty slice clears it.
+	Output []Content
 
 	Usage *Usage
 }
@@ -426,6 +436,38 @@ type Reasoning struct {
 	// Redacted marks an encrypted reasoning item (e.g. Anthropic
 	// redacted_thinking); Signature carries the opaque data blob.
 	Redacted bool
+}
+
+// ReasoningSnapshots is keyed by the provider's reasoning item ID.
+type ReasoningSnapshots map[string]Reasoning
+
+// Apply preserves streamed fields that a provider omits from its terminal copy.
+func (snapshots ReasoningSnapshots) Apply(r Reasoning) Reasoning {
+	if final, ok := snapshots[r.ID]; ok {
+		if final.Content != nil {
+			r.Content = final.Content
+		}
+		if final.Summary != nil {
+			r.Summary = final.Summary
+		}
+		if final.Signature != "" {
+			r.Signature = final.Signature
+		}
+	}
+	return r
+}
+
+// Merge adds other's items to snapshots. One stream can carry several upstream
+// responses, such as the turns of an agent, each with its own terminal copies.
+func (snapshots ReasoningSnapshots) Merge(other ReasoningSnapshots) ReasoningSnapshots {
+	if len(other) == 0 {
+		return snapshots
+	}
+	if snapshots == nil {
+		snapshots = make(ReasoningSnapshots, len(other))
+	}
+	maps.Copy(snapshots, other)
+	return snapshots
 }
 
 // TextParts wraps non-empty scalar text. Empty native parts must be represented

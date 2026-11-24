@@ -2,7 +2,6 @@ package provider
 
 import (
 	"fmt"
-	"net/http"
 )
 
 // UnsupportedToolError reports a tool kind the targeted provider cannot host
@@ -16,7 +15,7 @@ func UnsupportedToolError(t Tool) error {
 	}
 
 	return &ProviderError{
-		Code:    http.StatusBadRequest,
+		Kind:    ErrorKindInvalidArgument,
 		Message: fmt.Sprintf("Tool '%s' of type '%s' is not supported by this provider.", name, t.Kind),
 	}
 }

@@ -57,7 +57,7 @@ func TestMissingEncryptedReasoningCompatibilityHTTP(t *testing.T) {
 		}
 
 		t.Run("wingman_skips_"+model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			resp, err := h.Client.Post(ctx, h.Wingman, "/responses", responses.WithModel(brokenReplay, model.Name))
 			if err != nil {

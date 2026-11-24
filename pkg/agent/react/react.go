@@ -186,8 +186,9 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 		}
 
 		accID := uuid.New().String()
+		var hasOutput bool
 
-		for {
+		for turn := 0; ; turn++ {
 			acc := provider.CompletionAccumulator{}
 
 			toolNamesByID := map[string]string{}
@@ -200,6 +201,7 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 				}
 
 				acc.Add(*completion)
+				hasOutput = hasOutput || completion.Output != nil
 
 				delta := &provider.Completion{
 					ID:        accID,
@@ -207,7 +209,15 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 					Reasoning: completion.Reasoning,
 					Tier:      completion.Tier,
 
+					// Terminal copies of reasoning this turn already streamed.
+					ReasoningSnapshots: completion.ReasoningSnapshots,
+
 					Usage: completion.Usage,
+				}
+				// Only the first turn's input is the caller's request; later
+				// turns also carry the agent's own items.
+				if turn == 0 {
+					delta.InputTransformations = completion.InputTransformations
 				}
 
 				if completion.Message != nil {
@@ -277,15 +287,24 @@ func (c *Agent) Complete(ctx context.Context, messages []provider.Message, optio
 			// Only successful tool rounds continue. Incomplete or failed turns
 			// must retain their boundary without executing unfinished calls.
 			if len(agentCalls) == 0 || completion.Status != "" && completion.Status != provider.CompletionStatusCompleted {
-				if completion.Status != "" || completion.StopReason != "" || completion.StopDetails != nil || completion.StopSequence != "" {
+				// The final turn's boundary is the agent's; internal tool
+				// rounds never surface theirs.
+				if hasOutput || completion.Status != "" || completion.StopReason != "" || completion.StopDetails != nil || completion.StopSequence != "" || completion.EndTurn != nil {
+					var output []provider.Content
+					if hasOutput {
+						// Include earlier tool rounds in the agent's terminal output.
+						output = callerOutput(append(input[len(messages):], *completion.Message), agentTools)
+					}
 					yield(&provider.Completion{
-						ID:    accID,
-						Model: cmp.Or(c.model, completion.Model),
+						Output: output,
+						ID:     accID,
+						Model:  cmp.Or(c.model, completion.Model),
 
 						Status:       completion.Status,
 						StopReason:   completion.StopReason,
 						StopDetails:  completion.StopDetails,
 						StopSequence: completion.StopSequence,
+						EndTurn:      completion.EndTurn,
 					}, nil)
 				}
 
@@ -436,4 +455,22 @@ func renderToolResult(t tool.Provider, id, name string, value any) (provider.Too
 		result.ID = id
 	}
 	return result, nil
+}
+
+func callerOutput(messages []provider.Message, agentTools map[string]tool.Provider) []provider.Content {
+	output := []provider.Content{}
+	for _, message := range messages {
+		if message.Role != provider.MessageRoleAssistant {
+			continue
+		}
+		for _, part := range message.Content {
+			if part.ToolCall != nil {
+				if _, internal := agentTools[part.ToolCall.Name]; internal {
+					continue
+				}
+			}
+			output = append(output, part)
+		}
+	}
+	return output
 }

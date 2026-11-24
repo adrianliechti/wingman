@@ -285,8 +285,8 @@ func TestSynthesize_APIError(t *testing.T) {
 		t.Fatalf("expected a provider error, got %v", err)
 	}
 
-	if providerErr.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d", providerErr.Code)
+	if providerErr.Kind != provider.ErrorKindInvalidArgument {
+		t.Errorf("expected status 400, got %q", providerErr.Kind)
 	}
 
 	if !strings.Contains(providerErr.Message, "No matching speaker voice") {

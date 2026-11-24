@@ -1,8 +1,6 @@
 package responses
 
 import (
-	"net/http"
-
 	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
@@ -12,7 +10,7 @@ import (
 // context_length_exceeded, which clients use to stop retrying or to compact.
 // https://developers.openai.com/api/reference/resources/responses/streaming-events
 func responseErrorCode(err error) string {
-	code := provider.TypeFromError(err)
+	code := provider.NativeType(err, provider.VendorOpenAI)
 	switch code {
 	case "server_error", "rate_limit_exceeded", "invalid_prompt",
 		"data_residency_mismatch", "bio_policy", "misalignment_policy_violation",
@@ -28,7 +26,10 @@ func responseErrorCode(err error) string {
 		// Spend limits do not clear by waiting, so never report them as rate limits.
 		return "insufficient_quota"
 	}
-	if provider.CodeFromError(err, 0) == http.StatusTooManyRequests {
+	switch provider.KindFromError(err) {
+	case provider.ErrorKindQuotaExceeded, provider.ErrorKindBilling:
+		return "insufficient_quota"
+	case provider.ErrorKindRateLimited:
 		return "rate_limit_exceeded"
 	}
 	return "server_error"

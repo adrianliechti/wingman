@@ -56,7 +56,7 @@ func TestCountTokensHTTP(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
@@ -95,9 +95,6 @@ func postCountTokens(t *testing.T, h *gemini.Harness, ep harness.Endpoint, model
 	}
 
 	url := fmt.Sprintf("%s/models/%s:countTokens", ep.BaseURL, model)
-	if ep.Name == "gemini" {
-		url += "?key=" + ep.APIKey
-	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {

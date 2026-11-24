@@ -182,15 +182,15 @@ func toMessage(index int, m MessageParam) (*provider.Message, error) {
 		case "thinking":
 			// Round-trip reasoning across turns: signature is the verifiable
 			// blob Anthropic re-validates on the next call.
-			id, signature := decodeSignature(block.Signature)
+			id, signature := provider.UnwrapReasoningID(block.Signature)
 
 			r := provider.Reasoning{
 				Content:   provider.TextParts(block.Thinking),
 				Signature: signature,
 			}
 
-			// A wrapped id marks an OpenAI-backed item: its visible text was
-			// the summary, and replayed content parts would be rejected.
+			// A wrapped id marks an ID-keyed backend item (OpenAI, Gemini
+			// Interactions): its visible text was the summary.
 			if id != "" {
 				r.ID = id
 				r.Content, r.Summary = nil, provider.TextParts(block.Thinking)
@@ -551,7 +551,7 @@ func toContentBlocks(content []provider.Content) []ContentBlock {
 				result = append(result, ContentBlock{
 					Type:      "thinking",
 					Thinking:  thinking,
-					Signature: encodeSignature(c.Reasoning.ID, c.Reasoning.Signature),
+					Signature: provider.WrapReasoningID(c.Reasoning.ID, c.Reasoning.Signature),
 				})
 			}
 		}

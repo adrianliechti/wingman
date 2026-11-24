@@ -19,14 +19,25 @@ const maxBodyBytes = 1 << 20
 func IsTavily(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, "/v1/tavily/") }
 func IsExa(r *http.Request) bool    { return strings.HasPrefix(r.URL.Path, "/v1/exa/") }
 
+// IsGemini reports Gemini requests. Under /v1, OpenAI only reads models/ and Gemini only posts to it.
+func IsGemini(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/v1beta/") || r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/models/")
+}
+
+func IsAnthropic(r *http.Request) bool {
+	return r.URL.Path == "/v1/messages" || strings.HasPrefix(r.URL.Path, "/v1/messages/")
+}
+
 // Credentials normalizes SDK credentials before Wingman's existing authorizers.
 // An explicit Authorization header always takes precedence.
 func Credentials(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
 			key := ""
-			if IsExa(r) {
+			if IsExa(r) || IsAnthropic(r) {
 				key = r.Header.Get("x-api-key")
+			} else if IsGemini(r) {
+				key = r.Header.Get("x-goog-api-key")
 			} else if IsTavily(r) && r.Body != nil {
 				body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 				r.Body.Close()

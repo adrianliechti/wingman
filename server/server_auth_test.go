@@ -9,9 +9,12 @@ import (
 
 func TestWriteUnauthorized(t *testing.T) {
 	for path, want := range map[string]string{
-		"/v1/messages":                     `{"error":{"message":"invalid or missing credentials","type":"authentication_error"},"type":"error"}`,
-		"/v1beta/models/x:generateContent": `{"error":{"code":401,"message":"invalid or missing credentials","status":"UNAUTHENTICATED"}}`,
-		"/v1/chat/completions":             `{"error":{"code":"invalid_api_key","message":"invalid or missing credentials","type":"invalid_request_error"}}`,
+		"/v1/messages":                       `{"error":{"message":"invalid or missing credentials","type":"authentication_error"},"type":"error"}`,
+		"/v1/messages/count_tokens":          `{"error":{"message":"invalid or missing credentials","type":"authentication_error"},"type":"error"}`,
+		"/v1beta/models/x:generateContent":   `{"error":{"code":401,"message":"invalid or missing credentials","status":"UNAUTHENTICATED"}}`,
+		"/v1/models/x:streamGenerateContent": `{"error":{"code":401,"message":"invalid or missing credentials","status":"UNAUTHENTICATED"}}`,
+		"/v1/decisions":                      `{"error":{"code":"invalid_api_key","message":"invalid or missing credentials","type":"invalid_request_error"}}`,
+		"/v1/chat/completions":               `{"error":{"code":"invalid_api_key","message":"invalid or missing credentials","type":"invalid_request_error"}}`,
 	} {
 		rec := httptest.NewRecorder()
 		writeUnauthorized(rec, httptest.NewRequest(http.MethodPost, path, nil))

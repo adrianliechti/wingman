@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
@@ -69,13 +68,13 @@ func (e *Embedder) Embed(ctx context.Context, texts []string, options *provider.
 	}
 
 	if len(embedding.Data) != len(texts) {
-		return nil, &provider.ProviderError{Code: http.StatusBadGateway, Type: "server_error", Message: "upstream embedding count does not match input count"}
+		return nil, &provider.ProviderError{Kind: provider.ErrorKindInternal, Type: "server_error", Message: "upstream embedding count does not match input count"}
 	}
 	result.Embeddings = make([][]float32, len(texts))
 	seen := make([]bool, len(texts))
 	for _, e := range embedding.Data {
 		if e.Index < 0 || e.Index >= int64(len(texts)) || seen[e.Index] {
-			return nil, &provider.ProviderError{Code: http.StatusBadGateway, Type: "server_error", Message: "upstream returned invalid or duplicate embedding indices"}
+			return nil, &provider.ProviderError{Kind: provider.ErrorKindInternal, Type: "server_error", Message: "upstream returned invalid or duplicate embedding indices"}
 		}
 		seen[e.Index] = true
 		result.Embeddings[e.Index] = toFloat32(e.Embedding)

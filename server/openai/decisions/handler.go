@@ -6,7 +6,6 @@ import (
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/policy"
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 
 	"github.com/go-chi/chi/v5"
@@ -41,7 +40,7 @@ func (h *Handler) handleDecisions(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := p.Decide(r.Context(), input)
 	if err != nil {
-		shared.WriteError(w, provider.CodeFromError(err, http.StatusBadGateway), err)
+		shared.WriteError(w, http.StatusBadGateway, err)
 		return
 	}
 	response, err := FromDecision(req, input, result)

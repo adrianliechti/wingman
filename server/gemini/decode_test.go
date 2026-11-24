@@ -1,9 +1,36 @@
 package gemini
 
 import (
+	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestDecodePythonSDKReplayBytes(t *testing.T) {
+	for _, encoded := range []string{"+/8=", "-_8=", "+/8", "-_8"} {
+		body := fmt.Sprintf(`{"contents":[{"role":"model","parts":{"thought_signature":%q,"function_call":{"id":"c","name":"f","args":{"data":"-_8","thoughtSignature":"-_8"}}}},{"role":"user","parts":{"inlineData":{"mimeType":"image/png","data":%q}}}]}`, encoded, encoded)
+		var req GenerateContentRequest
+		if err := decodeRequest(strings.NewReader(body), &req); err != nil {
+			t.Fatalf("%q: %v", encoded, err)
+		}
+		messages, err := toMessages(nil, req.Contents)
+		if err != nil {
+			t.Fatal(err)
+		}
+		call := messages[0].Content
+		if len(call) != 2 || call[0].Reasoning.Signature != "+/8=" || call[1].ToolCall.Arguments != `{"data":"-_8","thoughtSignature":"-_8"}` ||
+			!bytes.Equal(messages[1].Content[0].File.Content, []byte{251, 255}) {
+			t.Fatalf("%q: incorrect replay: %+v", encoded, messages)
+		}
+	}
+	for _, invalid := range []string{"_", "a?b=", "ab=c"} {
+		var req GenerateContentRequest
+		if err := decodeRequest(strings.NewReader(fmt.Sprintf(`{"contents":{"parts":{"thoughtSignature":%q}}}`, invalid)), &req); err == nil {
+			t.Fatalf("accepted malformed signature %q", invalid)
+		}
+	}
+}
 
 // Google's shell examples use protobuf snake_case names and singleton
 // objects for repeated fields; both must decode like the canonical form.

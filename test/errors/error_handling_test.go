@@ -448,7 +448,7 @@ func TestStreamingPreStreamError_Responses(t *testing.T) {
 
 func TestStreamingPreStreamError_Chat(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusTooManyRequests,
+		Kind:    provider.ErrorKindRateLimited,
 		Message: "Rate limit reached",
 	}
 
@@ -492,7 +492,7 @@ func TestStreamingPreStreamError_Chat(t *testing.T) {
 
 func TestStreamingPreStreamError_Chat_ServerError(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusInternalServerError,
+		Kind:    provider.ErrorKindInternal,
 		Message: "Internal server error",
 	}
 
@@ -522,7 +522,7 @@ func TestStreamingPreStreamError_Chat_ServerError(t *testing.T) {
 
 func TestStreamingPreStreamError_Anthropic(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusTooManyRequests,
+		Kind:    provider.ErrorKindRateLimited,
 		Message: "Rate limit reached",
 	}
 
@@ -577,7 +577,7 @@ func TestStreamingPreStreamError_Anthropic(t *testing.T) {
 
 func TestStreamingPreStreamError_Anthropic_AuthError(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusUnauthorized,
+		Kind:    provider.ErrorKindUnauthenticated,
 		Message: "Invalid API key",
 	}
 
@@ -617,7 +617,7 @@ func TestStreamingPreStreamError_Anthropic_AuthError(t *testing.T) {
 
 func TestStreamingPreStreamError_Gemini(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusTooManyRequests,
+		Kind:    provider.ErrorKindRateLimited,
 		Message: "Rate limit reached",
 	}
 
@@ -670,7 +670,7 @@ func TestStreamingPreStreamError_Gemini(t *testing.T) {
 
 func TestStreamingPreStreamError_Gemini_BadRequest(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusBadRequest,
+		Kind:    provider.ErrorKindInvalidArgument,
 		Message: "Invalid request",
 	}
 
@@ -749,7 +749,7 @@ func readSSEEvents(body io.Reader) []map[string]string {
 
 func TestMidStreamError_Chat_RateLimit(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:       http.StatusTooManyRequests,
+		Kind:       provider.ErrorKindRateLimited,
 		Message:    "Rate limit reached",
 		RetryAfter: 30 * time.Second,
 	}
@@ -810,7 +810,7 @@ func TestMidStreamError_Chat_RateLimit(t *testing.T) {
 
 func TestMidStreamError_Chat_ServerError(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusInternalServerError,
+		Kind:    provider.ErrorKindInternal,
 		Message: "Internal server error",
 	}
 
@@ -864,7 +864,7 @@ func TestMidStreamError_Chat_ServerError(t *testing.T) {
 
 func TestMidStreamError_Anthropic_RateLimit(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:       http.StatusTooManyRequests,
+		Kind:       provider.ErrorKindRateLimited,
 		Message:    "Rate limit reached",
 		RetryAfter: 30 * time.Second,
 	}
@@ -925,7 +925,7 @@ func TestMidStreamError_Anthropic_RateLimit(t *testing.T) {
 
 func TestMidStreamError_Gemini_RateLimit(t *testing.T) {
 	provErr := &provider.ProviderError{
-		Code:    http.StatusTooManyRequests,
+		Kind:    provider.ErrorKindRateLimited,
 		Message: "Rate limit reached",
 	}
 

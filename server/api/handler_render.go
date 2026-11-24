@@ -100,7 +100,7 @@ func (h *Handler) handleRender(w http.ResponseWriter, r *http.Request) {
 	result, err := p.Render(r.Context(), input, options)
 
 	if err != nil {
-		writeError(w, provider.CodeFromError(err, http.StatusBadRequest), err)
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 

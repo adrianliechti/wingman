@@ -383,7 +383,7 @@ func TestFlowTextThenToolLoop(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 2048,
@@ -452,7 +452,7 @@ func TestFlowSystemAfterToolResult(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 1024,
@@ -517,7 +517,7 @@ func TestFlowPromptCacheAcrossTurns(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_tokens": 1024,

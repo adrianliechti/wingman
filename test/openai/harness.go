@@ -42,13 +42,13 @@ func New(t *testing.T) *Harness {
 		Wingman:        harness.Endpoint{Name: "wingman", BaseURL: env("WINGMAN_BASE_URL", DefaultWingmanURL), APIKey: env("WINGMAN_API_KEY", "test-key")},
 		OpenAI:         harness.Endpoint{Name: "openai", BaseURL: env("OPENAI_BASE_URL", DefaultOpenAIURL), APIKey: key},
 		Client:         harness.NewClient(),
-		ReferenceModel: env("TEST_OPENAI_REFERENCE_MODEL", "gpt-6-luna"),
+		ReferenceModel: env("TEST_OPENAI_REFERENCE_MODEL", "gpt-6.2-sol"),
 	}
 }
 
-func (h *Harness) SkipUnlessConfigured(t *testing.T, model string) {
+func (h *Harness) RequireConfigured(t *testing.T, model string) {
 	t.Helper()
-	harness.SkipUnlessConfigured(t, h.Wingman.BaseURL, h.Wingman.APIKey, model)
+	harness.RequireConfigured(t, h.Wingman.BaseURL, h.Wingman.APIKey, model)
 }
 
 func ModelCapabilities(name string) harness.Capabilities {
@@ -82,7 +82,7 @@ func modelCapabilities(name string) harness.Capabilities {
 		}
 
 	case strings.Contains(n, "gemini"):
-		return harness.Capabilities{StructuredOutput: true, Audio: true}
+		return harness.Capabilities{Thinking: true, StructuredOutput: true, Audio: true}
 
 	case strings.HasPrefix(n, "gpt-6"), strings.HasPrefix(n, "gpt-5.4"), strings.HasPrefix(n, "gpt-5.5"), strings.HasPrefix(n, "gpt-5.6"):
 		return harness.Capabilities{Thinking: true, StructuredOutput: true, Cache: true, Compaction: true, TextEditor: true, Shell: true, ToolSearch: true, ComputerUse: true}
@@ -98,7 +98,7 @@ func modelCapabilities(name string) harness.Capabilities {
 }
 
 func DefaultModels() []Model {
-	names := []string{"gpt-6.1-sol", "claude-sonnet-5-5", "gemini-3.8-flash"}
+	names := []string{"gpt-6.2-sol", "claude-sonnet-5-5", "bedrock-sonnet-5-5", "gemini-4-hydrogen"}
 	if v := os.Getenv("TEST_OPENAI_MODELS"); v != "" {
 		names = names[:0]
 		for s := range strings.SplitSeq(v, ",") {

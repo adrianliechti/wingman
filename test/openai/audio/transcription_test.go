@@ -232,7 +232,7 @@ func TestTranscriptionRejectsUnsupportedFormat(t *testing.T) {
 	h := openai.New(t)
 	m := audio.TranscribeModel()
 
-	h.SkipUnlessConfigured(t, m.Wingman)
+	h.RequireConfigured(t, m.Wingman)
 
 	fields := []harness.MultipartField{
 		{Name: "model", Value: m.Wingman},
@@ -419,7 +419,7 @@ func TestTranscriptionUnsupportedContextIsDropped(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, tc.model.Wingman)
+			h.RequireConfigured(t, tc.model.Wingman)
 
 			reference := audio.Post(t, h, h.OpenAI, tc.model.Reference, tc.fields)
 

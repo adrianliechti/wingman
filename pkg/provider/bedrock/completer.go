@@ -531,13 +531,13 @@ func convertError(err error) error {
 		return nil
 	}
 
-	wrap := func(statusCode int, msg string, errorType ...string) error {
+	wrap := func(kind provider.ErrorKind, msg string, errorType ...string) *provider.ProviderError {
 		var typeName string
 		if len(errorType) > 0 {
 			typeName = errorType[0]
 		}
 		return &provider.ProviderError{
-			Code:    statusCode,
+			Kind:    kind,
 			Type:    typeName,
 			Message: msg,
 			Err:     err,
@@ -545,11 +545,11 @@ func convertError(err error) error {
 	}
 
 	if throttle, ok := errors.AsType[*types.ThrottlingException](err); ok {
-		return wrap(429, fmt.Sprintf("bedrock throttling: %s", aws.ToString(throttle.Message)))
+		return wrap(provider.ErrorKindRateLimited, fmt.Sprintf("bedrock throttling: %s", aws.ToString(throttle.Message)))
 	}
 
 	if quotaExceeded, ok := errors.AsType[*types.ServiceQuotaExceededException](err); ok {
-		return wrap(429, fmt.Sprintf("bedrock quota exceeded: %s", aws.ToString(quotaExceeded.Message)))
+		return wrap(provider.ErrorKindQuotaExceeded, fmt.Sprintf("bedrock quota exceeded: %s", aws.ToString(quotaExceeded.Message)))
 	}
 
 	if validation, ok := errors.AsType[*types.ValidationException](err); ok {
@@ -558,35 +558,35 @@ func convertError(err error) error {
 		if isBedrockContentFilterMessage(message) {
 			errorType = "content_filter"
 		}
-		return wrap(400, fmt.Sprintf("bedrock validation: %s", message), errorType)
+		return wrap(provider.ErrorKindInvalidArgument, fmt.Sprintf("bedrock validation: %s", message), errorType)
 	}
 
 	if accessDenied, ok := errors.AsType[*types.AccessDeniedException](err); ok {
-		return wrap(403, fmt.Sprintf("bedrock access denied: %s", aws.ToString(accessDenied.Message)))
+		return wrap(provider.ErrorKindPermissionDenied, fmt.Sprintf("bedrock access denied: %s", aws.ToString(accessDenied.Message)))
 	}
 
 	if resourceNotFound, ok := errors.AsType[*types.ResourceNotFoundException](err); ok {
-		return wrap(404, fmt.Sprintf("bedrock resource not found: %s", aws.ToString(resourceNotFound.Message)))
+		return wrap(provider.ErrorKindNotFound, fmt.Sprintf("bedrock resource not found: %s", aws.ToString(resourceNotFound.Message)))
 	}
 
 	if conflict, ok := errors.AsType[*types.ConflictException](err); ok {
-		return wrap(409, fmt.Sprintf("bedrock conflict: %s", aws.ToString(conflict.Message)))
+		return wrap(provider.ErrorKindConflict, fmt.Sprintf("bedrock conflict: %s", aws.ToString(conflict.Message)))
 	}
 
 	if modelNotReady, ok := errors.AsType[*types.ModelNotReadyException](err); ok {
-		return wrap(503, fmt.Sprintf("bedrock model not ready: %s", aws.ToString(modelNotReady.Message)))
+		return wrap(provider.ErrorKindUnavailable, fmt.Sprintf("bedrock model not ready: %s", aws.ToString(modelNotReady.Message)))
 	}
 
 	if serviceUnavailable, ok := errors.AsType[*types.ServiceUnavailableException](err); ok {
-		return wrap(503, fmt.Sprintf("bedrock service unavailable: %s", aws.ToString(serviceUnavailable.Message)))
+		return wrap(provider.ErrorKindUnavailable, fmt.Sprintf("bedrock service unavailable: %s", aws.ToString(serviceUnavailable.Message)))
 	}
 
 	if modelTimeout, ok := errors.AsType[*types.ModelTimeoutException](err); ok {
-		return wrap(504, fmt.Sprintf("bedrock model timeout: %s", aws.ToString(modelTimeout.Message)))
+		return wrap(provider.ErrorKindDeadlineExceeded, fmt.Sprintf("bedrock model timeout: %s", aws.ToString(modelTimeout.Message)))
 	}
 
 	if internalServer, ok := errors.AsType[*types.InternalServerException](err); ok {
-		return wrap(500, fmt.Sprintf("bedrock internal error: %s", aws.ToString(internalServer.Message)))
+		return wrap(provider.ErrorKindInternal, fmt.Sprintf("bedrock internal error: %s", aws.ToString(internalServer.Message)))
 	}
 
 	if modelErr, ok := errors.AsType[*types.ModelStreamErrorException](err); ok {
@@ -594,7 +594,7 @@ func convertError(err error) error {
 		if modelErr.OriginalStatusCode != nil && *modelErr.OriginalStatusCode > 0 {
 			status = int(*modelErr.OriginalStatusCode)
 		}
-		return wrap(status, fmt.Sprintf("bedrock stream error: %s", aws.ToString(modelErr.Message)))
+		return wrap(provider.ErrorKindForStatus(status), fmt.Sprintf("bedrock stream error: %s", aws.ToString(modelErr.Message)))
 	}
 
 	if modelError, ok := errors.AsType[*types.ModelErrorException](err); ok {
@@ -602,16 +602,16 @@ func convertError(err error) error {
 		if modelError.OriginalStatusCode != nil && *modelError.OriginalStatusCode > 0 {
 			status = int(*modelError.OriginalStatusCode)
 		}
-		return wrap(status, fmt.Sprintf("bedrock model error: %s", aws.ToString(modelError.Message)))
+		return wrap(provider.ErrorKindForStatus(status), fmt.Sprintf("bedrock model error: %s", aws.ToString(modelError.Message)))
 	}
 
-	// Non-modeled HTTP errors: preserve the real upstream status code.
+	// Classify non-modeled HTTP failures by their status.
 	if respErr, ok := errors.AsType[*http.ResponseError](err); ok {
 		status := respErr.HTTPStatusCode()
 		if status <= 0 {
 			status = 500
 		}
-		return wrap(status, fmt.Sprintf("bedrock: %s", err.Error()))
+		return wrap(provider.ErrorKindForStatus(status), fmt.Sprintf("bedrock: %s", err.Error()))
 	}
 
 	if ae, ok := errors.AsType[smithy.APIError](err); ok {
@@ -619,7 +619,7 @@ func convertError(err error) error {
 		if ae.ErrorFault() == smithy.FaultClient {
 			status = 400
 		}
-		return wrap(status, fmt.Sprintf("bedrock error [%s]: %s", ae.ErrorCode(), ae.ErrorMessage()))
+		return wrap(provider.ErrorKindForStatus(status), fmt.Sprintf("bedrock error [%s]: %s", ae.ErrorCode(), ae.ErrorMessage()))
 	}
 
 	return err
@@ -708,7 +708,7 @@ func (c *Completer) convertConverseInput(input []provider.Message, options *prov
 		keepAll := mode == provider.ReasoningContextAllTurns && claude.MatchesModel(c.model, PreservedThinkingModels)
 		if mode != "" && mode != provider.ReasoningContextAuto && !keepAll {
 			return nil, &provider.ProviderError{
-				Code:    400,
+				Kind:    provider.ErrorKindInvalidArgument,
 				Type:    "invalid_request_error",
 				Message: "Bedrock Converse cannot change this model's reasoning.context; omit it or use auto",
 			}
@@ -1261,7 +1261,7 @@ func (c *Completer) convertToolConfigPolicy(tools []provider.Tool, options *prov
 		case provider.ToolChoiceAny:
 			if claude.MatchesModel(c.model, claude.NoForcedToolChoiceModels) {
 				return nil, &provider.ProviderError{
-					Code:    400,
+					Kind:    provider.ErrorKindInvalidArgument,
 					Type:    "invalid_request_error",
 					Message: fmt.Sprintf("bedrock: model %s does not support forced tool_choice; use auto or none", c.model),
 				}

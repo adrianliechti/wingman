@@ -190,7 +190,7 @@ func TestParallelToolCalls(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":    []any{weatherTool},
@@ -214,7 +214,7 @@ func TestToolLoopWithReasoning(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":            []any{weatherTool, clockTool},
@@ -244,7 +244,7 @@ func TestToolChoice(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			for _, tg := range targets(h, model) {
 				if !model.Capabilities.NoForcedToolChoice {
@@ -282,7 +282,7 @@ func TestArgumentlessToolStreaming(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":    []any{clockTool},
@@ -317,7 +317,7 @@ func TestStreamingReassembly(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools":    []any{weatherTool},
@@ -350,7 +350,7 @@ func TestUnicodeStreaming(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{"messages": user(hardtest.UnicodePrompt)}
 
@@ -366,7 +366,7 @@ func TestTruncation(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"max_completion_tokens": 32,
@@ -390,7 +390,7 @@ func TestStopSequence(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"stop":     []string{"6"},
@@ -416,7 +416,7 @@ func TestImageInput(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"messages": []any{map[string]any{
@@ -444,7 +444,7 @@ func TestStructuredOutputStreaming(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"messages": user(hardtest.BookPrompt),
@@ -466,7 +466,7 @@ func TestLongContextNeedle(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{"messages": user(hardtest.NeedlePrompt())}
 
@@ -482,7 +482,7 @@ func TestErrorToolResult(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			body := map[string]any{
 				"tools": []any{weatherTool},
@@ -510,7 +510,7 @@ func TestConcurrentStreams(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			var wg sync.WaitGroup
 			errs := make(chan error, hardtest.Concurrency)
@@ -554,8 +554,8 @@ func TestModelSwitch(t *testing.T) {
 			}
 
 			t.Run(from.Name+"→"+to.Name, func(t *testing.T) {
-				h.SkipUnlessConfigured(t, from.Name)
-				h.SkipUnlessConfigured(t, to.Name)
+				h.RequireConfigured(t, from.Name)
+				h.RequireConfigured(t, to.Name)
 
 				body := map[string]any{
 					"tools":    []any{weatherTool},

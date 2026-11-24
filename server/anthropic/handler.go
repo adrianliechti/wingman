@@ -36,24 +36,18 @@ func writeJson(w http.ResponseWriter, v any) {
 	w.Write(data)
 }
 
-func writeError(w http.ResponseWriter, code int, err error) {
-	// Use real status code from upstream provider if available
-	code = provider.CodeFromError(err, code)
+func writeError(w http.ResponseWriter, fallback int, err error) {
+	code, resp := errorResponse(err, fallback)
+	if provider.KindFromError(err) == provider.ErrorKindQuotaExceeded {
+		w.Header().Set("x-should-retry", "false")
+	}
 
 	// Propagate Retry-After from upstream
 	if v := provider.RetryAfterHeaderValue(provider.RetryAfterFromError(err)); v != "" {
 		w.Header().Set("Retry-After", v)
 	}
-	requestID := errorRequestID(err)
-	if requestID != "" {
-		w.Header().Set("Request-Id", requestID)
-	}
-
-	resp := ErrorResponse{
-		Type: "error",
-
-		Error:     responseError(code, err),
-		RequestID: requestID,
+	if resp.RequestID != "" {
+		w.Header().Set("Request-Id", resp.RequestID)
 	}
 
 	data, encodeErr := json.Marshal(resp)
@@ -75,18 +69,4 @@ func writeEvent(w http.ResponseWriter, eventType string, v any) error {
 		return err
 	}
 	return http.NewResponseController(w).Flush()
-}
-
-// writeSSERetry emits an SSE "retry:" field (milliseconds) if the error
-// carries a RetryAfter duration. Must be written before the event/data
-// lines of the SSE message block it belongs to.
-func writeSSERetry(w http.ResponseWriter, err error) {
-	d := provider.RetryAfterFromError(err)
-	if d <= 0 {
-		return
-	}
-
-	ms := max(d.Milliseconds(), 1)
-
-	fmt.Fprintf(w, "retry: %d\n", ms)
 }

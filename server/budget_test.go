@@ -82,6 +82,9 @@ func TestBudgetDenialBeforeHTTPAndSSEHeaders(t *testing.T) {
 					}
 					if outcome == "unavailable" {
 						want = 503
+						if api == "messages" {
+							want = 529
+						}
 					}
 					rec := httptest.NewRecorder()
 					s.ServeHTTP(rec, req)

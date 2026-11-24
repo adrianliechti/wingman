@@ -8,7 +8,6 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	"image/png"
-	"net/http"
 	"slices"
 
 	_ "golang.org/x/image/webp"
@@ -33,7 +32,7 @@ func MarkupReferenceInstruction(index int) string {
 // ErrEditGuideWithoutImage is returned when a mask or markup arrives without
 // an image to apply it to.
 var ErrEditGuideWithoutImage = &ProviderError{
-	Code:    http.StatusBadRequest,
+	Kind:    ErrorKindInvalidArgument,
 	Type:    "invalid_request_error",
 	Message: "mask and markup require an input image",
 }
@@ -140,7 +139,7 @@ func ApplyMarkup(base, markup File) (File, error) {
 
 	if img.Bounds().Size() != overlay.Bounds().Size() {
 		return File{}, &ProviderError{
-			Code:    http.StatusBadRequest,
+			Kind:    ErrorKindInvalidArgument,
 			Type:    "invalid_request_error",
 			Message: fmt.Sprintf("markup size %s does not match image size %s", overlay.Bounds().Size(), img.Bounds().Size()),
 		}

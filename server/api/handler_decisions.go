@@ -99,7 +99,7 @@ func (h *Handler) handleDecisions(w http.ResponseWriter, r *http.Request) {
 
 	result, err := p.Decide(r.Context(), input)
 	if err != nil {
-		writeDecisionError(w, provider.CodeFromError(err, http.StatusBadGateway), err)
+		writeDecisionError(w, http.StatusBadGateway, err)
 		return
 	}
 	if result == nil {
@@ -229,11 +229,12 @@ func decisionsResponse(result *provider.Decision) DecisionsResponse {
 	return response
 }
 
-func writeDecisionError(w http.ResponseWriter, code int, err error) {
+func writeDecisionError(w http.ResponseWriter, fallback int, err error) {
+	code := provider.CodeFromError(err, fallback)
 	if retry := provider.RetryAfterHeaderValue(provider.RetryAfterFromError(err)); retry != "" {
 		w.Header().Set("Retry-After", retry)
 	}
-	data, encodeErr := json.Marshal(map[string]any{"error": map[string]any{"message": err.Error(), "type": provider.TypeFromError(err), "code": code}})
+	data, encodeErr := json.Marshal(map[string]any{"error": map[string]any{"message": err.Error(), "type": provider.NativeType(err, provider.VendorTypeSafe), "code": code}})
 	if encodeErr != nil {
 		code = http.StatusInternalServerError
 		data = []byte(`{"error":{"message":"could not encode error response","type":"server_error","code":500}}`)

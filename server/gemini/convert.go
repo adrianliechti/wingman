@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/jsonutil"
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/google"
 	"github.com/adrianliechti/wingman/pkg/tool"
@@ -84,15 +86,16 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 		if part == nil {
 			continue
 		}
-		sig := string(part.ThoughtSignature)
+		id, sig := provider.UnwrapReasoningID(string(part.ThoughtSignature))
 		// Native Gemini signatures are binary; Interactions expects base64.
 		// Wingman's realm-tagged signatures already hold the encoded value.
-		if realm, _ := provider.ParseSignature(sig); realm == "" {
+		if realm, _ := provider.ParseSignature(sig); realm == "" && id == "" {
 			sig = google.EncodeThoughtSignature(part.ThoughtSignature)
 		}
 
 		if part.Thought {
 			content = append(content, provider.ReasoningContent(provider.Reasoning{
+				ID:        id,
 				Content:   provider.TextParts(part.Text),
 				Signature: sig,
 			}))
@@ -103,6 +106,7 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 		// Gemini requires it back on the call that opened the step.
 		if sig != "" && part.FunctionResponse == nil {
 			content = append(content, provider.ReasoningContent(provider.Reasoning{
+				ID:        id,
 				Signature: sig,
 			}))
 		}
@@ -224,17 +228,16 @@ func toMessage(c Content, pendingCallIDs map[string][]string) (*provider.Message
 				}
 			}
 
-			id := part.FunctionResponse.ID
+			name, id := part.FunctionResponse.Name, part.FunctionResponse.ID
+			queue := pendingCallIDs[name]
+			if id == "" && len(queue) > 0 {
+				id = queue[0]
+			}
+			if i := slices.Index(queue, id); i >= 0 {
+				pendingCallIDs[name] = slices.Delete(queue, i, i+1)
+			}
 			if id == "" {
-				// Match this response to the next unanswered call with the
-				// same name so the pair shares a stable id downstream.
-				name := part.FunctionResponse.Name
-				if queue := pendingCallIDs[name]; len(queue) > 0 {
-					id = queue[0]
-					pendingCallIDs[name] = queue[1:]
-				} else {
-					id = generateFunctionCallID()
-				}
+				id = generateFunctionCallID()
 			}
 
 			content = append(content, provider.ToolResultContent(provider.ToolResult{
@@ -279,19 +282,16 @@ func toTools(tools []*Tool, strict bool) []provider.Tool {
 			if fd == nil {
 				continue
 			}
-			// Handle parameters - could be from Parameters or ParametersJsonSchema (CLI format)
+			// parameters uses Gemini's OpenAPI schema subset, including
+			// uppercase types from python-genai's types.Schema. Other backends
+			// need JSON Schema, which parametersJsonSchema already is.
 			var params map[string]any
-
-			// Try Parameters first, then fall back to ParametersJsonSchema (Gemini CLI uses this)
-			paramSource := fd.Parameters
-			if paramSource == nil {
-				paramSource = fd.ParametersJsonSchema
-			}
-
-			if paramSource != nil {
-				if p, ok := paramSource.(map[string]any); ok {
-					params = p
+			if fd.Parameters != nil {
+				if p, ok := fd.Parameters.(map[string]any); ok {
+					params = normalizeResponseSchema(p)
 				}
+			} else if p, ok := fd.ParametersJsonSchema.(map[string]any); ok {
+				params = p
 			}
 
 			tool := provider.Tool{
@@ -311,17 +311,22 @@ func toTools(tools []*Tool, strict bool) []provider.Tool {
 	return result
 }
 
-func toContent(content []provider.Content) *Content {
-	if len(content) == 0 {
-		return nil
-	}
+// thoughtSignature keeps the original reasoning item ID for Responses replay.
+func thoughtSignature(r provider.Reasoning) []byte {
+	return google.DecodeThoughtSignature(provider.WrapReasoningID(r.ID, r.Signature))
+}
 
+func toCandidate(content []provider.Content, finish FinishReason) *Candidate {
 	var parts []*Part
 
-	var pendingSig string
+	var pendingSig []byte
 
 	for i, c := range content {
 		if c.Reasoning != nil {
+			if len(pendingSig) > 0 {
+				parts = append(parts, &Part{ThoughtSignature: pendingSig})
+				pendingSig = nil
+			}
 			beforeCall := i+1 < len(content) && content[i+1].ToolCall != nil
 			text := c.Reasoning.Text()
 			if text == "" {
@@ -332,11 +337,10 @@ func toContent(content []provider.Content) *Content {
 				if c.Reasoning.Signature != "" {
 					// A replayed signature precedes the part it belongs to; a
 					// terminal signature-only delta belongs to the preceding part.
-					beforePart := beforeCall || i+1 < len(content) && (content[i+1].Text != "" || content[i+1].Refusal != "")
-					if n := len(parts); !beforePart && n > 0 && len(parts[n-1].ThoughtSignature) == 0 && !parts[n-1].Thought {
-						parts[n-1].ThoughtSignature = google.DecodeThoughtSignature(c.Reasoning.Signature)
+					if n := len(parts); c.Reasoning.ID == "" && i == len(content)-1 && n > 0 && len(parts[n-1].ThoughtSignature) == 0 && !parts[n-1].Thought {
+						parts[n-1].ThoughtSignature = thoughtSignature(*c.Reasoning)
 					} else {
-						pendingSig = c.Reasoning.Signature
+						pendingSig = thoughtSignature(*c.Reasoning)
 					}
 				}
 				continue
@@ -349,9 +353,9 @@ func toContent(content []provider.Content) *Content {
 
 			if c.Reasoning.Signature != "" {
 				if beforeCall {
-					pendingSig = c.Reasoning.Signature
+					pendingSig = thoughtSignature(*c.Reasoning)
 				} else {
-					part.ThoughtSignature = google.DecodeThoughtSignature(c.Reasoning.Signature)
+					part.ThoughtSignature = thoughtSignature(*c.Reasoning)
 				}
 			}
 
@@ -362,24 +366,20 @@ func toContent(content []provider.Content) *Content {
 			part := &Part{
 				Text: text,
 			}
-			if pendingSig != "" {
-				part.ThoughtSignature = google.DecodeThoughtSignature(pendingSig)
-				pendingSig = ""
+			if len(pendingSig) > 0 {
+				part.ThoughtSignature = pendingSig
+				pendingSig = nil
 			}
 			parts = append(parts, part)
 		}
 
-		if c.ToolCall != nil {
-			var args map[string]any
-
+		if c.ToolCall != nil && finish == FinishReasonStop {
+			args := map[string]any{}
 			if c.ToolCall.Arguments != "" {
-				if err := decodeJSON(strings.NewReader(c.ToolCall.Arguments), &args); err != nil {
-					args = nil
+				if err := decodeJSON(strings.NewReader(c.ToolCall.Arguments), &args); err != nil || args == nil {
+					finish = FinishReasonMalformedFunctionCall
+					continue
 				}
-			}
-
-			if args == nil {
-				args = map[string]any{}
 			}
 
 			// Use upstream ID for correlation, but ensure it exists
@@ -395,26 +395,27 @@ func toContent(content []provider.Content) *Content {
 					Args: args,
 				},
 			}
-			if pendingSig != "" {
-				part.ThoughtSignature = google.DecodeThoughtSignature(pendingSig)
-				pendingSig = ""
+			if len(pendingSig) > 0 {
+				part.ThoughtSignature = pendingSig
+				pendingSig = nil
 			}
 			parts = append(parts, part)
 		}
 	}
 
-	if pendingSig != "" {
-		parts = append(parts, &Part{ThoughtSignature: google.DecodeThoughtSignature(pendingSig)})
+	if len(pendingSig) > 0 {
+		parts = append(parts, &Part{ThoughtSignature: pendingSig})
 	}
 
-	if len(parts) == 0 {
-		return nil
+	if finish == FinishReasonMalformedFunctionCall {
+		// SDKs execute function calls as soon as they see the parts.
+		parts = slices.DeleteFunc(parts, func(p *Part) bool { return p.FunctionCall != nil })
 	}
-
-	return &Content{
-		Role:  "model",
-		Parts: parts,
+	candidate := &Candidate{FinishReason: finish}
+	if len(parts) > 0 {
+		candidate.Content = &Content{Role: "model", Parts: parts}
 	}
+	return candidate
 }
 
 func toFinishReason(completion *provider.Completion) FinishReason {
@@ -427,8 +428,6 @@ func toFinishReason(completion *provider.Completion) FinishReason {
 		return FinishReasonMaxTokens
 	case provider.StopReasonRefusal:
 		return FinishReasonSafety
-	case provider.StopReasonEndTurn, provider.StopReasonStopSequence, provider.StopReasonToolUse:
-		return FinishReasonStop
 	}
 
 	switch completion.Status {
@@ -438,16 +437,6 @@ func toFinishReason(completion *provider.Completion) FinishReason {
 		return FinishReasonSafety
 	case provider.CompletionStatusFailed:
 		return FinishReasonOther
-	}
-
-	if completion.Message != nil {
-		for _, c := range completion.Message.Content {
-			if c.ToolCall != nil {
-				// Gemini reports STOP for assistant turns that include function
-				// calls; the SDK detects the calls in the candidate parts.
-				return FinishReasonStop
-			}
-		}
 	}
 
 	return FinishReasonStop
@@ -506,9 +495,8 @@ func generateID(length int) string {
 	return hex.EncodeToString(bytes)[:length]
 }
 
-// normalizeResponseSchema converts Gemini's OpenAPI-flavored responseSchema
-// (uppercase TYPE enums, nullable, propertyOrdering) into plain JSON Schema so
-// non-Gemini backends accept it. The input is not mutated.
+// normalizeResponseSchema converts Gemini's OpenAPI schemas for tools and
+// structured output into JSON Schema.
 func normalizeResponseSchema(schema map[string]any) map[string]any {
 	if schema == nil {
 		return nil
@@ -532,7 +520,27 @@ func normalizeResponseSchema(schema map[string]any) map[string]any {
 		case "nullable":
 			// folded into the type below
 
-		case "properties", "$defs", "definitions":
+		case "minItems", "maxItems", "minLength", "maxLength", "minProperties", "maxProperties":
+			// These are int64 fields in ProtoJSON, often sent as strings.
+			if s, ok := value.(string); ok {
+				if n, ok := jsonutil.Int64(jsonutil.Number(s)); ok {
+					value = n
+				}
+			}
+			result[key] = value
+
+		case "ref":
+			if ref, ok := value.(string); ok {
+				if path, ok := strings.CutPrefix(ref, "#/defs/"); ok {
+					value = "#/$defs/" + path
+				}
+			}
+			result["$ref"] = value
+
+		case "properties", "defs", "$defs", "definitions":
+			if key == "defs" {
+				key = "$defs"
+			}
 			if m, ok := value.(map[string]any); ok {
 				sub := make(map[string]any, len(m))
 				for name, prop := range m {
@@ -547,14 +555,14 @@ func normalizeResponseSchema(schema map[string]any) map[string]any {
 				result[key] = value
 			}
 
-		case "items", "not":
+		case "items", "not", "additionalProperties":
 			if m, ok := value.(map[string]any); ok {
 				result[key] = normalizeResponseSchema(m)
 			} else {
 				result[key] = value
 			}
 
-		case "anyOf", "allOf", "oneOf":
+		case "anyOf", "allOf", "oneOf", "prefixItems":
 			if arr, ok := value.([]any); ok {
 				sub := make([]any, len(arr))
 				for i, item := range arr {

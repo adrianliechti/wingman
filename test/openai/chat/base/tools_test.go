@@ -59,7 +59,7 @@ func TestToolCallingSSE(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			openaiBody := chat.WithModel(map[string]any{
 				"stream": true,
 				"messages": []map[string]any{
@@ -266,7 +266,7 @@ func TestToolCallingLongArgumentsSSE(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			req := map[string]any{
 				"stream": true,

@@ -24,7 +24,7 @@ func WithModel(body map[string]any, model string) map[string]any {
 
 func CompareHTTP(t *testing.T, h *openai.Harness, model openai.Model, body map[string]any) (*harness.RawResponse, *harness.RawResponse) {
 	t.Helper()
-	h.SkipUnlessConfigured(t, model.Name)
+	h.RequireConfigured(t, model.Name)
 	ctx := context.Background()
 
 	openaiBody := WithModel(body, h.ReferenceModel)
@@ -52,7 +52,7 @@ func CompareHTTP(t *testing.T, h *openai.Harness, model openai.Model, body map[s
 
 func CompareSSE(t *testing.T, h *openai.Harness, model openai.Model, body map[string]any) ([]*harness.SSEEvent, []*harness.SSEEvent) {
 	t.Helper()
-	h.SkipUnlessConfigured(t, model.Name)
+	h.RequireConfigured(t, model.Name)
 	ctx := context.Background()
 
 	openaiBody := WithModel(body, h.ReferenceModel)

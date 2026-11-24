@@ -42,7 +42,7 @@ func TestComplete_LiveUnsignedToolReplay(t *testing.T) {
 			}
 		}
 		var apierr *provider.ProviderError
-		if !errors.As(failure, &apierr) || apierr.Code != 400 {
+		if !errors.As(failure, &apierr) || apierr.Kind != provider.ErrorKindInvalidArgument {
 			t.Fatalf("invalid existing signature must still fail: %v", failure)
 		}
 	}

@@ -40,7 +40,7 @@ func TestUsageTokensCorrectness(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			short := messagesUsage(t, h, h.Wingman, model.Name, shortBody)
 			long := messagesUsage(t, h, h.Wingman, model.Name, longBody)
@@ -90,7 +90,7 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 
 	for _, model := range anthropic.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			short := messagesUsageSSE(t, h, h.Wingman, model.Name, shortBody)
 			long := messagesUsageSSE(t, h, h.Wingman, model.Name, longBody)
@@ -153,7 +153,7 @@ func TestUsageTokensThinking(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			u := messagesUsage(t, h, h.Wingman, model.Name, body)
 			u.assertInvariants(t, "thinking")

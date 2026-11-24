@@ -5,7 +5,6 @@ import (
 	"errors"
 	"iter"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
@@ -45,8 +44,8 @@ type reporter struct {
 
 // rejected builds an error that routers surface without failover or health
 // penalties, since every candidate would refuse the same request.
-func rejected(code int, kind, message string, err error) error {
-	return &provider.ProviderError{Code: code, Type: kind, Message: message, Err: errors.Join(provider.ErrRejected, err)}
+func rejected(kind provider.ErrorKind, errorType, message string, err error) *provider.ProviderError {
+	return &provider.ProviderError{Kind: kind, Type: errorType, Message: message, Err: errors.Join(provider.ErrRejected, err)}
 }
 
 // denial maps a negative admission decision to the error returned to users.
@@ -58,7 +57,7 @@ func denial(result *Result) error {
 	if message == "" {
 		message = "user budget exhausted"
 	}
-	e := rejected(http.StatusTooManyRequests, "insufficient_quota", message, nil).(*provider.ProviderError)
+	e := rejected(provider.ErrorKindQuotaExceeded, "insufficient_quota", message, nil)
 	e.RetryAfter = max(0, time.Until(result.ResetsAt))
 	return e
 }
@@ -68,10 +67,10 @@ func (p reporter) admit(ctx context.Context, user string) error {
 		// A canceled caller must not decide the outcome shared by the request.
 		result, err := p.budget.Check(context.WithoutCancel(ctx), user)
 		if err != nil {
-			return rejected(http.StatusServiceUnavailable, "budget_unavailable", "budget service unavailable", err)
+			return rejected(provider.ErrorKindUnavailable, "budget_unavailable", "budget service unavailable", err)
 		}
 		if result == nil {
-			return rejected(http.StatusServiceUnavailable, "budget_unavailable", "budget service returned no admission decision", nil)
+			return rejected(provider.ErrorKindUnavailable, "budget_unavailable", "budget service returned no admission decision", nil)
 		}
 		return denial(result)
 	}
@@ -85,14 +84,14 @@ func (p reporter) admit(ctx context.Context, user string) error {
 func (p reporter) start(ctx context.Context) (*Report, error) {
 	user, _ := ctx.Value(auth.UserContextKey).(string)
 	if user == "" {
-		return nil, rejected(http.StatusUnauthorized, "authentication_error", ErrMissingUser.Error(), ErrMissingUser)
+		return nil, rejected(provider.ErrorKindUnauthenticated, "authentication_error", ErrMissingUser.Error(), ErrMissingUser)
 	}
 	if err := p.admit(ctx, user); err != nil {
 		return nil, err
 	}
 	if t, ok := p.budget.(tracker); ok {
 		if err := t.begin(); err != nil {
-			return nil, rejected(http.StatusServiceUnavailable, "budget_unavailable", err.Error(), err)
+			return nil, rejected(provider.ErrorKindUnavailable, "budget_unavailable", err.Error(), err)
 		}
 	}
 	return &Report{OperationID: uuid.NewString(), UserID: user, Provider: p.name, Model: p.model}, nil
@@ -153,9 +152,10 @@ func (p *completer) Complete(ctx context.Context, messages []provider.Message, o
 		}
 		defer p.finish(ctx, report)
 		for result, err := range p.Completer.Complete(ctx, messages, options) {
-			if result != nil {
-				report.observe(result.Model, result.Usage)
-				if report != nil && result.Tier != "" {
+			if report != nil && result != nil {
+				report.observe(result.Model, nil)
+				report.Usage = result.AccumulateUsage(report.Usage)
+				if result.Tier != "" {
 					report.ServiceTier = string(result.Tier)
 				}
 			}

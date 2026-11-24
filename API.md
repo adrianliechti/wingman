@@ -2,7 +2,7 @@
 
 Temperature, top-p, and top-k controls are unsupported across all endpoints; models use their default sampling behavior.
 
-OpenAI-compatible endpoints. See [OpenAI API Reference](https://platform.openai.com/docs/api-reference) for full documentation.
+OpenAI-compatible endpoints are available under `/v1`. Set the OpenAI SDK base URL to `http://localhost:4242/v1`. See [OpenAI API Reference](https://platform.openai.com/docs/api-reference) for full documentation.
 
 All API routes, including Anthropic, Gemini, and native routes, accept request
 compression through `Content-Encoding: gzip`, `x-gzip`, or `zstd`, for both JSON
@@ -45,6 +45,8 @@ Prompt caching is on by default on every backend that supports it: the stable pr
 **Endpoint:** `POST /v1/responses`
 
 The router preserves upstream assistant message phases. Claude and Gemini Responses can contain unphased text. A native tool-use stop sets `end_turn: false`. Return the pending tool results to continue. A native end-of-turn stop sets `end_turn: true`.
+
+Wingman returns `store: false`. When the backend supplies encrypted reasoning, plain requests receive it in the reasoning item's `encrypted_content`. New clients can omit the legacy `reasoning.encrypted_content` include. Wingman forwards it to compatible backends when a client explicitly requests it. To continue a streamed turn, keep the items from `response.output_item.done` in output order and send them back with the next input. [OpenAI reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) and [streaming replay guidance](https://developers.openai.com/api/reference/resources/responses/methods/create).
 
 | Parameter              | Type         | Description                                         |
 |------------------------|--------------|-----------------------------------------------------|
@@ -152,6 +154,11 @@ serializing structured state and criteria as text. Other completion and embeddin
 models cannot serve decisions. Access policies check the selected decision model,
 including when `model` is omitted.
 
+Under a `gemini` or `google` provider, `gemini-decision-1` serves both decision
+endpoints through Google's native [Decisions API](https://aistudio.google.com/docs/decisions-api).
+Google's backend rejects conversation history, tool/thought blocks, box questions,
+and media in question instructions or criteria.
+
 Run live native and cross-model checks with `go test -v ./test/openai/decisions`.
 The native test compares an in-process Wingman server with direct OpenAI.
 The cross-model test uses a running Wingman server and defaults to `gpt-6-luna`;
@@ -250,6 +257,8 @@ Geometry and quality are provider-neutral: `size`/`aspect_ratio`/`quality`/`reso
 
 # Anthropic Compatible API
 
+The Messages API is available under `/v1`. Set the Anthropic SDK base URL to `http://localhost:4242`. The SDK appends `/v1/messages` and sends the API key in `x-api-key`.
+
 Anthropic-compatible endpoints. See [Anthropic API Reference](https://docs.anthropic.com/en/api/messages) for full documentation.
 
 ## Messages
@@ -291,68 +300,7 @@ Anthropic-compatible endpoints. See [Anthropic API Reference](https://docs.anthr
 
 Gemini-compatible endpoints. See [Gemini API Reference](https://ai.google.dev/api/generate-content) for full documentation.
 
-## Gemini Decisions
-
-**Endpoint:** `POST /v1beta/decisions`
-
-Uses the [Gemini Decisions format](https://aistudio.google.com/docs/decisions-api).
-Configure `gemini-decision-1` under a `gemini` or `google` provider. The model is
-automatically registered as a decider, available on all three decision
-endpoints. As on the other decision endpoints, omitting `model` selects the
-first configured decision model.
-
-| Field | Type | Description |
-|---|---|---|
-| `model` | String | Configured decision model or alias; optional in Wingman |
-| `input` | String, content object, or array | Shared text, image, audio, video, or PDF evidence |
-| `questions` | Object | 1–1,000 named questions; keys use 1–64 ASCII letters, digits, underscores, or hyphens |
-
-Each question requires `type` and `instructions`. Instructions accept a string,
-one `{"type":"text","text":"..."}` block, or an array of text blocks.
-Adjacent text blocks concatenate without an added separator.
-
-| Type | `criteria` | Answer |
-|---|---|---|
-| `noul` | Optional object with `true_description` and/or `false_description` strings | `noul` probability and `confidence` |
-| `choice` | 2–255 option IDs mapped to string descriptions (empty descriptions allowed) | `choice`, `probabilities`, `confidence` |
-| `score` | 2–255 nonempty strings, ordered from level 0 | Weighted `score`, per-level `probabilities`, `legend`, `confidence` |
-
-Media blocks require `type`, `mime_type`, and exactly one of base64 `data` or
-`uri`. URI references are forwarded to Google without being downloaded by
-Wingman. Use a Files API URI or HTTPS URL; YouTube and `gs://` inputs are rejected.
-Image and video blocks accept `resolution`: `low`, `medium`, or `high`;
-images also accept `ultra_high`.
-
-```bash
-curl http://localhost:4242/v1beta/decisions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "gemini-decision-1",
-    "input": "The package arrived with a cracked screen.",
-    "questions": {
-      "is_damaged": {"type": "noul", "instructions": "Did the item arrive damaged?"},
-      "next_action": {
-        "type": "choice", "instructions": "Which action fits?",
-        "criteria": {"replace": "Damaged product.", "close": "No issue reported."}
-      },
-      "severity": {
-        "type": "score", "instructions": "Rate severity.",
-        "criteria": ["Cosmetic", "Partly usable", "Unusable"]
-      }
-    }
-  }'
-```
-
-Responses contain `answers` keyed by the question IDs and `usage` with
-`total_input_tokens`, `total_output_tokens`, and `total_tokens`. The native Gemini
-backend bills no output tokens. Wingman reports aggregate usage and omits the
-optional per-modality breakdown.
-
-Google's backend rejects conversation history, tool/thought blocks, box questions,
-and media in question instructions or criteria. The OpenAI and System One
-endpoints retain their own request limits, including their 10-level rubric limit.
-Model access policies, budget admission, and telemetry apply through the shared
-decider interface.
+Set the Google Gen AI SDK base URL to `http://localhost:4242`. The SDK appends its API version and sends the key in `x-goog-api-key`. All listed Gemini methods are available under `/v1beta` and `/v1`.
 
 ## Generate Content
 

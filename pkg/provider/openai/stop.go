@@ -126,6 +126,16 @@ func (f *stopFilter) filter(c *provider.Completion) (*provider.Completion, bool)
 		message.Content = kept
 		out.Message = &message
 	}
+	// A corrected terminal message can introduce a stop absent from its deltas.
+	if c.Output != nil {
+		final := &provider.Completion{Status: c.Status, Message: &provider.Message{Content: c.Output}}
+		filtered, hit := newStopFilter(f.stops).filter(final)
+		out.Output = append([]provider.Content{}, filtered.Message.Content...)
+		if hit {
+			out.StopReason, out.StopSequence, out.Status = filtered.StopReason, filtered.StopSequence, filtered.Status
+			f.done = true
+		}
+	}
 	return &out, f.done
 }
 

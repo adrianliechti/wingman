@@ -140,10 +140,9 @@ func progressWire(t *testing.T, backend string) string {
 		for i, text := range []string{"", "Looking it up."} {
 			emit("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":{"type":"thinking","thinking":"","signature":""}}`, i))
 			emit("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"thinking_delta","thinking":%q}}`, i, text))
-			// The adapter must join signature fragments before either frontend
-			// wraps the opaque value for replay on the next turn.
-			emit("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":"signed-"}}`, i))
-			emit("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":"%d"}}`, i, i))
+			// Each frontend must replay the latest signature for this block.
+			emit("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":"superseded"}}`, i))
+			emit("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":{"type":"signature_delta","signature":"signed-%d"}}`, i, i))
 			emit("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, i))
 		}
 		emit("content_block_start", `{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"call_1","name":"lookup","input":{}}}`)

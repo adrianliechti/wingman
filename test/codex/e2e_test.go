@@ -75,7 +75,7 @@ func TestCodex(t *testing.T) {
 			}
 			for _, model := range models {
 				t.Run("wingman/"+model.Name, func(t *testing.T) {
-					h.SkipUnlessConfigured(t, model.Name)
+					h.RequireConfigured(t, model.Name)
 					actual := run(t, h.Wingman, model.Name)
 					if referenceRan && actual != reference {
 						t.Errorf("outcome differs from OpenAI: got %+v, want %+v", actual, reference)

@@ -26,7 +26,7 @@ func TestPromptCacheRead(t *testing.T) {
 			continue
 		}
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			systemPrompt := buildLongSystemPrompt(t.Name())
 
 			body := map[string]any{

@@ -89,7 +89,7 @@ func TestApplyPatchSSE(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			openaiBody := responses.WithModel(map[string]any{
 				"input":  "Create a file called test.py with print('test')",
 				"stream": true,
