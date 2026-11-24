@@ -60,6 +60,35 @@ func TestStreamPreservesExecutionMetadata(t *testing.T) {
 	}
 }
 
+func TestStreamRefusalOutputUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name, usage string
+		want        int
+	}{
+		{"explicit zero", `{"output_tokens":0}`, 0},
+		{"omitted count", `{}`, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := accumulateStream(t, []string{
+				`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"usage":{"input_tokens":20,"output_tokens":1}}}`,
+				`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+				`{"type":"content_block_stop","index":0}`,
+				fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":"refusal"},"usage":%s}`, tc.usage),
+				`{"type":"message_stop"}`,
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.StopReason != provider.StopReasonRefusal || result.Usage == nil || result.Usage.InputTokens != 20 || result.Usage.OutputTokens != tc.want {
+				t.Fatalf("refusal stop=%q usage=%+v, want %d output tokens", result.StopReason, result.Usage, tc.want)
+			}
+			if parts := result.Message.Content; len(parts) != 1 || !parts[0].TextPresent || parts[0].Text != "" {
+				t.Fatalf("refusal content = %+v", parts)
+			}
+		})
+	}
+}
+
 func TestStreamToolInputAtBlockStop(t *testing.T) {
 	for _, tc := range []struct {
 		name, input, want string
@@ -112,13 +141,13 @@ func TestStreamThinkingSignaturesStayWithTheirBlock(t *testing.T) {
 				regressionMessageStart,
 				`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"first ","signature":""}}`,
 				`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"thought"}}`,
-				`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"SIG_"}}`,
-				`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"1"}}`,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"superseded"}}`,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"SIG_1"}}`,
 				`{"type":"content_block_stop","index":0}`,
 				`{"type":"content_block_start","index":1,"content_block":{"type":"thinking","thinking":"second ","signature":""}}`,
 				`{"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"thought"}}`,
-				`{"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"SIG_"}}`,
-				`{"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"2"}}`,
+				`{"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"superseded"}}`,
+				`{"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"SIG_2"}}`,
 			}
 			if stopBlocks {
 				events = append(events, `{"type":"content_block_stop","index":1}`)

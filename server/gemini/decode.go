@@ -65,6 +65,14 @@ func normalizeRequest(v any) any {
 				continue
 			}
 
+			// ProtoJSON accepts both base64 alphabets, with or without
+			// padding. python-genai re-encodes bytes with the URL-safe alphabet.
+			if key == "thoughtSignature" || key == "data" {
+				if encoded, ok := item.(string); ok {
+					item = canonicalBase64(encoded)
+				}
+			}
+
 			if key == "systemInstruction" {
 				if text, ok := item.(string); ok {
 					item = map[string]any{"parts": []any{map[string]any{"text": text}}}
@@ -92,6 +100,16 @@ func normalizeRequest(v any) any {
 	default:
 		return v
 	}
+}
+
+var standardBase64Alphabet = strings.NewReplacer("-", "+", "_", "/")
+
+func canonicalBase64(value string) string {
+	value = standardBase64Alphabet.Replace(value)
+	if !strings.Contains(value, "=") && len(value)%4 != 0 {
+		value += strings.Repeat("=", 4-len(value)%4)
+	}
+	return value
 }
 
 // camelCase converts a snake_case protobuf field name to its JSON name.

@@ -98,7 +98,7 @@ func TestDecisionFallback(t *testing.T) {
 
 func TestRankedFailoverAndTurnCache(t *testing.T) {
 	a, b := &member{model: "A"}, &member{model: "B", err: errors.New("busy")}
-	c, d := &member{model: "C", err: &provider.ProviderError{Code: 400}}, &member{model: "D"}
+	c, d := &member{model: "C", err: &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument}}, &member{model: "D"}
 	var decisions [][]string
 	decider := decideFunc(func(_ context.Context, in *provider.DecisionInput) (*provider.Decision, error) {
 		var offered []string

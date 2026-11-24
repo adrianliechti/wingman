@@ -40,7 +40,7 @@ func testRerank(t *testing.T, model string) {
 		t.Skip("wingman not reachable — start it with `task server`")
 	}
 
-	harness.SkipUnlessConfigured(t, ep.BaseURL, ep.APIKey, model)
+	harness.RequireConfigured(t, ep.BaseURL, ep.APIKey, model)
 
 	results := rerank(t, ep, model, nil)
 

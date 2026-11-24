@@ -37,3 +37,31 @@ func TestParseSignaturePreservesBinaryValues(t *testing.T) {
 		})
 	}
 }
+
+func TestReasoningIDSignature(t *testing.T) {
+	if got := WrapReasoningID("", "SIG"); got != "SIG" {
+		t.Fatalf("expected bare signature without id, got %q", got)
+	}
+
+	if got := WrapReasoningID("rs_1", ""); got != "" {
+		t.Fatalf("expected empty for missing signature, got %q", got)
+	}
+
+	id, signature := UnwrapReasoningID(WrapReasoningID("rs_1", "BLOB"))
+	if id != "rs_1" || signature != "BLOB" {
+		t.Fatalf("round-trip mismatch: %q %q", id, signature)
+	}
+
+	id, signature = UnwrapReasoningID("RAW")
+	if id != "" || signature != "RAW" {
+		t.Fatalf("expected raw value as signature, got %q %q", id, signature)
+	}
+
+	tagged := WrapReasoningID("rs_1", "@gpt-5:BLOB")
+	if realm, raw := ParseSignature(tagged); realm != "gpt-5" || len(raw) == 0 {
+		t.Fatalf("expected outer realm tag on wrapped signature, got %q (realm=%q raw=%q)", tagged, realm, raw)
+	}
+	if id, signature = UnwrapReasoningID(tagged); id != "rs_1" || signature != "@gpt-5:BLOB" {
+		t.Fatalf("tagged round-trip mismatch: %q %q", id, signature)
+	}
+}

@@ -512,6 +512,10 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, r
 			})
 
 		case StreamEventError:
+			// An SSE retry field must precede the data of its own event.
+			if event.RetryAfter > 0 {
+				fmt.Fprintf(w, "retry: %d\n", max(event.RetryAfter.Milliseconds(), 1))
+			}
 			return writeEvent(w, "error", ErrorResponse{
 				Type:      "error",
 				Error:     *event.Error,
@@ -529,7 +533,6 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, r
 				return
 			}
 
-			writeSSERetry(w, err)
 			accumulator.Error(err)
 			return
 		}
@@ -546,7 +549,6 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, r
 
 	// Emit final events
 	if err := accumulator.Complete(); err != nil {
-		writeSSERetry(w, err)
 		accumulator.Error(err)
 		return
 	}

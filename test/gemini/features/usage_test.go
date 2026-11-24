@@ -39,7 +39,7 @@ func TestUsageTokensCorrectness(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			short := geminiUsage(t, h, h.Wingman, model.Name, shortBody)
 			long := geminiUsage(t, h, h.Wingman, model.Name, longBody)
@@ -85,7 +85,7 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 
 	for _, model := range gemini.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			short := geminiUsageSSE(t, h, h.Wingman, model.Name, shortBody)
 			long := geminiUsageSSE(t, h, h.Wingman, model.Name, longBody)
@@ -171,7 +171,7 @@ func TestUsageTokensThinking(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			u := geminiUsage(t, h, h.Wingman, model.Name, body)
 			u.assertInvariants(t, "thinking")

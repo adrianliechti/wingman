@@ -37,7 +37,7 @@ func TestEmptyThinkingReplaysWithoutSyntheticOpenAISummary(t *testing.T) {
 			"messages": []any{
 				map[string]any{"role": "user", "content": "hello"},
 				map[string]any{"role": "assistant", "content": []any{
-					map[string]any{"type": "thinking", "thinking": "", "signature": encodeSignature("rs_original", "@target:opaque")},
+					map[string]any{"type": "thinking", "thinking": "", "signature": provider.WrapReasoningID("rs_original", "@target:opaque")},
 					map[string]any{"type": "text", "text": "hello"},
 				}},
 				map[string]any{"role": "user", "content": "continue"},
@@ -49,34 +49,6 @@ func TestEmptyThinkingReplaysWithoutSyntheticOpenAISummary(t *testing.T) {
 	}
 	if requests != 2 {
 		t.Fatalf("upstream requests = %d", requests)
-	}
-}
-
-func TestSignatureCodec(t *testing.T) {
-	if got := encodeSignature("", "SIG"); got != "SIG" {
-		t.Fatalf("expected bare signature without id, got %q", got)
-	}
-
-	if got := encodeSignature("rs_1", ""); got != "" {
-		t.Fatalf("expected empty for missing signature, got %q", got)
-	}
-
-	id, signature := decodeSignature(encodeSignature("rs_1", "BLOB"))
-	if id != "rs_1" || signature != "BLOB" {
-		t.Fatalf("round-trip mismatch: %q %q", id, signature)
-	}
-
-	id, signature = decodeSignature("RAW")
-	if id != "" || signature != "RAW" {
-		t.Fatalf("expected raw value as signature, got %q %q", id, signature)
-	}
-
-	tagged := encodeSignature("rs_1", "@gpt-5:BLOB")
-	if realm, raw := provider.ParseSignature(tagged); realm != "gpt-5" || len(raw) == 0 {
-		t.Fatalf("expected outer realm tag on wrapped signature, got %q (realm=%q raw=%q)", tagged, realm, raw)
-	}
-	if id, signature = decodeSignature(tagged); id != "rs_1" || signature != "@gpt-5:BLOB" {
-		t.Fatalf("tagged round-trip mismatch: %q %q", id, signature)
 	}
 }
 

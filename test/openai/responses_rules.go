@@ -51,6 +51,7 @@ func DefaultResponsesResponseRules() map[string]harness.FieldRule {
 		"reasoning.effort":      harness.FieldPresence,
 		"reasoning.context":     harness.FieldPresence,
 		"service_tier":          harness.FieldPresence,
+		"access_programs":       harness.FieldPresence,
 	}
 }
 
@@ -94,6 +95,7 @@ func DefaultResponsesSSERules() map[string]harness.FieldRule {
 		"response.billing":                                      harness.FieldIgnore,
 		"response.store":                                        harness.FieldIgnore,
 		"response.service_tier":                                 harness.FieldPresence,
+		"response.access_programs":                              harness.FieldPresence,
 
 		"item_id":                harness.FieldPresence,
 		"item.id":                harness.FieldPresence,

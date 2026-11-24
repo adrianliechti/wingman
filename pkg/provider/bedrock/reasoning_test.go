@@ -72,7 +72,7 @@ func TestConverseReasoningContext(t *testing.T) {
 					return
 				}
 				var providerErr *provider.ProviderError
-				if !errors.As(err, &providerErr) || providerErr.Code != 400 || providerErr.Type != "invalid_request_error" {
+				if !errors.As(err, &providerErr) || providerErr.Kind != provider.ErrorKindInvalidArgument || providerErr.Type != "invalid_request_error" {
 					t.Fatalf("error = %v, want invalid_request_error", err)
 				}
 			})

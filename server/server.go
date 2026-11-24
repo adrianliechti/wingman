@@ -90,13 +90,12 @@ func New(cfg *config.Config) (*Server, error) {
 		s.mcp.Attach(r)
 		s.openai.Attach(r)
 		s.anthropic.Attach(r)
+		s.gemini.Attach(r)
 		s.exa.Attach(r)
 		s.tavily.Attach(r)
 	})
 
-	mux.Route("/v1beta", func(r chi.Router) {
-		s.gemini.Attach(r)
-	})
+	mux.Route("/v1beta", s.gemini.Attach)
 
 	return s, nil
 }

@@ -1,6 +1,7 @@
 package google
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,6 +25,7 @@ func TestConvertErrorMetadata(t *testing.T) {
 		retry  time.Duration
 	}{
 		{"genai value", genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED", Message: "busy", Details: details}, 429, 2250 * time.Millisecond},
+		{"invalid key in details", genai.APIError{Code: 400, Status: "INVALID_ARGUMENT", Message: "busy", Details: []map[string]any{{"reason": "API_KEY_INVALID"}}}, 401, 0},
 		{"genai pointer", &genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED", Message: "busy", Details: details}, 429, 2250 * time.Millisecond},
 		{"typed interaction", &apierrors.CreateInteractionServerError{
 			Error_:   interactions.Error{Code: new("UNAVAILABLE"), Message: new("busy")},
@@ -81,4 +83,48 @@ func TestCompleteModelOutputErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Gemini reports rate limits and exhausted quotas as RESOURCE_EXHAUSTED. A
+// per-day quota still advertises a short retry delay that cannot help.
+func TestResourceExhaustedKind(t *testing.T) {
+	violation := func(id string) []map[string]any {
+		return []map[string]any{
+			{"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": []any{map[string]any{
+				"quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests", "quotaId": id,
+			}}},
+			{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "23s"},
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		details []map[string]any
+		kind    provider.ErrorKind
+	}{
+		{"per day", violation("GenerateRequestsPerDayPerProjectPerModel-FreeTier"), provider.ErrorKindQuotaExceeded},
+		{"per minute", violation("GenerateRequestsPerMinutePerProjectPerModel-FreeTier"), provider.ErrorKindRateLimited},
+		{"no details", nil, provider.ErrorKindRateLimited},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, err := range []error{
+				genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED", Message: "quota", Details: tc.details},
+				&apierrors.ResponseValidationError{StatusCode: 200, Body: mustJSON(t, map[string]any{"error": map[string]any{"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota", "details": tc.details}})},
+			} {
+				converted := convertError(err)
+				upstream, _ := converted.(*provider.ProviderError)
+				if provider.KindFromError(converted) != tc.kind || provider.CodeFromError(converted, 0) != 429 || upstream == nil || upstream.Vendor != provider.VendorGoogle {
+					t.Fatalf("kind=%q converted=%#v", provider.KindFromError(converted), converted)
+				}
+			}
+		})
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

@@ -14,7 +14,7 @@ import (
 // counts must match the reference exactly — not just in tendency.
 func TestUsageTokensCorrectness(t *testing.T) {
 	h := openai.New(t)
-	h.SkipUnlessConfigured(t, embeddingModel)
+	h.RequireConfigured(t, embeddingModel)
 
 	single := embeddingsUsagePairFor(t, h, map[string]any{"input": "Hello world"})
 	long := embeddingsUsagePairFor(t, h, map[string]any{"input": buildLongEmbeddingInput()})

@@ -6,20 +6,20 @@ import (
 	"testing"
 )
 
-func TestSkipUnlessConfigured(t *testing.T) {
+func TestRequireConfigured(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		status  int
-		body    string
-		proceed bool
+		name                 string
+		status               int
+		body                 string
+		unavailable, missing bool
 	}{
-		{"configured OpenAI model", http.StatusOK, `{"data":[{"id":"claude-haiku-5-5"}]}`, true},
-		{"configured Gemini model", http.StatusOK, `{"models":[{"name":"models/claude-haiku-5-5"}]}`, true},
-		{"model missing", http.StatusOK, `{"data":[{"id":"other-model"}]}`, false},
-		{"empty listing", http.StatusOK, `{"data":[]}`, false},
-		{"invalid listing", http.StatusOK, `not json`, false},
-		{"unauthorized", http.StatusUnauthorized, `{"error":"unauthorized"}`, false},
-		{"unavailable", 0, "", false},
+		{"configured OpenAI model", http.StatusOK, `{"data":[{"id":"claude-haiku-5-5"}]}`, false, false},
+		{"configured Gemini model", http.StatusOK, `{"models":[{"name":"models/claude-haiku-5-5"}]}`, false, false},
+		{"model missing", http.StatusOK, `{"data":[{"id":"other-model"}]}`, false, true},
+		{"empty listing", http.StatusOK, `{"data":[]}`, true, false},
+		{"invalid listing", http.StatusOK, `not json`, true, false},
+		{"unauthorized", http.StatusUnauthorized, `{"error":"unauthorized"}`, true, false},
+		{"unavailable", 0, "", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requests := 0
@@ -36,13 +36,9 @@ func TestSkipUnlessConfigured(t *testing.T) {
 				server.Close()
 			}
 			for range 2 {
-				proceeded := false
-				t.Run("comparison", func(t *testing.T) {
-					SkipUnlessConfigured(t, server.URL+"/v1", "test-key", "claude-haiku-5-5")
-					proceeded = true
-				})
-				if proceeded != tc.proceed {
-					t.Fatalf("comparison proceeded = %v, want %v", proceeded, tc.proceed)
+				unavailable, missing := checkConfigured(server.URL+"/v1", "test-key", "claude-haiku-5-5")
+				if unavailable != tc.unavailable || missing != tc.missing {
+					t.Fatalf("unavailable, missing = %v, %v; want %v, %v", unavailable, missing, tc.unavailable, tc.missing)
 				}
 			}
 			if tc.status != 0 && requests != 1 {

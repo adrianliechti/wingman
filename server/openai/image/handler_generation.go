@@ -58,7 +58,7 @@ func (h *Handler) handleImageGeneration(w http.ResponseWriter, r *http.Request) 
 	image, err := renderer.Render(r.Context(), req.Prompt, options)
 
 	if err != nil {
-		writeError(w, provider.CodeFromError(err, http.StatusBadRequest), err)
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 

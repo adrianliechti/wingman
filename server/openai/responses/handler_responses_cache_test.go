@@ -83,15 +83,17 @@ func TestResponsesMapExplicitCacheBreakpoints(t *testing.T) {
 // Without a summary, reasoning stays hidden but progress notes are requested.
 func TestResponsesMapReasoningVisibility(t *testing.T) {
 	for _, tc := range []struct {
-		body             string
-		summary, updates bool
+		body                        string
+		summary, updates, signature bool
 	}{
-		{`{"model":"test","input":"hi","reasoning":{"effort":"high","summary":"auto"}}`, true, false},
-		{`{"model":"test","input":"hi","reasoning":{"effort":"high"}}`, false, true},
-		{`{"model":"test","input":"hi","reasoning":{"effort":"none"}}`, false, true},
-		{`{"model":"test","input":"hi","reasoning":{"effort":"minimal"}}`, false, true},
-		{`{"model":"test","input":"hi","reasoning":{"context":"auto"}}`, false, true},
-		{`{"model":"test","input":"hi","include":["reasoning.encrypted_content"]}`, false, true},
+		{`{"model":"test","input":"hi","store":false}`, false, false, false},
+		{`{"model":"test","input":"hi"}`, false, false, false},
+		{`{"model":"test","input":"hi","reasoning":{"effort":"high","summary":"auto"}}`, true, false, false},
+		{`{"model":"test","input":"hi","reasoning":{"effort":"high"}}`, false, true, false},
+		{`{"model":"test","input":"hi","reasoning":{"effort":"none"}}`, false, true, false},
+		{`{"model":"test","input":"hi","reasoning":{"effort":"minimal"}}`, false, true, false},
+		{`{"model":"test","input":"hi","reasoning":{"context":"auto"}}`, false, true, false},
+		{`{"model":"test","input":"hi","include":["reasoning.encrypted_content"]}`, false, true, true},
 	} {
 		completer := &optionsCompleter{}
 		cfg := &config.Config{Policy: noop.New()}
@@ -102,7 +104,13 @@ func TestResponsesMapReasoningVisibility(t *testing.T) {
 			t.Fatalf("HTTP %d: %s", rec.Code, rec.Body.String())
 		}
 		got := completer.options.ReasoningOptions
-		if got == nil || got.IncludeSummary != tc.summary || got.IncludeUpdates != tc.updates {
+		if got == nil {
+			if tc.summary || tc.updates || tc.signature {
+				t.Errorf("%s: missing reasoning options", tc.body)
+			}
+			continue
+		}
+		if got.IncludeSignature != tc.signature || got.IncludeSummary != tc.summary || got.IncludeUpdates != tc.updates {
 			t.Errorf("%s: reasoning options = %+v", tc.body, got)
 		}
 	}

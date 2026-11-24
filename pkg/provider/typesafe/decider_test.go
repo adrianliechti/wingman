@@ -110,7 +110,7 @@ func TestDeciderUpstreamErrors(t *testing.T) {
 			d, _ := NewDecider(upstream.URL, "nimble")
 			_, err := d.Decide(context.Background(), choiceInput())
 			var p *provider.ProviderError
-			if !errors.As(err, &p) || p.Code != status || p.Type != "upstream_error" || p.Message != "upstream failed" || p.RetryAfter != 2*time.Second || calls != 1 {
+			if !errors.As(err, &p) || p.Kind != provider.ErrorKindForStatus(status) || p.Type != "upstream_error" || p.Message != "upstream failed" || p.RetryAfter != 2*time.Second || calls != 1 {
 				t.Fatalf("lost upstream error: %v, calls %d", err, calls)
 			}
 		})
@@ -142,7 +142,7 @@ func TestDeciderTypeSafeErrors(t *testing.T) {
 			d, _ := NewDecider(upstream.URL, "jev-latest", WithMaxRetries(0))
 			_, err := d.Decide(context.Background(), choiceInput())
 			var upstreamError *provider.ProviderError
-			if !errors.As(err, &upstreamError) || upstreamError.Code != tc.status || upstreamError.Message != tc.message || upstreamError.Type != tc.kind || upstreamError.RetryAfter != 2*time.Second {
+			if !errors.As(err, &upstreamError) || upstreamError.Kind != provider.ErrorKindForStatus(tc.status) || upstreamError.Message != tc.message || upstreamError.Type != tc.kind || upstreamError.RetryAfter != 2*time.Second {
 				t.Fatalf("unexpected error: %+v", upstreamError)
 			}
 			var envelope struct {

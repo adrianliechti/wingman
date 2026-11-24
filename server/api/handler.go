@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
+	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -53,7 +54,8 @@ func writeJson(w http.ResponseWriter, v any) {
 	w.Write(data)
 }
 
-func writeError(w http.ResponseWriter, code int, err error) {
+func writeError(w http.ResponseWriter, fallback int, err error) {
+	code := provider.CodeFromError(err, fallback)
 	w.WriteHeader(code)
 
 	text := http.StatusText(code)

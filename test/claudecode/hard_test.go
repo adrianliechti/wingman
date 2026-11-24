@@ -113,7 +113,7 @@ func TestClaudeCodeHard(t *testing.T) {
 			}
 			for _, model := range anthropic.DefaultModels() {
 				t.Run("wingman/"+model.Name, func(t *testing.T) {
-					h.SkipUnlessConfigured(t, model.Name)
+					h.RequireConfigured(t, model.Name)
 					actual := run(t, h.Wingman, model.Name)
 					if referenceRan && !reflect.DeepEqual(actual, reference) {
 						t.Errorf("outcome differs from Anthropic: got %+v, want %+v", actual, reference)

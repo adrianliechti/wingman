@@ -342,7 +342,7 @@ func TestTranscribe_APIError(t *testing.T) {
 
 	var providerErr *provider.ProviderError
 
-	if !errors.As(err, &providerErr) || providerErr.Code != http.StatusBadRequest {
+	if !errors.As(err, &providerErr) || providerErr.Kind != provider.ErrorKindInvalidArgument {
 		t.Fatalf("expected a 400 provider error, got %v", err)
 	}
 }

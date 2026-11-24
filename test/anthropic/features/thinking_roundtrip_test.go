@@ -16,7 +16,7 @@ func TestSignedThinkingReplayWithoutDisplay(t *testing.T) {
 	for _, model := range anthropic.DefaultModels() {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%t", model.Name, stream), func(t *testing.T) {
-				h.SkipUnlessConfigured(t, model.Name)
+				h.RequireConfigured(t, model.Name)
 				history := []any{map[string]any{"role": "user", "content": harness.ReasoningPrompt}}
 				body := map[string]any{
 					"model": model.Name, "max_tokens": 4096, "stream": stream,
@@ -74,7 +74,7 @@ func TestThinkingRoundTripHTTP(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			turn1 := map[string]any{
 				"max_tokens": 16000,
 				"thinking": map[string]any{

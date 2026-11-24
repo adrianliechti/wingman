@@ -37,7 +37,7 @@ func TestUsageTokensCorrectness(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			short := chatUsage(t, ctx, h, h.Wingman, model.Name, shortBody)
 			long := chatUsage(t, ctx, h, h.Wingman, model.Name, longBody)
@@ -82,7 +82,7 @@ func TestUsageTokensCorrectnessSSE(t *testing.T) {
 
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			short := chatUsageSSE(t, ctx, h, h.Wingman, model.Name, shortBody)
 			long := chatUsageSSE(t, ctx, h, h.Wingman, model.Name, longBody)
@@ -163,7 +163,7 @@ func TestUsageTokensReasoning(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			u := usage(t, h.Wingman, model.Name)
 			u.assertInvariants(t, "reasoning")

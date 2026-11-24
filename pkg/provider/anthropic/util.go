@@ -3,10 +3,7 @@ package anthropic
 import (
 	"encoding/json/v2"
 	"errors"
-	"net/http"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/provider/internal/claude"
@@ -17,23 +14,34 @@ import (
 func convertError(err error) error {
 	if apierr, ok := errors.AsType[*anthropic.Error](err); ok {
 		message, errType := extractAnthropicErrorInfo(apierr)
-		code := apierr.StatusCode
-		if code < 400 {
-			// SSE and Bedrock EventStream errors carry the successful stream's
-			// HTTP status, not the status of the failure inside that stream.
-			code = statusCodeFromErrorType(errType)
+		vendor := provider.VendorAnthropic
+		if strings.HasSuffix(strings.ToLower(errType), "exception") {
+			vendor = provider.VendorBedrock
+		}
+		// HTTP statuses classify generic error bodies. An explicit billing
+		// failure or a modeled AWS exception can carry a more specific cause.
+		kind := errorKind(errType)
+		if status := provider.ErrorKindForStatus(apierr.StatusCode); status != "" {
+			if kind == "" || (vendor == provider.VendorAnthropic && kind != provider.ErrorKindBilling) {
+				kind = status
+			}
+		}
+		if kind == "" {
+			kind = provider.ErrorKindInternal
 		}
 
 		provErr := &provider.ProviderError{
-			Code:    code,
-			Type:    errType,
-			Message: message,
-			Err:     err,
+			Kind:      kind,
+			Type:      errType,
+			Vendor:    vendor,
+			RawJSON:   apierr.RawJSON(),
+			RequestID: apierr.RequestID,
+			Message:   message,
+			Err:       err,
 		}
 
 		if apierr.Response != nil {
-			h := apierr.Response.Header
-			provErr.RetryAfter = parseRetryAfter(h)
+			provErr.RetryAfter = provider.RetryAfterFromHeaders(apierr.Response.Header)
 		}
 
 		return provErr
@@ -93,61 +101,36 @@ func extractAnthropicErrorInfo(apierr *anthropic.Error) (message, errType string
 	return message, errType
 }
 
-// statusCodeFromErrorType supplies a failure status for an in-stream error.
-// Unknown types remain upstream failures, allowing new provider errors without
-// accidentally treating them as successful responses or invalid user input.
-func statusCodeFromErrorType(errType string) int {
+// errorKind classifies Anthropic error types and the AWS exceptions of Claude
+// on Bedrock. It returns "" for unknown types, which their status classifies.
+func errorKind(errType string) provider.ErrorKind {
 	switch strings.ToLower(errType) {
 	case "invalid_request_error", "validationexception":
-		return http.StatusBadRequest
+		return provider.ErrorKindInvalidArgument
 	case "authentication_error":
-		return http.StatusUnauthorized
+		return provider.ErrorKindUnauthenticated
 	case "billing_error":
-		return http.StatusPaymentRequired
+		return provider.ErrorKindBilling
+	case "servicequotaexceededexception":
+		return provider.ErrorKindQuotaExceeded
 	case "permission_error", "accessdeniedexception":
-		return http.StatusForbidden
+		return provider.ErrorKindPermissionDenied
 	case "not_found_error", "resourcenotfoundexception":
-		return http.StatusNotFound
+		return provider.ErrorKindNotFound
 	case "conflict_error", "conflictexception":
-		return http.StatusConflict
+		return provider.ErrorKindConflict
 	case "request_too_large":
-		return http.StatusRequestEntityTooLarge
+		return provider.ErrorKindPayloadTooLarge
 	case "rate_limit_error", "throttlingexception":
-		return http.StatusTooManyRequests
-	case "overloaded_error":
-		return 529
-	case "serviceunavailableexception":
-		return http.StatusServiceUnavailable
+		return provider.ErrorKindRateLimited
+	case "overloaded_error", "serviceunavailableexception", "modelnotreadyexception":
+		return provider.ErrorKindUnavailable
 	case "timeout_error", "modeltimeoutexception":
-		// Match the native Bedrock provider's upstream timeout classification.
-		return http.StatusGatewayTimeout
-	default:
-		return http.StatusBadGateway
+		return provider.ErrorKindDeadlineExceeded
+	case "api_error", "internalserverexception", "modelstreamerrorexception":
+		return provider.ErrorKindInternal
 	}
-}
-
-// parseRetryAfter parses Retry-After (seconds, float, HTTP-date).
-func parseRetryAfter(h http.Header) time.Duration {
-	v := h.Get("Retry-After")
-	if v == "" {
-		return 0
-	}
-
-	if secs, err := strconv.Atoi(v); err == nil {
-		return time.Duration(secs) * time.Second
-	}
-
-	if secs, err := strconv.ParseFloat(v, 64); err == nil {
-		return time.Duration(secs * float64(time.Second))
-	}
-
-	if t, err := http.ParseTime(v); err == nil {
-		if d := time.Until(t); d > 0 {
-			return d
-		}
-	}
-
-	return 0
+	return ""
 }
 
 // jsonModeInstruction emulates schema-less JSON mode, which the Messages API

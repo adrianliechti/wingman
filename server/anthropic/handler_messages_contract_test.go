@@ -201,7 +201,8 @@ func TestMessagesFailures(t *testing.T) {
 			}{
 				{"reported failure", true, nil, 502, "api_error"},
 				{"transport error", false, errors.New("connection reset"), 502, "api_error"},
-				{"rate limit", false, &provider.ProviderError{Code: 429, Message: "Slow down", RetryAfter: 2 * time.Second}, 429, "rate_limit_error"},
+				{"rate limit", false, &provider.ProviderError{Kind: provider.ErrorKindRateLimited, Message: "Slow down", RetryAfter: 2 * time.Second}, 429, "rate_limit_error"},
+				{"quota", false, &provider.ProviderError{Kind: provider.ErrorKindQuotaExceeded, Message: "Quota exhausted"}, 429, "rate_limit_error"},
 				{"invalid request", false, provider.InvalidRequest(errors.New("Unsupported option")), 400, "invalid_request_error"},
 			} {
 				t.Run(fmt.Sprintf("%s/stream=%t/visible=%t", tc.name, stream, visible), func(t *testing.T) {
@@ -213,7 +214,10 @@ func TestMessagesFailures(t *testing.T) {
 						chunks = append(chunks, provider.Completion{Status: provider.CompletionStatusFailed, StopDetails: &provider.StopDetails{Type: "upstream_failed"}})
 					}
 					rec := messagesContractRequest(t, chunks, tc.err, stream)
-					if tc.status == 429 {
+					if tc.name == "quota" && !(stream && visible) && rec.Header().Get("x-should-retry") != "false" {
+						t.Fatal("SDK would retry an exhausted quota")
+					}
+					if tc.name == "rate limit" {
 						if stream && visible {
 							if !strings.Contains(rec.Body.String(), "retry: 2000\n") {
 								t.Fatal("stream lost retry delay")
@@ -288,7 +292,8 @@ func TestMessagesFailedToolsAreNotFinalized(t *testing.T) {
 	}
 }
 
-func TestMessagesStreamPreservesLateCacheBreakdown(t *testing.T) {
+// Anthropic's message_delta usage has the cache write total but no breakdown.
+func TestMessagesStreamLateCacheUsage(t *testing.T) {
 	for _, earlier := range []bool{false, true} {
 		t.Run(fmt.Sprintf("earlier_usage=%t", earlier), func(t *testing.T) {
 			chunks := []provider.Completion{messagesContractChunk(provider.TextContent("Answer"))}
@@ -314,9 +319,8 @@ func TestMessagesStreamPreservesLateCacheBreakdown(t *testing.T) {
 				if err := json.Unmarshal([]byte(event.Raw), &delta); err != nil {
 					t.Fatal(err)
 				}
-				want := &CacheCreation{Ephemeral5mInputTokens: 20, Ephemeral1hInputTokens: 30}
-				if delta.Usage.InputTokens != 50 || delta.Usage.CacheCreationInputTokens != 50 || !reflect.DeepEqual(delta.Usage.CacheCreation, want) {
-					t.Fatalf("late usage lost cache breakdown: %+v", delta.Usage)
+				if delta.Usage.InputTokens != 50 || delta.Usage.CacheCreationInputTokens != 50 || delta.Usage.CacheCreation != nil {
+					t.Fatalf("message_delta usage differs from Anthropic's shape: %+v", delta.Usage)
 				}
 				return
 			}

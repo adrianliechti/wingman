@@ -29,9 +29,9 @@ var WeatherTool = map[string]any{
 	},
 }
 
-func (h *Harness) SkipUnlessConfigured(t *testing.T, model string) {
+func (h *Harness) RequireConfigured(t *testing.T, model string) {
 	t.Helper()
-	harness.SkipUnlessConfigured(t, h.Wingman.BaseURL, h.Wingman.APIKey, model)
+	harness.RequireConfigured(t, h.Wingman.BaseURL, h.Wingman.APIKey, model)
 }
 
 func WithModel(body map[string]any, model string) map[string]any {
@@ -193,7 +193,7 @@ func betaHeaders(body map[string]any) []string {
 func CompareHTTP(t *testing.T, h *Harness, model string, body map[string]any) (*harness.RawResponse, *harness.RawResponse) {
 	t.Helper()
 
-	h.SkipUnlessConfigured(t, model)
+	h.RequireConfigured(t, model)
 
 	anthropicBody := WithModel(body, h.ReferenceModel)
 	wingmanBody := WithModel(body, model)
@@ -214,7 +214,7 @@ func CompareHTTP(t *testing.T, h *Harness, model string, body map[string]any) (*
 func CompareSSE(t *testing.T, h *Harness, model string, body map[string]any) ([]*harness.SSEEvent, []*harness.SSEEvent) {
 	t.Helper()
 
-	h.SkipUnlessConfigured(t, model)
+	h.RequireConfigured(t, model)
 
 	anthropicBody := WithModel(body, h.ReferenceModel)
 	anthropicBody["stream"] = true

@@ -240,8 +240,8 @@ func TestDecisionsAccessAndErrors(t *testing.T) {
 	}{
 		{"policy", http.StatusNotFound, nil},
 		{"auth", http.StatusUnauthorized, nil},
-		{"rate limit", http.StatusTooManyRequests, &provider.ProviderError{Code: 429, Type: "rate_limit", Message: "slow down", RetryAfter: 2 * time.Second}},
-		{"overloaded", 529, &provider.ProviderError{Code: 529, Message: "overloaded"}},
+		{"rate limit", http.StatusTooManyRequests, &provider.ProviderError{Kind: provider.ErrorKindRateLimited, Type: "rate_limit", Message: "slow down", RetryAfter: 2 * time.Second}},
+		{"overloaded", 503, &provider.ProviderError{Kind: provider.ErrorKindUnavailable, Message: "overloaded"}},
 		{"backend failure", http.StatusBadGateway, errors.New("broken")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

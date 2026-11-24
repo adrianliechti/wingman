@@ -2,7 +2,6 @@ package gemini
 
 import (
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,7 +24,6 @@ func New(cfg *config.Config) *Handler {
 }
 
 func (h *Handler) Attach(r chi.Router) {
-	r.Post("/decisions", h.handleDecisions)
 	r.Post("/models/{model}:generateContent", h.handleGenerateContent)
 	r.Post("/models/{model}:streamGenerateContent", h.handleStreamGenerateContent)
 	r.Post("/models/{model}:countTokens", h.handleCountTokens)
@@ -42,10 +40,6 @@ func writeJson(w http.ResponseWriter, v any) {
 }
 
 func writeError(w http.ResponseWriter, code int, err error) {
-	if err != nil {
-		println("server error", err.Error())
-	}
-
 	apiError := toAPIError(err, code)
 
 	if v := provider.RetryAfterHeaderValue(provider.RetryAfterFromError(err)); v != "" {
@@ -63,51 +57,42 @@ func writeError(w http.ResponseWriter, code int, err error) {
 }
 
 func toAPIError(err error, fallback int) *APIError {
-	code := fallback
-	if upstream, ok := errors.AsType[*provider.ProviderError](err); ok && upstream.Code >= 400 {
-		code = upstream.Code
+	kind := provider.KindFromError(err)
+	if kind == "" {
+		kind = provider.ErrorKindForStatus(fallback)
 	}
-
+	code := kind.Status()
 	var status string
-	switch code {
-	case http.StatusBadRequest:
+	switch kind {
+	case provider.ErrorKindInvalidArgument, provider.ErrorKindUnprocessable:
+		code, status = http.StatusBadRequest, "INVALID_ARGUMENT"
+	case provider.ErrorKindPayloadTooLarge:
 		status = "INVALID_ARGUMENT"
-
-	case http.StatusUnauthorized:
+	case provider.ErrorKindUnauthenticated:
 		status = "UNAUTHENTICATED"
-
-	case http.StatusForbidden:
+	case provider.ErrorKindPermissionDenied:
 		status = "PERMISSION_DENIED"
-
-	case http.StatusNotFound:
+	case provider.ErrorKindNotFound:
 		status = "NOT_FOUND"
-
-	case http.StatusConflict:
+	case provider.ErrorKindConflict:
 		status = "ABORTED"
-
-	case http.StatusTooManyRequests:
-		status = "RESOURCE_EXHAUSTED"
-	case 499:
+	case provider.ErrorKindBilling, provider.ErrorKindQuotaExceeded, provider.ErrorKindRateLimited:
+		code, status = http.StatusTooManyRequests, "RESOURCE_EXHAUSTED"
+	case provider.ErrorKindCancelled:
 		status = "CANCELLED"
-	case http.StatusNotImplemented:
+	case provider.ErrorKindUnimplemented:
 		status = "UNIMPLEMENTED"
-	case http.StatusServiceUnavailable, 529:
-		code, status = http.StatusServiceUnavailable, "UNAVAILABLE"
-	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
-		code, status = http.StatusGatewayTimeout, "DEADLINE_EXCEEDED"
+	case provider.ErrorKindUnavailable:
+		status = "UNAVAILABLE"
+	case provider.ErrorKindDeadlineExceeded:
+		status = "DEADLINE_EXCEEDED"
 	default:
-		if code >= 500 {
-			code = http.StatusInternalServerError
-		}
-		status = "INTERNAL"
-
-		if code >= 400 && code < 500 {
-			status = "INVALID_ARGUMENT"
-		}
+		code, status = http.StatusInternalServerError, "INTERNAL"
 	}
+
 	// Several Google canonical statuses share an HTTP code. Preserve these
 	// distinctions when supplied by a Google provider, never foreign type names.
-	switch upstreamType := provider.TypeFromError(err); {
+	switch upstreamType := provider.NativeType(err, provider.VendorGoogle); {
 	case code == 400 && (upstreamType == "FAILED_PRECONDITION" || upstreamType == "OUT_OF_RANGE"),
 		code == 409 && upstreamType == "ALREADY_EXISTS",
 		code == 500 && (upstreamType == "UNKNOWN" || upstreamType == "DATA_LOSS"):
@@ -124,18 +109,4 @@ func toAPIError(err error, fallback int) *APIError {
 		result.Details = []map[string]any{{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": seconds + "s"}}
 	}
 	return result
-}
-
-// writeSSERetry emits an SSE "retry:" field (milliseconds) if the error
-// carries a RetryAfter duration. Must be written before the data line of
-// the SSE message block it belongs to.
-func writeSSERetry(w http.ResponseWriter, err error) {
-	d := provider.RetryAfterFromError(err)
-	if d <= 0 {
-		return
-	}
-
-	ms := max(d.Milliseconds(), 1)
-
-	fmt.Fprintf(w, "retry: %d\n", ms)
 }

@@ -103,7 +103,7 @@ func TestInvalidContentType(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
 					body := anthropic.WithModel(tc.body, model.Name)

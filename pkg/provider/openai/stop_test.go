@@ -62,3 +62,15 @@ func TestSanitizeToolIDs(t *testing.T) {
 		t.Errorf("plain id must pass through: %q", id)
 	}
 }
+
+func TestStopFilterAppliesToRevisedOutput(t *testing.T) {
+	f := newStopFilter([]string{"STOP"})
+	f.filter(text("Draft"))
+	c, hit := f.filter(&provider.Completion{
+		Status: provider.CompletionStatusCompleted,
+		Output: []provider.Content{provider.TextContent("Revised STOP remainder")},
+	})
+	if !hit || c.StopReason != provider.StopReasonStopSequence || len(c.Output) != 1 || c.Output[0].Text != "Revised " {
+		t.Fatalf("hit=%t reason=%q output=%v", hit, c.StopReason, c.Output)
+	}
+}

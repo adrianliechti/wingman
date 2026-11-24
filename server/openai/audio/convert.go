@@ -149,7 +149,7 @@ func writeTranscriptionStream(w http.ResponseWriter, seq iter.Seq2[*provider.Tra
 	for delta, err := range seq {
 		if err != nil {
 			if !headersSent {
-				writeError(w, provider.CodeFromError(err, http.StatusBadGateway), err)
+				writeError(w, http.StatusBadGateway, err)
 				return
 			}
 
@@ -228,7 +228,7 @@ func writeErrorEvent(w http.ResponseWriter, err error) {
 	writeEvent(w, shared.ErrorResponse{
 		Error: shared.Error{
 			Type:    shared.ErrorTypeFromError(err),
-			Code:    provider.TypeFromError(err),
+			Code:    shared.ErrorCodeFromError(err),
 			Message: err.Error(),
 		},
 	})

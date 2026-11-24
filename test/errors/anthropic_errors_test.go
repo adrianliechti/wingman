@@ -47,11 +47,11 @@ func TestAnthropicErrorsEndToEnd(t *testing.T) {
 		status, wantStatus        int
 		openaiType, anthropicType string
 	}{
-		{"Bedrock HTTP unavailable", "http", "", 503, 503, "service_unavailable_error", "api_error"},
+		{"Bedrock HTTP unavailable", "http", "", 503, 503, "service_unavailable_error", "overloaded_error"},
 		{"Bedrock HTTP throttled", "http", "", 429, 429, "rate_limit_exceeded", "rate_limit_error"},
-		{"Bedrock stream unavailable", "bedrock", "serviceUnavailableException", 200, 503, "service_unavailable_error", "api_error"},
+		{"Bedrock stream unavailable", "bedrock", "serviceUnavailableException", 200, 503, "service_unavailable_error", "overloaded_error"},
 		{"Bedrock stream throttled", "bedrock", "throttlingException", 200, 429, "rate_limit_exceeded", "rate_limit_error"},
-		{"Anthropic stream overloaded", "sse", "overloaded_error", 200, 529, "service_unavailable_error", "overloaded_error"},
+		{"Anthropic stream overloaded", "sse", "overloaded_error", 200, 503, "service_unavailable_error", "overloaded_error"},
 		{"Anthropic unknown stream error", "sse", "future_error", 200, 502, "server_error", "api_error"},
 	} {
 		for _, progress := range []bool{false, true} {
@@ -93,8 +93,8 @@ func TestAnthropicErrorsEndToEnd(t *testing.T) {
 						}
 						if !stream || !progress {
 							wantStatus := tc.wantStatus
-							if path != "/messages" && wantStatus == 529 {
-								wantStatus = http.StatusServiceUnavailable
+							if path == "/messages" && wantStatus == http.StatusServiceUnavailable {
+								wantStatus = 529
 							}
 							if rec.Code != wantStatus || rec.Header().Get("Retry-After") != "3" || rec.Header().Get("Content-Type") != "application/json" {
 								t.Fatalf("status=%d headers=%v body=%s", rec.Code, rec.Header(), rec.Body)
@@ -106,8 +106,12 @@ func TestAnthropicErrorsEndToEnd(t *testing.T) {
 							if payload.Error.Type != wantType || payload.Error.Message != message {
 								t.Fatalf("error=%+v", payload.Error)
 							}
-							if path != "/messages" && payload.Error.Code != tc.errorType {
-								t.Fatalf("lost provider error type: %+v", payload.Error)
+							wantCode := ""
+							if tc.wantStatus == 429 {
+								wantCode = "rate_limit_exceeded"
+							}
+							if path != "/messages" && payload.Error.Code != wantCode {
+								t.Fatalf("unexpected OpenAI error code: %+v", payload.Error)
 							}
 							return
 						}
@@ -141,7 +145,7 @@ func TestAnthropicErrorsEndToEnd(t *testing.T) {
 							wantValue := wantType
 							if path == "/responses" && event.Event == "error" {
 								failure, ok, key = event.Data, true, "code"
-								wantValue = tc.errorType
+								wantValue = tc.openaiType
 							}
 							if ok {
 								foundError = true

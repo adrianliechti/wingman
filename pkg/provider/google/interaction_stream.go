@@ -360,7 +360,7 @@ func (s *interactionState) modelError(err *interactions.Status) error {
 		if message == "" {
 			message = "gemini: model request failed"
 		}
-		return &provider.ProviderError{Code: statusCodeFromErrorType(errType), Type: errType, Message: message, RetryAfter: retryFromDetails(err.Details)}
+		return newProviderError(0, errType, message, err.Details, 0, nil)
 	}
 	return nil
 }

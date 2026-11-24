@@ -306,7 +306,7 @@ func TestComplete_HTTPAndStreamErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := completeAll(t, test.handler, nil)
 			var apierr *provider.ProviderError
-			if !errors.As(err, &apierr) || apierr.Code != test.code || apierr.Message != test.message {
+			if !errors.As(err, &apierr) || apierr.Kind != provider.ErrorKindForStatus(test.code) || apierr.Message != test.message {
 				t.Fatalf("error not normalized: %#v", err)
 			}
 		})

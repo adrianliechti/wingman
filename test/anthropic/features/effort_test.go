@@ -256,7 +256,7 @@ func TestThinkingExplicitlyDisabledHTTP(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			body := map[string]any{
 				"max_tokens": 1024,
 				"thinking": map[string]any{
@@ -286,7 +286,7 @@ func TestThinkingDisabledWithEffortHTTP(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			body := map[string]any{
 				"max_tokens": 1024,
 				"thinking": map[string]any{
@@ -319,7 +319,7 @@ func TestEffortWithoutThinkingHTTP(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			body := map[string]any{
 				"max_tokens": 1024,
 				"output_config": map[string]any{

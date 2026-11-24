@@ -201,6 +201,19 @@ func TestGeminiDecisionMalformedResponses(t *testing.T) {
 }
 
 func TestGeminiDecisionRetryAndErrors(t *testing.T) {
+	t.Run("daily quota", func(t *testing.T) {
+		calls := 0
+		d, _ := NewDecider("", "gemini-decision-1", WithMaxRetries(1), WithClient(newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			w.Header().Set("Retry-After", "0.001")
+			w.WriteHeader(http.StatusTooManyRequests)
+			io.WriteString(w, `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaId":"RequestsPerDay"}]}]}}`)
+		})))
+		_, err := d.Decide(t.Context(), geminiDecisionInput(t))
+		if calls != 1 || provider.KindFromError(err) != provider.ErrorKindQuotaExceeded {
+			t.Fatalf("calls=%d error=%+v", calls, err)
+		}
+	})
 	for _, code := range []int{400, 401, 429, 503} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			calls := 0
@@ -216,7 +229,7 @@ func TestGeminiDecisionRetryAndErrors(t *testing.T) {
 			if code >= 429 {
 				wantCalls = 2
 			}
-			if !ok || p.Code != code || p.Type != "safety" || p.Message != "blocked" || p.RetryAfter != time.Millisecond || calls != wantCalls {
+			if !ok || p.Kind != provider.ErrorKindForStatus(code) || p.Type != "safety" || p.Message != "blocked" || p.RetryAfter != time.Millisecond || calls != wantCalls {
 				t.Fatalf("calls=%d error=%+v", calls, err)
 			}
 		})

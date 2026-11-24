@@ -33,14 +33,14 @@ var WeatherTool = map[string]any{
 	},
 }
 
-func (h *Harness) SkipUnlessConfigured(t *testing.T, model string) {
+func (h *Harness) RequireConfigured(t *testing.T, model string) {
 	t.Helper()
 	// Wingman's model registry is exposed on its OpenAI route.
 	registryURL := h.Wingman.BaseURL
 	if before, ok := strings.CutSuffix(registryURL, "/v1beta"); ok {
 		registryURL = before + "/v1"
 	}
-	harness.SkipUnlessConfigured(t, registryURL, h.Wingman.APIKey, model)
+	harness.RequireConfigured(t, registryURL, h.Wingman.APIKey, model)
 }
 
 func WithModel(body map[string]any, model string) map[string]any {
@@ -49,7 +49,7 @@ func WithModel(body map[string]any, model string) map[string]any {
 	return m
 }
 
-// PostGemini sends a request with Gemini-style auth (API key in query param or header).
+// PostGemini sends a request with the x-goog-api-key header.
 func PostGemini(t *testing.T, h *Harness, ep harness.Endpoint, model string, body map[string]any) *harness.RawResponse {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), h.Client.Timeout)
@@ -61,11 +61,6 @@ func PostGemini(t *testing.T, h *Harness, ep harness.Endpoint, model string, bod
 	}
 
 	url := fmt.Sprintf("%s/models/%s:generateContent", ep.BaseURL, model)
-
-	// Gemini API uses key= query param, wingman uses x-goog-api-key header
-	if ep.Name == "gemini" {
-		url += "?key=" + ep.APIKey
-	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
@@ -114,10 +109,6 @@ func PostGeminiSSE(t *testing.T, h *Harness, ep harness.Endpoint, model string, 
 
 	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse", ep.BaseURL, model)
 
-	if ep.Name == "gemini" {
-		url += "&key=" + ep.APIKey
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatalf("create request: %v", err)
@@ -132,6 +123,14 @@ func PostGeminiSSE(t *testing.T, h *Harness, ep harness.Endpoint, model string, 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if err != nil {
+			t.Fatalf("%s returned HTTP %d; reading error body: %v", ep.Name, resp.StatusCode, err)
+		}
+		t.Fatalf("%s returned HTTP %d: %s", ep.Name, resp.StatusCode, body)
+	}
+
 	events, err := harness.ParseSSE(resp.Body)
 	if err != nil {
 		t.Fatalf("parse SSE from %s: %v", ep.Name, err)
@@ -143,7 +142,7 @@ func PostGeminiSSE(t *testing.T, h *Harness, ep harness.Endpoint, model string, 
 func CompareHTTP(t *testing.T, h *Harness, model string, body map[string]any) (*harness.RawResponse, *harness.RawResponse) {
 	t.Helper()
 
-	h.SkipUnlessConfigured(t, model)
+	h.RequireConfigured(t, model)
 
 	geminiResp := PostGemini(t, h, h.Gemini, h.ReferenceModel, body)
 	wingmanResp := PostGemini(t, h, h.Wingman, model, body)
@@ -161,7 +160,7 @@ func CompareHTTP(t *testing.T, h *Harness, model string, body map[string]any) (*
 func CompareSSE(t *testing.T, h *Harness, model string, body map[string]any) ([]*harness.SSEEvent, []*harness.SSEEvent) {
 	t.Helper()
 
-	h.SkipUnlessConfigured(t, model)
+	h.RequireConfigured(t, model)
 
 	geminiEvents := PostGeminiSSE(t, h, h.Gemini, h.ReferenceModel, body)
 	wingmanEvents := PostGeminiSSE(t, h, h.Wingman, model, body)

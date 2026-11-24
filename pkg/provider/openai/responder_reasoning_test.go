@@ -256,7 +256,7 @@ func TestConfigurationUpdateRejectsAutomaticCompaction(t *testing.T) {
 	}}, &provider.CompleteOptions{CompactionOptions: &provider.CompactionOptions{Threshold: 10_000}})
 
 	var providerErr *provider.ProviderError
-	if !errors.As(err, &providerErr) || providerErr.Code != 400 {
+	if !errors.As(err, &providerErr) || providerErr.Kind != provider.ErrorKindInvalidArgument {
 		t.Fatalf("error = %v, want ProviderError 400", err)
 	}
 }
@@ -391,6 +391,36 @@ func TestConvertResponsesRequest_SkipsUnsignedReasoning(t *testing.T) {
 		reasoning := reasoningInputItems(t, request)
 		if len(reasoning) != 1 || reasoning[0]["id"] != "rs_signed" || reasoning[0]["encrypted_content"] != "ENC_123" {
 			t.Fatalf("request for %q retained unsigned reasoning: %+v", endpoint, reasoning)
+		}
+	}
+}
+
+func TestSignatureOnlyHistoryReplaysToHostedOpenAI(t *testing.T) {
+	messages := []provider.Message{{Role: provider.MessageRoleAssistant, Content: []provider.Content{
+		provider.ReasoningContent(provider.Reasoning{Signature: "original-ciphertext"}),
+		provider.TextContent("Answer"),
+	}}}
+	for _, endpoint := range []string{"https://api.openai.com/v1", "https://compatible.example/v1"} {
+		responder, err := NewResponder(endpoint, "gpt-6.1-sol")
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := responder.convertResponsesRequest(messages, &provider.CompleteOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		items := reasoningInputItems(t, request)
+		if endpoint == "https://compatible.example/v1" {
+			if len(items) != 0 {
+				t.Fatal("forwarded reasoning without a required item ID")
+			}
+			continue
+		}
+		if len(items) != 1 || items[0]["encrypted_content"] != "original-ciphertext" {
+			t.Fatalf("expected the original ciphertext, got %v", items)
+		}
+		if _, present := items[0]["id"]; present {
+			t.Fatal("replay supplied an ID absent from the client's history")
 		}
 	}
 }

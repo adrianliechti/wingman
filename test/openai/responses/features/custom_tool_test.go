@@ -37,7 +37,7 @@ func customToolModels() []string {
 		return names
 	}
 
-	return []string{"bedrock-sonnet-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gemini-3.8-flash"}
+	return []string{"bedrock-sonnet-5-5", "claude-sonnet-5-5", "gpt-6.2-sol", "gemini-4-hydrogen"}
 }
 
 const runPythonDescription = "Run a Python script. This is a FREEFORM tool: send the raw source code, " +
@@ -128,7 +128,7 @@ func TestCustomToolFreeformHTTP(t *testing.T) {
 
 	for _, model := range customToolModels() {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 
 			body := map[string]any{
 				"model": model,
@@ -161,7 +161,7 @@ func TestCustomToolFreeformSSE(t *testing.T) {
 
 	for _, model := range customToolModels() {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 
 			body := map[string]any{
 				"model":  model,
@@ -246,7 +246,7 @@ func TestCustomToolCallReplay(t *testing.T) {
 
 	for _, model := range customToolModels() {
 		t.Run(model, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model)
+			h.RequireConfigured(t, model)
 
 			body := map[string]any{
 				"model": model,

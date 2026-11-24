@@ -49,7 +49,7 @@ func (d *Decider) convertDecisionRequest(input *provider.DecisionInput) (*openai
 	for _, q := range input.Questions {
 		if q.Box != nil {
 			return nil, &provider.ProviderError{
-				Code:    400,
+				Kind:    provider.ErrorKindInvalidArgument,
 				Message: "openai decisions provider does not support box questions",
 			}
 		}
@@ -84,7 +84,7 @@ func (d *Decider) convertDecisionRequest(input *provider.DecisionInput) (*openai
 			req.Questions = append(req.Questions, openai.DecisionNewParamsQuestionUnion{OfChoice: question})
 		case q.Score != nil:
 			if len(q.Score.Levels) < 2 || len(q.Score.Levels) > 10 {
-				return nil, &provider.ProviderError{Code: 400, Message: "OpenAI score questions require 2 to 10 levels"}
+				return nil, &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Message: "OpenAI score questions require 2 to 10 levels"}
 			}
 			instr, err := convertScoreInstructions(q)
 			if err != nil {

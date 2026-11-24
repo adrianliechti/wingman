@@ -299,7 +299,7 @@ func TestCircuitRecovery(t *testing.T) {
 	})
 
 	t.Run("retry-after extends the recovery wait", func(t *testing.T) {
-		mock := &mockCompleter{err: &provider.ProviderError{Code: 429, Message: "rate limited", RetryAfter: time.Hour}}
+		mock := &mockCompleter{err: &provider.ProviderError{Kind: provider.ErrorKindRateLimited, Message: "rate limited", RetryAfter: time.Hour}}
 
 		c, _ := NewCompleter([]provider.Completer{mock}, firstCandidate,
 			WithRecoveryTimeout(10*time.Millisecond),
@@ -402,7 +402,7 @@ func (f completerFunc) Complete(ctx context.Context, messages []provider.Message
 
 func TestClientErrors(t *testing.T) {
 	t.Run("4xx errors do not fail over or count as provider failure", func(t *testing.T) {
-		badRequest := &provider.ProviderError{Code: 400, Message: "invalid request"}
+		badRequest := &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Message: "invalid request"}
 
 		failing := &mockCompleter{err: badRequest}
 		healthy := &mockCompleter{response: "ok"}
@@ -431,7 +431,7 @@ func TestClientErrors(t *testing.T) {
 	})
 
 	t.Run("401 fails over and counts as provider failure", func(t *testing.T) {
-		unauthorized := &mockCompleter{err: &provider.ProviderError{Code: 401, Message: "invalid api key"}}
+		unauthorized := &mockCompleter{err: &provider.ProviderError{Kind: provider.ErrorKindUnauthenticated, Message: "invalid api key"}}
 		healthy := &mockCompleter{response: "ok"}
 
 		c, _ := NewCompleter([]provider.Completer{unauthorized, healthy}, firstCandidate)
@@ -451,8 +451,37 @@ func TestClientErrors(t *testing.T) {
 		}
 	})
 
+	// The kind classifies errors that arrive without a status, such as a
+	// request error inside a stream, and quotas, which are per provider.
+	for _, tc := range []struct {
+		name     string
+		err      *provider.ProviderError
+		failover bool
+	}{
+		{"streamed request error", &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Message: "invalid schema"}, false},
+		{"streamed upstream failure", &provider.ProviderError{Kind: provider.ErrorKindInternal, Message: "server error"}, true},
+		{"billing", &provider.ProviderError{Kind: provider.ErrorKindForStatus(402), Message: "credit balance too low"}, true},
+		{"quota", &provider.ProviderError{Kind: provider.ErrorKindQuotaExceeded, Message: "quota exceeded"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			failing := &mockCompleter{err: tc.err}
+			healthy := &mockCompleter{response: "ok"}
+			c, _ := NewCompleter([]provider.Completer{failing, healthy}, firstCandidate)
+			result, err := collect(t, c, context.Background())
+			if failedOver := healthy.calls.Load() != 0; failedOver != tc.failover {
+				t.Fatalf("failed over = %t, want %t (result %v, error %v)", failedOver, tc.failover, result, err)
+			}
+			if tc.failover && (err != nil || result == nil || result.Message.Text() != "ok") {
+				t.Fatalf("expected the healthy provider's answer, got %v, %v", result, err)
+			}
+			if !tc.failover && !errors.Is(err, tc.err) {
+				t.Fatalf("expected the request error surfaced directly, got %v", err)
+			}
+		})
+	}
+
 	t.Run("429 still fails over", func(t *testing.T) {
-		limited := &mockCompleter{err: &provider.ProviderError{Code: 429, Message: "rate limited"}}
+		limited := &mockCompleter{err: &provider.ProviderError{Kind: provider.ErrorKindRateLimited, Message: "rate limited"}}
 		healthy := &mockCompleter{response: "ok"}
 
 		c, _ := NewCompleter([]provider.Completer{limited, healthy}, firstCandidate)
@@ -648,8 +677,8 @@ func TestEmptyAnswerIsDelivered(t *testing.T) {
 }
 
 func TestDistinctMembersTryNextAfterRejection(t *testing.T) {
-	tooLong := &provider.ProviderError{Code: 400, Message: "prompt is too long"}
-	unsupported := &provider.ProviderError{Code: 422, Message: "images are not supported"}
+	tooLong := &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Message: "prompt is too long"}
+	unsupported := &provider.ProviderError{Kind: provider.ErrorKindUnprocessable, Message: "images are not supported"}
 
 	small := &mockCompleter{err: tooLong}
 	large := &mockCompleter{response: "ok"}
@@ -667,13 +696,13 @@ func TestDistinctMembersTryNextAfterRejection(t *testing.T) {
 		t.Errorf("want the first rejection, got %v", err)
 	}
 
-	down := &mockCompleter{err: &provider.ProviderError{Code: 503, Message: "overloaded"}}
+	down := &mockCompleter{err: &provider.ProviderError{Kind: provider.ErrorKindUnavailable, Message: "overloaded"}}
 	c, _ = NewCompleter([]provider.Completer{small, down}, firstCandidate, WithDistinctMembers())
 	if _, err := collect(t, c, t.Context()); provider.CodeFromError(err, 0) != 503 {
 		t.Errorf("want the failure that may pass, got %v", err)
 	}
 
-	denied := &mockCompleter{err: &provider.ProviderError{Code: 429, Message: "budget exhausted", Err: provider.ErrRejected}}
+	denied := &mockCompleter{err: &provider.ProviderError{Kind: provider.ErrorKindQuotaExceeded, Message: "budget exhausted", Err: provider.ErrRejected}}
 	other := &mockCompleter{response: "ok"}
 	c, _ = NewCompleter([]provider.Completer{denied, other}, firstCandidate, WithDistinctMembers())
 	if _, err := collect(t, c, t.Context()); !errors.Is(err, provider.ErrRejected) || other.calls.Load() != 0 {

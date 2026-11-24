@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json/v2"
 	"net/http"
-	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/budget"
 	"github.com/adrianliechti/wingman/pkg/otel"
@@ -51,13 +50,13 @@ func writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch path := r.URL.Path; {
-	case strings.HasPrefix(path, "/v1beta/"):
+	switch {
+	case web.IsGemini(r):
 		body = map[string]any{
 			"error": map[string]any{"code": http.StatusUnauthorized, "message": message, "status": "UNAUTHENTICATED"},
 		}
 
-	case strings.HasPrefix(path, "/v1/messages"):
+	case web.IsAnthropic(r):
 		body = map[string]any{
 			"type":  "error",
 			"error": map[string]any{"type": "authentication_error", "message": message},

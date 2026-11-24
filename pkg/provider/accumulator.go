@@ -5,10 +5,8 @@ import "strings"
 type CompletionAccumulator struct {
 	id    string
 	model string
-
-	tier                 Tier
-	reasoningContext     ReasoningContext
-	inputTransformations *[]InputTransformation
+	tier  Tier
+	usage *Usage
 
 	status       CompletionStatus
 	stopReason   StopReason
@@ -16,10 +14,15 @@ type CompletionAccumulator struct {
 	stopSequence string
 	endTurn      *bool
 
+	reasoningContext     ReasoningContext
+	inputTransformations *[]InputTransformation
+
 	role     MessageRole
 	messages []*accumulatedMessage
 
-	reasonings  []*accumulatedReasoning
+	reasonings         []*accumulatedReasoning
+	reasoningSnapshots ReasoningSnapshots
+
 	compactions []Compaction
 
 	toolCall    string
@@ -27,8 +30,7 @@ type CompletionAccumulator struct {
 	toolResults []ToolResult
 
 	contentOrder []accumulatedContentRef
-
-	usage *Usage
+	output       []Content
 }
 
 type accumulatedMessage struct {
@@ -84,6 +86,11 @@ func (a *CompletionAccumulator) Add(c Completion) {
 
 	if c.Reasoning != "" {
 		a.reasoningContext = c.Reasoning
+	}
+
+	a.reasoningSnapshots = a.reasoningSnapshots.Merge(c.ReasoningSnapshots)
+	if c.Output != nil {
+		a.output = c.Output
 	}
 
 	if c.InputTransformations != nil {
@@ -158,13 +165,23 @@ func (a *CompletionAccumulator) Add(c Completion) {
 		}
 	}
 
-	if c.Usage != nil {
-		if a.usage == nil {
-			a.usage = &Usage{}
-		}
+	a.usage = c.AccumulateUsage(a.usage)
+}
 
-		a.usage.Merge(c.Usage)
+// AccumulateUsage merges a completion into the running token counts.
+// A refusal can finish with fewer output tokens than its opening estimate.
+func (c *Completion) AccumulateUsage(usage *Usage) *Usage {
+	if c.Usage == nil {
+		return usage
 	}
+	if usage == nil {
+		usage = &Usage{}
+	}
+	usage.Merge(c.Usage)
+	if c.StopReason == StopReasonRefusal {
+		usage.OutputTokens = c.Usage.OutputTokens
+	}
+	return usage
 }
 
 // beginMessage makes the item with the given ID current. A new ID starts an
@@ -191,11 +208,20 @@ func (a *CompletionAccumulator) beginMessage(id string, phase MessagePhase) {
 }
 
 func (a *CompletionAccumulator) currentMessage() *accumulatedMessage {
-	if len(a.messages) == 0 {
-		a.messages = append(a.messages, &accumulatedMessage{})
+	if n := len(a.messages); n > 0 {
+		message := a.messages[n-1]
+		if message.id != "" || len(a.contentOrder) == 0 {
+			return message
+		}
+		// Without a message ID, an intervening call or reasoning item separates text runs.
+		last := a.contentOrder[len(a.contentOrder)-1].kind
+		if last == accumulatedContentText || last == accumulatedContentRefusal {
+			return message
+		}
 	}
-
-	return a.messages[len(a.messages)-1]
+	message := new(accumulatedMessage)
+	a.messages = append(a.messages, message)
+	return message
 }
 
 type accumulatedReasoning struct {
@@ -212,26 +238,25 @@ func (r *accumulatedReasoning) result() Reasoning {
 // Distinct IDs and signed blocks retain separate replay state.
 func (a *CompletionAccumulator) addReasoning(r *Reasoning) {
 	var target *accumulatedReasoning
-	if !r.Redacted {
-		if r.ID != "" {
-			for _, entry := range a.reasonings {
-				if entry.ID == r.ID {
-					target = entry
-					break
-				}
+	if r.ID != "" {
+		for _, entry := range a.reasonings {
+			if entry.ID == r.ID {
+				target = entry
+				break
 			}
-		} else if len(a.reasonings) > 0 && len(a.contentOrder) > 0 && a.contentOrder[len(a.contentOrder)-1].kind == accumulatedContentReasoning {
-			last := a.reasonings[len(a.reasonings)-1]
-			if !last.Redacted && last.Signature == "" {
-				target = last
-			}
+		}
+	} else if !r.Redacted && len(a.reasonings) > 0 && len(a.contentOrder) > 0 && a.contentOrder[len(a.contentOrder)-1].kind == accumulatedContentReasoning {
+		last := a.reasonings[len(a.reasonings)-1]
+		if !last.Redacted && last.Signature == "" {
+			target = last
 		}
 	}
 	if target == nil {
-		target = &accumulatedReasoning{ID: r.ID, Redacted: r.Redacted}
+		target = &accumulatedReasoning{ID: r.ID}
 		a.reasonings = append(a.reasonings, target)
 		a.contentOrder = append(a.contentOrder, accumulatedContentRef{kind: accumulatedContentReasoning, index: len(a.reasonings) - 1})
 	}
+	target.Redacted = target.Redacted || r.Redacted
 	for _, part := range r.Content {
 		target.content.Add(part)
 	}
@@ -332,24 +357,29 @@ func (a *CompletionAccumulator) addToolCall(c *ToolCall) {
 	target.Arguments += c.Arguments
 }
 
-func (a *CompletionAccumulator) Result() *Completion {
+func (a *CompletionAccumulator) content() []Content {
+	if a.output != nil {
+		return a.output
+	}
 	var content []Content
 
 	for _, ref := range a.contentOrder {
 		switch ref.kind {
 		case accumulatedContentReasoning:
-			content = append(content, ReasoningContent(a.reasonings[ref.index].result()))
+			content = append(content, ReasoningContent(a.reasoningSnapshots.Apply(a.reasonings[ref.index].result())))
 
 		case accumulatedContentCompaction:
 			content = append(content, CompactionContent(a.compactions[ref.index]))
 
-		case accumulatedContentText:
+		case accumulatedContentText, accumulatedContentRefusal:
 			m := a.messages[ref.index]
-			content = append(content, Content{MessageID: m.id, Phase: m.phase, Text: m.text.String(), TextPresent: m.text.Len() == 0})
-
-		case accumulatedContentRefusal:
-			m := a.messages[ref.index]
-			content = append(content, Content{MessageID: m.id, Phase: m.phase, Refusal: m.refusal.String()})
+			part := Content{MessageID: m.id, Phase: m.phase, continuation: ref.index > 0 && m.id == "" && a.messages[ref.index-1].id == ""}
+			if ref.kind == accumulatedContentText {
+				part.Text, part.TextPresent = m.text.String(), m.text.Len() == 0
+			} else {
+				part.Refusal = m.refusal.String()
+			}
+			content = append(content, part)
 
 		case accumulatedContentToolCall:
 			call := a.toolCalls[ref.index]
@@ -366,6 +396,10 @@ func (a *CompletionAccumulator) Result() *Completion {
 		}
 	}
 
+	return content
+}
+
+func (a *CompletionAccumulator) Result() *Completion {
 	return &Completion{
 		ID:        a.id,
 		Model:     a.model,
@@ -382,7 +416,7 @@ func (a *CompletionAccumulator) Result() *Completion {
 
 		Message: &Message{
 			Role:    a.role,
-			Content: content,
+			Content: a.content(),
 		},
 
 		Usage: a.usage,

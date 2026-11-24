@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
+	"github.com/adrianliechti/wingman/server/internal/stream"
 )
 
 // StreamEventType represents the type of streaming event
@@ -41,8 +43,9 @@ type StreamEvent struct {
 	DeltaUsage   *DeltaUsage
 
 	// For error events
-	Error     *Error
-	RequestID string
+	Error      *Error
+	RequestID  string
+	RetryAfter time.Duration
 
 	// The accumulated completion (available on final events)
 	Completion *provider.Completion
@@ -55,6 +58,7 @@ type StreamEventHandler func(event StreamEvent) error
 type StreamingAccumulator struct {
 	handler     StreamEventHandler
 	accumulator provider.CompletionAccumulator
+	replay      stream.ReasoningBuffer
 
 	// Configuration
 	messageID string
@@ -82,11 +86,6 @@ type StreamingAccumulator struct {
 	toolIndexByID  map[string]int
 	toolCallsByID  map[string]*provider.ToolCall
 	lastToolCallID string
-
-	// Usage tracking
-	inputTokens          int
-	outputTokens         int
-	initialCacheCreation *CacheCreation
 }
 
 // NewStreamingAccumulator creates a new StreamingAccumulator with an event handler
@@ -211,7 +210,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 	// Emit message_start on first add
 	if !s.started {
 		s.started = true
-		s.initialCacheCreation = cacheCreation(c.Usage)
 
 		// Get input tokens from first chunk if available
 		inputTokens, outputTokens := 0, 0
@@ -225,7 +223,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 			if c.Usage.ReasoningTokens != nil {
 				outputTokensDetails = &OutputTokensDetails{ThinkingTokens: *c.Usage.ReasoningTokens}
 			}
-			s.inputTokens = inputTokens
 			cacheReadInputTokens = c.Usage.CacheReadInputTokens
 			cacheCreationInputTokens = c.Usage.CacheCreationInputTokens
 		}
@@ -251,7 +248,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 					CacheReadInputTokens:     cacheReadInputTokens,
 					CacheCreationInputTokens: cacheCreationInputTokens,
-					CacheCreation:            s.initialCacheCreation,
+					CacheCreation:            cacheCreation(c.Usage),
 				},
 			},
 		}); err != nil {
@@ -264,24 +261,12 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		s.model = c.Model
 	}
 
-	// Update usage tokens if provided
-	if c.Usage != nil {
-		if c.Usage.InputTokens > 0 {
-			s.inputTokens = anthropicInputTokens(c.Usage)
-		}
-		if c.Usage.OutputTokens > 0 {
-			s.outputTokens = c.Usage.OutputTokens
-		}
-	}
+	s.accumulator.Add(c)
+	return s.addContent(s.replay.Add(c))
+}
 
-	// Skip empty content chunks
-	if c.Message == nil || len(c.Message.Content) == 0 {
-		s.accumulator.Add(c)
-		return nil
-	}
-
-	// Process content
-	for _, content := range c.Message.Content {
+func (s *StreamingAccumulator) addContent(parts []provider.Content) error {
+	for _, content := range parts {
 		// A new message item starts a new text block, matching the
 		// non-streaming response, which emits one text block per item.
 		if content.MessageID != "" && content.MessageID != s.textID {
@@ -371,8 +356,9 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 				preserveText = s.textIndex
 			}
 
-			// A signature ends a thinking block; a new ID starts the next item
-			if s.thinkingIndex >= 0 && (s.thinkingSigned || (reasoning.ID != "" && s.thinkingID != "" && reasoning.ID != s.thinkingID)) {
+			// A signature ends a thinking block unless its item continues; a new ID starts the next item
+			signedEnd := s.thinkingSigned && (reasoning.ID == "" || reasoning.ID != s.thinkingID)
+			if s.thinkingIndex >= 0 && (signedEnd || (reasoning.ID != "" && s.thinkingID != "" && reasoning.ID != s.thinkingID)) {
 				if err := s.stopBlock(s.thinkingIndex); err != nil {
 					return err
 				}
@@ -431,7 +417,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 					Index: s.thinkingIndex,
 					Delta: &Delta{
 						Type:      "signature_delta",
-						Signature: encodeSignature(id, reasoning.Signature),
+						Signature: provider.WrapReasoningID(id, reasoning.Signature),
 					},
 				}); err != nil {
 					return err
@@ -563,9 +549,6 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 		}
 	}
 
-	// Add to underlying accumulator
-	s.accumulator.Add(c)
-
 	return nil
 }
 
@@ -582,6 +565,10 @@ func (s *StreamingAccumulator) Complete() error {
 		return completionFailure(result)
 	}
 
+	if err := s.addContent(s.replay.Finish()); err != nil {
+		return err
+	}
+
 	// Close all open content blocks
 	for len(s.openBlocks) > 0 {
 		if err := s.stopBlock(s.openBlocks[0]); err != nil {
@@ -592,9 +579,7 @@ func (s *StreamingAccumulator) Complete() error {
 	// Determine final stop reason from accumulated result
 	s.stopReason = toStopReason(result)
 
-	// Get final usage from accumulated result (prefer accumulated result over tracked values)
-	inputTokens := s.inputTokens
-	outputTokens := s.outputTokens
+	var inputTokens, outputTokens int
 	var cacheReadInputTokens, cacheCreationInputTokens int
 	var outputTokensDetails *OutputTokensDetails
 	if result.Usage != nil {
@@ -631,13 +616,6 @@ func (s *StreamingAccumulator) Complete() error {
 	if s.stopReason == StopReasonStopSequence {
 		messageDelta.StopSequence = &result.StopSequence
 	}
-	// Anthropic sends the breakdown at message_start. Repeat it only when a
-	// backend reports new information later, so final usage can reconstruct it.
-	creation := cacheCreation(result.Usage)
-	if creation != nil && s.initialCacheCreation != nil && *creation == *s.initialCacheCreation {
-		creation = nil
-	}
-
 	if err := s.emitEvent(StreamEvent{
 		Type:         StreamEventMessageDelta,
 		MessageDelta: messageDelta,
@@ -649,7 +627,6 @@ func (s *StreamingAccumulator) Complete() error {
 
 			CacheReadInputTokens:     cacheReadInputTokens,
 			CacheCreationInputTokens: cacheCreationInputTokens,
-			CacheCreation:            creation,
 		},
 		Completion: result,
 	}); err != nil {
@@ -669,11 +646,15 @@ func (s *StreamingAccumulator) Complete() error {
 
 // Error emits an error event
 func (s *StreamingAccumulator) Error(err error) error {
-	failure := responseError(provider.CodeFromError(err, http.StatusBadGateway), err)
+	if writeErr := s.addContent(s.replay.Finish()); writeErr != nil {
+		return writeErr
+	}
+	_, failure := errorResponse(err, http.StatusBadGateway)
 	return s.emitEvent(StreamEvent{
-		Type:      StreamEventError,
-		Error:     &failure,
-		RequestID: errorRequestID(err),
+		Type:       StreamEventError,
+		Error:      &failure.Error,
+		RequestID:  failure.RequestID,
+		RetryAfter: provider.RetryAfterFromError(err),
 	})
 }
 

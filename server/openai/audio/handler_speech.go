@@ -66,7 +66,7 @@ func writeAudioStream(w http.ResponseWriter, seq iter.Seq2[*provider.Synthesis, 
 	for chunk, err := range seq {
 		if err != nil {
 			if !headersSent {
-				writeError(w, provider.CodeFromError(err, http.StatusBadGateway), err)
+				writeError(w, http.StatusBadGateway, err)
 			}
 
 			return
@@ -115,7 +115,7 @@ func writeSpeechStream(w http.ResponseWriter, seq iter.Seq2[*provider.Synthesis,
 	for chunk, err := range seq {
 		if err != nil {
 			if !headersSent {
-				writeError(w, provider.CodeFromError(err, http.StatusBadGateway), err)
+				writeError(w, http.StatusBadGateway, err)
 				return
 			}
 

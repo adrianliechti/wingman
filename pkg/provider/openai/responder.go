@@ -9,6 +9,7 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -111,9 +112,12 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		var reasoningContext provider.ReasoningContext
 		var inputTransformations *[]provider.InputTransformation
 		var tier provider.Tier
-		var searchCallID string
+		var toolDecoder responseToolDecoder
+		var completed completedResponseOutput
 		seenSearchOutputs := make(map[int64]bool)
-		reasoningSignatures := make(map[string]string)
+		var activeReasoning string
+		var snapshots provider.ReasoningSnapshots
+		closedReasoningSignatures := make(map[string]string)
 		emittedToolCalls := make(map[string]provider.ToolCall)
 		type partKey struct {
 			kind  string
@@ -131,6 +135,17 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 		}
 
 		emit := func(content provider.Content, status provider.CompletionStatus) bool {
+			// Some compatible servers omit item.done. Once the stream moves
+			// on, the terminal copy still belongs to the earlier output slot.
+			if activeReasoning != "" && (content.Reasoning == nil || activeReasoning != content.Reasoning.ID) {
+				if _, closed := closedReasoningSignatures[activeReasoning]; !closed {
+					closedReasoningSignatures[activeReasoning] = ""
+				}
+				activeReasoning = ""
+			}
+			if content.Reasoning != nil {
+				activeReasoning = content.Reasoning.ID
+			}
 			if content.ToolCall != nil || content.Reasoning != nil || content.Compaction != nil {
 				closeText()
 			}
@@ -239,6 +254,11 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 			}
 			suffix, ok := strings.CutPrefix(final, seen)
+			// A terminal reasoning copy can revise a summary even when the
+			// provider omitted item.done. Its snapshot carries the replacement.
+			if !ok && snapshots[key.item].ID != "" && (key.kind == "summary_text" || key.kind == "reasoning_text") {
+				return true
+			}
 			if !ok || closedText[key] {
 				yield(nil, fmt.Errorf("openai: final %s for %s does not match the delivered stream", key.kind, key.item))
 				return false
@@ -288,10 +308,6 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						return false
 					}
 				}
-			case responses.ResponseFunctionToolCall:
-				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Arguments}, item.JSON.Arguments.Valid())
-			case responses.ResponseCustomToolCall:
-				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindCustom, Name: item.Name, Namespace: item.Namespace, Async: item.Async, Arguments: item.Input}, item.JSON.Input.Valid())
 			case responses.ResponseReasoningItem:
 				for i, part := range item.Content {
 					if !reconcilePart(partKey{"reasoning_text", item.ID, int64(i)}, part.Text) {
@@ -303,82 +319,74 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 						return false
 					}
 				}
-				sig, seen := reasoningSignatures[item.ID]
+				sig, seen := closedReasoningSignatures[item.ID]
 				if (item.ID != "" || item.EncryptedContent != "") && (!seen || item.EncryptedContent != "" && sig != item.EncryptedContent) {
-					reasoningSignatures[item.ID] = item.EncryptedContent
+					closedReasoningSignatures[item.ID] = item.EncryptedContent
 					return emit(provider.ReasoningContent(provider.Reasoning{ID: item.ID, Signature: item.EncryptedContent}), "")
 				}
 			case responses.ResponseCompactionItem:
 				return yieldCompaction(item)
-			case responses.ResponseApplyPatchToolCall:
-				args := (texteditor.Operation{Type: item.Operation.Type, Path: item.Operation.Path, Diff: item.Operation.Diff}).Args()
-				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindTextEditor, Name: "apply_patch", Arguments: args}, true)
-
-			case responses.ResponseComputerToolCall:
-				args, _ := json.Marshal(computerCallToArgs(item), json.Deterministic(true))
-				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindComputer, Name: "computer", Arguments: string(args)}, true)
-
-			case responses.ResponseFunctionShellToolCall:
-				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameShell, Arguments: item.Action.RawJSON()}, true)
-
-			case responses.ResponseOutputItemLocalShellCall:
-				return reconcileToolCall(provider.ToolCall{ID: item.CallID, Kind: provider.ToolKindShell, Name: shell.NameLocalShell, Arguments: item.Action.RawJSON()}, true)
-
-			case responses.ResponseToolSearchCall:
-				searchCallID = item.CallID
-				if searchCallID == "" {
-					searchCallID = item.ID
-					if searchCallID == "" {
-						searchCallID = fmt.Sprintf("search_%s_%d", responseID, index)
-					}
-				}
-				var raw struct {
-					Arguments jsontext.Value `json:"arguments"`
-				}
-				if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
+			default:
+				content, err := toolDecoder.decode(item, responseID, index)
+				if err != nil {
 					yield(nil, err)
 					return false
 				}
-				args := raw.Arguments
-				if len(args) == 0 {
-					args = jsontext.Value("null")
+				if call := content.ToolCall; call != nil {
+					return reconcileToolCall(*call, responseHasArguments(output))
 				}
-				return reconcileToolCall(provider.ToolCall{
-					ID:        searchCallID,
-					Kind:      provider.ToolKindToolSearch,
-					Name:      "tool_search",
-					Execution: string(item.Execution),
-					Arguments: string(args),
-				}, true)
-			case responses.ResponseToolSearchOutputItem:
-				id := item.CallID
-				if id == "" {
-					id = searchCallID
+				if content.ToolResult != nil && !seenSearchOutputs[index] {
+					seenSearchOutputs[index] = true
+					return emit(content, "")
 				}
-				if seenSearchOutputs[index] {
-					return true
-				}
-				seenSearchOutputs[index] = true
-				var raw struct {
-					Tools jsontext.Value `json:"tools"`
-				}
-				if err := json.Unmarshal([]byte(item.RawJSON()), &raw); err != nil {
-					yield(nil, err)
-					return false
-				}
-				payload := raw.Tools
-				if len(payload) == 0 || string(payload) == "null" {
-					payload = jsontext.Value("[]")
-				}
-				return emit(provider.ToolResultContent(provider.ToolResult{ID: id, Kind: provider.ToolKindToolSearch, Execution: string(item.Execution), Payload: payload}), "")
-
 			}
 			return true
 		}
 
 		finish := func(response responses.Response, status provider.CompletionStatus) {
-			for i, item := range response.Output {
-				if !reconcileItem(item, int64(i)) {
+			items := response.Output
+			if !response.JSON.Output.Valid() && completed.refreshed {
+				for _, index := range slices.Sorted(maps.Keys(completed.items)) {
+					items = append(items, completed.items[index])
+				}
+			}
+			if response.JSON.Output.Valid() && len(completed.open) > 0 {
+				for _, item := range items {
+					delete(completed.open, itemKey(item))
+				}
+				if len(completed.open) != 0 {
+					yield(nil, fmt.Errorf("openai: terminal response omitted an unfinished output item"))
+					return
+				}
+			}
+			for i, item := range items {
+				_, known, err := completed.position(item)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				// The SDK exposes item.done and the terminal response independently.
+				// Replaying this copy as deltas would reopen a finished reasoning item.
+				if _, closed := closedReasoningSignatures[item.ID]; item.Type == "reasoning" && item.ID != "" && (closed || item.ID == activeReasoning) {
+					if snapshots == nil {
+						snapshots = make(provider.ReasoningSnapshots)
+					}
+					snapshots[item.ID] = terminalReasoning(item.AsReasoning())
+					if closed {
+						continue
+					}
+					// The open item can still deliver any missing suffix or signature.
+				}
+				if !known && !reconcileItem(item, int64(i)) {
+					return
+				}
+			}
+			var output []provider.Content
+			if response.JSON.Output.Valid() || completed.refreshed {
+				var err error
+				output, err = finalResponseContent(items, responseID, status, closedReasoningSignatures, emittedToolCalls)
+				if err != nil {
+					yield(nil, err)
 					return
 				}
 			}
@@ -396,6 +404,8 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				Reasoning:            reasoningContext,
 				Tier:                 tier,
 				InputTransformations: inputTransformations,
+				ReasoningSnapshots:   snapshots,
+				Output:               output,
 			}, nil)
 		}
 
@@ -403,6 +413,10 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			data := stream.Current()
 			// Item deltas omit the enclosing response metadata.
 			if data.Response.ID != "" {
+				if responseID != "" && data.Response.ID != responseID {
+					yield(nil, fmt.Errorf("openai: response ID changed during stream"))
+					return
+				}
 				responseID = data.Response.ID
 			}
 			if data.Response.Model != "" {
@@ -422,10 +436,25 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			}
 
 			switch event := data.AsAny().(type) {
-			case responses.ResponseCreatedEvent:
-			case responses.ResponseInProgressEvent:
+			case responses.ResponseCreatedEvent, responses.ResponseQueuedEvent, responses.ResponseInProgressEvent:
+				updates, err := completed.refresh(data.Response.Output)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if len(updates) > 0 && !yield(&provider.Completion{ReasoningSnapshots: updates}, nil) {
+					return
+				}
 			case responses.ResponseOutputItemAddedEvent:
+				completed.start(event.Item)
 				switch item := event.Item.AsAny().(type) {
+				case responses.ResponseReasoningItem:
+					// The added item reserves its position. Only a finished item
+					// carries ciphertext suitable for replay.
+					if item.ID != "" && !emit(provider.ReasoningContent(provider.Reasoning{ID: item.ID}), "") {
+						return
+					}
+
 				case responses.ResponseOutputMessage:
 					if !emitMessageStart(item) {
 						return
@@ -537,6 +566,10 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 					return
 				}
 			case responses.ResponseOutputItemDoneEvent:
+				if err := completed.add(event.OutputIndex, event.Item); err != nil {
+					yield(nil, err)
+					return
+				}
 				if !reconcileItem(event.Item, event.OutputIndex) {
 					return
 				}
@@ -551,7 +584,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 
 			case responses.ResponseErrorEvent:
 				retryAfter := parseRetryHeaders(jsontext.Value(event.JSON.ExtraFields["headers"].Raw()))
-				yield(nil, newProviderError("", event.Code, event.Message, statusCodeFromResponseErrorCode(event.Code), retryAfter, nil))
+				yield(nil, newProviderError("", event.Code, event.Message, 0, retryAfter, nil))
 				return
 
 			case responses.ResponseFailedEvent:
@@ -567,9 +600,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 				}
 
 				retryAfter := parseRetryHeaders(jsontext.Value(event.Response.Error.JSON.ExtraFields["headers"].Raw()))
-				statusCode := statusCodeFromResponseErrorCode(errCode)
-				providerErr := newProviderError("", errCode, msg, statusCode, retryAfter, nil)
-				yield(nil, providerErr)
+				yield(nil, newProviderError(event.Response.Error.Type, errCode, msg, 0, retryAfter, nil))
 				return
 
 			case responses.ResponseIncompleteEvent:
@@ -597,6 +628,23 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 	}
 }
 
+func terminalReasoning(item responses.ResponseReasoningItem) provider.Reasoning {
+	r := provider.Reasoning{ID: item.ID, Signature: item.EncryptedContent}
+	if item.Content != nil {
+		r.Content = make([]provider.Part, len(item.Content))
+		for i, part := range item.Content {
+			r.Content[i] = provider.Part{Index: i, Text: part.Text}
+		}
+	}
+	if item.Summary != nil {
+		r.Summary = make([]provider.Part, len(item.Summary))
+		for i, part := range item.Summary {
+			r.Summary[i] = provider.Part{Index: i, Text: part.Text}
+		}
+	}
+	return r
+}
+
 // Codex backends report the turn boundary in a field the SDK does not type.
 func responseEndTurn(response responses.Response) *bool {
 	var endTurn *bool
@@ -617,7 +665,7 @@ func (r *Responder) convertResponsesRequest(messages []provider.Message, options
 	hasConfigurationUpdate := containsConfigurationUpdate(messages)
 	if hasConfigurationUpdate && options.CompactionOptions != nil && options.CompactionOptions.Threshold > 0 {
 		return nil, &provider.ProviderError{
-			Code:    400,
+			Kind:    provider.ErrorKindInvalidArgument,
 			Type:    "invalid_request_error",
 			Message: "configuration_update cannot be combined with automatic compaction",
 		}
@@ -1120,12 +1168,21 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 				}
 
 				if c.Reasoning != nil {
-					if c.Reasoning.ID == "" || c.Reasoning.Signature == "" {
+					if c.Reasoning.Signature == "" {
 						continue
 					}
 
 					reasoning := &responses.ResponseReasoningItemParam{
-						ID: c.Reasoning.ID,
+						ID:               c.Reasoning.ID,
+						EncryptedContent: openai.String(c.Reasoning.Signature),
+					}
+					if reasoning.ID == "" {
+						// Older Gemini histories carry only the ciphertext. Hosted OpenAI
+						// accepts it on its own, while the SDK serializes an empty ID.
+						if !r.endpointMatches("api.openai.com") {
+							continue
+						}
+						reasoning.SetExtraFields(map[string]any{"id": param.Omit})
 					}
 
 					// Hosted OpenAI and Azure models replay from encrypted_content
@@ -1146,10 +1203,6 @@ func (r *Responder) convertResponsesInput(messages []provider.Message, freeformP
 							continue
 						}
 						reasoning.Summary = append(reasoning.Summary, responses.ResponseReasoningItemSummaryParam{Text: part.Text})
-					}
-
-					if c.Reasoning.Signature != "" {
-						reasoning.EncryptedContent = openai.String(c.Reasoning.Signature)
 					}
 
 					// `summary` is required by the API; an empty array preserves the

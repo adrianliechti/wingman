@@ -33,7 +33,7 @@ func TestThinkingRoundTripHTTP(t *testing.T) {
 		}
 
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			turn1 := map[string]any{
 				"contents": []map[string]any{

@@ -5,6 +5,7 @@ package signatures
 import (
 	"context"
 	"iter"
+	"maps"
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
@@ -64,13 +65,7 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 				}
 				if completion != nil {
 					emitted = true
-					if completion.Message != nil {
-						if c.realm == "" {
-							completion.Message.Content = resolveContents(completion.Message.Content, "")
-						} else {
-							completion.Message.Content = tagContents(completion.Message.Content, c.realm)
-						}
-					}
+					completion = c.scopeCompletion(completion)
 				}
 				if !yield(completion, err) {
 					return
@@ -81,6 +76,51 @@ func (c *Completer) Complete(ctx context.Context, messages []provider.Message, o
 			}
 		}
 	}
+}
+
+func (c *Completer) scopeCompletion(original *provider.Completion) *provider.Completion {
+	if original.Message == nil && original.Output == nil && len(original.ReasoningSnapshots) == 0 {
+		return original
+	}
+	scoped := *original
+	scope := tagContents
+	if c.realm == "" {
+		scope = resolveContents
+	}
+	if original.Message != nil {
+		message := *original.Message
+		message.Content = scope(message.Content, c.realm)
+		scoped.Message = &message
+	}
+	if original.Output != nil {
+		scoped.Output = scope(original.Output, c.realm)
+	}
+	if original.ReasoningSnapshots != nil {
+		scoped.ReasoningSnapshots = maps.Clone(original.ReasoningSnapshots)
+		for id, snapshot := range scoped.ReasoningSnapshots {
+			if c.realm == "" {
+				snapshot.Signature = ""
+			} else {
+				snapshot.Signature = provider.TagSignature(c.realm, snapshot.Signature)
+			}
+			scoped.ReasoningSnapshots[id] = snapshot
+		}
+	}
+	if c.realm == "" && original.Message != nil {
+		// No item in this realm can acquire a replay token, even if the
+		// upstream never sends one. Release it on its first identified delta.
+		for _, part := range original.Message.Content {
+			if r := part.Reasoning; r != nil && r.ID != "" {
+				if _, ok := scoped.ReasoningSnapshots[r.ID]; !ok {
+					if scoped.ReasoningSnapshots == nil {
+						scoped.ReasoningSnapshots = make(provider.ReasoningSnapshots)
+					}
+					scoped.ReasoningSnapshots[r.ID] = provider.Reasoning{ID: r.ID}
+				}
+			}
+		}
+	}
+	return &scoped
 }
 
 // StripToolSignatures removes Gemini thought signatures embedded in tool ids;
@@ -252,8 +292,10 @@ func stripOptions(options *provider.CompleteOptions) *provider.CompleteOptions {
 // Only known input-replay failures qualify; auth, rate limits, and transport
 // errors must retain their normal error/retry policy.
 func reasoningReplayError(err error) bool {
-	switch provider.CodeFromError(err, 0) {
-	case 0, 400, 413, 422:
+	// Rejected replay state is a request error, reported by some backends
+	// without a status.
+	switch provider.KindFromError(err) {
+	case "", provider.ErrorKindInvalidArgument, provider.ErrorKindUnprocessable, provider.ErrorKindPayloadTooLarge:
 	default:
 		return false
 	}

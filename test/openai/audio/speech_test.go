@@ -34,7 +34,7 @@ func TestSpeechAudio(t *testing.T) {
 	h := openai.New(t)
 	m := audio.SpeechModel()
 
-	h.SkipUnlessConfigured(t, m.Wingman)
+	h.RequireConfigured(t, m.Wingman)
 
 	ctx := context.Background()
 
@@ -80,7 +80,7 @@ func TestSpeechSSE(t *testing.T) {
 	h := openai.New(t)
 	m := audio.SpeechModel()
 
-	h.SkipUnlessConfigured(t, m.Wingman)
+	h.RequireConfigured(t, m.Wingman)
 
 	ctx := context.Background()
 
@@ -148,7 +148,7 @@ func TestSpeechRejectsUnsupportedStreamFormat(t *testing.T) {
 	h := openai.New(t)
 	m := audio.SpeechModel()
 
-	h.SkipUnlessConfigured(t, m.Wingman)
+	h.RequireConfigured(t, m.Wingman)
 
 	resp, err := h.Client.PostRaw(context.Background(), h.Wingman, speechPath, speechBody(m.Wingman, "flac"))
 

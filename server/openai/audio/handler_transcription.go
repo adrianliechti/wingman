@@ -132,7 +132,7 @@ func (h *Handler) handleAudioTranscription(w http.ResponseWriter, r *http.Reques
 
 	for delta, err := range seq {
 		if err != nil {
-			writeError(w, provider.CodeFromError(err, http.StatusBadRequest), err)
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 

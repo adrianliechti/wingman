@@ -85,7 +85,7 @@ func (h *Handler) handleImageEdit(w http.ResponseWriter, r *http.Request) {
 	image, err := renderer.Render(r.Context(), prompt, options)
 
 	if err != nil {
-		writeError(w, provider.CodeFromError(err, http.StatusBadRequest), err)
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 

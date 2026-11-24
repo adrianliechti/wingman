@@ -25,8 +25,8 @@ func TestThinkingCrossModelToolUse(t *testing.T) {
 			}
 
 			t.Run(from+"→"+to, func(t *testing.T) {
-				h.SkipUnlessConfigured(t, from)
-				h.SkipUnlessConfigured(t, to)
+				h.RequireConfigured(t, from)
+				h.RequireConfigured(t, to)
 
 				turn1 := anthropic.WithModel(map[string]any{
 					"max_tokens": 4096,

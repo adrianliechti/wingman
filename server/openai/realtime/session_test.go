@@ -395,7 +395,7 @@ func TestRealtimeProviderDiagnosticErrorIsNotExposed(t *testing.T) {
 type rejectingRealtime struct{ *fakeRealtime }
 
 func (rejectingRealtime) Connect(context.Context, *provider.RealtimeOptions) (provider.RealtimeSession, error) {
-	return nil, &provider.ProviderError{Code: 429, Type: "insufficient_quota", Message: "monthly budget exhausted", Err: provider.ErrRejected}
+	return nil, &provider.ProviderError{Kind: provider.ErrorKindQuotaExceeded, Type: "insufficient_quota", Message: "monthly budget exhausted", Err: provider.ErrRejected}
 }
 
 func TestRealtimeRejectedConnectionEndsSession(t *testing.T) {

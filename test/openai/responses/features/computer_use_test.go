@@ -11,13 +11,13 @@ import (
 func TestComputerUseHTTP(t *testing.T) {
 	h := openai.New(t)
 
-	model := openai.Model{Name: "gpt-6.1-sol", Capabilities: openai.ModelCapabilities("gpt-6.1-sol")}
+	model := openai.Model{Name: "gpt-6.2-sol", Capabilities: openai.ModelCapabilities("gpt-6.2-sol")}
 	if !model.Capabilities.ComputerUse {
 		t.Skip("model does not support computer use")
 	}
 
 	body := map[string]any{
-		"model":      "gpt-6.1-sol",
+		"model":      "gpt-6.2-sol",
 		"truncation": "auto",
 		"input": []map[string]any{
 			{
@@ -49,13 +49,13 @@ func TestComputerUseHTTP(t *testing.T) {
 func TestComputerUseMultiTurnHTTP(t *testing.T) {
 	h := openai.New(t)
 
-	model := openai.Model{Name: "gpt-6.1-sol", Capabilities: openai.ModelCapabilities("gpt-6.1-sol")}
+	model := openai.Model{Name: "gpt-6.2-sol", Capabilities: openai.ModelCapabilities("gpt-6.2-sol")}
 	if !model.Capabilities.ComputerUse {
 		t.Skip("model does not support computer use")
 	}
 
 	body := map[string]any{
-		"model":      "gpt-6.1-sol",
+		"model":      "gpt-6.2-sol",
 		"truncation": "auto",
 		"input": []map[string]any{
 			{

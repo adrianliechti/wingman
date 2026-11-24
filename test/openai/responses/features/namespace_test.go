@@ -112,7 +112,7 @@ func TestNamespaceToolRoundTripHTTP(t *testing.T) {
 				"tools": []any{namespaceWeatherTool},
 			}
 
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 
 			wingmanResp2, err := h.Client.Post(context.Background(), h.Wingman, "/responses", responses.WithModel(turn2, model.Name))
 			if err != nil {

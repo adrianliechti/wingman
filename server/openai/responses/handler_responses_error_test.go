@@ -27,7 +27,7 @@ type midStreamErrCompleter struct {
 func TestResponseFailedIncludesRetryHeaders(t *testing.T) {
 	cfg := &config.Config{Policy: noop.New()}
 	cfg.RegisterCompleter(errorTestModel, midStreamErrCompleter{err: &provider.ProviderError{
-		Code: 429, Message: "Try again in 1s", RetryAfter: 2250 * time.Millisecond,
+		Kind: provider.ErrorKindRateLimited, Message: "Try again in 1s", RetryAfter: 2250 * time.Millisecond,
 	}})
 	rec := httptest.NewRecorder()
 	New(cfg).handleResponses(rec, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"model":"`+errorTestModel+`","stream":true,"input":"x"}`)))
@@ -69,7 +69,7 @@ func TestResponseFailedErrorCodes(t *testing.T) {
 	} {
 		t.Run(tc.typ, func(t *testing.T) {
 			cfg := &config.Config{Policy: noop.New()}
-			cfg.RegisterCompleter(errorTestModel, midStreamErrCompleter{err: &provider.ProviderError{Code: tc.status, Type: tc.typ, Message: "failed"}})
+			cfg.RegisterCompleter(errorTestModel, midStreamErrCompleter{err: &provider.ProviderError{Kind: provider.ErrorKindForStatus(tc.status), Type: tc.typ, Message: "failed"}})
 			rec := httptest.NewRecorder()
 			New(cfg).handleResponses(rec, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"model":"`+errorTestModel+`","stream":true,"input":"x"}`)))
 			events, err := harness.ParseSSE(rec.Body)
@@ -94,6 +94,42 @@ func TestResponseFailedErrorCodes(t *testing.T) {
 			}
 			if !seenError || !seenFailed {
 				t.Fatal("missing error events")
+			}
+		})
+	}
+}
+
+func TestResponseErrorCodesAcrossVendors(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		err               *provider.ProviderError
+		eventCode, failed string
+	}{
+		{"gemini daily quota", &provider.ProviderError{Kind: provider.ErrorKindQuotaExceeded, Type: "RESOURCE_EXHAUSTED", Vendor: provider.VendorGoogle, Message: "quota"}, "insufficient_quota", "insufficient_quota"},
+		{"bedrock throttling", &provider.ProviderError{Kind: provider.ErrorKindRateLimited, Type: "throttlingException", Vendor: provider.VendorBedrock, Message: "slow down"}, "rate_limit_exceeded", "rate_limit_exceeded"},
+		{"anthropic request error", &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Type: "invalid_request_error", Vendor: provider.VendorAnthropic, Message: "bad"}, "invalid_request_error", "server_error"},
+		{"openai code", &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Type: "invalid_prompt", Vendor: provider.VendorOpenAI, Message: "bad"}, "invalid_prompt", "invalid_prompt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{Policy: noop.New()}
+			cfg.RegisterCompleter(errorTestModel, midStreamErrCompleter{err: tc.err})
+			rec := httptest.NewRecorder()
+			New(cfg).handleResponses(rec, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"model":"`+errorTestModel+`","stream":true,"input":"x"}`)))
+			events, err := harness.ParseSSE(rec.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var eventCode, failed any
+			for _, event := range events {
+				switch event.Event {
+				case "error":
+					eventCode = event.Data["code"]
+				case "response.failed":
+					failed = event.Data["response"].(map[string]any)["error"].(map[string]any)["code"]
+				}
+			}
+			if eventCode != tc.eventCode || failed != tc.failed {
+				t.Fatalf("error code %v, response.failed code %v", eventCode, failed)
 			}
 		})
 	}

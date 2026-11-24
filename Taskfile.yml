@@ -22,6 +22,7 @@ tasks:
   
   test:
     cmds:
+      - go test ./server ./server/gemini ./server/openai/responses
       - task: test:base
       - task: test:features
 
@@ -68,6 +69,14 @@ tasks:
       CODEX_LIVE: '1'
     cmds:
       - go test -v -count=1 -timeout 30m ./test/codex
+
+  test:sdk:
+    desc: Replay reasoning and check upstream errors through every client API against real providers
+    dotenv: ['.env']
+    env:
+      WINGMAN_PROVIDER_LIVE: '1'
+    cmds:
+      - go test -v -count=1 -timeout 15m ./server -run 'TestSDKReasoningReplayLive|TestUpstreamErrorKindLive'
 
   test:compatibility:
     desc: Compare current API contracts against OpenAI, Anthropic, and local Wingman

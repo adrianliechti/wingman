@@ -214,6 +214,82 @@ func TestStreamingAccumulatorPreservesDistinctReasoningItems(t *testing.T) {
 	}
 }
 
+func TestStreamingAccumulatorStreamsAnswerWhileWaitingForCiphertext(t *testing.T) {
+	for _, tc := range []struct {
+		name, id, token string
+	}{
+		{"terminal snapshot", "rs_1", "late-token"},
+		{"terminal without token", "rs_1", ""},
+		{"anonymous reasoning", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var text string
+			var done []string
+			acc := NewStreamingAccumulator(func(e StreamEvent) error {
+				switch e.Type {
+				case StreamEventTextDelta:
+					text += e.Delta
+				case StreamEventReasoningItemDone:
+					done = append(done, "reasoning:"+e.ReasoningSignature)
+				case StreamEventOutputItemDone:
+					done = append(done, "message")
+				}
+				return nil
+			})
+			for _, content := range []provider.Content{
+				provider.ReasoningContent(provider.Reasoning{ID: tc.id, Summary: provider.TextParts("Plan")}),
+				provider.TextContent("Answer"),
+			} {
+				if err := acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{content}}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if text != "Answer" || (len(done) == 0) != (tc.id != "") {
+				t.Fatalf("before terminal: text %q, done %v", text, done)
+			}
+			if tc.token != "" {
+				if err := acc.Add(provider.Completion{ReasoningSnapshots: provider.ReasoningSnapshots{tc.id: {Signature: tc.token}}}); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(done, []string{"reasoning:" + tc.token}) {
+					t.Fatalf("replay token did not release item: done %v", done)
+				}
+			}
+			if err := acc.Complete(); err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"reasoning:" + tc.token, "message"}; !reflect.DeepEqual(done, want) {
+				t.Fatalf("done %v, want %v", done, want)
+			}
+		})
+	}
+}
+
+func TestStreamingAccumulatorRejectsDeltaForClosedReasoning(t *testing.T) {
+	var ids []string
+	acc := NewStreamingAccumulator(func(e StreamEvent) error {
+		if e.Type == StreamEventReasoningItemAdded {
+			ids = append(ids, e.ReasoningID)
+		}
+		return nil
+	})
+	add := func(content provider.Content) error {
+		return acc.Add(provider.Completion{Message: &provider.Message{Content: []provider.Content{content}}})
+	}
+	if err := add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1"})); err != nil {
+		t.Fatal(err)
+	}
+	if err := add(provider.TextContent("answer")); err != nil {
+		t.Fatal(err)
+	}
+	if err := add(provider.ReasoningContent(provider.Reasoning{ID: "rs_1", Summary: provider.TextParts("late delta")})); err == nil {
+		t.Fatal("accepted a reasoning delta after the item closed")
+	}
+	if len(ids) != 1 || ids[0] != "rs_1" {
+		t.Errorf("reasoning items added = %v", ids)
+	}
+}
+
 // A response cut short by max_tokens mid-arguments must not finalize the
 // dangling tool call as completed with truncated JSON. It should be marked
 // incomplete, and no function_call_arguments.done (which would assert the
@@ -809,7 +885,7 @@ func TestStreamingAccumulatorSnapshotPreservesMixedItemOrder(t *testing.T) {
 	want := "compaction,reasoning,message,function_call,message,reasoning,function_call,message"
 	checkSnapshot := func() {
 		t.Helper()
-		output := responseOutputs(acc.Result().Message, new(messageIDs), "completed", responseOutputOptions{IncludeReasoning: true})
+		output := responseOutputs(acc.Result().Message, new(messageIDs), "completed", responseOutputOptions{IncludeReasoningParts: true})
 		var kinds []string
 		for _, item := range output {
 			kinds = append(kinds, string(item.Type))

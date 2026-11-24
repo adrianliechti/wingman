@@ -261,11 +261,13 @@ A single ingress supports existing model, retrieval, and MCP clients:
 | --- | --- | --- |
 | **OpenAI** (compatible) | `/v1` | `chat/completions`, `responses`, `decisions`, `embeddings`, `audio/{speech,transcriptions}`, `images/{generations,edits}`, `models` |
 | **Anthropic** (compatible) | `/v1` | `messages`, `messages/count_tokens` |
-| **Gemini** (compatible) | `/v1beta` | `decisions`, `models/{model}:generateContent`, `:streamGenerateContent`, `:countTokens` |
+| **Gemini** (compatible) | `/v1beta`, `/v1` | `models/{model}:generateContent`, `:streamGenerateContent`, `:countTokens` |
 | **Tavily** (compatible subset) | `/v1/tavily` | `search`, `extract` — over any configured searcher/scraper |
 | **Exa** (compatible subset) | `/v1/exa` | `search`, `contents` — over any configured searcher/scraper |
 | **MCP** (native) | `/v1` | `mcp/{name}` — each configured MCP server, over HTTP-stream or SSE |
 | **Wingman** (native) | `/v1` | `systemone`, `extract`, `segment`, `search`, `retrieve`, `research`, `rerank`, `summarize`, `translate`, `render`, `transcribe` |
+
+For Python SDKs, set the OpenAI `base_url` to `http://localhost:4242/v1`, the Anthropic `base_url` to `http://localhost:4242`, or Google's `http_options.base_url` to `http://localhost:4242`. Anthropic and Google append the API version to the base URL.
 
 Tavily and Exa SDKs can use Wingman for a portable search/extraction subset.
 The API format is independent of the backend: for example, a Tavily client can
@@ -281,12 +283,9 @@ See [System One](API.md#system-one) for the request format and response fields.
 `POST /v1/decisions` accepts OpenAI's ordered predicate, choice, and score
 questions. Under the `openai` provider, `gpt-6-luna` serves OpenAI's Decisions
 API as well as completions; give a model `type: decider` to use it for decisions
-only. Other completion and embedding models cannot serve decisions.
-`POST /v1beta/decisions` accepts Gemini's shared multimodal input and named
-`noul`, `choice`, and `score` questions. Add `gemini-decision-1` to a `gemini`
-or `google` provider to use Google's native Decisions API. It also serves the
-other decision endpoints within the selected backend's input limits.
-See [Gemini Decisions](API.md#gemini-decisions).
+only. Add `gemini-decision-1` to a `gemini` or `google` provider to use Google's
+native Decisions API on both decision endpoints, within its input limits. Other
+completion and embedding models cannot serve decisions.
 
 When `model` is omitted on any decision endpoint, the first decision model in
 configuration order is used. See [Decisions](API.md#decisions).

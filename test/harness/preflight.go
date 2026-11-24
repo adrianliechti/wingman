@@ -86,18 +86,21 @@ func ConfiguredModels(baseURL, apiKey string) map[string]bool {
 	return models
 }
 
-// SkipUnlessConfigured requires a reachable wingman endpoint advertising the
-// model before a comparison test spends tokens on the reference provider.
-func SkipUnlessConfigured(t *testing.T, baseURL, apiKey, model string) {
+// RequireConfigured runs a comparison only against a reachable wingman
+// endpoint. A model it doesn't advertise fails, so stale defaults surface
+// before the test spends tokens on the reference provider.
+func RequireConfigured(t *testing.T, baseURL, apiKey, model string) {
 	t.Helper()
 
-	models := ConfiguredModels(baseURL, apiKey)
-
-	if models == nil {
+	switch unavailable, missing := checkConfigured(baseURL, apiKey, model); {
+	case unavailable:
 		t.Skip("wingman model listing unavailable — start the backend before running comparison tests")
+	case missing:
+		t.Fatalf("model %q is not configured in wingman at %s; configure it or choose served models with the suite's TEST_*_MODELS variable", model, baseURL)
 	}
+}
 
-	if !models[model] {
-		t.Skipf("model %q not configured in wingman", model)
-	}
+func checkConfigured(baseURL, apiKey, model string) (unavailable, missing bool) {
+	models := ConfiguredModels(baseURL, apiKey)
+	return models == nil, models != nil && !models[model]
 }

@@ -124,19 +124,20 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 
 		toolArgsSeen := map[int64]bool{}
 
-		// Signatures arrive as fragments, while provider.Reasoning carries a
-		// complete opaque value. Emit each signature once its block closes.
-		pendingSignatures := map[int64]bool{}
+		// Each signature_delta replaces the opaque signature of its thinking block.
+		// Emit the last value once, when replay state is final.
+		pendingSignatures := map[int64]string{}
 		flushSignature := func(index int64) bool {
-			if !pendingSignatures[index] {
+			signature := pendingSignatures[index]
+			delete(pendingSignatures, index)
+			if signature == "" {
 				return true
 			}
-			delete(pendingSignatures, index)
 			return yield(&provider.Completion{
 				ID: message.ID, Model: c.model,
 				Message: &provider.Message{
 					Role:    provider.MessageRoleAssistant,
-					Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Signature: provider.WrapContinuationSignature(message.Content[index].Signature, continuations)})},
+					Content: []provider.Content{provider.ReasoningContent(provider.Reasoning{Signature: provider.WrapContinuationSignature(signature, continuations)})},
 				},
 			}, nil)
 		}
@@ -155,6 +156,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 	messageStream:
 		for stream.Next() {
 			event := stream.Current()
+			previousOutputTokens := message.Usage.OutputTokens
 
 			if err := message.Accumulate(event); err != nil {
 				yield(nil, err)
@@ -167,6 +169,13 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 					if !yield(&provider.Completion{ID: message.ID, Model: c.model, Tier: tier, Usage: toUsage(message.Usage)}, nil) {
 						return
 					}
+				}
+			case anthropic.BetaRawMessageDeltaEvent:
+				// Accumulate assigns zero to an omitted output_tokens field.
+				if !event.Usage.JSON.OutputTokens.Valid() {
+					message.Usage.OutputTokens = previousOutputTokens
+				} else {
+					message.Usage.JSON.OutputTokens = event.Usage.JSON.OutputTokens
 				}
 			case anthropic.BetaRawContentBlockStartEvent:
 				startIndex := event.Index
@@ -194,7 +203,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 						return
 					}
 				case anthropic.BetaThinkingBlock:
-					pendingSignatures[startIndex] = event.Signature != ""
+					pendingSignatures[startIndex] = event.Signature
 					delta := &provider.Completion{
 						ID:    message.ID,
 						Model: c.model,
@@ -223,7 +232,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 							Role: provider.MessageRoleAssistant,
 
 							Content: []provider.Content{
-								{MessageID: textItems[startIndex], Text: event.Text},
+								{MessageID: textItems[startIndex], Text: event.Text, TextPresent: true},
 							},
 						},
 
@@ -332,9 +341,7 @@ func (c *Completer) streamMessage(ctx context.Context, req *anthropic.BetaMessag
 					}
 
 				case anthropic.BetaSignatureDelta:
-					if event.Signature != "" {
-						pendingSignatures[blockIndex] = true
-					}
+					pendingSignatures[blockIndex] = event.Signature
 
 				case anthropic.BetaCompactionContentBlockDelta:
 					delta := &provider.Completion{
@@ -1347,7 +1354,7 @@ func toUsage(usage anthropic.BetaUsage) *provider.Usage {
 	}
 
 	if usage.InputTokens == 0 &&
-		usage.OutputTokens == 0 &&
+		usage.OutputTokens == 0 && !usage.JSON.OutputTokens.Valid() &&
 		usage.CacheReadInputTokens == 0 &&
 		usage.CacheCreationInputTokens == 0 && len(usage.Iterations) == 0 && reasoningTokens == nil {
 		return nil

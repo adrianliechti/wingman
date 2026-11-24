@@ -10,11 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/adrianliechti/wingman/config"
 	"github.com/adrianliechti/wingman/pkg/policy"
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server"
 )
 
@@ -72,7 +70,6 @@ func TestGeminiDecisionsAcrossAPIs(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, endpoint := range []struct{ path, body, want string }{
-				{"/v1beta/decisions", `"input":"arrived cracked","questions":{"has_damage":{"type":"noul","instructions":"Damaged?"}}`, `"total_input_tokens":100`},
 				{"/v1/systemone", `"state":"arrived cracked","questions":{"has_damage":{"type":"noul","instructions":"Damaged?"}}`, `"input_tokens":100`},
 				{"/v1/decisions", `"input":"arrived cracked","questions":[{"name":"has_damage","type":"predicate","instructions":"Damaged?"}]`, `"input_tokens":100`},
 			} {
@@ -87,53 +84,15 @@ func TestGeminiDecisionsAcrossAPIs(t *testing.T) {
 					}
 				}
 			}
-			if calls != 6 {
+			if calls != 4 {
 				t.Fatalf("expected one native call per request, got %d", calls)
 			}
 			access.err = policy.ErrAccessDenied
 			w := httptest.NewRecorder()
-			s.ServeHTTP(w, httptest.NewRequest("POST", "/v1beta/decisions", strings.NewReader(`{"input":"cracked","questions":{"has_damage":{"type":"noul","instructions":"Damaged?"}}}`)))
-			if w.Code != 404 || calls != 6 {
+			s.ServeHTTP(w, httptest.NewRequest("POST", "/v1/decisions", strings.NewReader(`{"input":"cracked","questions":[{"name":"has_damage","type":"predicate","instructions":"Damaged?"}]}`)))
+			if w.Code != 404 || calls != 4 {
 				t.Fatalf("denied request reached backend: %d %d", w.Code, calls)
 			}
 		})
-	}
-}
-
-func TestGeminiDecisionsErrors(t *testing.T) {
-	backend := &decisionBackend{noul: 1}
-	_, s := decisionsServer(t, backend)
-	body := `{"model":"chat","input":{"type":"text","text":"hello"},"questions":{"has_damage":{"type":"noul","instructions":"Damaged?"}}}`
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest("POST", "/v1beta/decisions", strings.NewReader(body)))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"noul":1`) || !strings.Contains(w.Body.String(), `"total_output_tokens":20`) {
-		t.Fatalf("response: %d %s", w.Code, w.Body.String())
-	}
-	if state, _ := json.Marshal(backend.input.State); !strings.Contains(string(state), "hello") {
-		t.Fatalf("text block lost: %s", state)
-	}
-	backend.err = &provider.ProviderError{Code: 429, Message: "busy", RetryAfter: 2 * time.Second}
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest("POST", "/v1beta/decisions", strings.NewReader(body)))
-	if w.Code != 429 || w.Header().Get("Retry-After") != "2" || !strings.Contains(w.Body.String(), `"status":"RESOURCE_EXHAUSTED"`) {
-		t.Fatalf("error response: %d %s", w.Code, w.Body.String())
-	}
-	backend.err = &provider.ProviderError{Code: 400, Type: "safety", Message: "blocked"}
-	w = httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest("POST", "/v1beta/decisions", strings.NewReader(body)))
-	if w.Code != 400 || !strings.Contains(w.Body.String(), `"code":"safety"`) {
-		t.Fatalf("safety error code lost: %d %s", w.Code, w.Body.String())
-	}
-	calls := backend.calls
-	for _, request := range []string{
-		`{"model":"chat","input":"hello","questions":{"bad.key":{"type":"noul","instructions":"Question?"}}}`,
-		`{"model":"missing","input":"hello","questions":{"q":{"type":"noul","instructions":"Question?"}}}`,
-		`{"input":"hello","questions":{"q":{"type":"score","instructions":"Question?","criteria":["one"]}}}`,
-	} {
-		w = httptest.NewRecorder()
-		s.ServeHTTP(w, httptest.NewRequest("POST", "/v1beta/decisions", strings.NewReader(request)))
-		if w.Code != 400 || backend.calls != calls {
-			t.Fatalf("invalid request reached backend: %d %s", w.Code, w.Body.String())
-		}
 	}
 }

@@ -24,7 +24,7 @@ func (c *replayCompleter) Complete(ctx context.Context, messages []provider.Mess
 }
 
 func TestReasoningReplayRecoveryBoundaries(t *testing.T) {
-	rejection := &provider.ProviderError{Code: 400, Type: "invalid_encrypted_content", Message: "Encrypted content could not be verified"}
+	rejection := &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Type: "invalid_encrypted_content", Message: "Encrypted content could not be verified"}
 	for _, tc := range []struct {
 		name     string
 		err      error
@@ -35,18 +35,18 @@ func TestReasoningReplayRecoveryBoundaries(t *testing.T) {
 		attempts int
 	}{
 		{name: "encrypted content", err: rejection, signed: true, attempts: 2},
-		{name: "Claude thinking signature", err: &provider.ProviderError{Code: 400, Type: "invalid_request_error", Message: "Invalid signature in thinking block"}, signed: true, attempts: 2},
-		{name: "Bedrock thinking verification", err: &provider.ProviderError{Code: 400, Message: "Thinking signature verification failed"}, signed: true, attempts: 2},
+		{name: "Claude thinking signature", err: &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Type: "invalid_request_error", Message: "Invalid signature in thinking block"}, signed: true, attempts: 2},
+		{name: "Bedrock thinking verification", err: &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Message: "Thinking signature verification failed"}, signed: true, attempts: 2},
 		{name: "trailing thinking", err: errors.New("The final block in an assistant message cannot be `thinking`"), signed: true, attempts: 2},
 		{name: "required following item", err: errors.New("reasoning was provided without its required following item"), signed: true, attempts: 2},
 		{name: "bounded", err: rejection, signed: true, repeat: true, attempts: 2},
 		{name: "unsigned history", err: rejection, attempts: 1},
 		{name: "after first completion", err: rejection, signed: true, prefix: true, attempts: 1},
 		{name: "cancelled", err: rejection, signed: true, cancel: true, attempts: 1},
-		{name: "auth", err: &provider.ProviderError{Code: 401, Type: "invalid_encrypted_content", Message: rejection.Message}, signed: true, attempts: 1},
-		{name: "rate limit", err: &provider.ProviderError{Code: 429, Type: "invalid_encrypted_content", Message: rejection.Message}, signed: true, attempts: 1},
-		{name: "server", err: &provider.ProviderError{Code: 500, Type: "invalid_encrypted_content", Message: rejection.Message}, signed: true, attempts: 1},
-		{name: "unrelated input", err: &provider.ProviderError{Code: 400, Message: "Invalid tool schema"}, signed: true, attempts: 1},
+		{name: "auth", err: &provider.ProviderError{Kind: provider.ErrorKindUnauthenticated, Type: "invalid_encrypted_content", Message: rejection.Message}, signed: true, attempts: 1},
+		{name: "rate limit", err: &provider.ProviderError{Kind: provider.ErrorKindRateLimited, Type: "invalid_encrypted_content", Message: rejection.Message}, signed: true, attempts: 1},
+		{name: "server", err: &provider.ProviderError{Kind: provider.ErrorKindInternal, Type: "invalid_encrypted_content", Message: rejection.Message}, signed: true, attempts: 1},
+		{name: "unrelated input", err: &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Message: "Invalid tool schema"}, signed: true, attempts: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
@@ -119,7 +119,7 @@ func TestReasoningRecoveryPreservesCompactionAndDropsOpaqueOnlyTurns(t *testing.
 		t.Fatalf("unsafe recovery: %+v", stripped)
 	}
 	inner := &replayCompleter{run: func(_ context.Context, _ int, yield func(*provider.Completion, error) bool) {
-		yield(nil, &provider.ProviderError{Code: 400, Type: "invalid_encrypted_content"})
+		yield(nil, &provider.ProviderError{Kind: provider.ErrorKindInvalidArgument, Type: "invalid_encrypted_content"})
 	}}
 	for range ScopedTo("alias", inner).Complete(t.Context(), messages[2:], nil) {
 	}

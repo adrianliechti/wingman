@@ -31,6 +31,12 @@ func parseReasoningEncryptedContent(value string) (string, bool, error) {
 	return string(data), true, nil
 }
 
+// Plain stateless requests expose the item identity and replay token.
+func opaqueReasoning(r provider.Reasoning) provider.Reasoning {
+	r.Content, r.Summary = nil, nil
+	return r
+}
+
 func reasoningSummaries(r *provider.Reasoning) []ReasoningOutputSummary {
 	result := []ReasoningOutputSummary{}
 	for _, part := range r.Summary {

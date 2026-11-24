@@ -67,7 +67,7 @@ func TestCompactionHTTP(t *testing.T) {
 			// Reference parity only holds for the native model family; other
 			// backends produce different output item sets.
 			if !strings.HasPrefix(model.Name, "gpt") {
-				h.SkipUnlessConfigured(t, model.Name)
+				h.RequireConfigured(t, model.Name)
 
 				wingmanResp, err := h.Client.Post(context.Background(), h.Wingman, "/responses", responses.WithModel(body, model.Name))
 				if err != nil {
@@ -116,7 +116,7 @@ func TestCompactionSSE(t *testing.T) {
 			// Reference parity only holds for the native model family; other
 			// backends produce different output item sets.
 			if !strings.HasPrefix(model.Name, "gpt") {
-				h.SkipUnlessConfigured(t, model.Name)
+				h.RequireConfigured(t, model.Name)
 
 				streamBody := responses.WithModel(body, model.Name)
 				streamBody["stream"] = true

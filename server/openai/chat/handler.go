@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/adrianliechti/wingman/config"
-	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/server/openai/shared"
 
 	"github.com/go-chi/chi/v5"
@@ -53,7 +52,7 @@ func writeErrorEvent(w http.ResponseWriter, err error) error {
 	return writeEvent(w, shared.ErrorResponse{
 		Error: shared.Error{
 			Type:    shared.ErrorTypeFromError(err),
-			Code:    provider.TypeFromError(err),
+			Code:    shared.ErrorCodeFromError(err),
 			Message: err.Error(),
 		},
 	})

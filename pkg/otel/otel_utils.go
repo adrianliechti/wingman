@@ -70,8 +70,10 @@ func normalizeErrorType(err error) string {
 	}
 
 	var provErr *provider.ProviderError
-	if errors.As(err, &provErr) && provErr.Code > 0 {
-		return strconv.Itoa(provErr.Code)
+	if errors.As(err, &provErr) {
+		if code := provErr.Kind.Status(); code > 0 {
+			return strconv.Itoa(code)
+		}
 	}
 
 	if errors.Is(err, context.Canceled) {

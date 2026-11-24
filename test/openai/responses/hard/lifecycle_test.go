@@ -14,7 +14,7 @@ func TestStreamItemLifecycle(t *testing.T) {
 	h := openai.New(t)
 	for _, model := range openai.DefaultModels() {
 		t.Run(model.Name, func(t *testing.T) {
-			h.SkipUnlessConfigured(t, model.Name)
+			h.RequireConfigured(t, model.Name)
 			toolChoice := "required"
 			if model.Capabilities.NoForcedToolChoice {
 				toolChoice = "auto"
@@ -105,8 +105,8 @@ func requireStreamItemLifecycle(t *testing.T, events []*harness.SSEEvent) {
 // withoutEncryptedContent drops the opaque reasoning state: OpenAI re-encrypts
 // it for the terminal response, so only the item's other fields must match.
 func withoutEncryptedContent(item map[string]any) map[string]any {
-	if item == nil {
-		return nil
+	if item["type"] != "reasoning" {
+		return item
 	}
 	copied := make(map[string]any, len(item))
 	for key, value := range item {

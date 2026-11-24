@@ -57,7 +57,7 @@ func TestFunctionNumbersRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	requirePreciseArguments(t, jsontext.Value(messages[0].ToolCalls()[0].Arguments))
-	requirePreciseArguments(t, toContent(messages[0].Content).Parts[0].FunctionCall.Args)
+	requirePreciseArguments(t, toCandidate(messages[0].Content, FinishReasonStop).Content.Parts[0].FunctionCall.Args)
 }
 
 func TestStreamingFunctionNumbers(t *testing.T) {

@@ -69,7 +69,7 @@ func (h *Handler) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	embedding, err := embedder.Embed(r.Context(), inputs, options)
 
 	if err != nil {
-		writeError(w, provider.CodeFromError(err, http.StatusBadRequest), err)
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 
