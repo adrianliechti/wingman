@@ -188,6 +188,7 @@ type StreamingAccumulator struct {
 	reasoningContent    reasoningParts
 	reasoningSummary    reasoningParts
 	completedReasonings []provider.Reasoning
+	reasoningByID       map[string]int // completed reasoning ID → index in completedReasonings
 
 	compactionID        string
 	compactionIndex     int
@@ -617,11 +618,28 @@ func (s *StreamingAccumulator) closeReasoning() error {
 		OutputIndex: s.reasoningOutputIndex, Incomplete: s.itemIncomplete()}); err != nil {
 		return err
 	}
+	if s.reasoningByID == nil {
+		s.reasoningByID = make(map[string]int)
+	}
+	s.reasoningByID[native.ID] = len(s.completedReasonings)
 	s.completedReasonings = append(s.completedReasonings, native)
 	s.reasoningID, s.reasoningSignature = "", ""
 	s.reasoningRedacted, s.hasReasoningItem, s.reasoningClosed = false, false, false
 	s.reasoningContent, s.reasoningSummary = reasoningParts{}, reasoningParts{}
 	return nil
+}
+
+// A terminal provider snapshot can supply or refresh the signature of an
+// item whose done event was already emitted. Keep the original output index.
+func (s *StreamingAccumulator) updateClosedReasoningSignature(r *provider.Reasoning) bool {
+	index, closed := s.reasoningByID[r.ID]
+	if !closed || len(r.Content) != 0 || len(r.Summary) != 0 {
+		return false
+	}
+	if r.Signature != "" {
+		s.completedReasonings[index].Signature = r.Signature
+	}
+	return true
 }
 
 // closeMessage emits done events for the message item if it was in progress.
@@ -821,9 +839,7 @@ func (s *StreamingAccumulator) Add(c provider.Completion) error {
 
 		// Reasoning can follow a message item, as between a commentary
 		// message and the final answer.
-		if content.Reasoning != nil && !s.SuppressReasoning {
-			r := content.Reasoning
-
+		if r := content.Reasoning; r != nil && !s.SuppressReasoning && !s.updateClosedReasoningSignature(r) {
 			// Native IDs identify reasoning items. Anthropic and Bedrock omit
 			// IDs, but a signature ends the previous block; the next delta must
 			// start a new item so each block retains its own signed state.
