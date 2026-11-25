@@ -8,9 +8,11 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
 )
 
@@ -48,19 +50,16 @@ func (c *Client) TranslateCapabilities() translator.Capabilities {
 }
 
 func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
-	if options == nil {
-		options = new(translator.TranslateOptions)
-	}
-
-	if options.Language == "" {
-		options.Language = "en"
+	language := "en"
+	if options != nil && options.Language != "" {
+		language = options.Language
 	}
 
 	if input.File != nil {
-		return c.translateFile(ctx, input.File, options.Language)
+		return c.translateFile(ctx, input.File, language)
 	}
 
-	return c.translateText(ctx, input.Text, options.Language)
+	return c.translateText(ctx, input.Text, language)
 }
 
 func (c *Client) translateText(ctx context.Context, input, language string) (*translator.File, error) {
@@ -141,22 +140,10 @@ func (c *Client) translateText(ctx context.Context, input, language string) (*tr
 }
 
 func (c *Client) translateFile(ctx context.Context, input *translator.File, language string) (*translator.File, error) {
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-
-	f, err := w.CreateFormFile("document", input.Name)
-
+	u, err := url.Parse(strings.TrimRight(c.url, "/") + "/translator/document:translate")
 	if err != nil {
 		return nil, err
 	}
-
-	if _, err := f.Write(input.Content); err != nil {
-		return nil, err
-	}
-
-	w.Close()
-
-	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/translator/document:translate")
 
 	query := u.Query()
 	query.Set("targetLanguage", language)
@@ -164,8 +151,16 @@ func (c *Client) translateFile(ctx context.Context, input *translator.File, lang
 
 	u.RawQuery = query.Encode()
 
-	r, _ := http.NewRequestWithContext(ctx, "POST", u.String(), &b)
-	r.Header.Set("Content-Type", w.FormDataContentType())
+	r, err := provider.NewMultipartRequest(ctx, u.String(), provider.MultipartPart{
+		Header: textproto.MIMEHeader{
+			"Content-Disposition": {multipart.FileContentDisposition("document", input.Name)},
+			"Content-Type":        {"application/octet-stream"},
+		},
+		Content: bytes.NewReader(input.Content),
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	if c.token != "" {
 		r.Header.Add("Ocp-Apim-Subscription-Key", c.token)

@@ -4,6 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"io"
+	"iter"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -115,6 +118,45 @@ func TestWriteSpeechStream(t *testing.T) {
 		t.Error("stream is missing the speech.audio.done event")
 	}
 }
+
+func TestSpeechStreamStopsOnDownstreamFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		stream   func(http.ResponseWriter, iter.Seq2[*provider.Synthesis, error])
+		writeErr error
+		flushErr error
+	}{
+		{name: "audio flush", stream: writeAudioStream, flushErr: io.ErrClosedPipe},
+		{name: "SSE write", stream: writeSpeechStream, writeErr: io.ErrClosedPipe},
+		{name: "SSE flush", stream: writeSpeechStream, flushErr: io.ErrClosedPipe},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &failedSpeechWriter{ResponseRecorder: httptest.NewRecorder(), writeErr: tt.writeErr, flushErr: tt.flushErr}
+			continued := false
+			tt.stream(w, func(yield func(*provider.Synthesis, error) bool) {
+				continued = yield(&provider.Synthesis{Content: []byte("audio")}, nil)
+			})
+			if continued {
+				t.Fatal("handler kept consuming audio after the downstream connection failed")
+			}
+		})
+	}
+}
+
+type failedSpeechWriter struct {
+	*httptest.ResponseRecorder
+	writeErr error
+	flushErr error
+}
+
+func (w *failedSpeechWriter) Write(data []byte) (int, error) {
+	if w.writeErr != nil {
+		return 0, w.writeErr
+	}
+	return w.ResponseRecorder.Write(data)
+}
+
+func (w *failedSpeechWriter) FlushError() error { return w.flushErr }
 
 func TestSpeechRequestVoiceUnmarshal(t *testing.T) {
 	var builtIn SpeechRequest

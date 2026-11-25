@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/provider"
 )
 
 var _ extractor.Provider = &Client{}
@@ -59,10 +60,6 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		return nil, extractor.ErrUnsupported
 	}
 
-	var body bytes.Buffer
-
-	w := multipart.NewWriter(&body)
-
 	contentType, _, _ := mime.ParseMediaType(strings.TrimSpace(file.ContentType))
 	if contentType == "" {
 		contentType = "application/octet-stream"
@@ -77,16 +74,11 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 	header := make(textproto.MIMEHeader)
 	header.Set("Content-Disposition", multipart.FileContentDisposition("files", name))
 	header.Set("Content-Type", contentType)
-	f, err := w.CreatePart(header)
+	req, err := provider.NewMultipartRequest(ctx, c.url+"/v1/convert/file/async", provider.MultipartPart{
+		Header:  header,
+		Content: bytes.NewReader(file.Content),
+	})
 	if err != nil {
-		return nil, err
-	}
-
-	if _, err := io.Copy(f, bytes.NewReader(file.Content)); err != nil {
-		return nil, err
-	}
-
-	if err := w.Close(); err != nil {
 		return nil, err
 	}
 
@@ -94,7 +86,7 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		TaskID string `json:"task_id"`
 	}
 
-	if err := c.request(ctx, http.MethodPost, "/v1/convert/file/async", &body, w.FormDataContentType(), &convertResult); err != nil {
+	if err := c.do(req, &convertResult); err != nil {
 		return nil, err
 	}
 	if convertResult.TaskID == "" {
@@ -111,7 +103,7 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 func (c *Client) awaitTask(ctx context.Context, taskID string) error {
 	for {
 		var task TaskResult
-		if err := c.request(ctx, http.MethodGet, "/v1/status/poll/"+url.PathEscape(taskID), nil, "", &task); err != nil {
+		if err := c.get(ctx, "/v1/status/poll/"+url.PathEscape(taskID), &task); err != nil {
 			return err
 		}
 
@@ -134,7 +126,7 @@ func (c *Client) awaitTask(ctx context.Context, taskID string) error {
 
 func (c *Client) readDocument(ctx context.Context, taskID string) (*extractor.Document, error) {
 	var task TaskResult
-	if err := c.request(ctx, http.MethodGet, "/v1/result/"+url.PathEscape(taskID), nil, "", &task); err != nil {
+	if err := c.get(ctx, "/v1/result/"+url.PathEscape(taskID), &task); err != nil {
 		return nil, err
 	}
 
@@ -172,14 +164,15 @@ func (c *Client) readDocument(ctx context.Context, taskID string) (*extractor.Do
 	}, nil
 }
 
-func (c *Client) request(ctx context.Context, method, path string, body io.Reader, contentType string, result any) error {
-	req, err := http.NewRequestWithContext(ctx, method, c.url+path, body)
+func (c *Client) get(ctx context.Context, path string, result any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+path, nil)
 	if err != nil {
 		return err
 	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
+	return c.do(req, result)
+}
+
+func (c *Client) do(req *http.Request, result any) error {
 	if c.token != "" {
 		req.Header.Set("X-Api-Key", c.token)
 	}

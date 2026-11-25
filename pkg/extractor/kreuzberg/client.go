@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/adrianliechti/wingman/pkg/extractor"
+	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/google/uuid"
 )
@@ -56,10 +57,6 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 		return nil, extractor.ErrUnsupported
 	}
 
-	var body bytes.Buffer
-
-	w := multipart.NewWriter(&body)
-
 	if file.ContentType == "" {
 		file.ContentType = "application/octet-stream"
 	}
@@ -74,25 +71,13 @@ func (c *Client) Extract(ctx context.Context, file extractor.File, options *extr
 	h.Set("Content-Disposition", multipart.FileContentDisposition("files", file.Name))
 	h.Set("Content-Type", file.ContentType)
 
-	f, err := w.CreatePart(h)
-
+	req, err := provider.NewMultipartRequest(ctx, strings.TrimRight(c.url, "/")+"/extract", provider.MultipartPart{
+		Header:  h,
+		Content: bytes.NewReader(file.Content),
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	if _, err := f.Write(file.Content); err != nil {
-		return nil, err
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.url, "/")+"/extract", &body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}

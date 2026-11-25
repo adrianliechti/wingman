@@ -1,12 +1,45 @@
 package openai
 
 import (
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/adrianliechti/wingman/pkg/provider"
 
 	"github.com/openai/openai-go/v3"
 )
+
+func TestTranscriptionStreamClosesOnEarlyExit(t *testing.T) {
+	body := &responderLifecycleBody{
+		Reader: strings.NewReader("data: {\"type\":\"transcript.text.delta\",\"delta\":\"hello\"}\n\n"),
+	}
+	client := &http.Client{Transport: responderLifecycleTransport(func(req *http.Request) (*http.Response, error) {
+		req.Body.Close()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body:       body,
+			Request:    req,
+		}, nil
+	})}
+	transcriber, err := NewTranscriber("https://upstream.test/v1", "gpt-transcribe", WithClient(client))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := provider.File{Name: "hello.wav", Content: []byte("audio"), ContentType: "audio/wav"}
+	var text string
+	for result, err := range transcriber.Transcribe(t.Context(), input, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		text = result.Text
+		break
+	}
+	if text != "hello" || !body.closed {
+		t.Fatalf("transcription text = %q, upstream body closed = %t", text, body.closed)
+	}
+}
 
 func TestConvertTranscribeRequestLanguages(t *testing.T) {
 	tests := []struct {

@@ -62,6 +62,7 @@ func (h *Handler) handleAudioSpeech(w http.ResponseWriter, r *http.Request) {
 // playing before synthesis finishes.
 func writeAudioStream(w http.ResponseWriter, seq iter.Seq2[*provider.Synthesis, error]) {
 	headersSent := false
+	controller := http.NewResponseController(w)
 
 	for chunk, err := range seq {
 		if err != nil {
@@ -91,7 +92,9 @@ func writeAudioStream(w http.ResponseWriter, seq iter.Seq2[*provider.Synthesis, 
 			return
 		}
 
-		http.NewResponseController(w).Flush()
+		if err := controller.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return
+		}
 	}
 
 	if !headersSent {
@@ -129,20 +132,24 @@ func writeSpeechStream(w http.ResponseWriter, seq iter.Seq2[*provider.Synthesis,
 			continue
 		}
 
-		writeEvent(w, SpeechDeltaEvent{
+		if err := writeEvent(w, SpeechDeltaEvent{
 			Type: "speech.audio.delta",
 
 			Audio: base64.StdEncoding.EncodeToString(chunk.Content),
-		})
+		}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return
+		}
 	}
 
 	sendHeaders()
 
-	writeEvent(w, SpeechDoneEvent{
+	if err := writeEvent(w, SpeechDoneEvent{
 		Type: "speech.audio.done",
-	})
+	}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return
+	}
 
-	fmt.Fprint(w, "data: [DONE]\n\n")
-
-	http.NewResponseController(w).Flush()
+	if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err == nil {
+		http.NewResponseController(w).Flush()
+	}
 }

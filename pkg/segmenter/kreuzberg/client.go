@@ -1,7 +1,6 @@
 package kreuzberg
 
 import (
-	"bytes"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -13,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/segmenter"
 )
 
@@ -44,31 +44,20 @@ func (c *Client) Segment(ctx context.Context, input string, options *segmenter.S
 		options = new(segmenter.SegmentOptions)
 	}
 
-	if options.SegmentLength == nil {
-		options.SegmentLength = new(2000)
+	segmentLength := 2000
+	if options.SegmentLength != nil {
+		segmentLength = *options.SegmentLength
 	}
 
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-
-	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", multipart.FileContentDisposition("files", "content.txt"))
-	h.Set("Content-Type", "text/plain")
-
-	f, _ := w.CreatePart(h)
-	f.Write([]byte(input))
-
-	w.Close()
-
-	u, _ := url.Parse(strings.TrimRight(c.url, "/") + "/extract")
+	u, err := url.Parse(strings.TrimRight(c.url, "/") + "/extract")
+	if err != nil {
+		return nil, err
+	}
 
 	query := u.Query()
 
 	query.Set("chunk_content", "true")
-
-	if options.SegmentLength != nil {
-		query.Set("max_chars", fmt.Sprintf("%d", *options.SegmentLength))
-	}
+	query.Set("max_chars", fmt.Sprintf("%d", segmentLength))
 
 	if options.SegmentOverlap != nil {
 		query.Set("max_overlap", fmt.Sprintf("%d", *options.SegmentOverlap))
@@ -76,8 +65,16 @@ func (c *Client) Segment(ctx context.Context, input string, options *segmenter.S
 
 	u.RawQuery = query.Encode()
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", u.String(), &b)
-	req.Header.Set("Content-Type", w.FormDataContentType())
+	req, err := provider.NewMultipartRequest(ctx, u.String(), provider.MultipartPart{
+		Header: textproto.MIMEHeader{
+			"Content-Disposition": {multipart.FileContentDisposition("files", "content.txt")},
+			"Content-Type":        {"text/plain"},
+		},
+		Content: strings.NewReader(input),
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := c.client.Do(req)
 
@@ -95,6 +92,9 @@ func (c *Client) Segment(ctx context.Context, input string, options *segmenter.S
 
 	if err := json.UnmarshalRead(resp.Body, &results); err != nil {
 		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, errors.New("kreuzberg returned no extraction results")
 	}
 
 	result := []segmenter.Segment{}

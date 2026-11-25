@@ -247,7 +247,25 @@ func TestTranscribeResourceRequest(t *testing.T) {
 		if req.Header.Get("Ocp-Apim-Subscription-Key") != "test-key" {
 			t.Error("missing resource key")
 		}
-		reader, err := req.MultipartReader()
+		payload, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Body.Close()
+		if req.ContentLength != int64(len(payload)) {
+			t.Fatalf("Content-Length = %d, want %d", req.ContentLength, len(payload))
+		}
+		if req.GetBody == nil {
+			t.Fatal("request body cannot be replayed")
+		}
+		replay, err := req.GetBody()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer replay.Close()
+		replayed := req.Clone(req.Context())
+		replayed.Body = replay
+		reader, err := replayed.MultipartReader()
 		if err != nil {
 			t.Fatal(err)
 		}

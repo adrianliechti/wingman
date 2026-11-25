@@ -84,12 +84,8 @@ func (t *Transcriber) transcribe(ctx context.Context, input provider.File, optio
 		return nil, err
 	}
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	// Write audio part
 	audioHeader := make(textproto.MIMEHeader)
-	audioHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="audio"; filename="%s"`, input.Name))
+	audioHeader.Set("Content-Disposition", multipart.FileContentDisposition("audio", input.Name))
 
 	if input.ContentType != "" {
 		audioHeader.Set("Content-Type", input.ContentType)
@@ -97,39 +93,19 @@ func (t *Transcriber) transcribe(ctx context.Context, input provider.File, optio
 		audioHeader.Set("Content-Type", "application/octet-stream")
 	}
 
-	audioPart, err := writer.CreatePart(audioHeader)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := audioPart.Write(input.Content); err != nil {
-		return nil, err
-	}
-
-	// Write definition part
 	definitionHeader := make(textproto.MIMEHeader)
 	definitionHeader.Set("Content-Disposition", `form-data; name="definition"`)
 	definitionHeader.Set("Content-Type", "application/json")
 
-	definitionPart, err := writer.CreatePart(definitionHeader)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := definitionPart.Write(definitionJSON); err != nil {
-		return nil, err
-	}
-
-	writer.Close()
-
 	endpoint := t.url + "/speechtotext/transcriptions:transcribe?api-version=2025-10-15"
 
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, body)
+	req, err := provider.NewMultipartRequest(ctx, endpoint,
+		provider.MultipartPart{Header: audioHeader, Content: bytes.NewReader(input.Content)},
+		provider.MultipartPart{Header: definitionHeader, Content: bytes.NewReader(definitionJSON)},
+	)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	if t.token != "" {
 		req.Header.Set("Ocp-Apim-Subscription-Key", t.token)
@@ -137,7 +113,7 @@ func (t *Transcriber) transcribe(ctx context.Context, input provider.File, optio
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("send Azure speech transcription request: %w", err)
 	}
 
 	defer resp.Body.Close()
@@ -148,13 +124,13 @@ func (t *Transcriber) transcribe(ctx context.Context, input provider.File, optio
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read Azure speech transcription response: %w", err)
 	}
 
 	var result transcriptionResponse
 
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode Azure speech transcription response: %w", err)
 	}
 
 	var text string

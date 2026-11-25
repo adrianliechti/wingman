@@ -58,6 +58,7 @@ func (c *Config) newClient(ctx context.Context) (*genai.Client, error) {
 
 		HTTPClient: client,
 		HTTPOptions: genai.HTTPOptions{
+			APIVersion:   "v1beta", // Preserve the endpoint version used by this adapter.
 			RetryOptions: &genai.HTTPRetryOptions{Attempts: new(int32(1))},
 		},
 	}

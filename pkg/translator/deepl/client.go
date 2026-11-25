@@ -8,10 +8,12 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/adrianliechti/wingman/pkg/provider"
 	"github.com/adrianliechti/wingman/pkg/translator"
 )
 
@@ -49,19 +51,16 @@ func (c *Client) TranslateCapabilities() translator.Capabilities {
 }
 
 func (c *Client) Translate(ctx context.Context, input translator.Input, options *translator.TranslateOptions) (*translator.File, error) {
-	if options == nil {
-		options = new(translator.TranslateOptions)
-	}
-
-	if options.Language == "" {
-		options.Language = "en"
+	language := "en"
+	if options != nil && options.Language != "" {
+		language = options.Language
 	}
 
 	if input.File != nil {
-		return c.translateFile(ctx, input.File, options.Language)
+		return c.translateFile(ctx, input.File, language)
 	}
 
-	return c.translateText(ctx, input.Text, options.Language)
+	return c.translateText(ctx, input.Text, language)
 }
 
 func (c *Client) translateText(ctx context.Context, input, language string) (*translator.File, error) {
@@ -140,27 +139,28 @@ func (c *Client) translateFile(ctx context.Context, input *translator.File, lang
 }
 
 func (c *Client) uploadDocument(ctx context.Context, input *translator.File, language string) (string, string, error) {
-	var b bytes.Buffer
-	w := multipart.NewWriter(&b)
-
-	w.WriteField("target_lang", language)
-
-	f, err := w.CreateFormFile("file", input.Name)
-
+	u, err := url.JoinPath(c.url, "/v2/document")
 	if err != nil {
 		return "", "", err
 	}
 
-	if _, err := f.Write(input.Content); err != nil {
+	r, err := provider.NewMultipartRequest(ctx, u,
+		provider.MultipartPart{
+			Header:  textproto.MIMEHeader{"Content-Disposition": {`form-data; name="target_lang"`}},
+			Content: strings.NewReader(language),
+		},
+		provider.MultipartPart{
+			Header: textproto.MIMEHeader{
+				"Content-Disposition": {multipart.FileContentDisposition("file", input.Name)},
+				"Content-Type":        {"application/octet-stream"},
+			},
+			Content: bytes.NewReader(input.Content),
+		},
+	)
+	if err != nil {
 		return "", "", err
 	}
-
-	w.Close()
-
-	u, _ := url.JoinPath(c.url, "/v2/document")
-	r, _ := http.NewRequestWithContext(ctx, "POST", u, &b)
 	r.Header.Add("Authorization", "DeepL-Auth-Key "+c.token)
-	r.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := c.client.Do(r)
 

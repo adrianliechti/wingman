@@ -428,7 +428,7 @@ func (r *Responder) Complete(ctx context.Context, messages []provider.Message, o
 			if value := tierFromServiceTier(string(data.Response.ServiceTier)); value != "" {
 				tier = value
 			}
-			if raw := data.Response.JSON.ExtraFields["input_transformations"].Raw(); raw != "" {
+			if raw := data.Response.JSON.InputTransformations.Raw(); raw != "" {
 				var reported []provider.InputTransformation
 				if json.Unmarshal([]byte(raw), &reported) == nil && reported != nil {
 					inputTransformations = &reported

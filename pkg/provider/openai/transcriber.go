@@ -71,6 +71,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, input provider.File, optio
 
 func (t *Transcriber) stream(ctx context.Context, id string, body openai.AudioTranscriptionNewParams, yield func(*provider.Transcription, error) bool) {
 	stream := t.transcriptions.NewStreaming(ctx, body)
+	defer stream.Close()
 
 	streamedText := false
 
