@@ -780,7 +780,7 @@ Web access comes in three flavours. A **searcher** returns result lists, a **scr
 
 #### Searchers
 
-Return ranked search results. Types: `duckduckgo`, `exa`, `tavily`, `custom`.
+Return ranked search results. Types: `duckduckgo`, `exa`, `tavily`, `keenable`, `custom`.
 
 ```yaml
 searchers:
@@ -793,6 +793,18 @@ Exa search uses `auto` mode with Dynamic Highlights, which select evidence
 across the result set. Set `vars: { mode: lite }` for lower cost and latency;
 `lite` retrieves cached content only. Existing `fast` and `instant`
 configurations remain accepted as legacy modes.
+
+Keenable search works without an API key. Keyless requests go to Keenable's
+public endpoint and identify the app as `wingman` (override with
+`vars: { title: ... }`). Set `token` to use the keyed endpoint instead.
+Keenable supports date and domain filters; `location` is ignored.
+
+```yaml
+searchers:
+  keenable:
+    type: keenable
+    # token: ${KEENABLE_API_KEY}   # optional
+```
 
 #### Scrapers
 
